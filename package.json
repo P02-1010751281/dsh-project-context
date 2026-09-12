@@ -1,6 +1,6 @@
 {
   "name": "dsh-project-context",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepSeek Harness plugins for project-level persistent context: memory consolidation (MEMORY.md + CONTEXT.md), low-frequency autolearn for project skills, session archives with a mechanical index, and automatic handoff.",
   "type": "module",
   "main": "./lib/session-context.js",
