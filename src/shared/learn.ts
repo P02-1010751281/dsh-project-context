@@ -65,13 +65,13 @@ export function clip(value: string, limit: number): string {
 	return text.length <= limit ? text : `${text.slice(0, limit)}\n[...truncated...]`;
 }
 
-function truncateMiddle(text: string, limit: number): string {
+export function truncateMiddle(text: string, limit: number): string {
 	if (text.length <= limit) return text;
 	const head = Math.floor(limit * 0.35);
 	return `${text.slice(0, head)}\n\n[...middle of conversation omitted...]\n\n${text.slice(-(limit - head))}`;
 }
 
-function textOf(content: readonly ContentBlock[]): string {
+export function textOf(content: readonly ContentBlock[]): string {
 	return content
 		.filter((block): block is TextBlock => block.type === "text" && typeof block.text === "string")
 		.map((block) => block.text)

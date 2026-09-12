@@ -6,7 +6,7 @@
 session.jsonl（项目内副本，唯一权威）
   ├─ ① 存档（无 LLM）      session.jsonl / session.md / INDEX.md
   ├─ ② consolidation 高频  raw + MEMORY.md + CONTEXT.md → MEMORY.md + CONTEXT.md（每轮注入）
-  ├─ ③ autolearn 低频      MEMORY.md + CONTEXT.md（缺证据时按 INDEX.md 回读 session.md）→ .agents/skills/<name>/SKILL.md
+  ├─ ③ autolearn 低频      MEMORY.md + CONTEXT.md（缺证据时按 INDEX.md 回读 session.jsonl 对话）→ .agents/skills/<name>/SKILL.md
   └─ ④ handoff             当前会话 raw → 新会话（老段摘要 + kept recent + 旧 log/INDEX 指针）
 ```
 
@@ -99,7 +99,7 @@ Settings → Plugins → Plugin configuration → **项目上下文与记忆** �
   异常写入 `.agents/memory/errors.log`，不打断会话。会话日志按追加写入，长会话不会每轮重写整份文件，
   机械索引 `INDEX.md` 随 Markdown 渲染一起刷新（由 `project-context` 写入）。
 - ③ autolearn 由独立的 `project-autolearn` 插件独占：读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`，缺具体步骤时按索引回读最多 3 份
-  `session.md`（各截断 16KB）再生成技能；技能写入 `.agents/skills/<name>/SKILL.md`，由 dsh 原生发现注入
+  `session.jsonl`（按 dsh 事件格式渲染为对话、各截断 16KB，忽略 `assistant/message.stream` 等大负载）再生成技能；技能写入 `.agents/skills/<name>/SKILL.md`，由 dsh 原生发现注入
   description，body 按需加载；已存在的技能不会覆盖。
 - 自动交接与 dsh 内置 `dsh-compaction-basic`（原地压缩）可共存；摘要输入是 `MEMORY.md`、最近对话
   窗口与文件操作索引，不依赖整理是否运行（没有 `MEMORY.md` 也能交接）。摘要失败对会话退避

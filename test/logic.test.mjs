@@ -15,6 +15,7 @@ import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/shared/context-doc.js";
 import { conversationSplit, parseConsolidation } from "../lib/shared/learn.js";
 import { parseAutolearn } from "../lib/shared/autolearn.js";
+import { archivedConversationText } from "../lib/shared/archive.js";
 import { parseSessionIndex, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
 import { safeSessionId, validSkillName } from "../lib/shared/project-state.js";
 
@@ -164,6 +165,29 @@ test("parseAutolearn separates a skill from a backtrack request", () => {
 	assert.deepEqual(backlog.needSessions, ["session-a", "session-b", "session-c"]);
 
 	assert.deepEqual(parseAutolearn("not json"), { skill: null, needSessions: [] });
+});
+
+test("archivedConversationText renders dsh JSONL without stream payloads", () => {
+	const lines = [
+		JSON.stringify({ type: "session", harness: "dsh", id: "s1" }),
+		JSON.stringify({ type: "user/message", seq: 1, time: 0, data: { source: { kind: "user" }, content: [{ type: "text", text: "build release" }] } }),
+		JSON.stringify({
+			type: "assistant/message",
+			seq: 2,
+			time: 0,
+			data: {
+				message: { role: "assistant", content: [{ type: "text", text: "run pnpm build" }, { type: "tool-call", name: "bash" }] },
+				stream: [{ type: "chunk", chunk: { type: "text", text: "x".repeat(5_000) } }],
+			},
+		}),
+		JSON.stringify({ type: "tool/result", seq: 3, time: 0, data: { content: [{ type: "text", text: "ok" }] } }),
+	];
+	const text = archivedConversationText(lines.join("\n"), 50_000);
+	assert.match(text, /## user\nbuild release/);
+	assert.match(text, /## assistant\nrun pnpm build\n\[tool: bash\]/);
+	assert.match(text, /## tool result\nok/);
+	assert.doesNotMatch(text, /x{100}/);
+	assert.ok(text.length < 4_000);
 });
 
 test("the handoff continuation points at the archive and index", () => {

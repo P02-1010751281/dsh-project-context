@@ -17,6 +17,8 @@ export interface SessionIndexEntry {
 	title: string;
 	/** Absolute path of the session's Markdown rendering. */
 	file: string;
+	/** Absolute path of the canonical JSONL archive (the source for backtracking). */
+	raw: string;
 }
 
 const HEADING = "# Session Index";
@@ -80,6 +82,7 @@ export async function readSessionIndex(projectRoot: string): Promise<SessionInde
 	return parseSessionIndex(text).map((entry) => ({
 		...entry,
 		file: path.join(logsDir(projectRoot), safeSessionId(entry.id), "session.md"),
+		raw: path.join(logsDir(projectRoot), safeSessionId(entry.id), "session.jsonl"),
 	}));
 }
 

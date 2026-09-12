@@ -12,6 +12,7 @@ import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { PluginConfig } from "./config.js";
+import { readArchivedConversation } from "./archive.js";
 import { parseJsonObject, requestPluginText, resolveTarget, userTurnCount } from "./learn.js";
 import {
 	MAX_CONTEXT_CHARS,
@@ -229,7 +230,9 @@ export function autolearnProjectSkills(
 				for (const id of first.needSessions) {
 					const entry = byId.get(id);
 					if (!entry) continue;
-					const text = (await readOptional(entry.file)).slice(0, MAX_BACKTRACK_CHARS).trim();
+					// dsh's session.md prints every event with its stream payloads; read the
+					// canonical JSONL and render a message-level transcript instead.
+					const text = (await readArchivedConversation(entry.raw, MAX_BACKTRACK_CHARS)).trim();
 					if (!text) continue;
 					backtracked.push(id);
 					extracts.push(`## session ${id}\n\n${text}`);
