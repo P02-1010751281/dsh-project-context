@@ -88,8 +88,8 @@ const MIN_SUMMARIZE_TOKENS = 8_000;
 const WINDOW_RESERVE_TOKENS = 16_384;
 /** Stay this far below the usable window so streaming growth cannot cross it. */
 const SAFETY_MARGIN_TOKENS = 4_000;
-/** Cap for the summary retry after a token-cap truncation. */
-const SUMMARY_RETRY_CAP = 32_768;
+/** Minimum room for the summary retry after a token-cap truncation. */
+const SUMMARY_RETRY_FLOOR = 32_768;
 /** Hard timeout for one summary call. */
 const SUMMARY_TIMEOUT_MS = 180_000;
 /** Per-session backoff after a failed automatic handoff. */
@@ -289,7 +289,10 @@ async function summarize(
 	signal: AbortSignal,
 	reasoningEffort: string | undefined,
 ): Promise<string> {
-	const attempts = [...new Set([config.maxTokens, Math.max(config.maxTokens, Math.min(config.maxTokens * 2, SUMMARY_RETRY_CAP))])];
+	// The floor is a minimum retry target, not a ceiling on the user's budget:
+	// a truncated summary retries once with more room than the configured cap.
+	const retryTokens = Math.max(config.maxTokens * 2, SUMMARY_RETRY_FLOOR);
+	const attempts = [...new Set([config.maxTokens, retryTokens])];
 	let lastError: unknown;
 	for (const maxTokens of attempts) {
 		try {

@@ -123,7 +123,10 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 			const sections = markdownSections(events.slice(rendered), rendered);
 			if (sections.length > 0) await appendFile(markdownPath, `\n${sections}`, "utf8");
 		} else {
-			await writeAtomic(markdownPath, `${markdownHeader(session, header)}\n${markdownSections(events, 0)}\n`);
+			const body = `${markdownHeader(session, header)}\n${markdownSections(events, 0)}`;
+			// Sections already end with a newline; keep exactly one at EOF so the
+			// append path leaves a single blank line between flushes.
+			await writeAtomic(markdownPath, `${body.replace(/\n+$/, "")}\n`);
 		}
 		renderedEvents.set(key, events.length);
 		// The index is mechanical: one line per session, refreshed when the title changes.
