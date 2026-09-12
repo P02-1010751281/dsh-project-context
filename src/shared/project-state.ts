@@ -6,8 +6,9 @@
  *
  *   <project>/.agents/skills/<name>/SKILL.md              learned project skills
  *   <project>/.agents/memory/MEMORY.md                    durable project memory
- *   <project>/.agents/memory/CONTEXT.md                   session summary + session index
+ *   <project>/.agents/memory/CONTEXT.md                   rolling session summary + open tasks
  *   <project>/.agents/memory/session-logs/<session-id>/   session.jsonl + session.md
+ *   <project>/.agents/memory/session-logs/INDEX.md        mechanical session index (no model call)
  *   <project>/.agents/memory/errors.log                   swallowed failures
  *
  * Legacy layouts are migrated on session start:
@@ -107,6 +108,11 @@ export function logsDir(projectRoot: string): string {
 	return path.join(memoryDir(projectRoot), SESSION_LOGS_SUBDIR);
 }
 
+/** Mechanical per-session index maintained by the archive step, next to the logs it points at. */
+export function sessionIndexFile(projectRoot: string): string {
+	return path.join(logsDir(projectRoot), "INDEX.md");
+}
+
 export function legacyPiDir(projectRoot: string): string {
 	return path.join(projectRoot, LEGACY_DIR);
 }
@@ -171,6 +177,15 @@ export async function pathExists(target: string): Promise<boolean> {
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+/** Modification time in milliseconds, or 0 when the file does not exist. */
+export async function fileMtimeMs(file: string): Promise<number> {
+	try {
+		return (await stat(file)).mtimeMs;
+	} catch {
+		return 0;
 	}
 }
 

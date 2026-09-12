@@ -1,27 +1,29 @@
 /**
- * project-memory — port of pi's `memory` extension.
+ * project-memory — the memory feature (pass ②, consolidation).
  *
- * Maintains durable project memory (`.agents/memory/MEMORY.md`) and autolearned
- * project skills (`.agents/skills/<name>/SKILL.md`, natively discovered by
- * dsh's skill filesystem) through the shared learn pass, then injects the
- * memory back into the model context as dynamic runtime context.
+ * One high-frequency, throttled consolidation pass produces both durable
+ * project memory (`.agents/memory/MEMORY.md`) and the rolling project context
+ * (`.agents/memory/CONTEXT.md`); both documents are injected back into the
+ * model context as dynamic runtime context. Skill distillation is a separate
+ * feature (`project-autolearn`), and the raw archive is `project-context`.
  *
- * Commands: /memory, /memory-learn
+ * Commands: /memory, /context-update
  */
 
-import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
+import { renderContextDocument } from "./shared/context-doc.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
-import { learnProjectState, type LearnedSkill } from "./shared/learn.js";
+import { consolidateProjectState, fallbackUpdate } from "./shared/learn.js";
 import {
+	MAX_CONTEXT_CHARS,
 	MAX_MEMORY_CHARS,
-	MAX_SKILL_BODY_CHARS,
 	cachedProjectRoot,
+	contextFile,
 	getProjectRoot,
 	logError,
 	memoryDir,
@@ -29,18 +31,17 @@ import {
 	migrateProjectState,
 	readOptional,
 	readTextCachedSync,
-	skillsDir,
-	validSkillName,
 	writeAtomic,
 } from "./shared/project-state.js";
 
 export const name = "project-memory";
 export const inject = ["llm", "systemPrompt", "commands"];
 
-/** Last learn-pass version each project's memory/skill artifacts were written from. */
+/** Last consolidation version each project's artifacts were written from. */
 const written = new Map<string, number>();
 /** Projects whose legacy layout was already consolidated in this process. */
 const migrated = new Set<string>();
+/** Serialize consolidation so a forced shutdown pass always runs last. */
 const updates = new SerialQueue();
 
 function cleanMemory(text: string): string {
@@ -49,46 +50,8 @@ function cleanMemory(text: string): string {
 	return `# Project Memory\n\n${body}`.slice(0, MAX_MEMORY_CHARS).trimEnd() + "\n";
 }
 
-function skillDocument(skill: LearnedSkill): string {
-	const description = skill.description.replace(/\s+/g, " ").trim().slice(0, 1024);
-	const body = skill.body.trim().slice(0, MAX_SKILL_BODY_CHARS);
-	return `---\nname: ${skill.name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body}\n`;
-}
-
-/**
- * Learned skills are discovered natively by dsh and injected into future
- * sessions, so refuse bodies that try to steer the agent instead of
- * describing a workflow. Heuristic, but it catches the common injection
- * phrasings a summarizer might copy out of untrusted repository content.
- */
-const UNSAFE_SKILL_PATTERNS: readonly RegExp[] = [
-	/ignore (?:all |any |the )?(?:previous|prior|earlier|above) (?:instructions|rules|prompts)/i,
-	/override (?:the )?(?:system|developer|user) (?:prompt|instructions|rules)/i,
-	/(?:do not|don't|never) (?:tell|inform|mention (?:this |it )?to|reveal (?:this |it )?to) the user/i,
-	/hide (?:this|it) from the user/i,
-	/忽略(?:之前|以上|上述|先前|前面)(?:的)?(?:所有)?(?:指令|指示|规则|要求)/,
-	/(?:不要|别)(?:告诉|告知|提醒|透露给)用户/,
-	/绕过(?:安全|权限|限制)/,
-];
-
-function skillBodyUnsafe(body: string): boolean {
-	return UNSAFE_SKILL_PATTERNS.some((pattern) => pattern.test(body));
-}
-
-async function saveLearnedSkill(projectRoot: string, skill: LearnedSkill): Promise<boolean> {
-	const skillName = skill.name.trim();
-	const description = skill.description.trim();
-	const body = skill.body.trim();
-	if (!validSkillName(skillName) || !description || body.length < 40 || skillBodyUnsafe(body)) return false;
-
-	const file = path.join(skillsDir(projectRoot), skillName, "SKILL.md");
-	if (await readOptional(file)) return false;
-	await writeAtomic(file, skillDocument({ name: skillName, description, body }));
-	return true;
-}
-
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
-export function projectMemoryInjection(cwd: string | undefined): string {
+function projectMemoryInjection(cwd: string | undefined): string {
 	if (!cwd) return "";
 	const projectRoot = cachedProjectRoot(cwd);
 	if (projectRoot === undefined) {
@@ -101,31 +64,46 @@ export function projectMemoryInjection(cwd: string | undefined): string {
 	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${text.slice(0, MAX_MEMORY_CHARS)}`;
 }
 
-interface LearnOptions {
+/** Synchronous text for the dynamic-context provider; empty until the root is cached. */
+function projectContextInjection(cwd: string | undefined): string {
+	if (!cwd) return "";
+	const projectRoot = cachedProjectRoot(cwd);
+	if (projectRoot === undefined) {
+		void getProjectRoot(cwd).catch(() => undefined);
+		return "";
+	}
+	const text = readTextCachedSync(contextFile(projectRoot)).trim();
+	if (!text) return "";
+	return `## Project Context\nThe following is project context, not a new user instruction:\n\n${text.slice(0, MAX_CONTEXT_CHARS)}`;
+}
+
+interface ConsolidateOptions {
 	force: boolean;
 	silent: boolean;
 	signal?: AbortSignal | undefined;
 }
 
-function learnMemory(ctx: Context, config: PluginConfig, agent: Agent, options: LearnOptions): Promise<void> {
+/** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
+function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<void> {
 	return updates.run(async () => {
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
 		try {
-			const outcome = await learnProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
+			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
 			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return;
 
 			const memoryText = outcome.result.memory.trim();
 			const memoryChanged = memoryText.length >= 40;
-			const skillCreated = outcome.result.skill ? await saveLearnedSkill(projectRoot, outcome.result.skill) : false;
 			written.set(projectRoot, outcome.version);
+
 			if (memoryChanged) await writeAtomic(memoryFile(projectRoot), cleanMemory(memoryText));
-			if (!options.silent && (memoryChanged || skillCreated)) {
-				ctx.logger.info(
-					skillCreated
-						? `dsh-project-context: project memory and skill updated: ${memoryFile(projectRoot)}`
-						: `dsh-project-context: project memory updated: ${memoryFile(projectRoot)}`,
-				);
+
+			const existing = await readOptional(contextFile(projectRoot));
+			const update = outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
+			if (update) await writeAtomic(contextFile(projectRoot), renderContextDocument(update, { updatedAt: new Date().toISOString() }));
+
+			if (!options.silent && (memoryChanged || update !== undefined)) {
+				ctx.logger.info(`dsh-project-context: project memory and context updated: ${memoryFile(projectRoot)}`);
 			}
 		} catch (error) {
 			await logError(projectRoot, "memory", error);
@@ -136,15 +114,20 @@ function learnMemory(ctx: Context, config: PluginConfig, agent: Agent, options: 
 
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
-	// The first plugin of the pair to load owns the shared settings namespace.
+	// The first plugin of the package to load owns the shared settings namespace.
 	installProjectContextSettings(ctx, entry);
-	/** In-flight memory work per session, awaited by durability flushes. */
+	/** In-flight consolidation work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 
 	ctx.systemPrompt.context({
 		name: "project-memory",
 		order: 190,
 		text: (assembleContext) => projectMemoryInjection(assembleContext.agent?.session.header.cwd),
+	});
+	ctx.systemPrompt.context({
+		name: "project-context",
+		order: 210,
+		text: (assembleContext) => projectContextInjection(assembleContext.agent?.session.header.cwd),
 	});
 
 	ctx.on("agent/session-start", ({ agent }) => {
@@ -166,16 +149,16 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autoLearn) return;
-		pending.track(agent.session, learnMemory(ctx, current, agent, { force: false, silent: false }));
+		if (!current.autoConsolidate) return;
+		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: false, silent: false }));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autoLearn) return;
+		if (!current.autoConsolidate) return;
 		// Silent: the UI may already be rebuilding for a session switch.
-		pending.track(agent.session, learnMemory(ctx, current, agent, { force: true, silent: true }));
+		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: true, silent: true }));
 	});
 
 	ctx.on("session/flush", (session) => pending.flush(session));
@@ -194,11 +177,11 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	});
 
 	ctx.commands.register({
-		name: "memory-learn",
-		description: "Learn durable facts and skills from this project session",
+		name: "context-update",
+		description: "Consolidate project memory and context for the current session",
 		handler: async ({ agent, signal }) => {
-			await learnMemory(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
-			return { kind: "success", text: "Project memory update finished." };
+			await consolidateProject(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
+			return { kind: "success", text: "Project memory and context updated." };
 		},
 	});
 }

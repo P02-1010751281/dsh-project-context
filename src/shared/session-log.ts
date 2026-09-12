@@ -19,6 +19,7 @@ import {
 	safeSessionId,
 	writeAtomic,
 } from "./project-state.js";
+import { queueSessionIndexEntry } from "./session-index.js";
 
 interface SessionFileHeader {
 	type: "session";
@@ -125,6 +126,8 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 			await writeAtomic(markdownPath, `${markdownHeader(session, header)}\n${markdownSections(events, 0)}\n`);
 		}
 		renderedEvents.set(key, events.length);
+		// The index is mechanical: one line per session, refreshed when the title changes.
+		await queueSessionIndexEntry(projectRoot, session);
 	}
 
 	return { dir };

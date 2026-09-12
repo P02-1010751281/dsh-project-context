@@ -27,13 +27,16 @@ injectStyles();
 
 /** The `project-context` settings section shape (mirrors the host schema). */
 export interface ProjectContextSettings {
-	autoLearn: boolean;
-	learnTurns: number;
-	learnIntervalMs: number;
+	autoConsolidate: boolean;
+	consolidateTurns: number;
+	consolidateIntervalMs: number;
 	forceDedupeMs: number;
 	maxTokens: number;
 	provider: string;
 	model: string;
+	autoLearn: boolean;
+	autolearnTurns: number;
+	autolearnIntervalMs: number;
 	handoffEnabled: boolean;
 	handoffAdaptive: boolean;
 	handoffThresholdRatio: number;
@@ -44,12 +47,15 @@ export interface ProjectContextSettings {
 
 /** What the card renders. */
 export interface ProjectContextSettingsCardState extends CardShell {
-	autoLearn: CardFieldState;
-	learnTurns: CardFieldState;
-	learnIntervalMs: CardFieldState;
+	autoConsolidate: CardFieldState;
+	consolidateTurns: CardFieldState;
+	consolidateIntervalMs: CardFieldState;
 	maxTokens: CardFieldState;
 	provider: CardFieldState;
 	model: CardFieldState;
+	autoLearn: CardFieldState;
+	autolearnTurns: CardFieldState;
+	autolearnIntervalMs: CardFieldState;
 	handoffEnabled: CardFieldState;
 	handoffAdaptive: CardFieldState;
 	handoffThresholdRatio: CardFieldState;
@@ -77,12 +83,15 @@ export class ProjectContextSettingsCardController {
 	 */
 	constructor(scope: SettingsScope<ProjectContextSettings>, createStore: typeof createSnapshotStore) {
 		this.form = new CardForm(scope, [
-			booleanField("autoLearn"),
-			numberField("learnTurns", 1),
-			numberField("learnIntervalMs", 1000),
+			booleanField("autoConsolidate"),
+			numberField("consolidateTurns", 1),
+			numberField("consolidateIntervalMs", 1000),
 			numberField("maxTokens", 256),
 			textField("provider"),
 			textField("model"),
+			booleanField("autoLearn"),
+			numberField("autolearnTurns", 1),
+			numberField("autolearnIntervalMs", 1000),
 			booleanField("handoffEnabled"),
 			booleanField("handoffAdaptive"),
 			decimalField("handoffThresholdRatio", 0.1, 0.95),
@@ -96,12 +105,15 @@ export class ProjectContextSettingsCardController {
 	private projection(): ProjectContextSettingsCardState {
 		return {
 			...this.form.shell(),
-			autoLearn: this.form.field("autoLearn"),
-			learnTurns: this.form.field("learnTurns"),
-			learnIntervalMs: this.form.field("learnIntervalMs"),
+			autoConsolidate: this.form.field("autoConsolidate"),
+			consolidateTurns: this.form.field("consolidateTurns"),
+			consolidateIntervalMs: this.form.field("consolidateIntervalMs"),
 			maxTokens: this.form.field("maxTokens"),
 			provider: this.form.field("provider"),
 			model: this.form.field("model"),
+			autoLearn: this.form.field("autoLearn"),
+			autolearnTurns: this.form.field("autolearnTurns"),
+			autolearnIntervalMs: this.form.field("autolearnIntervalMs"),
 			handoffEnabled: this.form.field("handoffEnabled"),
 			handoffAdaptive: this.form.field("handoffAdaptive"),
 			handoffThresholdRatio: this.form.field("handoffThresholdRatio"),
@@ -260,13 +272,18 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 			{open ? (
 				<div className="dshPcBody">
 					{!state.writable ? <p className="dshPcReadOnly">{t("chrome.readOnly")}</p> : null}
-					<Section title={t("section.learn.title")} description={t("section.learn.description")}>
+					<Section title={t("section.memory.title")} description={t("section.memory.description")}>
+						{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
+						{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
+						{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}
+					</Section>
+					<Section title={t("section.autolearn.title")} description={t("section.autolearn.description")}>
 						{field("pc-auto-learn", "field.autoLearn", "field.autoLearnHint", "boolean", state.autoLearn, "autoLearn")}
-						{field("pc-learn-turns", "field.learnTurns", "field.learnTurnsHint", "number", state.learnTurns, "learnTurns")}
-						{field("pc-learn-interval", "field.learnIntervalMs", "field.learnIntervalMsHint", "number", state.learnIntervalMs, "learnIntervalMs")}
-						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
+						{field("pc-autolearn-turns", "field.autolearnTurns", "field.autolearnTurnsHint", "number", state.autolearnTurns, "autolearnTurns")}
+						{field("pc-autolearn-interval", "field.autolearnIntervalMs", "field.autolearnIntervalMsHint", "number", state.autolearnIntervalMs, "autolearnIntervalMs")}
 					</Section>
 					<Section title={t("section.model.title")} description={t("section.model.description")}>
+						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
 						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
 						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
 					</Section>

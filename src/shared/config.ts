@@ -1,20 +1,26 @@
 /** Shared plugin configuration for the context pair. */
 
 export interface PluginConfig {
-	/** Run the automatic learn pass after turns settle. Commands still work when false. */
-	autoLearn: boolean;
-	/** User turns accumulated before an automatic learn pass. */
-	learnTurns: number;
-	/** Minimum wall-clock gap between automatic learn passes. */
-	learnIntervalMs: number;
+	/** Run the automatic consolidation pass after turns settle. Commands still work when false. */
+	autoConsolidate: boolean;
+	/** User turns accumulated before an automatic consolidation pass. */
+	consolidateTurns: number;
+	/** Minimum wall-clock gap between automatic consolidation passes. */
+	consolidateIntervalMs: number;
 	/** Suppress an almost-immediate duplicate forced pass. */
 	forceDedupeMs: number;
-	/** Output cap for the learn-pass model call. */
+	/** Output cap for every auxiliary model call (consolidation, autolearn, handoff summary). */
 	maxTokens: number;
-	/** Optional learn-pass route override; must be set together with `model`. */
+	/** Optional auxiliary-call route override; must be set together with `model`. */
 	provider: string;
-	/** Optional learn-pass route override; must be set together with `provider`. */
+	/** Optional auxiliary-call route override; must be set together with `provider`. */
 	model: string;
+	/** Run the low-frequency autolearn (skill distillation) pass after turns settle. */
+	autoLearn: boolean;
+	/** Accumulated user turns before an automatic autolearn pass. */
+	autolearnTurns: number;
+	/** Minimum wall-clock gap between automatic autolearn passes. */
+	autolearnIntervalMs: number;
 	/** Start an automatic handoff when a top-level session approaches its context limit. */
 	handoffEnabled: boolean;
 	/** Adaptive threshold derived from window/target/keep instead of a fixed ratio. */
@@ -30,13 +36,16 @@ export interface PluginConfig {
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
-	autoLearn: true,
-	learnTurns: 6,
-	learnIntervalMs: 5 * 60 * 1000,
+	autoConsolidate: true,
+	consolidateTurns: 6,
+	consolidateIntervalMs: 5 * 60 * 1000,
 	forceDedupeMs: 15 * 1000,
 	maxTokens: 8192,
 	provider: "",
 	model: "",
+	autoLearn: true,
+	autolearnTurns: 20,
+	autolearnIntervalMs: 30 * 60 * 1000,
 	handoffEnabled: true,
 	handoffAdaptive: true,
 	handoffThresholdRatio: 0.4,
@@ -110,13 +119,16 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 	}
 
 	return {
-		autoLearn: boolean("autoLearn", DEFAULT_CONFIG.autoLearn),
-		learnTurns: positive("learnTurns", DEFAULT_CONFIG.learnTurns, 1),
-		learnIntervalMs: positive("learnIntervalMs", DEFAULT_CONFIG.learnIntervalMs, 1000),
+		autoConsolidate: boolean("autoConsolidate", DEFAULT_CONFIG.autoConsolidate),
+		consolidateTurns: positive("consolidateTurns", DEFAULT_CONFIG.consolidateTurns, 1),
+		consolidateIntervalMs: positive("consolidateIntervalMs", DEFAULT_CONFIG.consolidateIntervalMs, 1000),
 		forceDedupeMs: positive("forceDedupeMs", DEFAULT_CONFIG.forceDedupeMs, 0),
 		maxTokens: positive("maxTokens", DEFAULT_CONFIG.maxTokens, 256),
 		provider,
 		model,
+		autoLearn: boolean("autoLearn", DEFAULT_CONFIG.autoLearn),
+		autolearnTurns: positive("autolearnTurns", DEFAULT_CONFIG.autolearnTurns, 1),
+		autolearnIntervalMs: positive("autolearnIntervalMs", DEFAULT_CONFIG.autolearnIntervalMs, 1000),
 		handoffEnabled: boolean("handoffEnabled", DEFAULT_CONFIG.handoffEnabled),
 		handoffAdaptive: boolean("handoffAdaptive", DEFAULT_CONFIG.handoffAdaptive),
 		handoffThresholdRatio: ratio("handoffThresholdRatio", DEFAULT_CONFIG.handoffThresholdRatio),

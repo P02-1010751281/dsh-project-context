@@ -1,13 +1,16 @@
 # Bundle patch layer for dsh-project-context.
 #
-# Three host plugins sharing one settings namespace:
-#   - project-context: session raw logs + .agents/memory/CONTEXT.md + injection
-#   - project-memory:  .agents/memory/MEMORY.md + learned .agents/skills + injection
-#   - project-handoff: context-pressure handoff into a fresh session + .agents/memory/HANDOFF.md
+# Four host plugins sharing one settings namespace:
+#   - project-context:  session archives + .agents/memory/session-logs/INDEX.md (no model calls)
+#   - project-memory:   consolidation into .agents/memory/{CONTEXT.md,MEMORY.md} + injection
+#   - project-autolearn: low-frequency skill distillation into .agents/skills/<name>/SKILL.md
+#   - project-handoff:  context-pressure handoff into a fresh session + .agents/memory/HANDOFF.md
 - insert:
     - id: project-context
       name: dsh-project-context
     - id: project-memory
       name: dsh-project-context/memory
+    - id: project-autolearn
+      name: dsh-project-context/autolearn
     - id: project-handoff
       name: dsh-project-context/handoff

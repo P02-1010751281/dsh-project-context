@@ -17,13 +17,16 @@ export const SETTINGS_NAMESPACE = "project-context" as const;
 
 /** Wire schema shown by the web settings card and validated by the host. */
 export const PluginSettingsSchema = z.object({
-	autoLearn: z.boolean().default(DEFAULT_CONFIG.autoLearn),
-	learnTurns: z.natural().min(1).default(DEFAULT_CONFIG.learnTurns),
-	learnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.learnIntervalMs),
+	autoConsolidate: z.boolean().default(DEFAULT_CONFIG.autoConsolidate),
+	consolidateTurns: z.natural().min(1).default(DEFAULT_CONFIG.consolidateTurns),
+	consolidateIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.consolidateIntervalMs),
 	forceDedupeMs: z.natural().default(DEFAULT_CONFIG.forceDedupeMs),
 	maxTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxTokens),
 	provider: z.string().default(DEFAULT_CONFIG.provider),
 	model: z.string().default(DEFAULT_CONFIG.model),
+	autoLearn: z.boolean().default(DEFAULT_CONFIG.autoLearn),
+	autolearnTurns: z.natural().min(1).default(DEFAULT_CONFIG.autolearnTurns),
+	autolearnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.autolearnIntervalMs),
 	handoffEnabled: z.boolean().default(DEFAULT_CONFIG.handoffEnabled),
 	handoffAdaptive: z.boolean().default(DEFAULT_CONFIG.handoffAdaptive),
 	handoffThresholdRatio: z.number().min(0.1).max(0.95).default(DEFAULT_CONFIG.handoffThresholdRatio),

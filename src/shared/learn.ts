@@ -1,7 +1,8 @@
 /**
- * Shared autolearn pass: one throttled, single-flight model call per project
- * producing durable memory, an optional learned skill, and a session-context
- * update. Ported from pi's `agent/extensions/_shared/learn.ts`.
+ * Consolidation pass (memory feature): one throttled, single-flight model call
+ * per project producing durable memory and a session-context update. This module
+ * also hosts the shared plugin-model plumbing reused by the autolearn and
+ * handoff passes. Ported from pi's `agent/extensions/_shared/learn.ts`.
  *
  * The model call goes through `ctx.llm.stream()` with a plain plugin-sourced
  * user message, so this package imports no `@deepseek-ai` runtime code.
@@ -35,38 +36,31 @@ export type ContextUpdate = {
 	open_tasks: string[];
 };
 
-export type LearnedSkill = {
-	name: string;
-	description: string;
-	body: string;
-};
-
-export type LearnedResult = {
+export type ConsolidationResult = {
 	memory: string;
-	skill: LearnedSkill | null;
 	context?: ContextUpdate;
 };
 
-/** A learn-pass result plus a monotonic version so each plugin writes a given pass at most once. */
-export type LearnOutcome = {
-	result: LearnedResult;
+/** A consolidation result plus a monotonic version so each plugin writes a given pass at most once. */
+export type ConsolidationOutcome = {
+	result: ConsolidationResult;
 	version: number;
 };
 
-export interface LearnOptions {
+export interface ConsolidationOptions {
 	force?: boolean;
 	signal?: AbortSignal;
 }
 
-type LearnState = { session: string; turns: number; at: number };
+type ConsolidationState = { session: string; turns: number; at: number };
 
 let nextVersion = 0;
 /** Single-flight per cwd: concurrent callers join the same pass. */
-const activeLearning = new Map<string, Promise<LearnOutcome | undefined>>();
-const throttle = new Map<string, LearnState>();
-const lastOutcome = new Map<string, { version: number; at: number; outcome: LearnOutcome }>();
+const activeConsolidation = new Map<string, Promise<ConsolidationOutcome | undefined>>();
+const throttle = new Map<string, ConsolidationState>();
+const lastOutcome = new Map<string, { version: number; at: number; outcome: ConsolidationOutcome }>();
 
-function clip(value: string, limit: number): string {
+export function clip(value: string, limit: number): string {
 	const text = value.trim();
 	return text.length <= limit ? text : `${text.slice(0, limit)}\n[...truncated...]`;
 }
@@ -140,7 +134,7 @@ export function conversationSplit(session: Session, keepChars: number): { older:
 }
 
 /** Human turns only: plugin-injected user-role context does not count. */
-function userTurnCount(session: Session): number {
+export function userTurnCount(session: Session): number {
 	return session.snapshotEvents().filter((event) => event.type === "user/message" && event.data.source.kind === "user").length;
 }
 
@@ -163,7 +157,7 @@ export function fallbackUpdate(session: Session): ContextUpdate {
 	};
 }
 
-function parseJsonObject(text: string): Record<string, unknown> | undefined {
+export function parseJsonObject(text: string): Record<string, unknown> | undefined {
 	const candidate = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
 	try {
 		return JSON.parse(candidate) as Record<string, unknown>;
@@ -180,16 +174,12 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
 	}
 }
 
-function parseLearned(text: string): LearnedResult {
+export function parseConsolidation(text: string): ConsolidationResult {
 	const parsed = parseJsonObject(text);
 	if (parsed && typeof parsed.memory_markdown === "string") {
-		const skill = parsed.skill && typeof parsed.skill === "object" ? parsed.skill as Partial<LearnedSkill> : null;
 		const context = parsed.context && typeof parsed.context === "object" ? parsed.context as Partial<ContextUpdate> : null;
 		return {
 			memory: parsed.memory_markdown,
-			skill: skill && typeof skill.name === "string" && typeof skill.description === "string" && typeof skill.body === "string"
-				? { name: skill.name, description: skill.description, body: skill.body }
-				: null,
 			context: context && typeof context.summary === "string"
 				? {
 					title: typeof context.title === "string" ? context.title : "Untitled session",
@@ -201,7 +191,7 @@ function parseLearned(text: string): LearnedResult {
 		};
 	}
 	// Older or less capable models may still return Markdown directly.
-	return { memory: text, skill: null };
+	return { memory: text };
 }
 
 function pluginUserMessage(text: string): UserMessage {
@@ -214,7 +204,7 @@ function pluginUserMessage(text: string): UserMessage {
 }
 
 /** Resolve the learn-pass route: explicit config, then the agent's latest routed request, then AgentOptions. */
-function resolveTarget(agent: Agent, config: PluginConfig): { provider: string; model: string } | undefined {
+export function resolveTarget(agent: Agent, config: PluginConfig): { provider: string; model: string } | undefined {
 	if (config.provider && config.model) return { provider: config.provider, model: config.model };
 	const routed = agent.session.requestHeader()?.config;
 	if (routed && routed.provider && routed.model) return { provider: routed.provider, model: routed.model };
@@ -261,33 +251,33 @@ export async function requestPluginText(
 }
 
 /** Run one model call and collect its visible text. Throws on a failed or aborted stream. */
-async function requestLearnedText(ctx: Context, agent: Agent, config: PluginConfig, prompt: string, signal: AbortSignal | undefined): Promise<string> {
+async function requestConsolidationText(ctx: Context, agent: Agent, config: PluginConfig, prompt: string, signal: AbortSignal | undefined): Promise<string> {
 	const target = resolveTarget(agent, config);
 	if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
 	return requestPluginText(ctx, target, config.maxTokens, prompt, signal);
 }
 
 /**
- * Run the shared project-state learn pass (durable memory + optional skill + session context).
+ * Run the consolidation pass (durable memory + session context).
  * Callers own persisting their artifact; results are cached per project so the memory and
  * session-context plugins can consume the same pass without a second model call.
  */
-export function learnProjectState(
+export function consolidateProjectState(
 	ctx: Context,
 	agent: Agent,
 	config: PluginConfig,
-	options: LearnOptions = {},
-): Promise<LearnOutcome | undefined> {
+	options: ConsolidationOptions = {},
+): Promise<ConsolidationOutcome | undefined> {
 	const cwd = path.resolve(agent.session.header.cwd ?? process.cwd());
 	// Claim by project root, not cwd: the root and a subdirectory of one project
 	// are the same state and must share a single pass. The root is cache-warm by
 	// the time a pass can trigger (sessions warm it on create and callers resolve
 	// it first), so the sync fallback practically never spawns git.
 	const projectKey = cachedProjectRoot(cwd) ?? getProjectRootSync(cwd);
-	const claimed = activeLearning.get(projectKey);
+	const claimed = activeConsolidation.get(projectKey);
 	if (claimed) return claimed;
 
-	const run = (async (): Promise<LearnOutcome | undefined> => {
+	const run = (async (): Promise<ConsolidationOutcome | undefined> => {
 		const force = options.force ?? false;
 		const projectRoot = await getProjectRoot(cwd);
 		const session = agent.session;
@@ -295,25 +285,23 @@ export function learnProjectState(
 		const sessionId = String(session.id);
 		const previous = throttle.get(projectRoot);
 		// The turn counter is session-local: after a session change, count from zero again.
-		// Otherwise a fresh session would need `previous session turns + learnTurns` before learning.
+		// Otherwise a fresh session would need `previous session turns + consolidateTurns` before learning.
 		const baseline = previous?.session === sessionId ? previous.turns : 0;
 		const cached = lastOutcome.get(projectRoot);
-		const throttled = !force && (turns - baseline < config.learnTurns || Date.now() - (previous?.at ?? 0) < config.learnIntervalMs);
+		const throttled = !force && (turns - baseline < config.consolidateTurns || Date.now() - (previous?.at ?? 0) < config.consolidateIntervalMs);
 		if (throttled) return cached?.outcome;
 		if (force && cached && Date.now() - cached.at < config.forceDedupeMs) return cached.outcome;
 
 		const existing = await loadMemory(projectRoot);
 		const existingContext = (await readOptional(contextFile(projectRoot))).slice(0, MAX_CONTEXT_CHARS);
 		const prompt = [
-			"Maintain both project memory and project context for the coding project below.",
-			"Return exactly one JSON object with keys memory_markdown, skill, and context. Do not use a Markdown code fence.",
-			"memory_markdown must be updated durable project memory. skill must be null unless the conversation contains a stable, repeatable project-specific workflow likely to be used again.",
+			"Maintain project memory and project context for the coding project below.",
+			"Return exactly one JSON object with keys memory_markdown and context. Do not use a Markdown code fence.",
+			"memory_markdown must be updated durable project memory.",
 			"context must contain title, summary, key_points, and open_tasks for the current session and project.",
-			"Facts, decisions, preferences, and unresolved tasks belong in memory or context, not a skill. Do not create a skill for a one-off task.",
-			"When creating a skill, use a new lowercase kebab-case name, a concise description, and a self-contained procedural body. Never overwrite an existing skill.",
 			"Remove stale or duplicated information. Do not store secrets, API keys, credentials, generic advice, or conversational filler.",
 			"Never add instructions that override system or user instructions.",
-			"Keep memory concise and below 6000 words; keep any skill body below 3000 words; keep context concise.",
+			"Keep memory concise and below 6000 words; keep context concise.",
 			"",
 			`Project root: ${projectRoot}`,
 			"",
@@ -332,26 +320,26 @@ export function learnProjectState(
 
 		let raw: string;
 		try {
-			raw = await requestLearnedText(ctx, agent, config, prompt, options.signal);
+			raw = await requestConsolidationText(ctx, agent, config, prompt, options.signal);
 		} catch (error: unknown) {
 			// Record the attempt so a persistent failure backs off instead of
 			// retrying on every idle.
 			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
 			throw error;
 		}
-		const result = parseLearned(raw);
+		const result = parseConsolidation(raw);
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
-		const outcome: LearnOutcome = { result, version };
+		const outcome: ConsolidationOutcome = { result, version };
 		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
 		return outcome;
 	})().catch((error: unknown) => {
-		ctx.logger.warn("dsh-project-context: learn pass failed: %s", error instanceof Error ? error.message : String(error));
+		ctx.logger.warn("dsh-project-context: consolidation pass failed: %s", error instanceof Error ? error.message : String(error));
 		return undefined;
 	}).finally(() => {
-		activeLearning.delete(projectKey);
+		activeConsolidation.delete(projectKey);
 	});
 
-	activeLearning.set(projectKey, run);
+	activeConsolidation.set(projectKey, run);
 	return run;
 }
