@@ -2,18 +2,18 @@
 
 > 仓库：<https://github.com/P02-1010751281/dsh-project-context> · MIT License
 
-把 pi coding agent 上的“上下文”插件移植到 **DeepSeek Harness (dsh)**：
+把作者自研的 pi“上下文”三件套移植到 **DeepSeek Harness (dsh)**（原扩展运行在 pi coding agent 上）：
 
 | 插件 | 来源 | 职责 |
 |---|---|---|
-| `project-context`（包主入口） | pi `session-context` 扩展 | 会话原始日志 + `CONTEXT.md` 摘要/索引；把 CONTEXT 作为 runtime context 注入模型 |
-| `project-memory`（`/memory` 子路径） | pi `memory` 扩展 | 持久项目记忆 `MEMORY.md` + autolearn 项目技能；把 MEMORY 作为 runtime context 注入模型 |
-| `project-handoff`（`/handoff` 子路径） | pi `auto-handoff` 扩展 | 上下文接近上限时摘要并另开新会话继续；写 `.agents/memory/HANDOFF.md` |
+| `project-context`（包主入口） | 自研 pi 扩展 `session-context` | 会话原始日志 + `CONTEXT.md` 摘要/索引；把 CONTEXT 作为 runtime context 注入模型 |
+| `project-memory`（`/memory` 子路径） | 自研 pi 扩展 `memory` | 持久项目记忆 `MEMORY.md` + autolearn 项目技能；把 MEMORY 作为 runtime context 注入模型 |
+| `project-handoff`（`/handoff` 子路径） | 自研 pi 扩展 `auto-handoff` | 上下文接近上限时摘要并另开新会话继续；写 `.agents/memory/HANDOFF.md` |
 
-前两个共享 pi 的 `_shared/learn.ts` autolearn pass：按项目节流、单飞，一次模型调用同时产出
+前两个共享自研扩展的 `_shared/learn.ts` autolearn pass：按项目节流、单飞，一次模型调用同时产出
 `memory_markdown`、可选 `skill`、`context`（title/summary/key_points/open_tasks）。
 
-> `project-handoff` 对应 pi 的 `auto-handoff`：默认**自适应阈值**（按窗口、实测基线、`handoffKeepTokens`、
+> `project-handoff` 对应自研 pi 扩展 `auto-handoff`：默认**自适应阈值**（按窗口、实测基线、`handoffKeepTokens`、
 > `handoffTargetTokens` 推导，而不是固定比例；可在设置里改回固定比例），触发时用一次辅助模型调用
 > 摘要较早的对话，最近的 `handoffKeepTokens` 原文带入新会话，写入 `.agents/memory/HANDOFF.md`，
 > 在同 workspace 新建会话并把“摘要 + 最近原文”作为第一条消息发送。摘要调用默认 thinking=off

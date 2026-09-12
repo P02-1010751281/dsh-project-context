@@ -1,7 +1,7 @@
 {
   "name": "dsh-project-context",
   "version": "0.1.0",
-  "description": "DeepSeek Harness plugins porting pi's context pair: project memory (MEMORY.md + learned skills) and session context (CONTEXT.md + session logs), with a shared autolearn pass writing into the project's .agents/ directory.",
+  "description": "DeepSeek Harness plugins porting the author's custom pi context extensions: project memory (MEMORY.md + learned skills) and session context (CONTEXT.md + session logs), with a shared autolearn pass writing into the project's .agents/ directory.",
   "type": "module",
   "main": "./lib/session-context.js",
   "types": "./lib/session-context.d.ts",
