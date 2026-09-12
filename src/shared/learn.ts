@@ -18,8 +18,10 @@ import {
 	MAX_CONTEXT_CHARS,
 	MAX_CONVERSATION_CHARS,
 	MAX_SUMMARY_CHARS,
+	cachedProjectRoot,
 	contextFile,
 	getProjectRoot,
+	getProjectRootSync,
 	loadMemory,
 	readOptional,
 } from "./project-state.js";
@@ -277,7 +279,12 @@ export function learnProjectState(
 	options: LearnOptions = {},
 ): Promise<LearnOutcome | undefined> {
 	const cwd = path.resolve(agent.session.header.cwd ?? process.cwd());
-	const claimed = activeLearning.get(cwd);
+	// Claim by project root, not cwd: the root and a subdirectory of one project
+	// are the same state and must share a single pass. The root is cache-warm by
+	// the time a pass can trigger (sessions warm it on create and callers resolve
+	// it first), so the sync fallback practically never spawns git.
+	const projectKey = cachedProjectRoot(cwd) ?? getProjectRootSync(cwd);
+	const claimed = activeLearning.get(projectKey);
 	if (claimed) return claimed;
 
 	const run = (async (): Promise<LearnOutcome | undefined> => {
@@ -323,7 +330,15 @@ export function learnProjectState(
 			"</recent-conversation>",
 		].join("\n");
 
-		const raw = await requestLearnedText(ctx, agent, config, prompt, options.signal);
+		let raw: string;
+		try {
+			raw = await requestLearnedText(ctx, agent, config, prompt, options.signal);
+		} catch (error: unknown) {
+			// Record the attempt so a persistent failure backs off instead of
+			// retrying on every idle.
+			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
+			throw error;
+		}
 		const result = parseLearned(raw);
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
@@ -334,9 +349,9 @@ export function learnProjectState(
 		ctx.logger.warn("dsh-project-context: learn pass failed: %s", error instanceof Error ? error.message : String(error));
 		return undefined;
 	}).finally(() => {
-		activeLearning.delete(cwd);
+		activeLearning.delete(projectKey);
 	});
 
-	activeLearning.set(cwd, run);
+	activeLearning.set(projectKey, run);
 	return run;
 }

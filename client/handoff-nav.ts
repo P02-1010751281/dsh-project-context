@@ -9,9 +9,7 @@
  */
 
 import type { Context as ClientContext } from "@deepseek-ai/cordis";
-
-/** Title prefix written by the host half (see src/handoff.ts). */
-const HANDOFF_TITLE_PREFIX = "↪ handoff · ";
+import { HANDOFF_TITLE_PREFIX } from "../src/shared/handoff-marker.ts";
 
 interface SnapshotFace {
 	getSnapshot(): unknown;

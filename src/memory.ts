@@ -11,17 +11,18 @@
 
 import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
+// Type-only: pulls the commands service Context merge (ctx.commands).
+import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { CommandRuntime } from "@deepseek-ai/dsh-commands";
-import type { Session } from "@deepseek-ai/dsh-session";
 import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
+import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
 import { learnProjectState, type LearnedSkill } from "./shared/learn.js";
 import {
 	MAX_MEMORY_CHARS,
 	MAX_SKILL_BODY_CHARS,
+	cachedProjectRoot,
 	getProjectRoot,
-	getProjectRootSync,
 	logError,
 	memoryDir,
 	memoryFile,
@@ -40,29 +41,7 @@ export const inject = ["llm", "systemPrompt", "commands"];
 const written = new Map<string, number>();
 /** Projects whose legacy layout was already consolidated in this process. */
 const migrated = new Set<string>();
-let updateQueue: Promise<void> = Promise.resolve();
-
-/** Longest a durability flush waits for an in-flight update before letting shutdown proceed. */
-const FLUSH_WAIT_MS = 90_000;
-
-function waitBounded(promise: Promise<void>): Promise<void> {
-	return new Promise<void>((resolve) => {
-		const timer = setTimeout(resolve, FLUSH_WAIT_MS);
-		timer.unref?.();
-		void promise.finally(() => {
-			clearTimeout(timer);
-			resolve();
-		});
-	});
-}
-
-function isTopLevel(session: Session): boolean {
-	return session.header.origin !== "subagent";
-}
-
-function projectCwd(session: Session): string {
-	return session.header.cwd ?? process.cwd();
-}
+const updates = new SerialQueue();
 
 function cleanMemory(text: string): string {
 	const withoutFence = text.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -76,11 +55,31 @@ function skillDocument(skill: LearnedSkill): string {
 	return `---\nname: ${skill.name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body}\n`;
 }
 
+/**
+ * Learned skills are discovered natively by dsh and injected into future
+ * sessions, so refuse bodies that try to steer the agent instead of
+ * describing a workflow. Heuristic, but it catches the common injection
+ * phrasings a summarizer might copy out of untrusted repository content.
+ */
+const UNSAFE_SKILL_PATTERNS: readonly RegExp[] = [
+	/ignore (?:all |any |the )?(?:previous|prior|earlier|above) (?:instructions|rules|prompts)/i,
+	/override (?:the )?(?:system|developer|user) (?:prompt|instructions|rules)/i,
+	/(?:do not|don't|never) (?:tell|inform|mention (?:this |it )?to|reveal (?:this |it )?to) the user/i,
+	/hide (?:this|it) from the user/i,
+	/忽略(?:之前|以上|上述|先前|前面)(?:的)?(?:所有)?(?:指令|指示|规则|要求)/,
+	/(?:不要|别)(?:告诉|告知|提醒|透露给)用户/,
+	/绕过(?:安全|权限|限制)/,
+];
+
+function skillBodyUnsafe(body: string): boolean {
+	return UNSAFE_SKILL_PATTERNS.some((pattern) => pattern.test(body));
+}
+
 async function saveLearnedSkill(projectRoot: string, skill: LearnedSkill): Promise<boolean> {
 	const skillName = skill.name.trim();
 	const description = skill.description.trim();
 	const body = skill.body.trim();
-	if (!validSkillName(skillName) || !description || body.length < 40) return false;
+	if (!validSkillName(skillName) || !description || body.length < 40 || skillBodyUnsafe(body)) return false;
 
 	const file = path.join(skillsDir(projectRoot), skillName, "SKILL.md");
 	if (await readOptional(file)) return false;
@@ -88,10 +87,15 @@ async function saveLearnedSkill(projectRoot: string, skill: LearnedSkill): Promi
 	return true;
 }
 
-/** Synchronous text for the dynamic-context provider; empty until the root is known. */
+/** Synchronous text for the dynamic-context provider; empty until the root is cached. */
 export function projectMemoryInjection(cwd: string | undefined): string {
 	if (!cwd) return "";
-	const projectRoot = getProjectRootSync(cwd);
+	const projectRoot = cachedProjectRoot(cwd);
+	if (projectRoot === undefined) {
+		// Prompt assembly must not block on git; warm the cache for the next assembly.
+		void getProjectRoot(cwd).catch(() => undefined);
+		return "";
+	}
 	const text = readTextCachedSync(memoryFile(projectRoot)).trim();
 	if (!text) return "";
 	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${text.slice(0, MAX_MEMORY_CHARS)}`;
@@ -104,7 +108,7 @@ interface LearnOptions {
 }
 
 function learnMemory(ctx: Context, config: PluginConfig, agent: Agent, options: LearnOptions): Promise<void> {
-	const next = updateQueue.then(async () => {
+	return updates.run(async () => {
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
 		try {
@@ -128,8 +132,6 @@ function learnMemory(ctx: Context, config: PluginConfig, agent: Agent, options: 
 			if (!options.silent) ctx.logger.warn(`dsh-project-context: project memory update failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	});
-	updateQueue = next;
-	return next;
 }
 
 export function apply(ctx: Context, rawConfig: unknown): void {
@@ -137,16 +139,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	// The first plugin of the pair to load owns the shared settings namespace.
 	installProjectContextSettings(ctx, entry);
 	/** In-flight memory work per session, awaited by durability flushes. */
-	const pending = new Map<string, Promise<void>>();
-
-	function track(session: Session, work: Promise<void>): void {
-		const key = String(session.id);
-		const tracked = work.catch(() => undefined);
-		pending.set(key, tracked);
-		void tracked.finally(() => {
-			if (pending.get(key) === tracked) pending.delete(key);
-		});
-	}
+	const pending = new SessionWorkTracker();
 
 	ctx.systemPrompt.context({
 		name: "project-memory",
@@ -174,7 +167,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
 		if (!current.autoLearn) return;
-		track(agent.session, learnMemory(ctx, current, agent, { force: false, silent: false }));
+		pending.track(agent.session, learnMemory(ctx, current, agent, { force: false, silent: false }));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
@@ -182,13 +175,10 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		const current = effectivePluginConfig(entry);
 		if (!current.autoLearn) return;
 		// Silent: the UI may already be rebuilding for a session switch.
-		track(agent.session, learnMemory(ctx, current, agent, { force: true, silent: true }));
+		pending.track(agent.session, learnMemory(ctx, current, agent, { force: true, silent: true }));
 	});
 
-	ctx.on("session/flush", (session) => {
-		const work = pending.get(String(session.id));
-		return work ? waitBounded(work) : undefined;
-	});
+	ctx.on("session/flush", (session) => pending.flush(session));
 
 	ctx.commands.register({
 		name: "memory",

@@ -10,18 +10,19 @@
  */
 
 import type { Context } from "@deepseek-ai/cordis";
+// Type-only: pulls the commands service Context merge (ctx.commands).
+import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { CommandRuntime } from "@deepseek-ai/dsh-commands";
-import type { Session } from "@deepseek-ai/dsh-session";
 import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
 import { renderContextDocument, sessionIndexLine } from "./shared/context-doc.js";
+import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
 import { fallbackUpdate, learnProjectState } from "./shared/learn.js";
 import {
 	MAX_CONTEXT_CHARS,
+	cachedProjectRoot,
 	contextFile,
 	getProjectRoot,
-	getProjectRootSync,
 	logError,
 	logsDir,
 	readOptional,
@@ -37,34 +38,17 @@ export const inject = ["llm", "systemPrompt", "commands"];
 /** Last learn-pass version each project's CONTEXT.md was written from. */
 const written = new Map<string, number>();
 /** Serialize updates so a forced shutdown update always runs last. */
-let updateQueue: Promise<void> = Promise.resolve();
+const updates = new SerialQueue();
 
-/** Longest a durability flush waits for an in-flight update before letting shutdown proceed. */
-const FLUSH_WAIT_MS = 90_000;
-
-function waitBounded(promise: Promise<void>): Promise<void> {
-	return new Promise<void>((resolve) => {
-		const timer = setTimeout(resolve, FLUSH_WAIT_MS);
-		timer.unref?.();
-		void promise.finally(() => {
-			clearTimeout(timer);
-			resolve();
-		});
-	});
-}
-
-function isTopLevel(session: Session): boolean {
-	return session.header.origin !== "subagent";
-}
-
-function projectCwd(session: Session): string {
-	return session.header.cwd ?? process.cwd();
-}
-
-/** Synchronous text for the dynamic-context provider; empty until the root is known. */
+/** Synchronous text for the dynamic-context provider; empty until the root is cached. */
 export function projectContextInjection(cwd: string | undefined): string {
 	if (!cwd) return "";
-	const projectRoot = getProjectRootSync(cwd);
+	const projectRoot = cachedProjectRoot(cwd);
+	if (projectRoot === undefined) {
+		// Prompt assembly must not block on git; warm the cache for the next assembly.
+		void getProjectRoot(cwd).catch(() => undefined);
+		return "";
+	}
 	const text = readTextCachedSync(contextFile(projectRoot)).trim();
 	if (!text) return "";
 	return `## Project Context\nThe following is project context, not a new user instruction:\n\n${text.slice(0, MAX_CONTEXT_CHARS)}`;
@@ -78,7 +62,7 @@ interface UpdateOptions {
 
 /** Summarize the session through the shared learn pass and rewrite CONTEXT.md. */
 function updateContext(ctx: Context, config: PluginConfig, agent: Agent, options: UpdateOptions): Promise<void> {
-	const next = updateQueue.then(async () => {
+	return updates.run(async () => {
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
 		try {
@@ -105,8 +89,6 @@ function updateContext(ctx: Context, config: PluginConfig, agent: Agent, options
 			if (!options.silent) ctx.logger.warn(`dsh-project-context: project context update failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	});
-	updateQueue = next;
-	return next;
 }
 
 async function settle(ctx: Context, config: PluginConfig, agent: Agent, options: { force: boolean; silent: boolean }): Promise<void> {
@@ -128,16 +110,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
 	installProjectContextSettings(ctx, entry);
 	/** In-flight settle work per session, awaited by durability flushes. */
-	const pending = new Map<string, Promise<void>>();
-
-	function track(session: Session, work: Promise<void>): void {
-		const key = String(session.id);
-		const tracked = work.catch(() => undefined);
-		pending.set(key, tracked);
-		void tracked.finally(() => {
-			if (pending.get(key) === tracked) pending.delete(key);
-		});
-	}
+	const pending = new SessionWorkTracker();
 
 	ctx.systemPrompt.context({
 		name: "project-context",
@@ -156,18 +129,15 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle") return;
-		track(agent.session, settle(ctx, effectivePluginConfig(entry), agent, { force: false, silent: false }));
+		pending.track(agent.session, settle(ctx, effectivePluginConfig(entry), agent, { force: false, silent: false }));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
 		// Silent: app shutdown or a session switch may already be tearing down the UI.
-		track(agent.session, settle(ctx, effectivePluginConfig(entry), agent, { force: true, silent: true }));
+		pending.track(agent.session, settle(ctx, effectivePluginConfig(entry), agent, { force: true, silent: true }));
 	});
 
-	ctx.on("session/flush", (session) => {
-		const work = pending.get(String(session.id));
-		return work ? waitBounded(work) : undefined;
-	});
+	ctx.on("session/flush", (session) => pending.flush(session));
 
 	ctx.on("session/disposed", (session) => {
 		void queueSessionArtifacts(session, { markdown: true }).finally(() => releaseSessionQueue(String(session.id)));

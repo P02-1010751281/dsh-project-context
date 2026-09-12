@@ -39,7 +39,7 @@ export interface ProjectContextSettings {
 	handoffThresholdRatio: number;
 	handoffTargetTokens: number;
 	handoffKeepTokens: number;
-	handoffSummaryThinking: string;
+	handoffSummaryThinking: "off" | "session";
 }
 
 /** What the card renders. */
@@ -131,11 +131,14 @@ function ChevronMark() {
 	);
 }
 
+type FieldControl = "text" | "number" | "decimal" | "boolean" | "enum";
+
 interface FieldProps {
 	id: string;
 	label: string;
 	hint: string;
-	control: "text" | "number" | "boolean";
+	control: FieldControl;
+	options?: readonly string[];
 	state: CardFieldState;
 	disabled: boolean;
 	overriddenLabel: string;
@@ -146,6 +149,9 @@ interface FieldProps {
 
 function Field(props: FieldProps) {
 	const { state } = props;
+	const selectOptions = props.control === "boolean"
+		? [{ value: "true", label: "✓" }, { value: "false", label: "✗" }]
+		: (props.options ?? []).map((value) => ({ value, label: value }));
 	return (
 		<div className="dshPcField">
 			<div className="dshPcFieldHead">
@@ -159,7 +165,7 @@ function Field(props: FieldProps) {
 					</span>
 				) : null}
 			</div>
-			{props.control === "boolean" ? (
+			{props.control === "boolean" || props.control === "enum" ? (
 				<select
 					id={props.id}
 					className="dshPcSelect"
@@ -168,15 +174,16 @@ function Field(props: FieldProps) {
 					onChange={(event) => props.onEdit(event.target.value)}
 				>
 					<option value="">—</option>
-					<option value="true">✓</option>
-					<option value="false">✗</option>
+					{selectOptions.map((option) => (
+						<option key={option.value} value={option.value}>{option.label}</option>
+					))}
 				</select>
 			) : (
 				<input
 					id={props.id}
 					className={state.invalid ? "dshPcInput dshPcInputInvalid" : "dshPcInput"}
 					type="text"
-					inputMode={props.control === "number" ? "numeric" : undefined}
+					inputMode={props.control === "number" ? "numeric" : props.control === "decimal" ? "decimal" : undefined}
 					value={state.text}
 					disabled={props.disabled}
 					onChange={(event) => props.onEdit(event.target.value)}
@@ -213,15 +220,17 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 		id: string,
 		labelKey: SettingsCardKey,
 		hintKey: SettingsCardKey,
-		control: "text" | "number" | "boolean",
+		control: FieldControl,
 		value: CardFieldState,
 		fieldName: keyof ProjectContextSettings,
+		options?: readonly string[],
 	) => (
 		<Field
 			id={id}
 			label={t(labelKey)}
 			hint={t(hintKey)}
 			control={control}
+			options={options}
 			state={value}
 			disabled={disabled}
 			overriddenLabel={t("chrome.overridden")}
@@ -264,10 +273,10 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 					<Section title={t("section.handoff.title")} description={t("section.handoff.description")}>
 						{field("pc-handoff-enabled", "field.handoffEnabled", "field.handoffEnabledHint", "boolean", state.handoffEnabled, "handoffEnabled")}
 						{field("pc-handoff-adaptive", "field.handoffAdaptive", "field.handoffAdaptiveHint", "boolean", state.handoffAdaptive, "handoffAdaptive")}
-						{field("pc-handoff-ratio", "field.handoffThresholdRatio", "field.handoffThresholdRatioHint", "number", state.handoffThresholdRatio, "handoffThresholdRatio")}
+						{field("pc-handoff-ratio", "field.handoffThresholdRatio", "field.handoffThresholdRatioHint", "decimal", state.handoffThresholdRatio, "handoffThresholdRatio")}
 						{field("pc-handoff-target", "field.handoffTargetTokens", "field.handoffTargetTokensHint", "number", state.handoffTargetTokens, "handoffTargetTokens")}
 						{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
-						{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "text", state.handoffSummaryThinking, "handoffSummaryThinking")}
+						{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "enum", state.handoffSummaryThinking, "handoffSummaryThinking", ["off", "session"])}
 					</Section>
 					<div className="dshPcFooter">
 						{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}

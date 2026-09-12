@@ -41,6 +41,9 @@ function existingIndexLines(existing: string, sessionId: string): string[] {
 	return deduped.filter((line) => !line.startsWith(`- [${sessionId}](`));
 }
 
+/** Cap list sections before budgeting so a runaway model cannot force thousands of renders. */
+const MAX_LIST_ENTRIES = 50;
+
 export function renderContextDocument(
 	existing: string,
 	update: ContextUpdate,
@@ -48,22 +51,23 @@ export function renderContextDocument(
 ): string {
 	const indexLines = [...existingIndexLines(existing, options.sessionId), options.sessionLine].slice(-200);
 	const title = trimLine(update.title, 160) || "Untitled session";
-	return [
+	const summary = trimLine(update.summary, MAX_SUMMARY_CHARS) || "No summary recorded yet.";
+	const render = (keyPoints: string[], openTasks: string[]): string => [
 		"# Project Context",
 		"",
 		`Last updated: ${options.updatedAt}`,
 		"",
 		"## Summary",
 		"",
-		trimLine(update.summary, MAX_SUMMARY_CHARS) || "No summary recorded yet.",
+		summary,
 		"",
 		"## Key points",
 		"",
-		listMarkdown(update.key_points),
+		listMarkdown(keyPoints),
 		"",
 		"## Open tasks",
 		"",
-		listMarkdown(update.open_tasks),
+		listMarkdown(openTasks),
 		"",
 		"## Session index",
 		"",
@@ -71,5 +75,21 @@ export function renderContextDocument(
 		"",
 		`<!-- latest-session-title: ${title} -->`,
 		"",
-	].join("\n").slice(0, MAX_CONTEXT_CHARS);
+	].join("\n");
+
+	let keyPoints = update.key_points.slice(0, MAX_LIST_ENTRIES);
+	let openTasks = update.open_tasks.slice(0, MAX_LIST_ENTRIES);
+	let document = render(keyPoints, openTasks);
+	// The session index is the part that must survive: shed list items first,
+	// then the oldest index lines, so the tail is never cut off.
+	while (document.length > MAX_CONTEXT_CHARS && (keyPoints.length > 0 || openTasks.length > 0)) {
+		if (keyPoints.length > openTasks.length) keyPoints = keyPoints.slice(0, -1);
+		else openTasks = openTasks.slice(0, -1);
+		document = render(keyPoints, openTasks);
+	}
+	while (document.length > MAX_CONTEXT_CHARS && indexLines.length > 1) {
+		indexLines.shift();
+		document = render(keyPoints, openTasks);
+	}
+	return document;
 }

@@ -45,7 +45,8 @@
   "scripts": {
     "build": "tsc && node scripts/build-client.mjs",
     "build:client": "node scripts/build-client.mjs",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.client.json --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "tsc && node --test test/*.test.mjs"
   },
   "keywords": [
     "deepseek-harness",

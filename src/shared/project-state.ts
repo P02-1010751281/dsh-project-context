@@ -17,6 +17,7 @@
  */
 
 import { execFile, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { appendFile, cp, mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { readFileSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
@@ -45,6 +46,11 @@ const textCache = new Map<string, { mtimeMs: number; size: number; text: string 
 function cacheProjectRoot(cwd: string, root: string): string {
 	projectRootCache.set(path.resolve(cwd), root);
 	return root;
+}
+
+/** Cache-only lookup for prompt assembly; a miss warms the cache instead of blocking. */
+export function cachedProjectRoot(cwd: string): string | undefined {
+	return projectRootCache.get(path.resolve(cwd));
 }
 
 /** Resolve the project root for a cwd through git, falling back to the cwd itself. */
@@ -170,9 +176,15 @@ export async function pathExists(target: string): Promise<boolean> {
 
 export async function writeAtomic(file: string, content: string): Promise<void> {
 	await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-	const temporary = `${file}.${process.pid}.tmp`;
-	await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 });
-	await rename(temporary, file);
+	// The UUID keeps two concurrent writers of the same file from sharing a temp path.
+	const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 });
+		await rename(temporary, file);
+	} catch (error) {
+		await rm(temporary, { force: true }).catch(() => undefined);
+		throw error;
+	}
 	invalidateTextCache(file);
 }
 
@@ -227,7 +239,7 @@ async function cleanStaleTemps(directory: string): Promise<void> {
 	}
 	const cutoff = Date.now() - 60 * 60 * 1000;
 	for (const entry of entries) {
-		if (!entry.isFile() || !/\.\d+\.tmp$/.test(entry.name)) continue;
+		if (!entry.isFile() || !/\.\d+(?:\.[0-9a-f-]{36})?\.tmp$/.test(entry.name)) continue;
 		const file = path.join(directory, entry.name);
 		try {
 			if ((await stat(file)).mtimeMs < cutoff) await rm(file, { force: true });

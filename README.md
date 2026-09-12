@@ -20,10 +20,11 @@
     ├── CONTEXT.md                    # 会话摘要 + key points + open tasks + session index
     ├── HANDOFF.md                    # 最近一次交接的摘要
     ├── errors.log                    # 插件吞掉的异常（诊断用）
-    └── session-logs/<session-id>/    # session.jsonl + session.md（项目内可移植副本）
+    └── session-logs/<session-id>/    # session.jsonl + session.md（项目内副本；目录自带 .gitignore）
 ```
 
 dsh 自身仍把会话存在 `~/.dsh/sessions/<project-slug>/…`；`session-logs/` 只是项目内副本，
+写入时会自动放置一个忽略一切的 `.gitignore`，避免会话内容被误提交。
 autolearn 读的是实时事件。更早版本的目录布局会在 session 启动时自动合并迁移。
 
 ## 安装
@@ -81,7 +82,7 @@ Settings → Plugins → Plugin configuration → **项目上下文与记忆** �
   “摘要 + 最近原文（`handoffKeepTokens`）”作为新会话第一条消息发送，摘要同时写入
   `.agents/memory/HANDOFF.md`。
 - learn 在 agent idle / disposed 时触发，`session/flush` 会等待进行中的 learn；异常写入
-  `.agents/memory/errors.log`，不打断会话。
+  `.agents/memory/errors.log`，不打断会话。会话日志按追加写入，长会话不会每轮重写整份文件。
 - 自动交接与 dsh 内置 `dsh-compaction-basic`（原地压缩）可共存；摘要失败对会话退避 5 分钟，
   最后一条助手消息是未回答的问题时延后交接。
 
@@ -90,6 +91,7 @@ Settings → Plugins → Plugin configuration → **项目上下文与记忆** �
 ```bash
 pnpm typecheck        # host + 客户端 tsc --noEmit
 pnpm build            # host → lib/*.js，客户端 bundle → lib/client.js
+pnpm test             # 先编译再跑 node:test 纯逻辑回归（test/）
 ```
 
 host 侧对 `@deepseek-ai/*` 仅 type-only import；客户端 bundle 只外部化 `react` / `react/jsx-runtime`，

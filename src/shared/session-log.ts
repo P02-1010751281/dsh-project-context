@@ -2,14 +2,20 @@
  * Session artifact writer: raw event JSONL plus a full Markdown rendering, per
  * session, under `<project>/.agents/memory/session-logs/<session-id>/`.
  * Ported from pi's `session-log.ts`, adapted to dsh's event-sourced sessions.
+ *
+ * Both files are append-only within a process run: after the initial full
+ * write, each flush appends only the new entries instead of rebuilding the
+ * log, so a long session does not rewrite itself on every turn.
  */
 
+import { appendFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import {
 	getProjectRoot,
 	logError,
 	logsDir,
+	pathExists,
 	safeSessionId,
 	writeAtomic,
 } from "./project-state.js";
@@ -44,42 +50,83 @@ function fileHeader(session: Session): SessionFileHeader {
 	return result;
 }
 
-function sessionMarkdown(session: Session, header: SessionFileHeader, raw: string): string {
-	const entries = session.snapshotEvents();
-	const sections = entries.map((entry, index) => {
-		const timestamp = entry.time ? new Date(entry.time).toISOString() : "unknown time";
-		return `### ${index + 1}. ${entry.type} — ${timestamp}\n\n~~~~json\n${JSON.stringify(entry, null, 2)}\n~~~~`;
-	});
+type SessionEntry = ReturnType<Session["snapshotEvents"]>[number];
 
+function markdownSection(entry: SessionEntry, index: number): string {
+	const timestamp = entry.time ? new Date(entry.time).toISOString() : "unknown time";
+	return `### ${index + 1}. ${entry.type} — ${timestamp}\n\n~~~~json\n${JSON.stringify(entry, null, 2)}\n~~~~\n`;
+}
+
+function markdownSections(entries: readonly SessionEntry[], offset: number): string {
+	return entries.map((entry, index) => markdownSection(entry, offset + index)).join("\n");
+}
+
+function markdownHeader(session: Session, header: SessionFileHeader): string {
 	return [
 		`# DSH Session ${String(session.id)}`,
 		"",
 		`- Started: ${new Date(header.createdAt).toISOString()}`,
 		`- Project: ${header.cwd ?? "unknown"}`,
 		"- Raw log: [session.jsonl](./session.jsonl)",
-		`- Entries: ${entries.length}`,
 		"",
 		"The JSONL file is canonical. This Markdown rendering intentionally preserves every session entry, including tool calls, tool results, thinking blocks, compaction records, model changes, and extension entries.",
 		"",
-		...sections,
-		"",
-		"<!-- raw-log-bytes: " + Buffer.byteLength(raw, "utf8") + " -->",
-		"",
 	].join("\n");
+}
+
+/** JSONL lines and Markdown sections already persisted per session. */
+const persistedEvents = new Map<string, number>();
+const renderedEvents = new Map<string, number>();
+const logsIgnored = new Set<string>();
+
+/** Keep local transcripts out of version control without touching project ignore files. */
+async function ensureLogsIgnored(projectRoot: string): Promise<void> {
+	if (logsIgnored.has(projectRoot)) return;
+	logsIgnored.add(projectRoot);
+	try {
+		const file = path.join(logsDir(projectRoot), ".gitignore");
+		if (!await pathExists(file)) {
+			await writeAtomic(file, "# Local session transcripts; not meant for version control.\n*\n");
+		}
+	} catch {
+		// Best effort: a failed ignore file must not break the log write.
+	}
 }
 
 export async function writeSessionArtifacts(session: Session, options: { markdown?: boolean } = {}): Promise<{ dir: string }> {
 	const cwd = session.header.cwd ?? process.cwd();
 	const projectRoot = await getProjectRoot(cwd);
+	await ensureLogsIgnored(projectRoot);
 	const id = safeSessionId(String(session.id));
 	const dir = path.join(logsDir(projectRoot), id);
 
 	const header = fileHeader(session);
 	const events = session.snapshotEvents();
-	const raw = [JSON.stringify(header), ...events.map((entry) => JSON.stringify(entry))].join("\n") + "\n";
+	const key = String(session.id);
+	const rawPath = path.join(dir, "session.jsonl");
 
-	await writeAtomic(path.join(dir, "session.jsonl"), raw);
-	if (options.markdown ?? true) await writeAtomic(path.join(dir, "session.md"), sessionMarkdown(session, header, raw));
+	const persisted = persistedEvents.get(key);
+	if (persisted !== undefined && persisted > 0 && persisted <= events.length && await pathExists(rawPath)) {
+		const lines = events.slice(persisted).map((entry) => JSON.stringify(entry));
+		if (lines.length > 0) await appendFile(rawPath, `${lines.join("\n")}\n`, "utf8");
+	} else {
+		const lines = [JSON.stringify(header), ...events.map((entry) => JSON.stringify(entry))];
+		await writeAtomic(rawPath, `${lines.join("\n")}\n`);
+	}
+	persistedEvents.set(key, events.length);
+
+	if (options.markdown ?? true) {
+		const markdownPath = path.join(dir, "session.md");
+		const rendered = renderedEvents.get(key);
+		if (rendered !== undefined && rendered > 0 && rendered <= events.length && await pathExists(markdownPath)) {
+			const sections = markdownSections(events.slice(rendered), rendered);
+			if (sections.length > 0) await appendFile(markdownPath, `\n${sections}`, "utf8");
+		} else {
+			await writeAtomic(markdownPath, `${markdownHeader(session, header)}\n${markdownSections(events, 0)}\n`);
+		}
+		renderedEvents.set(key, events.length);
+	}
+
 	return { dir };
 }
 
@@ -103,9 +150,11 @@ export function queueSessionArtifacts(session: Session, options: { markdown?: bo
 	return next;
 }
 
-/** Release a disposed session's queue entry after its writes settle. */
+/** Release a disposed session's queue entry and append bookkeeping after its writes settle. */
 export function releaseSessionQueue(sessionId: string): void {
 	const key = sessionId;
+	persistedEvents.delete(key);
+	renderedEvents.delete(key);
 	const current = writeQueues.get(key);
 	if (!current) return;
 	void current.finally(() => {
