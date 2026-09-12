@@ -25,6 +25,7 @@
   },
   "files": [
     "lib",
+    "LICENSE",
     "cordis.patch.yml",
     "README.md"
   ],
@@ -56,6 +57,15 @@
     "autolearn"
   ],
   "license": "MIT",
+  "author": "呼啸山庄 (P02-1010751281)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/P02-1010751281/dsh-project-context.git"
+  },
+  "homepage": "https://github.com/P02-1010751281/dsh-project-context#readme",
+  "bugs": {
+    "url": "https://github.com/P02-1010751281/dsh-project-context/issues"
+  },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },

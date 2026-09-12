@@ -1,5 +1,7 @@
 # dsh-project-context
 
+> 仓库：<https://github.com/P02-1010751281/dsh-project-context> · MIT License
+
 把 pi coding agent 上的“上下文”插件移植到 **DeepSeek Harness (dsh)**：
 
 | 插件 | 来源 | 职责 |
@@ -144,3 +146,11 @@ pnpm build            # host → lib/*.js + 客户端 bundle → lib/client.js
 - 客户端半边（`client/`，esbuild 打成 `lib/client.js`）只 require `react` / `react/jsx-runtime`（Web 客户端 seed），
   以 `window.__ModuleLoader__.load({id: "dsh-project-context", ...})` 形式注册；
 - 客户端改动需要刷新页面/重启 `dsh web`（客户端模块系统按 boot graph 加载）。
+
+## 许可证
+
+MIT © 2026 呼啸山庄 (P02-1010751281)，见 [LICENSE](./LICENSE)。
+
+设置卡片、表单与 store 兼容层的模式改编自
+[dsh-auto-continue](https://github.com/HsiangNianian/dsh-auto-continue)
+（MIT，Copyright (c) 2025 HsiangNianian），相关源文件头保留了原署名。
