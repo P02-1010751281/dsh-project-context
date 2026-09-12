@@ -276,16 +276,15 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 						{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
 						{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
 						{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}
+						{/* Shared auxiliary route: consolidation, autolearn and the handoff summary all use it. */}
+						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
+						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
+						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
 					</Section>
 					<Section title={t("section.autolearn.title")} description={t("section.autolearn.description")}>
 						{field("pc-auto-learn", "field.autoLearn", "field.autoLearnHint", "boolean", state.autoLearn, "autoLearn")}
 						{field("pc-autolearn-turns", "field.autolearnTurns", "field.autolearnTurnsHint", "number", state.autolearnTurns, "autolearnTurns")}
 						{field("pc-autolearn-interval", "field.autolearnIntervalMs", "field.autolearnIntervalMsHint", "number", state.autolearnIntervalMs, "autolearnIntervalMs")}
-					</Section>
-					<Section title={t("section.model.title")} description={t("section.model.description")}>
-						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
-						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
-						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
 					</Section>
 					<Section title={t("section.handoff.title")} description={t("section.handoff.description")}>
 						{field("pc-handoff-enabled", "field.handoffEnabled", "field.handoffEnabledHint", "boolean", state.handoffEnabled, "handoffEnabled")}

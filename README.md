@@ -14,7 +14,7 @@ session.jsonl（项目内副本，唯一权威）
 |---|---|
 | `project-context`（包主入口） | ① 会话存档与索引（无 LLM） |
 | `project-memory`（`/memory` 子路径） | ② 记忆整理：一次调用产出 `CONTEXT.md` + `MEMORY.md`，两者每轮注入 |
-| `project-autolearn`（`/autolearn` 子路径） | ③ 技能沉淀：低频，缺证据时按索引回读 `session.md` |
+| `project-autolearn`（`/autolearn` 子路径） | ③ 技能沉淀：低频，缺证据时按索引回读 `session.jsonl`（渲染为对话） |
 | `project-handoff`（`/handoff` 子路径） | ④ 上下文接近上限时摘要（带旧会话指针）并另开新会话继续 |
 
 ## 数据布局（放在项目内）
@@ -48,7 +48,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 ## 配置
 
-Settings → Plugins → Plugin configuration → **项目上下文与记忆** 卡片；写入
+Settings → Plugins → Plugin configuration → **项目上下文** 卡片；写入
 `~/.dsh/settings.yaml` 的 `project-context` 段，host 侧实时生效。也可在 profile 的
 `cordis.patch.yml` 用户层按 id 覆盖（作为面板的 base 层）。
 

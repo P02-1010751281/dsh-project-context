@@ -1,7 +1,7 @@
 /** Settings-card dictionaries for the `project-context` locale namespace. */
 
 export const zh = {
-	"card.title": "项目上下文与记忆",
+	"card.title": "项目上下文",
 	"card.description": "维护项目 MEMORY.md / CONTEXT.md、项目技能与会话索引",
 	"chrome.expand": "展开",
 	"chrome.collapse": "收起",
@@ -21,8 +21,6 @@ export const zh = {
 	"section.memory.description": "高频：把会话沉淀为 CONTEXT.md 与 MEMORY.md",
 	"section.autolearn.title": "技能沉淀（autolearn）",
 	"section.autolearn.description": "低频：从记忆/上下文提炼项目技能，缺证据时回读会话存档",
-	"section.model.title": "辅助模型路由",
-	"section.model.description": "留空则沿用当前会话的模型路由",
 	"field.autoConsolidate": "启用自动整理",
 	"field.autoConsolidateHint": "关闭后不再自动整理；/context-update 仍可用",
 	"field.consolidateTurns": "触发轮数",
@@ -32,9 +30,9 @@ export const zh = {
 	"field.maxTokens": "输出上限（token）",
 	"field.maxTokensHint": "辅助模型调用（整理 / 技能 / 交接摘要）允许生成的最大 token 数",
 	"field.provider": "Provider",
-	"field.providerHint": "可选的 provider 路由覆盖",
+	"field.providerHint": "可选的 provider 路由覆盖；记忆整理 / 技能沉淀 / 交接摘要共用",
 	"field.model": "Model",
-	"field.modelHint": "可选的 model 覆盖，需与 provider 同时设置",
+	"field.modelHint": "可选的 model 覆盖，需与 provider 同时设置；三项功能共用",
 	"field.autoLearn": "启用自动技能沉淀",
 	"field.autoLearnHint": "关闭后不再自动沉淀；/autolearn 仍可用",
 	"field.autolearnTurns": "触发轮数",
@@ -60,7 +58,7 @@ export const zh = {
 export type SettingsCardKey = keyof typeof zh;
 
 export const en: Record<SettingsCardKey, string> = {
-	"card.title": "Project Context & Memory",
+	"card.title": "Project Context",
 	"card.description": "Maintain project MEMORY.md / CONTEXT.md, skills and the session index",
 	"chrome.expand": "Expand",
 	"chrome.collapse": "Collapse",
@@ -80,8 +78,6 @@ export const en: Record<SettingsCardKey, string> = {
 	"section.memory.description": "High frequency: distill sessions into CONTEXT.md and MEMORY.md",
 	"section.autolearn.title": "Skill autolearn",
 	"section.autolearn.description": "Low frequency: distill project skills, backtracking into session archives when evidence is missing",
-	"section.model.title": "Auxiliary model route",
-	"section.model.description": "Leave blank to reuse the session's routed model",
 	"field.autoConsolidate": "Enable automatic consolidation",
 	"field.autoConsolidateHint": "When off, /context-update still works",
 	"field.consolidateTurns": "Turns before consolidating",
@@ -91,9 +87,9 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.maxTokens": "Output cap (tokens)",
 	"field.maxTokensHint": "Maximum tokens any auxiliary call (consolidation / autolearn / handoff summary) may generate",
 	"field.provider": "Provider",
-	"field.providerHint": "Optional provider route override",
+	"field.providerHint": "Optional provider route override; shared by consolidation / autolearn / handoff summary",
 	"field.model": "Model",
-	"field.modelHint": "Optional model override; set together with provider",
+	"field.modelHint": "Optional model override; set together with provider and shared by all three features",
 	"field.autoLearn": "Enable automatic skill autolearn",
 	"field.autoLearnHint": "When off, /autolearn still works",
 	"field.autolearnTurns": "Turns before autolearn",
