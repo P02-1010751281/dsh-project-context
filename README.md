@@ -1,13 +1,11 @@
 # dsh-project-context
 
-> 仓库：<https://github.com/P02-1010751281/dsh-project-context> · MIT License
-
 为 **DeepSeek Harness (dsh)** 提供项目级持久上下文：
 
 | 插件 | 职责 |
 |---|---|
-| `project-context`（包主入口） | 会话日志 + `CONTEXT.md` 摘要/索引，作为 runtime context 注入 |
-| `project-memory`（`/memory` 子路径） | `MEMORY.md` + autolearn 项目技能，作为 runtime context 注入 |
+| `project-context`（包主入口） | 会话日志 + `CONTEXT.md` 摘要/索引 |
+| `project-memory`（`/memory` 子路径） | `MEMORY.md` + autolearn 技能沉淀 |
 | `project-handoff`（`/handoff` 子路径） | 上下文接近上限时摘要并另开新会话继续 |
 
 ## 数据布局（放在项目内）
@@ -74,17 +72,20 @@ Settings → Plugins → Plugin configuration → **项目上下文与记忆** �
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff auto` / `0.4` / `60%` | 切自适应；给比例则切固定比例 |
 | `/handoff target 64k` / `keep 20k` | 自适应移交量 / 保留量（`keep 0` = 只带摘要） |
-| `/handoff thinking off\|session` | 摘要调用思考级别 |
+| `/handoff thinking off\|session` | 切换摘要 thinking |
 
 ## 说明
 
 - CONTEXT.md / MEMORY.md 经 `ctx.systemPrompt.context()` 动态注入；`project-handoff` 默认自适应阈值，
   “摘要 + 最近原文（`handoffKeepTokens`）”作为新会话第一条消息发送，摘要同时写入
   `.agents/memory/HANDOFF.md`。
-- learn 在 agent idle / disposed 时触发，`session/flush` 会等待进行中的 learn；异常写入
-  `.agents/memory/errors.log`，不打断会话。会话日志按追加写入，长会话不会每轮重写整份文件。
-- 自动交接与 dsh 内置 `dsh-compaction-basic`（原地压缩）可共存；摘要失败对会话退避 5 分钟，
-  最后一条助手消息是未回答的问题时延后交接。
+- learn 是同一条共享 pass（`autoLearn`、`/memory-learn`、`/context-update` 都走它）：一次模型调用
+  同时产出 `MEMORY.md`、技能与 `CONTEXT.md`，在 agent idle / disposed 时触发，`session/flush`
+  会等待进行中的 learn；异常写入 `.agents/memory/errors.log`，不打断会话。会话日志按追加写入，
+  长会话不会每轮重写整份文件。
+- 自动交接与 dsh 内置 `dsh-compaction-basic`（原地压缩）可共存；摘要输入是 `MEMORY.md`、最近对话
+  窗口与文件操作索引，不依赖 learn 是否运行（没有 `MEMORY.md` 也能交接）。摘要失败对会话退避
+  5 分钟，最后一条助手消息是未回答的问题时延后交接。
 
 ## 开发
 
