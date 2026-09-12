@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	model: "",
 	handoffEnabled: true,
 	handoffAdaptive: true,
-	handoffThresholdRatio: 0.75,
+	handoffThresholdRatio: 0.4,
 	handoffTargetTokens: 64_000,
 	handoffKeepTokens: 20_000,
 	handoffSummaryThinking: "off",
