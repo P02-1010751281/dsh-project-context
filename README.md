@@ -1,40 +1,81 @@
 # dsh-project-context
 
-为 **DeepSeek Harness (dsh)** 提供项目级持久上下文：
+为 **DeepSeek Harness (dsh)** 提供项目级持久上下文：把 dsh 的事件流会话在项目内留档，
+再依次蒸馏成记忆、上下文与技能，最后在上下文将满时交接给新会话。
+
+## 架构与数据流
 
 ```
 session.jsonl（项目内副本，唯一权威）
-  ├─ ① 存档（无 LLM）      session.jsonl / session.md / INDEX.md
-  ├─ ② consolidation 高频  raw + MEMORY.md + CONTEXT.md → MEMORY.md + CONTEXT.md（每轮注入）
-  ├─ ③ autolearn 低频      MEMORY.md + CONTEXT.md（缺证据时按 INDEX.md 回读 session.jsonl 对话）→ .agents/skills/<name>/SKILL.md
-  └─ ④ handoff             当前会话 raw → 新会话（老段摘要 + kept recent + 旧 log/INDEX 指针）
+   │
+   ├─① 存档（无 LLM）      session.jsonl / session.md / INDEX.md
+   │
+   ├─② consolidation pass  raw + 现有 memory/context ──► CONTEXT.md + MEMORY.md
+   │    （高频节流；每轮注入）                              │
+   │                                                      ▼
+   ├─③ autolearn pass      读 CONTEXT.md + MEMORY.md（+ 按缺证据回溯存档）
+   │    （低频）                    ──► .agents/skills/<name>/SKILL.md
+   │    （只注入 description，body 按需）
+   │
+   └─④ handoff             当前会话 raw ──► 新会话（老段摘要 + kept recent + 指向旧索引）
 ```
 
-| 插件 | 职责 |
+| 阶段 | 在 dsh 上的落点 |
 |---|---|
-| `project-context`（包主入口） | ① 会话存档与索引（无 LLM） |
-| `project-memory`（`/memory` 子路径） | ② 记忆整理：一次调用产出 `CONTEXT.md` + `MEMORY.md`，两者每轮注入 |
-| `project-autolearn`（`/autolearn` 子路径） | ③ 技能沉淀：低频，缺证据时按索引回读 `session.jsonl`（渲染为对话） |
-| `project-handoff`（`/handoff` 子路径） | ④ 上下文接近上限时摘要（带旧会话指针）并另开新会话继续 |
+| ① 存档 | dsh 会话是事件源；插件把 `session.snapshotEvents()` 镜像成项目内 `session.jsonl`（首行 header，之后一事件一行；进程内只追加增量）。`session.md` 是全事件渲染，`INDEX.md` 是机械索引 |
+| ② 整理 | `raw` = 本会话事件派生的对话；一次模型调用同时产出 `CONTEXT.md` 与 `MEMORY.md`，两者经 `ctx.systemPrompt.context()` 在每轮 prompt 装配时动态注入 |
+| ③ 沉淀 | 写入 dsh 原生发现的 `.agents/skills/<name>/SKILL.md`：frontmatter description 常驻技能目录，body 按需加载；缺证据时按 `INDEX.md` 回读 `session.jsonl`（渲染为对话） |
+| ④ 交接 | 经 dsh sessions service 新建会话并排队首条消息（老段摘要 + kept recent + 旧存档指针），同时写 `HANDOFF.md`；web 端凭标记自动切到新会话。阈值 0.4 早于 dsh 内置压缩的 0.8，两者可共存 |
+
+### 四个插件
+
+| 插件（子路径） | 阶段 | 触发 | 产物 |
+|---|---|---|---|
+| `project-context`（包主入口） | ① 存档 | 事件驱动（见下）；`/context`、`/session-log` | `session.jsonl` / `session.md` / `INDEX.md` |
+| `project-memory`（`/memory`） | ② 整理 | idle / disposed + 节流；`/context-update` | `CONTEXT.md` + `MEMORY.md`（每轮注入） |
+| `project-autolearn`（`/autolearn`） | ③ 沉淀 | 低频（新材料 + 轮数/间隔）；`/autolearn` | `.agents/skills/<name>/SKILL.md` |
+| `project-handoff`（`/handoff`） | ④ 交接 | 上下文越过阈值；`/handoff` | `HANDOFF.md` + 新会话 |
+
+四个插件共享同一份配置（设置面板一次编辑）。
+
+## 自动归档（①）
+
+无模型调用，事件驱动；`session.jsonl` 为唯一权威：
+
+| 时机 | 动作 |
+|---|---|
+| `turn/end` | `session.jsonl` 追加增量（不渲染 Markdown） |
+| agent `idle` / `disposed` | 追加 JSONL + 追加 `session.md` + upsert `INDEX.md` |
+| `session/disposed` | 收尾写出 + 释放进程内游标 |
+| `session/flush` | 等待进行中的写入（上限 90s），保证落盘 |
+| `/session-log` | 手动立即写出（含索引刷新） |
+
+- `session.jsonl`：首行 header，之后每个 dsh 事件一行；进程内按游标增量 append，长会话不重写整份文件。
+- `session.md`：全事件 pretty-JSON 渲染（含 tool 调用、tool 结果、thinking、compaction、模型切换等），供人阅读与交接导航，不参与自动流程。
+- `INDEX.md`：每会话一行 `- [id](id/session.md) — YYYY-MM-DD — 标题`；标题取 dsh 自己的 `session/title` 事件（回退首条用户消息），同一会话原位刷新，每项目一条写链防并发丢行。
+- 项目根：会话 cwd 的 git 顶层（`git rev-parse --show-toplevel`），非 git 目录回退 cwd。
+- 首次写日志时自动在 `session-logs/` 放一个忽略一切的 `.gitignore`，不动项目根 ignore。
+- 只归档插件启用后实际发生的会话（首次写出会带上该会话此前的完整事件快照）；已结束且未归档的历史会话不会补。
+- 异常写入 `.agents/memory/errors.log`（scope `session-log`），不打断会话。
 
 ## 数据布局（放在项目内）
 
 ```
 <project>/.agents/
-├── skills/<name>/SKILL.md            # autolearn 沉淀的技能（description 进目录，body 按需加载）
+├── skills/<name>/SKILL.md            # ③ 沉淀的技能（description 进目录，body 按需加载）
 └── memory/
-    ├── MEMORY.md                     # 持久项目记忆
-    ├── CONTEXT.md                    # 会话摘要 + key points + open tasks
-    ├── HANDOFF.md                    # 最近一次交接的摘要
-    ├── errors.log                    # 插件吞掉的异常（诊断用）
+    ├── MEMORY.md                     # ② 持久项目记忆
+    ├── CONTEXT.md                    # ② 会话摘要 + key points + open tasks
+    ├── HANDOFF.md                    # ④ 最近一次交接的摘要（含旧存档指针）
+    ├── errors.log                    # 各阶段吞掉的异常（诊断用）
     └── session-logs/
-        ├── INDEX.md                  # 机械会话索引（无 LLM）
-        └── <session-id>/             # session.jsonl + session.md（项目内副本；目录自带 .gitignore）
+        ├── INDEX.md                  # ① 机械会话索引（无 LLM）
+        ├── .gitignore                # 自动生成：忽略整个目录
+        └── <session-id>/             # session.jsonl + session.md（项目内副本）
 ```
 
-dsh 自身仍把会话存在 `~/.dsh/sessions/<project-slug>/…`；`session-logs/` 只是项目内副本，
-写入时会自动放置一个忽略一切的 `.gitignore`，避免会话内容被误提交。
-更早版本的目录布局会在 session 启动时自动合并迁移。
+dsh 自身仍把会话存在 `~/.dsh/sessions/…`；`session-logs/` 是项目内副本，便于随项目阅读与检索。
+更早版本的目录布局会在 session 启动时自动合并迁移（旧记忆 / 上下文 / 日志 / 技能各归其位）。
 
 ## 安装
 
@@ -48,9 +89,9 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 ## 配置
 
-Settings → Plugins → Plugin configuration → **项目上下文** 卡片；写入
-`~/.dsh/settings.yaml` 的 `project-context` 段，host 侧实时生效。也可在 profile 的
-`cordis.patch.yml` 用户层按 id 覆盖（作为面板的 base 层）。
+Settings → Plugins → Plugin configuration → **项目上下文** 卡片（记忆整理 / 技能沉淀 / 自动交接三区，
+共享的辅助模型路由在记忆整理区末尾）；写入 `~/.dsh/settings.yaml` 的 `project-context` 段，
+host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层按 id 覆盖（作为面板的 base 层）。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
@@ -80,7 +121,7 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片；�
 | `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md |
 | `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/memory` | 显示项目记忆路径与状态 |
-| `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 session.md |
+| `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl` |
 | `/handoff` | 立即交接：摘要当前会话并另开新会话继续 |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量 |
 | `/handoff on` / `off` | 开关自动交接 |
@@ -90,20 +131,15 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片；�
 
 ## 说明
 
-- CONTEXT.md / MEMORY.md 经 `ctx.systemPrompt.context()` 动态注入（每轮 prompt 装配时读取）；
-  `project-handoff` 默认自适应阈值，“摘要 + 最近原文（`handoffKeepTokens`）”作为新会话第一条消息发送，
-  摘要同时写入 `.agents/memory/HANDOFF.md`；新会话首条消息与 HANDOFF.md 都带上旧会话 `session.md`
-  与 `INDEX.md` 的相对路径。
-- ② consolidation 由 `project-memory` 独占：一次模型调用同时产出 `MEMORY.md` 与 `CONTEXT.md`（`autoConsolidate` 自动触发，`/context-update` 手动），
-  在 agent idle / disposed 时触发，`session/flush` 会等待进行中的调用；
-  异常写入 `.agents/memory/errors.log`，不打断会话。会话日志按追加写入，长会话不会每轮重写整份文件，
-  机械索引 `INDEX.md` 随 Markdown 渲染一起刷新（由 `project-context` 写入）。
-- ③ autolearn 由独立的 `project-autolearn` 插件独占：读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`，缺具体步骤时按索引回读最多 3 份
-  `session.jsonl`（按 dsh 事件格式渲染为对话、各截断 16KB，忽略 `assistant/message.stream` 等大负载）再生成技能；技能写入 `.agents/skills/<name>/SKILL.md`，由 dsh 原生发现注入
-  description，body 按需加载；已存在的技能不会覆盖。
-- 自动交接与 dsh 内置 `dsh-compaction-basic`（原地压缩）可共存；摘要输入是 `MEMORY.md`、最近对话
-  窗口与文件操作索引，不依赖整理是否运行（没有 `MEMORY.md` 也能交接）。摘要失败对会话退避
-  5 分钟，最后一条助手消息是未回答的问题时延后交接。
+- ② 由 `project-memory` 独占：在 agent idle / disposed 触发，`session/flush` 会等待进行中的调用；
+  异常写入 `.agents/memory/errors.log`，不打断会话。同一项目一次只跑一个整理 pass，版本去重避免重复写入。
+- ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`；模型可返回至多 3 个待回读会话，
+  插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream` 等大负载、各截断 16KB）后二次调用；
+  技能写入 `.agents/skills/<name>/SKILL.md`，由 dsh 原生发现，只把 description 放进技能目录、body 按需加载；
+  已存在的技能不会覆盖。
+- ④ 摘要输入是 `MEMORY.md`、最近对话窗口与文件操作索引，不依赖整理是否运行（没有 `MEMORY.md` 也能交接）。
+  摘要失败对会话退避 5 分钟；最后一条助手消息是未回答的问题时延后交接。
+- ②③④ 只作用于顶层会话（`origin !== "subagent"`）；① 对子会话同样留档。
 
 ## 开发
 
