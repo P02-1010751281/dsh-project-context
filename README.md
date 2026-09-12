@@ -2,15 +2,15 @@
 
 > 仓库：<https://github.com/P02-1010751281/dsh-project-context> · MIT License
 
-把 pi“上下文”三件套移植到 **DeepSeek Harness (dsh)**：
+为 **DeepSeek Harness (dsh)** 提供项目级持久上下文：
 
-| 插件 | 来源 | 职责 |
-|---|---|---|
-| `project-context`（包主入口） | pi `session-context` 扩展 | 会话日志 + `CONTEXT.md` 摘要/索引，作为 runtime context 注入 |
-| `project-memory`（`/memory` 子路径） | pi `memory` 扩展 | `MEMORY.md` + autolearn 项目技能，作为 runtime context 注入 |
-| `project-handoff`（`/handoff` 子路径） | pi `auto-handoff` 扩展 | 上下文接近上限时摘要并另开新会话继续 |
+| 插件 | 职责 |
+|---|---|
+| `project-context`（包主入口） | 会话日志 + `CONTEXT.md` 摘要/索引，作为 runtime context 注入 |
+| `project-memory`（`/memory` 子路径） | `MEMORY.md` + autolearn 项目技能，作为 runtime context 注入 |
+| `project-handoff`（`/handoff` 子路径） | 上下文接近上限时摘要并另开新会话继续 |
 
-## 数据布局（与 pi 共用，放在项目内）
+## 数据布局（放在项目内）
 
 ```
 <project>/.agents/
@@ -24,8 +24,7 @@
 ```
 
 dsh 自身仍把会话存在 `~/.dsh/sessions/<project-slug>/…`；`session-logs/` 只是项目内副本，
-autolearn 读的是实时事件。旧布局（`.pi/…`、`.agents/memory/skills`、`~/.omp/agent/memories/…`）
-会在 session 启动时自动合并迁移。
+autolearn 读的是实时事件。更早版本的目录布局会在 session 启动时自动合并迁移。
 
 ## 安装
 
