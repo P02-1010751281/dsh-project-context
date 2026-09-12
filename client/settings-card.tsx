@@ -1,0 +1,285 @@
+/**
+ * Project-context settings card: edits the `project-context` namespace from
+ * the Plugin configuration section (Settings → Plugins).
+ *
+ * Adapted from the card pattern of dsh-client-auto-continue
+ * (MIT, Copyright (c) 2025 HsiangNianian); chrome and controls are local.
+ */
+
+import { useState, type ReactNode } from "react";
+import type { InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import { createSnapshotStore, type SettingsScope, type SnapshotStore } from "./dsh-store-compat.ts";
+import type { SettingsCardKey } from "./locales.ts";
+import {
+	booleanField,
+	CardForm,
+	decimalField,
+	numberField,
+	textField,
+	type CardActions,
+	type CardFieldState,
+	type CardShell,
+} from "./settings-form.ts";
+import { injectStyles } from "./styles.ts";
+
+// Styles must land during factory materialization so the module system's style bookkeeping owns them.
+injectStyles();
+
+/** The `project-context` settings section shape (mirrors the host schema). */
+export interface ProjectContextSettings {
+	autoLearn: boolean;
+	learnTurns: number;
+	learnIntervalMs: number;
+	forceDedupeMs: number;
+	maxTokens: number;
+	provider: string;
+	model: string;
+	handoffEnabled: boolean;
+	handoffAdaptive: boolean;
+	handoffThresholdRatio: number;
+	handoffTargetTokens: number;
+	handoffKeepTokens: number;
+	handoffSummaryThinking: string;
+}
+
+/** What the card renders. */
+export interface ProjectContextSettingsCardState extends CardShell {
+	autoLearn: CardFieldState;
+	learnTurns: CardFieldState;
+	learnIntervalMs: CardFieldState;
+	maxTokens: CardFieldState;
+	provider: CardFieldState;
+	model: CardFieldState;
+	handoffEnabled: CardFieldState;
+	handoffAdaptive: CardFieldState;
+	handoffThresholdRatio: CardFieldState;
+	handoffTargetTokens: CardFieldState;
+	handoffKeepTokens: CardFieldState;
+	handoffSummaryThinking: CardFieldState;
+}
+
+/** The registration-side face the card's slot entry injects. */
+export interface ProjectContextSettingsCardFace extends CardActions {
+	hooks: {
+		/** Card snapshot bound by the renderer as useProjectContextSettingsCard. */
+		projectContextSettingsCard: SnapshotStore<ProjectContextSettingsCardState>;
+	};
+}
+
+/** Bridges the `project-context` scope onto the card's staged form. */
+export class ProjectContextSettingsCardController {
+	private readonly form: CardForm<ProjectContextSettings>;
+	private readonly store: SnapshotStore<ProjectContextSettingsCardState>;
+
+	/**
+	 * @param scope - the bound settings scope for the `project-context` namespace.
+	 * @param createStore - platform snapshot-store factory.
+	 */
+	constructor(scope: SettingsScope<ProjectContextSettings>, createStore: typeof createSnapshotStore) {
+		this.form = new CardForm(scope, [
+			booleanField("autoLearn"),
+			numberField("learnTurns", 1),
+			numberField("learnIntervalMs", 1000),
+			numberField("maxTokens", 256),
+			textField("provider"),
+			textField("model"),
+			booleanField("handoffEnabled"),
+			booleanField("handoffAdaptive"),
+			decimalField("handoffThresholdRatio", 0.1, 0.95),
+			numberField("handoffTargetTokens", 8000),
+			numberField("handoffKeepTokens", 0),
+			textField("handoffSummaryThinking"),
+		]);
+		this.store = this.form.bind(() => this.projection(), createStore);
+	}
+
+	private projection(): ProjectContextSettingsCardState {
+		return {
+			...this.form.shell(),
+			autoLearn: this.form.field("autoLearn"),
+			learnTurns: this.form.field("learnTurns"),
+			learnIntervalMs: this.form.field("learnIntervalMs"),
+			maxTokens: this.form.field("maxTokens"),
+			provider: this.form.field("provider"),
+			model: this.form.field("model"),
+			handoffEnabled: this.form.field("handoffEnabled"),
+			handoffAdaptive: this.form.field("handoffAdaptive"),
+			handoffThresholdRatio: this.form.field("handoffThresholdRatio"),
+			handoffTargetTokens: this.form.field("handoffTargetTokens"),
+			handoffKeepTokens: this.form.field("handoffKeepTokens"),
+			handoffSummaryThinking: this.form.field("handoffSummaryThinking"),
+		};
+	}
+
+	/** Build the face the card's slot registration injects. */
+	inject(): ProjectContextSettingsCardFace {
+		return { hooks: { projectContextSettingsCard: this.store }, ...this.form.actions() };
+	}
+}
+
+/** Props the renderer binds for the project-context plugin-configuration card. */
+export type ProjectContextSettingsCardProps =
+	& PropsRuntime<"settings.plugin.item">
+	& PropsLocale<"project-context">
+	& InjectFace<ProjectContextSettingsCardFace>;
+
+function ChevronMark() {
+	return (
+		<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+			<path d="m3.5 6 4.5 4 4.5-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+interface FieldProps {
+	id: string;
+	label: string;
+	hint: string;
+	control: "text" | "number" | "boolean";
+	state: CardFieldState;
+	disabled: boolean;
+	overriddenLabel: string;
+	resetLabel: string;
+	onEdit: (text: string) => void;
+	onReset: () => void;
+}
+
+function Field(props: FieldProps) {
+	const { state } = props;
+	return (
+		<div className="dshPcField">
+			<div className="dshPcFieldHead">
+				<label className="dshPcLabel" htmlFor={props.id}>{props.label}</label>
+				{state.overridden ? (
+					<span className="dshPcBadges">
+						<span className="dshPcBadge">{props.overriddenLabel}</span>
+						<button type="button" className="dshPcReset" disabled={props.disabled} onClick={props.onReset}>
+							{props.resetLabel}
+						</button>
+					</span>
+				) : null}
+			</div>
+			{props.control === "boolean" ? (
+				<select
+					id={props.id}
+					className="dshPcSelect"
+					value={state.text}
+					disabled={props.disabled}
+					onChange={(event) => props.onEdit(event.target.value)}
+				>
+					<option value="">—</option>
+					<option value="true">✓</option>
+					<option value="false">✗</option>
+				</select>
+			) : (
+				<input
+					id={props.id}
+					className={state.invalid ? "dshPcInput dshPcInputInvalid" : "dshPcInput"}
+					type="text"
+					inputMode={props.control === "number" ? "numeric" : undefined}
+					value={state.text}
+					disabled={props.disabled}
+					onChange={(event) => props.onEdit(event.target.value)}
+				/>
+			)}
+			<p className={state.invalid ? "dshPcInvalid" : "dshPcHint"}>{props.hint}</p>
+		</div>
+	);
+}
+
+function Section(props: { title: string; description: string; children: ReactNode }) {
+	return (
+		<section className="dshPcSection">
+			<div className="dshPcSectionTitle">{props.title}</div>
+			<p className="dshPcSectionDescription">{props.description}</p>
+			<div className="dshPcGrid">{props.children}</div>
+		</section>
+	);
+}
+
+/**
+ * Render the project-context card.
+ * @param props - locale copy, the card snapshot, and its form actions.
+ */
+export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProps) {
+	const { t } = props;
+	const [open, setOpen] = useState(false);
+	const state = props.useProjectContextSettingsCard((snapshot) => snapshot);
+	if (!state.available) return null;
+
+	const disabled = !state.writable;
+	const blocked = !state.dirty || state.invalid || state.saving;
+	const field = (
+		id: string,
+		labelKey: SettingsCardKey,
+		hintKey: SettingsCardKey,
+		control: "text" | "number" | "boolean",
+		value: CardFieldState,
+		fieldName: keyof ProjectContextSettings,
+	) => (
+		<Field
+			id={id}
+			label={t(labelKey)}
+			hint={t(hintKey)}
+			control={control}
+			state={value}
+			disabled={disabled}
+			overriddenLabel={t("chrome.overridden")}
+			resetLabel={t("chrome.reset")}
+			onEdit={(text) => props.edit(fieldName, text)}
+			onReset={() => props.resetField(fieldName)}
+		/>
+	);
+
+	return (
+		<li className="dshPcCard">
+			<button
+				type="button"
+				className="dshPcHeader"
+				aria-expanded={open}
+				onClick={() => setOpen(!open)}
+			>
+				<span className="dshPcHeadText">
+					<span className="dshPcName">{t("card.title")}</span>
+					<span className="dshPcDescription">{t("card.description")}</span>
+				</span>
+				{state.dirty ? <span className="dshPcPending">{t("chrome.unsaved")}</span> : null}
+				<span className={open ? "dshPcChevron dshPcChevronOpen" : "dshPcChevron"}>
+					<ChevronMark />
+				</span>
+			</button>
+			{open ? (
+				<div className="dshPcBody">
+					{!state.writable ? <p className="dshPcReadOnly">{t("chrome.readOnly")}</p> : null}
+					<Section title={t("section.learn.title")} description={t("section.learn.description")}>
+						{field("pc-auto-learn", "field.autoLearn", "field.autoLearnHint", "boolean", state.autoLearn, "autoLearn")}
+						{field("pc-learn-turns", "field.learnTurns", "field.learnTurnsHint", "number", state.learnTurns, "learnTurns")}
+						{field("pc-learn-interval", "field.learnIntervalMs", "field.learnIntervalMsHint", "number", state.learnIntervalMs, "learnIntervalMs")}
+						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
+					</Section>
+					<Section title={t("section.model.title")} description={t("section.model.description")}>
+						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
+						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
+					</Section>
+					<Section title={t("section.handoff.title")} description={t("section.handoff.description")}>
+						{field("pc-handoff-enabled", "field.handoffEnabled", "field.handoffEnabledHint", "boolean", state.handoffEnabled, "handoffEnabled")}
+						{field("pc-handoff-adaptive", "field.handoffAdaptive", "field.handoffAdaptiveHint", "boolean", state.handoffAdaptive, "handoffAdaptive")}
+						{field("pc-handoff-ratio", "field.handoffThresholdRatio", "field.handoffThresholdRatioHint", "number", state.handoffThresholdRatio, "handoffThresholdRatio")}
+						{field("pc-handoff-target", "field.handoffTargetTokens", "field.handoffTargetTokensHint", "number", state.handoffTargetTokens, "handoffTargetTokens")}
+						{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
+						{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "text", state.handoffSummaryThinking, "handoffSummaryThinking")}
+					</Section>
+					<div className="dshPcFooter">
+						{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}
+						<button type="button" className="dshPcDiscard" disabled={!state.dirty || state.saving} onClick={props.discard}>
+							{t("chrome.discard")}
+						</button>
+						<button type="button" className="dshPcSave" disabled={blocked} onClick={props.save}>
+							{t(state.saving ? "chrome.saving" : "chrome.save")}
+						</button>
+					</div>
+				</div>
+			) : null}
+		</li>
+	);
+}
