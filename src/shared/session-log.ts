@@ -21,7 +21,7 @@ import {
 } from "./project-state.js";
 import { queueSessionIndexEntry } from "./session-index.js";
 
-interface SessionFileHeader {
+export interface SessionFileHeader {
 	type: "session";
 	harness: "dsh";
 	id: string;
@@ -58,13 +58,22 @@ function markdownSection(entry: SessionEntry, index: number): string {
 	return `### ${index + 1}. ${entry.type} — ${timestamp}\n\n~~~~json\n${JSON.stringify(entry, null, 2)}\n~~~~\n`;
 }
 
-function markdownSections(entries: readonly SessionEntry[], offset: number): string {
-	return entries.map((entry, index) => markdownSection(entry, offset + index)).join("\n");
+function markdownSections(entries: readonly unknown[], offset: number): string {
+	return entries.map((entry, index) => markdownSection(entry as SessionEntry, offset + index)).join("\n");
 }
 
-function markdownHeader(session: Session, header: SessionFileHeader): string {
+/**
+ * Full Markdown rendering of one session. Shared by the live writer and the
+ * archive backfill (`import-archive.ts`) so both produce byte-identical output.
+ */
+export function renderSessionMarkdown(header: SessionFileHeader, entries: readonly unknown[]): string {
+	return `${markdownHeader(header)}
+${markdownSections(entries, 0)}`.replace(/\n+$/, "") + "\n";
+}
+
+function markdownHeader(header: SessionFileHeader): string {
 	return [
-		`# DSH Session ${String(session.id)}`,
+		`# DSH Session ${header.id}`,
 		"",
 		`- Started: ${new Date(header.createdAt).toISOString()}`,
 		`- Project: ${header.cwd ?? "unknown"}`,
@@ -81,7 +90,7 @@ const renderedEvents = new Map<string, number>();
 const logsIgnored = new Set<string>();
 
 /** Keep local transcripts out of version control without touching project ignore files. */
-async function ensureLogsIgnored(projectRoot: string): Promise<void> {
+export async function ensureLogsIgnored(projectRoot: string): Promise<void> {
 	if (logsIgnored.has(projectRoot)) return;
 	logsIgnored.add(projectRoot);
 	try {
@@ -123,10 +132,9 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 			const sections = markdownSections(events.slice(rendered), rendered);
 			if (sections.length > 0) await appendFile(markdownPath, `\n${sections}`, "utf8");
 		} else {
-			const body = `${markdownHeader(session, header)}\n${markdownSections(events, 0)}`;
 			// Sections already end with a newline; keep exactly one at EOF so the
 			// append path leaves a single blank line between flushes.
-			await writeAtomic(markdownPath, `${body.replace(/\n+$/, "")}\n`);
+			await writeAtomic(markdownPath, renderSessionMarkdown(header, events));
 		}
 		renderedEvents.set(key, events.length);
 		// The index is mechanical: one line per session, refreshed when the title changes.

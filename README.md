@@ -55,7 +55,7 @@ session.jsonl（项目内副本，唯一权威）
 - `INDEX.md`：每会话一行 `- [id](id/session.md) — YYYY-MM-DD — 标题`；标题取 dsh 自己的 `session/title` 事件（回退首条用户消息），同一会话原位刷新，每项目一条写链防并发丢行。
 - 项目根：会话 cwd 的 git 顶层（`git rev-parse --show-toplevel`），非 git 目录回退 cwd。
 - 首次写日志时自动在 `session-logs/` 放一个忽略一切的 `.gitignore`，不动项目根 ignore。
-- 只归档插件启用后实际发生的会话（首次写出会带上该会话此前的完整事件快照）；已结束且未归档的历史会话不会补。
+- 只归档插件启用后实际发生的会话（首次写出会带上该会话此前的完整事件快照）；已结束且未归档的历史会话**用下面的回填导入补**。
 - 异常写入 `.agents/memory/errors.log`（scope `session-log`），不打断会话。
 
 ## 数据布局（放在项目内）
@@ -76,6 +76,30 @@ session.jsonl（项目内副本，唯一权威）
 
 dsh 自身仍把会话存在 `~/.dsh/sessions/…`；`session-logs/` 是项目内副本，便于随项目阅读与检索。
 更早版本的目录布局会在 session 启动时自动合并迁移（旧记忆 / 上下文 / 日志 / 技能各归其位）。
+
+## 回填已结束的历史会话（①补，无模型调用）
+
+插件只归档它亲眼看到的会话。安装之前就已结束的会话（例如从别处导出的
+`dsh-session-session-<id>.zip`，dsh 自己的会话导出一个 zip 里就一份 `session.jsonl`）
+用回填导入补进同一套布局：`session.jsonl` 逐字节保留、`session.md` 用与实时路径**同一份**渲染器、
+`INDEX.md` 用同一份机械索引写入，因此后续整理/沉淀/交接读到的回填会话与实时归档无法区分。
+
+两个入口，行为一致（幂等：已归档的会话默认跳过，`--replace` 才覆盖；全程不调用模型）：
+
+```bash
+# CLI（不依赖运行中的 dsh；跨平台，自带 zip 读取，无需 unzip）
+node scripts/import-archives.mjs --project <项目根> <archive.zip|session.jsonl|目录>…
+node scripts/import-archives.mjs --project . --dry-run sessions_archive/   # 只解析并报告
+node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆盖；不渲染 session.md
+#   --no-md：只写 canonical JSONL + 索引（session.md 体积是 JSONL 的数倍，纯机读场景可省）
+# 交互 profile 里也可以：
+#   /session-log import sessions_archive/
+```
+
+导入结果落在 `<项目根>/.agents/memory/session-logs/<session-id>/`，`INDEX.md` 每会话补一行
+（`- [id](id/session.md) — YYYY-MM-DD — 标题`，标题取 `session/title`，回退首条用户消息）。
+实测规模参考：21 个 zip / 586,909 个事件 → 13s 导入，约 1.1GB（`session-logs/` 自带 `.gitignore`，
+不随项目入库）。
 
 ## 安装
 
@@ -120,6 +144,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层按 id 
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径 |
 | `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md |
 | `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
+| `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用；见上一节） |
 | `/memory` | 显示项目记忆路径与状态 |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl` |
 | `/handoff` | 立即交接：摘要当前会话并另开新会话继续 |

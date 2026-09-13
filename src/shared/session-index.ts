@@ -21,6 +21,8 @@ export interface SessionIndexEntry {
 	raw: string;
 }
 
+type SessionEntry = ReturnType<Session["snapshotEvents"]>[number];
+
 const HEADING = "# Session Index";
 const MAX_TITLE_CHARS = 160;
 /** `- [id](<id>/session.md) — YYYY-MM-DD — title` (the link target is ignored on parse). */
@@ -39,11 +41,12 @@ function textOf(content: readonly { type: string; text?: string }[]): string {
 		.trim();
 }
 
-/** Title dsh itself assigned to the session, else the first user message, else a fallback. */
-export function sessionTitle(session: Session): string {
+/** Title from a bare event list: `session/title`, else the first user message, else a fallback. */
+export function sessionTitleFromEntries(events: readonly unknown[]): string {
 	let title = "";
 	let firstUser = "";
-	for (const event of session.snapshotEvents()) {
+	for (const raw of events) {
+		const event = raw as SessionEntry;
 		// `session/title` is emitted by dsh at runtime; its type is not part of the
 		// base SessionEventMap, so read it structurally instead of narrowing.
 		const type = event.type as string;
@@ -59,11 +62,21 @@ export function sessionTitle(session: Session): string {
 	return clip(title || firstUser || "Untitled session", MAX_TITLE_CHARS);
 }
 
+/** Title dsh itself assigned to the session, else the first user message, else a fallback. */
+export function sessionTitle(session: Session): string {
+	return sessionTitleFromEntries(session.snapshotEvents());
+}
+
+/** One Markdown index line from its parts. Links are relative to `session-logs/`. */
+export function sessionIndexLineFrom(id: string, createdAt: number, title: string): string {
+	const safe = safeSessionId(id);
+	const date = new Date(createdAt).toISOString().slice(0, 10);
+	return `- [${safe}](${safe}/session.md) — ${date} — ${clip(title, MAX_TITLE_CHARS)}`;
+}
+
 /** One Markdown index line. Links are relative to `session-logs/`. */
 export function sessionIndexLine(session: Session, title: string = sessionTitle(session)): string {
-	const id = safeSessionId(String(session.id));
-	const date = new Date(session.header.createdAt).toISOString().slice(0, 10);
-	return `- [${id}](${id}/session.md) — ${date} — ${clip(title, MAX_TITLE_CHARS)}`;
+	return sessionIndexLineFrom(String(session.id), session.header.createdAt, title);
 }
 
 /** Parse an INDEX.md body; unrecognized lines are ignored. */
@@ -94,12 +107,15 @@ const queues = new Map<string, Promise<void>>();
  * position, and the title is refreshed if dsh assigned a better one later.
  */
 export function queueSessionIndexEntry(projectRoot: string, session: Session): Promise<void> {
+	return queueIndexLine(projectRoot, safeSessionId(String(session.id)), sessionIndexLine(session));
+}
+
+/** Insert or refresh one index line (used by the live writer and the archive backfill). */
+export function queueIndexLine(projectRoot: string, id: string, line: string): Promise<void> {
 	const key = projectRoot;
 	const previous = queues.get(key) ?? Promise.resolve();
 	const next = previous.catch(() => undefined).then(async () => {
 		const file = sessionIndexFile(projectRoot);
-		const id = safeSessionId(String(session.id));
-		const line = sessionIndexLine(session);
 		const existing = await readOptional(file);
 		const lines = existing.trim() ? existing.trimEnd().split("\n") : [HEADING, ""];
 		let replaced = false;
