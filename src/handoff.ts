@@ -36,6 +36,7 @@ import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings, SETTINGS_NAMESPACE } from "./shared/settings.js";
 import { conversationSplit, requestPluginText } from "./shared/learn.js";
 import { HANDOFF_TITLE_PREFIX } from "./shared/handoff-marker.js";
+import { isTopLevel } from "./shared/lifecycle.js";
 import { getProjectRoot, loadMemory, logError, logsDir, memoryDir, safeSessionId, sessionIndexFile, writeAtomic } from "./shared/project-state.js";
 
 export const name = "project-handoff";
@@ -103,10 +104,6 @@ const failedUntil = new Map<string, number>();
 /** Last automatic pressure check per session, so measurement is not run every turn. */
 const pressureCheckedAt = new Map<string, number>();
 
-function isTopLevel(session: Session): boolean {
-	return session.header.origin !== "subagent";
-}
-
 /** Resolve the handoff route: explicit config, then the session's latest routed request. */
 function resolveTarget(session: Session, config: PluginConfig): { provider: string; model: string } | undefined {
 	if (config.provider && config.model) return { provider: config.provider, model: config.model };
@@ -151,7 +148,8 @@ function messageText(content: readonly { type: string; text?: string }[]): strin
 		.trim();
 }
 
-function textAsksQuestion(text: string): boolean {
+/** Exported for tests: whether an assistant message ends in a question. */
+export function textAsksQuestion(text: string): boolean {
 	// Fenced code must not contribute a stray "?" to the check.
 	const clean = text.replace(/```[\s\S]*?```/g, " ");
 	const lines = clean.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
@@ -161,8 +159,8 @@ function textAsksQuestion(text: string): boolean {
 	return PENDING_QUESTION_PATTERNS.test(clean.slice(-400));
 }
 
-/** The question the session is waiting on, when its last conversational message is an assistant question. */
-function pendingQuestion(session: Session): string | undefined {
+/** The question the session is waiting on, when its last conversational message is an assistant question. Exported for tests. */
+export function pendingQuestion(session: Session): string | undefined {
 	let last: { role: string; text: string } | undefined;
 	for (const message of session.deriveMessages()) {
 		if (message.role !== "user" && message.role !== "assistant") continue;
@@ -501,7 +499,8 @@ export function parseTokenCount(input: string): number | undefined {
 }
 
 /** Map one command argument to a settings patch. */
-function settingPatch(args: string): { patch?: Record<string, unknown>; error?: string } | undefined {
+/** Exported for tests: the settings patch `/handoff <args>` produces, if any. */
+export function settingPatch(args: string): { patch?: Record<string, unknown>; error?: string } | undefined {
 	if (args === "on") return { patch: { handoffEnabled: true } };
 	if (args === "off") return { patch: { handoffEnabled: false } };
 	if (args === "auto") return { patch: { handoffAdaptive: true } };

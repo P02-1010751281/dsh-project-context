@@ -111,6 +111,7 @@ export class CardForm<T> {
 	private readonly specs: Map<string, CardFieldSpec>;
 	private readonly staged = new Map<string, StagedEdit>();
 	private readonly listeners = new Set<() => void>();
+	private readonly unsubscribe: () => void;
 	private saving = false;
 	private failed = false;
 
@@ -123,7 +124,13 @@ export class CardForm<T> {
 		specs: CardFieldSpec[],
 	) {
 		this.specs = new Map(specs.map((spec) => [spec.field, spec]));
-		this.scope.subscribe(() => this.publish());
+		this.unsubscribe = scope.subscribe(() => this.publish());
+	}
+
+	/** Release the scope subscription; the owning fiber calls this on unload. */
+	dispose(): void {
+		this.unsubscribe();
+		this.listeners.clear();
 	}
 
 	/** Publish a projection of this form, rebuilt whenever the scope or a draft changes. */
@@ -221,7 +228,11 @@ export class CardForm<T> {
 	}
 
 	private stage(field: string, edit: StagedEdit): void {
-		this.staged.set(field, edit);
+		// A draft that already equals the effective value is not a pending edit: the
+		// plan skips it, so keeping it would pin the control to stale text that the
+		// user can neither save nor discard when the value changes elsewhere.
+		if (!edit.clear && edit.text === this.specOf(field).format(this.sectionValue(field))) this.staged.delete(field);
+		else this.staged.set(field, edit);
 		this.failed = false;
 		this.publish();
 	}

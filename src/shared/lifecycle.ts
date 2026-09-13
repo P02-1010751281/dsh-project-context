@@ -36,7 +36,12 @@ export function waitBounded(promise: Promise<void>): Promise<void> {
 export class SerialQueue {
 	private tail: Promise<void> = Promise.resolve();
 
-	run(work: () => Promise<void>): Promise<void> {
+	/**
+	 * Run one task after the previous one settles.
+	 * @param work - the task; its value or rejection reaches this caller only.
+	 * @returns the task's own promise, so callers can read what it produced.
+	 */
+	run<T>(work: () => Promise<T>): Promise<T> {
 		const next = this.tail.then(work);
 		this.tail = next.then(
 			() => undefined,
@@ -50,9 +55,10 @@ export class SerialQueue {
 export class SessionWorkTracker {
 	private readonly pending = new Map<string, Promise<void>>();
 
-	track(session: Session, work: Promise<void>): void {
+	/** @param work - in-flight work; its value is ignored, only its settlement matters. */
+	track(session: Session, work: Promise<unknown>): void {
 		const key = String(session.id);
-		const tracked = work.catch(() => undefined);
+		const tracked = work.then(() => undefined, () => undefined);
 		this.pending.set(key, tracked);
 		void tracked.finally(() => {
 			if (this.pending.get(key) === tracked) this.pending.delete(key);

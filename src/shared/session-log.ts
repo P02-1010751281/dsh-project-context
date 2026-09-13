@@ -8,7 +8,7 @@
  * log, so a long session does not rewrite itself on every turn.
  */
 
-import { appendFile } from "node:fs/promises";
+import { appendFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import {
@@ -101,7 +101,54 @@ function markdownHeader(header: SessionFileHeader): string {
 /** JSONL lines and Markdown sections already persisted per session. */
 const persistedEvents = new Map<string, number>();
 const renderedEvents = new Map<string, number>();
+/** Identity of an artifact right after this process wrote it. */
+interface ArtifactStamp {
+	/** Byte length. */
+	readonly size: number;
+	/** Inode, which changes when the file is replaced rather than rewritten. */
+	readonly ino: number;
+	/** Modification time, which changes on any external write. */
+	readonly mtimeMs: number;
+}
+
+/**
+ * Stamp each artifact had after this process wrote it. An append is only safe
+ * while the file on disk is still exactly what this process left there:
+ * `scripts/import-archives.mjs --replace` (or any external rewrite) of a live
+ * session's JSONL would otherwise make the next append concatenate onto a file
+ * that no longer holds the prefix the cursor assumes.
+ */
+const persistedStamps = new Map<string, ArtifactStamp>();
+const renderedStamps = new Map<string, ArtifactStamp>();
 const logsIgnored = new Set<string>();
+
+/**
+ * Stamp one artifact as this process just wrote it.
+ * @param file - artifact path.
+ * @returns the stamp, or `undefined` when the file cannot be stat'ed.
+ */
+async function stampOf(file: string): Promise<ArtifactStamp | undefined> {
+	try {
+		const info = await stat(file);
+		return { size: info.size, ino: info.ino, mtimeMs: info.mtimeMs };
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Whether this file is still the artifact the cursor was recorded against.
+ * Size alone would accept a same-length external rewrite, so inode and mtime
+ * are part of the identity too.
+ * @param file - artifact path.
+ * @param expected - stamp recorded after the last write, if any.
+ * @returns true when an append may extend the existing file.
+ */
+async function appendableAt(file: string, expected: ArtifactStamp | undefined): Promise<boolean> {
+	if (expected === undefined) return false;
+	const current = await stampOf(file);
+	return current !== undefined && current.size === expected.size && current.ino === expected.ino && current.mtimeMs === expected.mtimeMs;
+}
 
 /** Keep local transcripts out of version control without touching project ignore files. */
 export async function ensureLogsIgnored(projectRoot: string): Promise<void> {
@@ -130,25 +177,43 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 	const rawPath = path.join(dir, "session.jsonl");
 
 	const persisted = persistedEvents.get(key);
-	if (persisted !== undefined && persisted > 0 && persisted <= events.length && await pathExists(rawPath)) {
-		const lines = events.slice(persisted).map((entry) => JSON.stringify(entry));
-		if (lines.length > 0) await appendFile(rawPath, `${lines.join("\n")}\n`, "utf8");
+	if (persisted !== undefined && persisted > 0 && persisted <= events.length && await appendableAt(rawPath, persistedStamps.get(key))) {
+		const fresh = events.slice(persisted).map((entry) => JSON.stringify(entry));
+		// A flush that adds no event must write nothing: an empty payload would
+		// append a bare newline on every call and grow the canonical log forever.
+		if (fresh.length > 0) {
+			await appendFile(rawPath, `${fresh.join("\n")}\n`, "utf8");
+			const stamp = await stampOf(rawPath);
+			if (stamp !== undefined) persistedStamps.set(key, stamp);
+		}
 	} else {
-		const lines = [JSON.stringify(header), ...events.map((entry) => JSON.stringify(entry))];
-		await writeAtomic(rawPath, `${lines.join("\n")}\n`);
+		// No cursor, a shorter event list, or a file this process no longer owns
+		// (deleted, truncated, or rewritten by an external tool): rebuild it.
+		const text = `${[JSON.stringify(header), ...events.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
+		await writeAtomic(rawPath, text);
+		const stamp = await stampOf(rawPath);
+		if (stamp !== undefined) persistedStamps.set(key, stamp);
 	}
 	persistedEvents.set(key, events.length);
 
 	if (options.markdown ?? true) {
 		const markdownPath = path.join(dir, "session.md");
 		const rendered = renderedEvents.get(key);
-		if (rendered !== undefined && rendered > 0 && rendered <= events.length && await pathExists(markdownPath)) {
+		if (rendered !== undefined && rendered > 0 && rendered <= events.length && await appendableAt(markdownPath, renderedStamps.get(key))) {
+			// Same rule as the JSONL: no new sections means no write at all.
 			const sections = markdownSections(events.slice(rendered), rendered);
-			if (sections.length > 0) await appendFile(markdownPath, `\n${sections}`, "utf8");
+			if (sections.length > 0) {
+				await appendFile(markdownPath, `\n${sections}`, "utf8");
+				const stamp = await stampOf(markdownPath);
+				if (stamp !== undefined) renderedStamps.set(key, stamp);
+			}
 		} else {
 			// Sections already end with a newline; keep exactly one at EOF so the
 			// append path leaves a single blank line between flushes.
-			await writeAtomic(markdownPath, renderSessionMarkdown(header, events));
+			const text = renderSessionMarkdown(header, events);
+			await writeAtomic(markdownPath, text);
+			const stamp = await stampOf(markdownPath);
+			if (stamp !== undefined) renderedStamps.set(key, stamp);
 		}
 		renderedEvents.set(key, events.length);
 		// The index is mechanical: one line per session, refreshed when the title changes.
@@ -183,6 +248,8 @@ export function releaseSessionQueue(sessionId: string): void {
 	const key = sessionId;
 	persistedEvents.delete(key);
 	renderedEvents.delete(key);
+	persistedStamps.delete(key);
+	renderedStamps.delete(key);
 	const current = writeQueues.get(key);
 	if (!current) return;
 	void current.finally(() => {

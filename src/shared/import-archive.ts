@@ -26,7 +26,6 @@ import path from "node:path";
 import {
 	logsDir,
 	pathExists,
-	readOptional,
 	safeSessionId,
 	writeAtomic,
 } from "./project-state.js";
@@ -299,13 +298,4 @@ export async function importArchiveFiles(files: readonly string[], options: Impo
 	const outcomes: ImportOutcome[] = [];
 	for (const file of files) outcomes.push(await importArchiveFile(file, options));
 	return outcomes;
-}
-
-/** Existing archive ids for a project (the canonical JSONL is the marker). */
-export async function archivedSessionIds(projectRoot: string): Promise<string[]> {
-	const index = await readOptional(path.join(logsDir(projectRoot), "INDEX.md"));
-	return index
-		.split("\n")
-		.map((line) => /^- \[([^\]]+)\]\(/.exec(line.trim())?.[1])
-		.filter((id): id is string => typeof id === "string");
 }

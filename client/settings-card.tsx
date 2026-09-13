@@ -127,6 +127,11 @@ export class ProjectContextSettingsCardController {
 	inject(): ProjectContextSettingsCardFace {
 		return { hooks: { projectContextSettingsCard: this.store }, ...this.form.actions() };
 	}
+
+	/** Release the form's scope subscription; the owning fiber calls this on unload. */
+	dispose(): void {
+		this.form.dispose();
+	}
 }
 
 /** Props the renderer binds for the project-context plugin-configuration card. */

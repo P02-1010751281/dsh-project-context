@@ -43,15 +43,28 @@ interface SnapshotStoreModule {
 	): SnapshotStore<T>;
 }
 
+/** A module can resolve and still be the wrong layout: only the factory export counts. */
+function hasFactory(module: unknown): module is SnapshotStoreModule {
+	return typeof (module as SnapshotStoreModule | null | undefined)?.createSnapshotStore === "function";
+}
+
 function resolveSnapshotStore(): SnapshotStoreModule {
 	// String assembly preserves the lazy try/fallback in the emitted client bundle.
 	const current = ["@deepseek-ai/dsh-client", "-store"].join("");
 	const legacy = ["@deepseek-ai/dsh-client-runtime", "/client"].join("");
-	try {
-		return require(current) as SnapshotStoreModule;
-	} catch {
-		return require(legacy) as SnapshotStoreModule;
+	for (const id of [current, legacy]) {
+		try {
+			const module: unknown = require(id);
+			if (hasFactory(module)) return module;
+		} catch {
+			// Not the layout this shell ships; try the next candidate.
+		}
 	}
+	// Failing here beats passing `undefined` into the card, where it would only
+	// surface much later as "createStore is not a function". The tradeoff is that a
+	// layout mismatch now fails the whole client half, not just the settings card;
+	// a silent `undefined` would fail activation for the card anyway.
+	throw new Error("dsh-project-context: neither client store module exposes createSnapshotStore");
 }
 
 export const { createSnapshotStore } = resolveSnapshotStore();

@@ -15,7 +15,8 @@ import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 // Type-only: pulls the `settings.plugin.item` SlotMap merge.
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 import { createSnapshotStore } from "./dsh-store-compat.ts";
-import { watchHandoffSwitch } from "./handoff-nav.ts";
+// Shared with the host half so the switch logic is unit-testable without a browser.
+import { watchHandoffSwitch } from "../src/shared/handoff-watch.ts";
 import { en, zh, type SettingsCardKey } from "./locales.ts";
 import {
 	ProjectContextSettingsCard,
@@ -45,6 +46,9 @@ export function apply(ctx: ClientContext): void {
 
 	const scope = ctx.settingsScope.bind<ProjectContextSettings>({ namespace: NS });
 	const controller = new ProjectContextSettingsCardController(scope, createSnapshotStore);
+	// The controller subscribes to the settings scope in its constructor; that
+	// subscription belongs to this fiber, so a reload must not leak it.
+	ctx.effect(() => () => controller.dispose(), "project-context: settings card");
 
 	ctx.slots.inject("settings.plugin.item", () =>
 		ctx.slots.register(

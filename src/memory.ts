@@ -83,14 +83,17 @@ interface ConsolidateOptions {
 	signal?: AbortSignal | undefined;
 }
 
+/** What one consolidation attempt did, so the `/context-update` reply can be truthful. */
+export type ConsolidateReport = "updated" | "unchanged" | "deduped" | "failed";
+
 /** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
-function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<void> {
-	return updates.run(async () => {
+function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<ConsolidateReport> {
+	return updates.run(async (): Promise<ConsolidateReport> => {
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
 		try {
 			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
-			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return;
+			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return "deduped";
 
 			const memoryText = outcome.result.memory.trim();
 			const memoryChanged = memoryText.length >= 40;
@@ -105,9 +108,11 @@ function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, op
 			if (!options.silent && (memoryChanged || update !== undefined)) {
 				ctx.logger.info(`dsh-project-context: project memory and context updated: ${memoryFile(projectRoot)}`);
 			}
+			return memoryChanged || update !== undefined ? "updated" : "unchanged";
 		} catch (error) {
 			await logError(projectRoot, "memory", error);
 			if (!options.silent) ctx.logger.warn(`dsh-project-context: project memory update failed: ${error instanceof Error ? error.message : String(error)}`);
+			return "failed";
 		}
 	});
 }
@@ -190,8 +195,22 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		name: "context-update",
 		description: "Consolidate project memory and context for the current session",
 		handler: async ({ agent, signal }) => {
-			await consolidateProject(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
-			return { kind: "success", text: "Project memory and context updated." };
+			const report = await consolidateProject(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
+			return contextUpdateReply(report);
 		},
 	});
+}
+
+/**
+ * The `/context-update` reply for one pass result. The pass swallows its own
+ * error (it is also logged to `errors.log`), so the reply must not claim success
+ * for a failure or for a deduped no-op. Exported for tests.
+ * @param report - what the consolidation attempt did.
+ * @returns the command result.
+ */
+export function contextUpdateReply(report: ConsolidateReport): { kind: "success" | "error"; text: string } {
+	if (report === "failed") return { kind: "error", text: "Project memory update failed; see .agents/memory/errors.log." };
+	if (report === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
+	if (report === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
+	return { kind: "success", text: "Project memory and context updated." };
 }
