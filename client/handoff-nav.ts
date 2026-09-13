@@ -6,10 +6,15 @@
  * watcher opens it — the client mirror of pi's auto-handoff session switch.
  * Titles arrive through the session title projection, so the watcher rechecks
  * newly listed sessions on every list update until the projection lands.
+ *
+ * The switch is deferred while the active session's composer holds input the
+ * user has not surrendered yet (a non-empty draft or a submission in flight),
+ * because opening a session moves where the next send lands. A later list
+ * update retries the switch once that composer settles.
  */
 
 import type { Context as ClientContext } from "@deepseek-ai/cordis";
-import { HANDOFF_TITLE_PREFIX } from "../src/shared/handoff-marker.ts";
+import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred } from "../src/shared/handoff-marker.ts";
 
 interface SnapshotFace {
 	getSnapshot(): unknown;
@@ -28,6 +33,21 @@ interface HandoffSessions {
 	open(id: unknown): void;
 }
 
+interface HandoffConversation {
+	readonly input: { shell(id: unknown): { readonly state: SnapshotFace } };
+}
+
+/** Read the active session's input snapshot; an absent facade never blocks a switch. */
+function inputSnapshot(conversation: HandoffConversation | undefined, id: string): { readonly draft: string; readonly phase: string } | undefined {
+	if (conversation === undefined) return undefined;
+	try {
+		const state = conversation.input.shell(id).state.getSnapshot();
+		return typeof state === "object" && state !== null ? (state as { readonly draft: string; readonly phase: string }) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Watch for freshly listed sessions carrying the handoff title and open them.
  * @param ctx - client context carrying the sessions service.
@@ -36,6 +56,7 @@ interface HandoffSessions {
 export function watchHandoffSwitch(ctx: ClientContext): () => void {
 	const sessions = ctx.get("sessions") as HandoffSessions | undefined;
 	if (sessions === undefined) return () => undefined;
+	const conversation = ctx.get("conversation") as HandoffConversation | undefined;
 
 	/** Sessions present before this plugin loaded never trigger a switch. */
 	const seen = new Set<string>();
@@ -68,6 +89,9 @@ export function watchHandoffSwitch(ctx: ClientContext): () => void {
 				seen.add(key);
 				continue;
 			}
+			// The composer owns the active session: switching now would send whatever
+			// the user is typing (or submitting) into the fresh session instead.
+			if (current !== undefined && handoffSwitchDeferred(inputSnapshot(conversation, current))) return;
 			try {
 				sessions.open(id);
 				seen.add(key);

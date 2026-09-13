@@ -15,6 +15,7 @@ import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/shared/context-doc.js";
 import { conversationSplit, parseConsolidation } from "../lib/shared/learn.js";
 import { parseAutolearn } from "../lib/shared/autolearn.js";
+import { handoffSwitchDeferred } from "../lib/shared/handoff-marker.js";
 import { archivedConversationText } from "../lib/shared/archive.js";
 import { parseSessionIndex, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
 import { safeSessionId, validSkillName } from "../lib/shared/project-state.js";
@@ -260,6 +261,15 @@ test("the handoff child survives a missing or failing workspace registry", async
 
 	assert.deepEqual(requests, [{ cwd: "/project" }, { cwd: "/project" }, {}]);
 	assert.equal(warnings.length, 1, "a failing lookup warns without failing the handoff");
+});
+
+test("a dirty or in-flight composer defers the auto handoff switch", () => {
+	assert.equal(handoffSwitchDeferred(undefined), false, "an absent facade never blocks the switch");
+	assert.equal(handoffSwitchDeferred({ draft: "", phase: "plain" }), false);
+	assert.equal(handoffSwitchDeferred({ draft: "   ", phase: "plain" }), false);
+	assert.equal(handoffSwitchDeferred({ draft: "/caveman-help", phase: "plain" }), true);
+	assert.equal(handoffSwitchDeferred({ draft: "", phase: "submitting" }), true);
+	assert.equal(handoffSwitchDeferred({ draft: "text", phase: "claimed" }), true);
 });
 
 test("no source file appends a custom session event (dsh refuses to load such logs)", async () => {
