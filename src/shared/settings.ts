@@ -37,11 +37,24 @@ export const PluginSettingsSchema = z.object({
 
 let installed = false;
 let source: (() => PluginConfig) | undefined;
+/** Identifies the installation that owns the guard, so a stale fiber cannot release it. */
+let generation = 0;
 
-/** Attach the shared namespace once per process, with the entry config as the base layer. */
+/** Attach the shared namespace once per loaded plugin, with the entry config as the base layer. */
 export function installProjectContextSettings(ctx: Context, entry: PluginConfig): void {
 	if (installed) return;
 	installed = true;
+	// The guard is released with the owning fiber. Were it process-global, a reload
+	// would find `installed` already true, never re-register the namespace, and the
+	// settings card plus the user layer would stay gone for the rest of the process.
+	const token = ++generation;
+	ctx.effect(() => () => {
+		// An update can build the new fiber before the old one is disposed; only the
+		// installation that still owns the guard may release it.
+		if (generation !== token) return;
+		installed = false;
+		source = undefined;
+	}, "project-context: settings namespace");
 	ctx.inject(["settings"], (settingsCtx) => {
 		settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, PluginSettingsSchema, entry, {
 			setSource: (current) => {

@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,7 +18,8 @@ import { parseAutolearn } from "../lib/shared/autolearn.js";
 import { handoffSwitchDeferred } from "../lib/shared/handoff-marker.js";
 import { archivedConversationText } from "../lib/shared/archive.js";
 import { parseSessionIndex, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
-import { safeSessionId, validSkillName } from "../lib/shared/project-state.js";
+import { migrateProjectState, safeSessionId, validSkillName } from "../lib/shared/project-state.js";
+import { installProjectContextSettings } from "../lib/shared/settings.js";
 
 function message(role, text) {
 	return { role, source: { kind: role }, content: [{ type: "text", text }] };
@@ -292,6 +293,49 @@ test("archivedConversationText skips JSONL lines that are not event objects", ()
 	];
 	const text = archivedConversationText(`${lines.join("\n")}\n`, 10_000);
 	assert.match(text, /## user\nkept/);
+});
+
+test("a legacy path whose type conflicts with the new layout is left in place", async () => {
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-migrate-conflict-"));
+	const memory = path.join(project, ".agents", "memory");
+	await mkdir(path.join(memory, "session-logs"), { recursive: true });
+	await writeFile(path.join(memory, "MEMORY.md"), "# New memory\n");
+	// Legacy mirror image: MEMORY.md is a directory, session-logs is a file.
+	await mkdir(path.join(project, ".pi", "MEMORY.md", "nested"), { recursive: true });
+	await writeFile(path.join(project, ".pi", "MEMORY.md", "nested", "old.md"), "old\n");
+	await writeFile(path.join(project, ".pi", "session-logs"), "legacy file\n");
+
+	// Neither side may be deleted to "resolve" the conflict, and `cp` must not throw.
+	const result = await migrateProjectState(project);
+
+	assert.deepEqual(result.conflicts.sort(), [".agents/memory/MEMORY.md", ".agents/memory/session-logs"]);
+	assert.equal(result.moved.length, 0);
+	assert.equal(await readFile(path.join(memory, "MEMORY.md"), "utf8"), "# New memory\n");
+	assert.equal(await readFile(path.join(project, ".pi", "MEMORY.md", "nested", "old.md"), "utf8"), "old\n");
+	assert.equal(await readFile(path.join(project, ".pi", "session-logs"), "utf8"), "legacy file\n");
+});
+
+test("the shared settings namespace is installable again after a plugin reload", () => {
+	let installs = 0;
+	const cleanups = [];
+	const fakeContext = () => ({
+		inject: (_deps, callback) => callback({ settings: { installSection: () => { installs += 1; } } }),
+		effect: (callback) => { cleanups.push(callback()); },
+	});
+
+	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
+	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
+	assert.equal(installs, 1, "one loaded plugin installs the shared namespace once");
+
+	cleanups[0](); // the owning fiber unloads
+	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
+	assert.equal(installs, 2, "a reload re-registers the namespace instead of silently skipping it");
+
+	// An update can dispose the old fiber after the new one installed: that stale
+	// cleanup must not release the live installation's guard.
+	cleanups[0]();
+	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
+	assert.equal(installs, 2, "a stale fiber must not release a newer installation");
 });
 
 test("a dirty or in-flight composer defers the auto handoff switch", () => {

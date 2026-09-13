@@ -213,35 +213,47 @@ async function movePath(source: string, destination: string): Promise<void> {
 	}
 }
 
-/** Merge legacy artifacts into the new location; newest content wins, then the legacy path is removed. */
-async function mergePath(source: string, destination: string): Promise<boolean> {
-	if (!await pathExists(source)) return false;
+/**
+ * Merge one legacy artifact into the new location; newest content wins, then the
+ * legacy path is removed.
+ *
+ * A file/directory type conflict cannot be merged automatically. Deleting the
+ * legacy side would destroy the user's data, and `cp` would throw
+ * `ERR_FS_CP_NON_DIR_TO_DIR` and abort the whole migration, so both sides stay
+ * where they are and the caller reports the conflict.
+ *
+ * @param source - the legacy path to consume.
+ * @param destination - the new location.
+ * @returns `absent` when there is nothing to move, `conflict` when the two paths
+ *   have incompatible types, `merged` when the source was consumed.
+ */
+async function mergePath(source: string, destination: string): Promise<"merged" | "absent" | "conflict"> {
+	if (!await pathExists(source)) return "absent";
 	if (!await pathExists(destination)) {
 		await movePath(source, destination);
-		return true;
+		return "merged";
 	}
 
 	const sourceStat = await stat(source);
 	const destinationStat = await stat(destination);
 	if (sourceStat.isDirectory() && destinationStat.isDirectory()) {
+		let conflicted = false;
 		for (const entry of await readdir(source, { withFileTypes: true })) {
-			await mergePath(path.join(source, entry.name), path.join(destination, entry.name));
+			if (await mergePath(path.join(source, entry.name), path.join(destination, entry.name)) === "conflict") conflicted = true;
 		}
+		// Keep the source directory when it still holds an unmergeable child.
+		if (conflicted) return "conflict";
 		await rm(source, { recursive: true, force: true });
-		return true;
+		return "merged";
 	}
 
-	if (sourceStat.isDirectory()) {
-		// Directory vs file conflict cannot be merged automatically; keep the new location.
-		await rm(source, { recursive: true, force: true });
-		return true;
-	}
+	if (sourceStat.isDirectory() || destinationStat.isDirectory()) return "conflict";
 
 	if (sourceStat.mtimeMs > destinationStat.mtimeMs) {
 		await cp(source, destination, { force: true });
 	}
 	await rm(source, { force: true });
-	return true;
+	return "merged";
 }
 
 /** Remove leftover `<name>.<pid>.tmp` files from interrupted atomic writes. */
@@ -301,11 +313,14 @@ export type MigrationResult = {
 	moved: string[];
 	importedSkills: number;
 	importedMemory: boolean;
+	/** Destination paths whose legacy counterpart could not be merged and was left in place. */
+	conflicts: string[];
 };
 
 /** Consolidate legacy memory, context, logs and skills into the `.agents/` layout. */
 export async function migrateProjectState(projectRoot: string): Promise<MigrationResult> {
 	const moved: string[] = [];
+	const conflicts: string[] = [];
 	const legacyPi = legacyPiDir(projectRoot);
 	const moves: Array<[string, string]> = [
 		[path.join(legacyPi, "MEMORY.md"), memoryFile(projectRoot)],
@@ -313,7 +328,10 @@ export async function migrateProjectState(projectRoot: string): Promise<Migratio
 		[path.join(legacyPi, SESSION_LOGS_SUBDIR), logsDir(projectRoot)],
 	];
 	for (const [source, destination] of moves) {
-		if (await mergePath(source, destination)) moved.push(path.relative(projectRoot, destination) || destination);
+		const label = path.relative(projectRoot, destination) || destination;
+		const outcome = await mergePath(source, destination);
+		if (outcome === "merged") moved.push(label);
+		if (outcome === "conflict") conflicts.push(label);
 	}
 
 	const importedSkills =
@@ -338,7 +356,7 @@ export async function migrateProjectState(projectRoot: string): Promise<Migratio
 	// Drop the legacy directory when migration emptied it.
 	await rmdir(legacyPi).catch(() => undefined);
 
-	return { moved, importedSkills, importedMemory };
+	return { moved, importedSkills, importedMemory, conflicts };
 }
 
 export async function loadMemory(projectRoot: string): Promise<{ text: string; source: string }> {

@@ -383,10 +383,13 @@ async function performHandoff(
 	).trim();
 	if (summary.length === 0) throw new Error("the handoff summary came back empty");
 
-	const archive = {
-		log: path.relative(projectRoot, path.join(logsDir(projectRoot), safeSessionId(String(session.id)), "session.md")),
-		index: path.relative(projectRoot, sessionIndexFile(projectRoot)),
-	};
+	const logFile = path.join(logsDir(projectRoot), safeSessionId(String(session.id)), "session.md");
+	const indexFile = sessionIndexFile(projectRoot);
+	// The document lives in the repository, so it points at it relatively; the child
+	// session's cwd can be a subdirectory of the project root, so the first message
+	// carries absolute paths that resolve from anywhere.
+	const archive = { log: path.relative(projectRoot, logFile), index: path.relative(projectRoot, indexFile) };
+	const pointers = { log: logFile, index: indexFile };
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
 	await writeAtomic(file, renderHandoff(session, summary, archive));
 
@@ -404,7 +407,7 @@ async function performHandoff(
 				requestId: randomUUID(),
 				sessionId: childId,
 				mode: "queue",
-				content: [{ type: "text", text: continuation(String(session.id), summary, tail, archive) }],
+				content: [{ type: "text", text: continuation(String(session.id), summary, tail, pointers) }],
 			},
 			promptSignal,
 		);

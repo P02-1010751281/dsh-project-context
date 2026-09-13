@@ -132,18 +132,28 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.on("agent/session-start", ({ agent }) => {
 		void (async () => {
-			const projectRoot = await getProjectRoot(projectCwd(agent.session));
-			if (migrated.has(projectRoot)) return;
-			migrated.add(projectRoot);
-			const result = await migrateProjectState(projectRoot);
-			const details: string[] = [];
-			if (result.moved.length > 0) details.push(`moved ${result.moved.join(", ")}`);
-			if (result.importedSkills > 0) details.push(`imported ${result.importedSkills} skill${result.importedSkills === 1 ? "" : "s"}`);
-			if (result.importedMemory) details.push("imported legacy OMP memory");
-			if (details.length > 0) ctx.logger.info(`dsh-project-context: project memory in ${memoryDir(projectRoot)}: ${details.join("; ")}`);
-		})().catch((error: unknown) => {
-			void logError(projectCwd(agent.session), "migration", error);
-		});
+			let projectRoot: string | undefined;
+			try {
+				projectRoot = await getProjectRoot(projectCwd(agent.session));
+				if (migrated.has(projectRoot)) return;
+				const result = await migrateProjectState(projectRoot);
+				// Marked only after a completed attempt: a failed migration must be
+				// retried by the next session start, not written off for the process.
+				migrated.add(projectRoot);
+				const details: string[] = [];
+				if (result.moved.length > 0) details.push(`moved ${result.moved.join(", ")}`);
+				if (result.importedSkills > 0) details.push(`imported ${result.importedSkills} skill${result.importedSkills === 1 ? "" : "s"}`);
+				if (result.importedMemory) details.push("imported legacy OMP memory");
+				if (details.length > 0) ctx.logger.info(`dsh-project-context: project memory in ${memoryDir(projectRoot)}: ${details.join("; ")}`);
+				if (result.conflicts.length > 0) {
+					ctx.logger.warn(`dsh-project-context: legacy layout left in place (file/directory type conflict, merge it by hand): ${result.conflicts.join(", ")}`);
+				}
+			} catch (error: unknown) {
+				// The project root is where diagnostics belong; the cwd is only the
+				// fallback when the root itself could not be resolved.
+				await logError(projectRoot ?? projectCwd(agent.session), "migration", error);
+			}
+		})();
 	});
 
 	ctx.on("agent/status", ({ agent, status }) => {
