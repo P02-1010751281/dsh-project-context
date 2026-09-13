@@ -46,7 +46,7 @@ export { HANDOFF_TITLE_PREFIX };
 
 /** Structural view of the web/API session runtime; the service is optional per profile. */
 interface SessionControllerLike {
-	create(request: { cwd?: string; workspaceId?: string }): Promise<{ sessionId: string }>;
+	create(request: { cwd?: string; workspaceId?: string; agentPreset?: string }): Promise<{ sessionId: string }>;
 	rename?(request: { sessionId: string; title: string }): Promise<unknown>;
 	prompt(
 		request: {
@@ -339,19 +339,25 @@ async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promis
  * @param ctx - plugin context carrying the optional workspace registry service.
  * @param controller - the session controller that creates the child.
  * @param cwd - the parent session's cwd, when it has one.
+ * @param agentPreset - the parent's agent preset, when dsh composed this session
+ *   from one. The preset decides the session's tools and prompt, so dropping it
+ *   would resume the work under the deployment default instead.
  * @returns the created child session id.
  */
 export async function createChildSession(
 	ctx: Context,
 	controller: SessionControllerLike,
 	cwd: string | undefined,
+	agentPreset?: string,
 ): Promise<string> {
+	// `agentPreset` is orthogonal to cwd/workspaceId, so it rides along in both branches.
+	const preset = agentPreset === undefined ? {} : { agentPreset };
 	const workspaceId = await resolveWorkspaceId(ctx, cwd);
 	if (workspaceId !== undefined) {
-		const attached = await controller.create({ workspaceId });
+		const attached = await controller.create({ workspaceId, ...preset });
 		return String(attached.sessionId);
 	}
-	const created = await controller.create(cwd === undefined ? {} : { cwd });
+	const created = await controller.create(cwd === undefined ? preset : { cwd, ...preset });
 	return String(created.sessionId);
 }
 
@@ -384,7 +390,36 @@ async function performHandoff(
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
 	await writeAtomic(file, renderHandoff(session, summary, archive));
 
-	const childId = await createChildSession(ctx, controller, session.header.cwd);
+	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
+	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
+
+	// Admit the seed prompt before publishing the switch marker. The title prefix
+	// IS the browser half's switch signal, so a handoff that fails here would
+	// otherwise leave the user switched into an empty child while the parent stays
+	// unmarked — and the retry after the failure backoff would create a second one.
+	const promptSignal = signal ?? new AbortController().signal;
+	try {
+		await controller.prompt(
+			{
+				requestId: randomUUID(),
+				sessionId: childId,
+				mode: "queue",
+				content: [{ type: "text", text: continuation(String(session.id), summary, tail, archive) }],
+			},
+			promptSignal,
+		);
+	} catch (error: unknown) {
+		// Best effort: strip the switch marker from the child we could not seed so
+		// the browser half does not open an empty session.
+		if (controller.rename) {
+			try {
+				await controller.rename({ sessionId: childId, title: `handoff failed · ${parentLabel}` });
+			} catch {
+				// The child stays unmarked only in the list; nothing else to do.
+			}
+		}
+		throw error;
+	}
 
 	// The title is the browser half's switch signal: it is stable, projected to
 	// the client list, and survives history replay (unlike a live-only event).
@@ -392,23 +427,12 @@ async function performHandoff(
 		try {
 			await controller.rename({
 				sessionId: childId,
-				title: `${HANDOFF_TITLE_PREFIX}${String(session.id).replace(/^session-/, "").slice(0, 8)}`,
+				title: `${HANDOFF_TITLE_PREFIX}${parentLabel}`,
 			});
 		} catch (error: unknown) {
 			ctx.logger.warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));
 		}
 	}
-
-	const promptSignal = signal ?? new AbortController().signal;
-	await controller.prompt(
-		{
-			requestId: randomUUID(),
-			sessionId: childId,
-			mode: "queue",
-			content: [{ type: "text", text: continuation(String(session.id), summary, tail, archive) }],
-		},
-		promptSignal,
-	);
 
 	// Nothing is appended to the parent's log. `project-context/handoff` is a
 	// downstream type, so dsh's persistence read path would refuse to load the
@@ -594,6 +618,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.on("session/disposed", (session) => {
 		const key = String(session.id);
+		// A disposed session can never be handed off again, so its markers must not
+		// accumulate for the lifetime of the process.
+		handedOff.delete(key);
 		pressureCheckedAt.delete(key);
 		failedUntil.delete(key);
 	});

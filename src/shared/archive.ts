@@ -25,12 +25,17 @@ export function archivedConversationText(jsonl: string, limit: number): string {
 	const sections: string[] = [];
 	for (const line of jsonl.split("\n")) {
 		if (!line.trim()) continue;
-		let entry: ArchivedEntry;
+		let parsed: unknown;
 		try {
-			entry = JSON.parse(line) as ArchivedEntry;
+			parsed = JSON.parse(line);
 		} catch {
 			continue;
 		}
+
+		// A JSONL line can parse to `null`/an array/scalar; only an event object
+		// carries a `type`, and one bad line must not fail the whole backtrack.
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+		const entry = parsed as ArchivedEntry;
 
 		if (entry.type === "user/message") {
 			const data = entry.data as { source?: { kind?: unknown }; content?: unknown } | undefined;

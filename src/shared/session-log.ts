@@ -53,8 +53,22 @@ function fileHeader(session: Session): SessionFileHeader {
 
 type SessionEntry = ReturnType<Session["snapshotEvents"]>[number];
 
+/**
+ * Render one entry's `time` for display. The value is cosmetic, so an unusable
+ * timestamp (absent, zero, or outside the `Date` range — e.g. a corrupt archive
+ * line) must degrade to a label instead of aborting the whole render with
+ * `RangeError: Invalid time value`.
+ * @param time - the entry's timestamp as stored.
+ * @returns an ISO string, or `unknown time`.
+ */
+function displayTime(time: number | undefined): string {
+	if (time === undefined || time === 0) return "unknown time";
+	const renderable = Number.isFinite(time) && Math.abs(time) <= 8.64e15;
+	return renderable ? new Date(time).toISOString() : "unknown time";
+}
+
 function markdownSection(entry: SessionEntry, index: number): string {
-	const timestamp = entry.time ? new Date(entry.time).toISOString() : "unknown time";
+	const timestamp = displayTime(entry.time);
 	return `### ${index + 1}. ${entry.type} — ${timestamp}\n\n~~~~json\n${JSON.stringify(entry, null, 2)}\n~~~~\n`;
 }
 

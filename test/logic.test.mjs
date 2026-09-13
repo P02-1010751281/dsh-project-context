@@ -263,6 +263,37 @@ test("the handoff child survives a missing or failing workspace registry", async
 	assert.equal(warnings.length, 1, "a failing lookup warns without failing the handoff");
 });
 
+test("the handoff child keeps the parent's agent preset", async () => {
+	// Without the preset the child is composed from the deployment default, so a
+	// handoff from a custom-preset session would resume with different tools.
+	const requests = [];
+	const { ctx } = handoffContext({ resolveByPath: async () => ({ id: "ws-1" }) });
+
+	await createChildSession(ctx, recordingController(requests), "/project", "anchored-standard");
+	await createChildSession({ get: () => undefined, logger: { warn() {} } }, recordingController(requests), "/project", "anchored-standard");
+	await createChildSession({ get: () => undefined, logger: { warn() {} } }, recordingController(requests), undefined);
+
+	assert.deepEqual(requests, [
+		{ workspaceId: "ws-1", agentPreset: "anchored-standard" },
+		{ cwd: "/project", agentPreset: "anchored-standard" },
+		{}, // a session without a preset keeps the previous create shape
+	]);
+});
+
+test("archivedConversationText skips JSONL lines that are not event objects", () => {
+	// `null`, arrays and scalars all parse as valid JSON; one such line used to
+	// throw and fail the whole autolearn backtrack pass.
+	const lines = [
+		"null",
+		"[1,2]",
+		'"text"',
+		"42",
+		JSON.stringify({ type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "kept" }] } }),
+	];
+	const text = archivedConversationText(`${lines.join("\n")}\n`, 10_000);
+	assert.match(text, /## user\nkept/);
+});
+
 test("a dirty or in-flight composer defers the auto handoff switch", () => {
 	assert.equal(handoffSwitchDeferred(undefined), false, "an absent facade never blocks the switch");
 	assert.equal(handoffSwitchDeferred({ draft: "", phase: "plain" }), false);

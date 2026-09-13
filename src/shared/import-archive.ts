@@ -13,6 +13,11 @@
  *
  * Idempotent: an already-imported session is skipped unless `replace` is set,
  * so re-running over a growing archive directory is safe.
+ *
+ * A session counts as imported only once **every** artifact it should have is on
+ * disk (`session.jsonl`, plus `session.md` when Markdown is enabled). The
+ * canonical JSONL is written last, so an interrupted import is retried instead
+ * of being reported as an existing archive that no later pass can repair.
  */
 
 import { readFile } from "node:fs/promises";
@@ -89,18 +94,39 @@ export function parseSessionJsonl(text: string): ParsedArchive {
 	}
 	const entries: unknown[] = [];
 	for (let index = 1; index < lines.length; index++) {
+		let parsed: unknown;
 		try {
-			entries.push(JSON.parse(lines[index]!));
+			parsed = JSON.parse(lines[index]!);
 		} catch (error) {
 			throw new Error(`event line ${index + 1} is not JSON: ${(error as Error).message}`);
 		}
+		// Every later pass treats an entry as an event object; `null` or an array
+		// line would only fail much deeper, after the archive was half-written.
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+			throw new Error(`event line ${index + 1} is not a JSON object`);
+		}
+		entries.push(parsed);
 	}
 	return {
 		header: header as Record<string, unknown>,
 		id: candidate.id,
-		createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : Date.now(),
+		createdAt: indexTimestamp(candidate.createdAt),
 		entries,
 	};
+}
+
+/** Largest `Date` argument that still renders (`±8.64e15` ms, the ECMAScript limit). */
+const MAX_DATE_MS = 8.64e15;
+
+/**
+ * `createdAt` feeds the index date and the Markdown header only, so a missing or
+ * malformed value must not abort the import: `new Date(1e21).toISOString()`
+ * throws `RangeError: Invalid time value` after the raw JSONL was already written.
+ * @param value - the header's `createdAt` field as parsed.
+ * @returns the timestamp, or the current time when the value is unusable.
+ */
+function indexTimestamp(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= MAX_DATE_MS ? value : Date.now();
 }
 
 /** Minimal header view for the Markdown rendering (display only — the canonical JSONL stays verbatim). */
@@ -117,13 +143,22 @@ function markdownHeaderView(archive: ParsedArchive): SessionFileHeader {
 	};
 }
 
+/** One central-directory row: where the entry's data lives and how it is packed. */
+interface ZipRow {
+	name: string;
+	method: number;
+	compressedSize: number;
+	localOffset: number;
+}
+
 /**
- * Minimal ZIP reader: locate the entry through the central directory (sizes in
- * the local header are zero when the writer used a data descriptor, which dsh's
- * export does), then inflate the entry data. Deflate and stored entries are
- * supported; anything else is rejected with a clear message.
+ * Walk a ZIP's central directory into rows. Sizes in the local header are zero
+ * when the writer used a data descriptor (dsh's export does), so only the
+ * central directory holds the real compressed size.
+ * @param buffer - the whole zip file.
+ * @returns one row per central-directory entry, in archive order.
  */
-export function readZipEntry(buffer: Buffer, entryName: string): Buffer | undefined {
+function listZipRows(buffer: Buffer): ZipRow[] {
 	const EOCD = 0x06054b50;
 	let eocd = -1;
 	for (let index = buffer.length - 22; index >= 0 && index > buffer.length - 22 - 0xffff; index--) {
@@ -132,35 +167,83 @@ export function readZipEntry(buffer: Buffer, entryName: string): Buffer | undefi
 	if (eocd < 0) throw new Error("not a zip archive (no end-of-central-directory record)");
 	const count = buffer.readUInt16LE(eocd + 10);
 	let offset = buffer.readUInt32LE(eocd + 16);
+	const rows: ZipRow[] = [];
 	for (let index = 0; index < count; index++) {
 		if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("damaged zip central directory");
-		const method = buffer.readUInt16LE(offset + 10);
-		const compressedSize = buffer.readUInt32LE(offset + 20);
 		const nameLength = buffer.readUInt16LE(offset + 28);
 		const extraLength = buffer.readUInt16LE(offset + 30);
 		const commentLength = buffer.readUInt16LE(offset + 32);
-		const localOffset = buffer.readUInt32LE(offset + 42);
-		const name = buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
-		if (name === entryName) {
-			const localNameLength = buffer.readUInt16LE(localOffset + 26);
-			const localExtraLength = buffer.readUInt16LE(localOffset + 28);
-			const dataStart = localOffset + 30 + localNameLength + localExtraLength;
-			const data = buffer.subarray(dataStart, dataStart + compressedSize);
-			if (method === 0) return Buffer.from(data);
-			if (method === 8) return inflateRawSync(data);
-			throw new Error(`unsupported zip compression method ${method} for ${name}`);
-		}
+		rows.push({
+			name: buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8"),
+			method: buffer.readUInt16LE(offset + 10),
+			compressedSize: buffer.readUInt32LE(offset + 20),
+			localOffset: buffer.readUInt32LE(offset + 42),
+		});
 		offset += 46 + nameLength + extraLength + commentLength;
 	}
-	return undefined;
+	return rows;
 }
 
-/** Read one archive file (`.zip` holding `session.jsonl`, or a bare `.jsonl`). */
+/** Inflate one row's data. Deflate and stored entries are supported; anything else is rejected. */
+function inflateRow(buffer: Buffer, row: ZipRow): Buffer {
+	const localNameLength = buffer.readUInt16LE(row.localOffset + 26);
+	const localExtraLength = buffer.readUInt16LE(row.localOffset + 28);
+	const dataStart = row.localOffset + 30 + localNameLength + localExtraLength;
+	const data = buffer.subarray(dataStart, dataStart + row.compressedSize);
+	if (row.method === 0) return Buffer.from(data);
+	if (row.method === 8) return inflateRawSync(data);
+	throw new Error(`unsupported zip compression method ${row.method} for ${row.name}`);
+}
+
+/**
+ * Minimal ZIP reader: locate the entry through the central directory, then
+ * inflate the entry data.
+ * @param buffer - the whole zip file.
+ * @param entryName - exact central-directory name to read.
+ * @returns the entry's bytes, or `undefined` when no entry has that name.
+ */
+export function readZipEntry(buffer: Buffer, entryName: string): Buffer | undefined {
+	const row = listZipRows(buffer).find((candidate) => candidate.name === entryName);
+	return row === undefined ? undefined : inflateRow(buffer, row);
+}
+
+/**
+ * Root-level session-log entry names dsh exports use: `session.jsonl` is
+ * generation 0, later format generations are `session.v<N>.jsonl`
+ * (`sessionFormatLogFilename(SESSION_FORMAT_VERSION)`, currently `session.v3.jsonl`).
+ */
+const SESSION_LOG_ENTRY = /^session(?:\.v(\d+))?\.jsonl$/;
+
+/**
+ * Pick the newest session log in a dsh export zip. Only the archive root counts:
+ * `subagents/<id>/session.vN.jsonl` entries belong to delegated children, not to
+ * the exported session itself.
+ * @param buffer - the whole zip file.
+ * @returns the canonical JSONL bytes, or `undefined` when no root session log exists.
+ */
+export function readZipSessionLog(buffer: Buffer): Buffer | undefined {
+	let best: ZipRow | undefined;
+	let bestGeneration = -1;
+	for (const row of listZipRows(buffer)) {
+		if (row.name.includes("/")) continue;
+		const match = SESSION_LOG_ENTRY.exec(row.name);
+		if (match === null) continue;
+		// `session.jsonl` is generation 0; prefer the highest generation present.
+		const generation = match[1] === undefined ? 0 : Number(match[1]);
+		if (generation > bestGeneration) {
+			bestGeneration = generation;
+			best = row;
+		}
+	}
+	return best === undefined ? undefined : inflateRow(buffer, best);
+}
+
+/** Read one archive file (`.zip` holding the exported session log, or a bare `.jsonl`). */
 export async function readArchiveFile(file: string): Promise<string> {
 	const buffer = await readFile(file);
 	if (file.toLowerCase().endsWith(".zip")) {
-		const entry = readZipEntry(buffer, "session.jsonl");
-		if (!entry) throw new Error("zip does not contain session.jsonl");
+		const entry = readZipSessionLog(buffer);
+		if (!entry) throw new Error("zip does not contain a session log at its root (session.jsonl / session.vN.jsonl)");
 		return entry.toString("utf8");
 	}
 	return buffer.toString("utf8");
@@ -170,25 +253,34 @@ export async function readArchiveFile(file: string): Promise<string> {
 export async function importSessionJsonl(text: string, options: ImportOptions): Promise<ImportOutcome> {
 	const archive = parseSessionJsonl(text);
 	const { id, entries } = archive;
-	const dir = path.join(logsDir(options.projectRoot), safeSessionId(id));
+	const safe = safeSessionId(id);
+	const dir = path.join(logsDir(options.projectRoot), safe);
 	const rawPath = path.join(dir, "session.jsonl");
+	const markdownPath = path.join(dir, "session.md");
+	const withMarkdown = options.markdown ?? true;
 	await ensureLogsIgnored(options.projectRoot);
 
-	const exists = await pathExists(rawPath);
+	// Render before writing anything: a rendering failure must not leave a raw
+	// JSONL behind that later runs then report as an already-imported session.
+	const markdown = withMarkdown ? renderSessionMarkdown(markdownHeaderView(archive), entries) : undefined;
+
+	// "Imported" means every artifact is present. Testing the JSONL alone would
+	// treat a half-written import (raw copy present, Markdown/INDEX missing) as
+	// done, and no later pass could ever repair it.
+	const exists = await pathExists(rawPath) && (!withMarkdown || await pathExists(markdownPath));
 	if (exists && !options.replace) return { id, status: "skipped", dir, entries: entries.length };
 
-	// Verbatim copy: the archive is evidence, so the canonical JSONL keeps the
-	// source bytes (headers of older exports carry fields later versions dropped,
-	// e.g. `delegationDepth`); only the trailing newline is normalized to one.
-	await writeAtomic(rawPath, text.endsWith("\n") ? text : `${text}\n`);
-	if (options.markdown ?? true) {
-		await writeAtomic(path.join(dir, "session.md"), renderSessionMarkdown(markdownHeaderView(archive), entries));
-	}
+	if (markdown !== undefined) await writeAtomic(markdownPath, markdown);
 	await queueIndexLine(
 		options.projectRoot,
-		safeSessionId(id),
+		safe,
 		sessionIndexLineFrom(id, archive.createdAt, sessionTitleFromEntries(entries)),
 	);
+	// Verbatim copy, written last so its presence marks a complete import: the
+	// archive is evidence, so the canonical JSONL keeps the source bytes (headers
+	// of older exports carry fields later versions dropped, e.g. `delegationDepth`);
+	// only the trailing newline is normalized to one.
+	await writeAtomic(rawPath, text.endsWith("\n") ? text : `${text}\n`);
 	return { id, status: "created", dir, entries: entries.length };
 }
 
