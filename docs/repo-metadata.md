@@ -47,7 +47,7 @@ llm
 1. 打开 https://github.com/P02-1010751281/dsh-project-context
 2. 右栏 **About** → 齿轮/铅笔图标（Edit repository details）
 3. 粘贴 **Description**；**Topics** 逐个输入后回车；Website 留空
-4. 勾选 **Releases**（已有 tag 如 `v0.1.0`，About 会显示 release 徽标）→ **Save changes**
+4. 勾选 **Releases**（当前仓库暂无 tag；发布出 `v0.1.0` 之后再勾选，About 会显示 release 徽标）→ **Save changes**
 
 ## 命令行（需要 gh 已登录）
 

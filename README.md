@@ -80,7 +80,8 @@ dsh 自身仍把会话存在 `~/.dsh/sessions/…`；`session-logs/` 是项目�
 ## 回填已结束的历史会话（①补，无模型调用）
 
 插件只归档它亲眼看到的会话。安装之前就已结束的会话（例如从别处导出的
-`dsh-session-session-<id>.zip`，dsh 自己的会话导出一个 zip 里就一份 `session.jsonl`）
+`dsh-session-session-<id>.zip`；dsh 自己的导出把本会话日志放在 zip 根，文件名随格式代次变化——
+当前是 `session.v3.jsonl`，只有第 0 代才叫 `session.jsonl`，子代理日志在 `subagents/<id>/` 下，导入时只看根目录并优先取最高代次）
 用回填导入补进同一套布局：`session.jsonl` **逐字节保留原文**（只把结尾规范化成一个换行——旧导出的 header 里有
 后续版本已删除的字段，如 `delegationDepth`，重序列化会悄悄丢字段）、`session.md` 用与实时路径**同一份**渲染器、
 `INDEX.md` 用同一份机械索引写入，因此后续整理/沉淀/交接读到的回填会话与实时归档无法区分。
@@ -116,7 +117,8 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 Settings → Plugins → Plugin configuration → **项目上下文** 卡片（记忆整理 / 技能沉淀 / 自动交接三区，
 共享的辅助模型路由在记忆整理区末尾）；写入 `~/.dsh/settings.yaml` 的 `project-context` 段，
-host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层按 id 覆盖（作为面板的 base 层）。
+host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖：四个插件共享同一个设置命名空间，base 层取
+**先加载的 `project-context` 行**的 `config:`（四行里的第一行），改其余三行的 `config:` 不生效。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
@@ -175,8 +177,13 @@ pnpm build            # host → lib/*.js，客户端 bundle → lib/client.js
 pnpm test             # 先编译再跑 node:test 纯逻辑回归（test/）
 ```
 
-host 侧对 `@deepseek-ai/*` 仅 type-only import；客户端 bundle 只外部化 `react` / `react/jsx-runtime`，
-改动后需刷新页面/重启 `dsh web`。
+host 侧对 `@deepseek-ai/*` 仅 type-only import（唯一的运行时值依赖是 `schemastery`，已声明在 `peerDependencies`）；
+客户端 bundle 的 esbuild 外部化只有 `react` / `react/jsx-runtime`，此外还有一个运行时
+`require("@deepseek-ai/dsh-client-store")`，由 web shell 的平台种子提供。
+
+客户端改动**只有 `pnpm build`（或 `pnpm build:client`）才会进 `lib/client.js`**：`pnpm test` 只编译 host，
+漏跑这一步会让服务端继续分发旧 bundle（浏览器看到的是上一版行为）。重建后运行中的 `dsh web` 会经 client HMR
+自动换版（boot graph 的 `rev` 变化），刷新一次页面即可；改 host 侧则要重启 `dsh web` 才生效。
 
 ## 许可证
 
