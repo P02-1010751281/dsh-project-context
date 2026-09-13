@@ -58,7 +58,7 @@ declare module "@deepseek-ai/dsh-session" {
 
 /** Structural view of the web/API session runtime; the service is optional per profile. */
 interface SessionControllerLike {
-	create(request: { cwd?: string }): Promise<{ sessionId: string }>;
+	create(request: { cwd?: string; workspaceId?: string }): Promise<{ sessionId: string }>;
 	rename?(request: { sessionId: string; title: string }): Promise<unknown>;
 	prompt(
 		request: {
@@ -69,6 +69,14 @@ interface SessionControllerLike {
 		},
 		signal: AbortSignal,
 	): Promise<unknown>;
+}
+
+/**
+ * Structural view of the workspace registry (`ctx.workspaceRegistry`); the service
+ * is optional per profile, and `resolveByPath` canonicalizes like the registry does.
+ */
+interface WorkspaceRegistryLike {
+	resolveByPath(path: string): Promise<{ readonly id: string } | undefined>;
 }
 
 /** Structural view of the token meter; the service is optional per profile. */
@@ -306,6 +314,59 @@ async function summarize(
 	throw lastError;
 }
 
+/**
+ * Resolve the workspace owning `cwd`, or undefined when no registry/none matches.
+ * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param cwd - the parent session's cwd, when it has one.
+ * @returns the owning workspace id, or undefined when the lookup does not apply.
+ */
+async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promise<string | undefined> {
+	if (cwd === undefined) return undefined;
+	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
+	if (typeof registry?.resolveByPath !== "function") return undefined;
+	try {
+		const workspace = await registry.resolveByPath(cwd);
+		return workspace === undefined ? undefined : String(workspace.id);
+	} catch (error: unknown) {
+		ctx.logger.warn(
+			"dsh-project-context: workspace lookup for %s failed: %s",
+			cwd,
+			error instanceof Error ? error.message : String(error),
+		);
+		return undefined;
+	}
+}
+
+/**
+ * Start the handoff child session in the parent's workspace.
+ *
+ * The web client groups sessions by workspace membership, not by cwd: a child
+ * created from `cwd` alone is listed under "未分组" even though its directory is
+ * the project root. `session.create` also takes `workspaceId` (mutually exclusive
+ * with `cwd`), which derives the cwd from the workspace record and attaches the
+ * child to it. Only an exact canonical cwd match counts: the registry resolves by
+ * exact path, and guessing an ancestor would silently move the child's cwd.
+ * Resolution stays best-effort so profiles without a workspace registry keep the
+ * previous cwd-only behavior.
+ * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param controller - the session controller that creates the child.
+ * @param cwd - the parent session's cwd, when it has one.
+ * @returns the created child session id.
+ */
+export async function createChildSession(
+	ctx: Context,
+	controller: SessionControllerLike,
+	cwd: string | undefined,
+): Promise<string> {
+	const workspaceId = await resolveWorkspaceId(ctx, cwd);
+	if (workspaceId !== undefined) {
+		const attached = await controller.create({ workspaceId });
+		return String(attached.sessionId);
+	}
+	const created = await controller.create(cwd === undefined ? {} : { cwd });
+	return String(created.sessionId);
+}
+
 /** Summarize the session, persist the document, start the child session, and mark the parent. */
 async function performHandoff(
 	ctx: Context,
@@ -335,8 +396,7 @@ async function performHandoff(
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
 	await writeAtomic(file, renderHandoff(session, summary, archive));
 
-	const created = await controller.create(session.header.cwd === undefined ? {} : { cwd: session.header.cwd });
-	const childId = String(created.sessionId);
+	const childId = await createChildSession(ctx, controller, session.header.cwd);
 
 	// The title is the browser half's switch signal: it is stable, projected to
 	// the client list, and survives history replay (unlike a live-only event).

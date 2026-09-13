@@ -10,7 +10,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { continuation, parseRatio, parseTokenCount, resolveThreshold } from "../lib/handoff.js";
+import { continuation, createChildSession, parseRatio, parseTokenCount, resolveThreshold } from "../lib/handoff.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/shared/context-doc.js";
 import { conversationSplit, parseConsolidation } from "../lib/shared/learn.js";
@@ -206,4 +206,58 @@ test("session ids and skill names stay filesystem-safe", () => {
 	assert.equal(safeSessionId(""), "ephemeral");
 	assert.equal(validSkillName("my-skill"), true);
 	assert.equal(validSkillName("../evil"), false);
+});
+
+/** A handoff context whose workspace registry is whatever the test passes. */
+function handoffContext(registry) {
+	const warnings = [];
+	return {
+		ctx: {
+			get: (name) => (name === "workspaceRegistry" ? registry : undefined),
+			logger: { warn: (...args) => warnings.push(args) },
+		},
+		warnings,
+	};
+}
+
+/** A session controller that records every create request. */
+function recordingController(requests) {
+	return {
+		create: async (request) => {
+			requests.push(request);
+			return { sessionId: "session-child" };
+		},
+	};
+}
+
+test("the handoff child is created inside the parent's workspace", async () => {
+	const requests = [];
+	const { ctx } = handoffContext({ resolveByPath: async (cwd) => (cwd === "/project" ? { id: "ws-1" } : undefined) });
+
+	const childId = await createChildSession(ctx, recordingController(requests), "/project");
+
+	assert.equal(childId, "session-child");
+	assert.deepEqual(requests, [{ workspaceId: "ws-1" }], "workspaceId replaces cwd on the wire");
+});
+
+test("the handoff child falls back to the parent cwd outside any workspace", async () => {
+	const requests = [];
+	const { ctx } = handoffContext({ resolveByPath: async () => undefined });
+
+	await createChildSession(ctx, recordingController(requests), "/elsewhere");
+
+	assert.deepEqual(requests, [{ cwd: "/elsewhere" }]);
+});
+
+test("the handoff child survives a missing or failing workspace registry", async () => {
+	const requests = [];
+	const controller = recordingController(requests);
+
+	await createChildSession({ get: () => undefined, logger: { warn() {} } }, controller, "/project");
+	const { ctx, warnings } = handoffContext({ resolveByPath: async () => { throw new Error("lookup exploded"); } });
+	await createChildSession(ctx, controller, "/project");
+	await createChildSession(ctx, controller, undefined);
+
+	assert.deepEqual(requests, [{ cwd: "/project" }, { cwd: "/project" }, {}]);
+	assert.equal(warnings.length, 1, "a failing lookup warns without failing the handoff");
 });
