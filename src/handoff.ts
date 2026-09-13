@@ -10,8 +10,10 @@
  * document is archived to `.agents/memory/HANDOFF.md`, a fresh session is
  * created in the same workspace, renamed with `HANDOFF_TITLE_PREFIX`, and
  * seeded with the continuation as its first prompt (the browser half switches
- * to it). A durable `project-context/handoff` marker records the handoff on
- * the old session.
+ * to it). The old session's own log is left untouched: dsh refuses to load a
+ * log that contains an event type outside its vocabulary unless the record
+ * carries `ignorable: true`, and `Session.append` cannot set that marker, so a
+ * downstream plugin must not append custom event types at all.
  *
  * dsh adaptations of pi's behavior:
  *   - no editor draft mode: a pending assistant question defers the automatic
@@ -39,22 +41,8 @@ import { getProjectRoot, loadMemory, logError, logsDir, memoryDir, safeSessionId
 export const name = "project-handoff";
 export const inject = ["llm", "commands"];
 
-/** Durable marker event type appended to the handed-off session. */
-export const HANDOFF_EVENT = "project-context/handoff";
-
 /** Stable title prefix for the fresh handoff session (the browser half switches on it). */
 export { HANDOFF_TITLE_PREFIX };
-
-declare module "@deepseek-ai/dsh-session" {
-	interface SessionEventMap {
-		/** Written to the old session once the handoff session has been created and seeded. */
-		"project-context/handoff": {
-			readonly childSessionId: string;
-			readonly createdAt: number;
-			readonly reason: "auto" | "manual";
-		};
-	}
-}
 
 /** Structural view of the web/API session runtime; the service is optional per profile. */
 interface SessionControllerLike {
@@ -367,7 +355,7 @@ export async function createChildSession(
 	return String(created.sessionId);
 }
 
-/** Summarize the session, persist the document, start the child session, and mark the parent. */
+/** Summarize the session, persist the document, and start the seeded child session. */
 async function performHandoff(
 	ctx: Context,
 	session: Session,
@@ -422,7 +410,12 @@ async function performHandoff(
 		promptSignal,
 	);
 
-	session.append(HANDOFF_EVENT, { childSessionId: childId, createdAt: Date.now(), reason });
+	// Nothing is appended to the parent's log. `project-context/handoff` is a
+	// downstream type, so dsh's persistence read path would refuse to load the
+	// session ("contains event type ... unknown to this harness and not marked
+	// ignorable"), and `Session.append` offers no way to set that marker. The
+	// handoff is durable in HANDOFF.md, the session archive and the index.
+	ctx.logger.info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
 	handedOff.add(String(session.id));
 	return { childId, file };
 }

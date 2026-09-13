@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -260,4 +260,16 @@ test("the handoff child survives a missing or failing workspace registry", async
 
 	assert.deepEqual(requests, [{ cwd: "/project" }, { cwd: "/project" }, {}]);
 	assert.equal(warnings.length, 1, "a failing lookup warns without failing the handoff");
+});
+
+test("no source file appends a custom session event (dsh refuses to load such logs)", async () => {
+	// A downstream event type is outside dsh's KNOWN_SESSION_EVENT_TYPES, and
+	// `Session.append` cannot set the `ignorable: true` marker the persistence read
+	// path requires, so one such record makes the whole session unloadable.
+	for (const entry of await readdir(new URL("../src", import.meta.url), { recursive: true })) {
+		if (!entry.endsWith(".ts")) continue;
+		const source = await readFile(new URL(`../src/${entry}`, import.meta.url), "utf8");
+		assert.doesNotMatch(source, /\.append\(/, `${entry} appends a session event`);
+		assert.doesNotMatch(source, /interface SessionEventMap/, `${entry} declares a custom session event`);
+	}
 });
