@@ -37,7 +37,12 @@ import {
 } from "./session-index.js";
 
 export interface ParsedArchive {
-	header: SessionFileHeader;
+	/** Header exactly as parsed — never rewritten: unknown fields (e.g. `delegationDepth`) are preserved. */
+	header: Record<string, unknown>;
+	/** Session id from the header (the only field required for archiving). */
+	id: string;
+	/** Header timestamp, or `Date.now()` when the archive predates the field (index display only). */
+	createdAt: number;
 	entries: unknown[];
 }
 
@@ -78,7 +83,7 @@ export function parseSessionJsonl(text: string): ParsedArchive {
 	} catch (error) {
 		throw new Error(`header is not JSON: ${(error as Error).message}`);
 	}
-	const candidate = header as Partial<SessionFileHeader> & { type?: unknown };
+	const candidate = header as { type?: unknown; id?: unknown; createdAt?: unknown; version?: unknown; cwd?: unknown };
 	if (candidate?.type !== "session" || typeof candidate.id !== "string" || candidate.id === "") {
 		throw new Error('header is not a dsh session header (need {"type":"session","id":…})');
 	}
@@ -90,19 +95,26 @@ export function parseSessionJsonl(text: string): ParsedArchive {
 			throw new Error(`event line ${index + 1} is not JSON: ${(error as Error).message}`);
 		}
 	}
-	const normalized: SessionFileHeader = {
+	return {
+		header: header as Record<string, unknown>,
+		id: candidate.id,
+		createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : Date.now(),
+		entries,
+	};
+}
+
+/** Minimal header view for the Markdown rendering (display only — the canonical JSONL stays verbatim). */
+function markdownHeaderView(archive: ParsedArchive): SessionFileHeader {
+	const cwd = archive.header.cwd;
+	return {
 		type: "session",
 		harness: "dsh",
-		id: candidate.id,
-		version: typeof candidate.version === "number" ? candidate.version : 0,
-		createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : Date.now(),
-		cwd: typeof candidate.cwd === "string" ? candidate.cwd : null,
-		isSeeded: candidate.isSeeded === true,
+		id: archive.id,
+		version: typeof archive.header.version === "number" ? archive.header.version : 0,
+		createdAt: archive.createdAt,
+		cwd: typeof cwd === "string" ? cwd : null,
+		isSeeded: archive.header.isSeeded === true,
 	};
-	if (typeof candidate.parentSession === "string") normalized.parentSession = candidate.parentSession;
-	if (typeof candidate.origin === "string") normalized.origin = candidate.origin;
-	if (typeof candidate.agentPreset === "string") normalized.agentPreset = candidate.agentPreset;
-	return { header: normalized, entries };
 }
 
 /**
@@ -156,24 +168,26 @@ export async function readArchiveFile(file: string): Promise<string> {
 
 /** Write one parsed archive into the project's session-log layout and index it. */
 export async function importSessionJsonl(text: string, options: ImportOptions): Promise<ImportOutcome> {
-	const { header, entries } = parseSessionJsonl(text);
-	const id = safeSessionId(header.id);
-	const dir = path.join(logsDir(options.projectRoot), id);
+	const archive = parseSessionJsonl(text);
+	const { id, entries } = archive;
+	const dir = path.join(logsDir(options.projectRoot), safeSessionId(id));
 	const rawPath = path.join(dir, "session.jsonl");
 	await ensureLogsIgnored(options.projectRoot);
 
 	const exists = await pathExists(rawPath);
 	if (exists && !options.replace) return { id, status: "skipped", dir, entries: entries.length };
 
-	const canonical = `${[JSON.stringify(header), ...entries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
-	await writeAtomic(rawPath, canonical);
+	// Verbatim copy: the archive is evidence, so the canonical JSONL keeps the
+	// source bytes (headers of older exports carry fields later versions dropped,
+	// e.g. `delegationDepth`); only the trailing newline is normalized to one.
+	await writeAtomic(rawPath, text.endsWith("\n") ? text : `${text}\n`);
 	if (options.markdown ?? true) {
-		await writeAtomic(path.join(dir, "session.md"), renderSessionMarkdown(header, entries));
+		await writeAtomic(path.join(dir, "session.md"), renderSessionMarkdown(markdownHeaderView(archive), entries));
 	}
 	await queueIndexLine(
 		options.projectRoot,
-		id,
-		sessionIndexLineFrom(id, header.createdAt, sessionTitleFromEntries(entries)),
+		safeSessionId(id),
+		sessionIndexLineFrom(id, archive.createdAt, sessionTitleFromEntries(entries)),
 	);
 	return { id, status: "created", dir, entries: entries.length };
 }

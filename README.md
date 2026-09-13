@@ -81,7 +81,8 @@ dsh 自身仍把会话存在 `~/.dsh/sessions/…`；`session-logs/` 是项目�
 
 插件只归档它亲眼看到的会话。安装之前就已结束的会话（例如从别处导出的
 `dsh-session-session-<id>.zip`，dsh 自己的会话导出一个 zip 里就一份 `session.jsonl`）
-用回填导入补进同一套布局：`session.jsonl` 逐字节保留、`session.md` 用与实时路径**同一份**渲染器、
+用回填导入补进同一套布局：`session.jsonl` **逐字节保留原文**（只把结尾规范化成一个换行——旧导出的 header 里有
+后续版本已删除的字段，如 `delegationDepth`，重序列化会悄悄丢字段）、`session.md` 用与实时路径**同一份**渲染器、
 `INDEX.md` 用同一份机械索引写入，因此后续整理/沉淀/交接读到的回填会话与实时归档无法区分。
 
 两个入口，行为一致（幂等：已归档的会话默认跳过，`--replace` 才覆盖；全程不调用模型）：

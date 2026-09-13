@@ -88,9 +88,23 @@ function buildZip(name, content) {
 
 test("parseSessionJsonl accepts a canonical archive", () => {
 	const parsed = parseSessionJsonl(JSONL);
-	assert.equal(parsed.header.id, HEADER.id);
-	assert.equal(parsed.header.createdAt, HEADER.createdAt);
+	assert.equal(parsed.id, HEADER.id);
+	assert.equal(parsed.createdAt, HEADER.createdAt);
 	assert.equal(parsed.entries.length, 2);
+});
+
+test("the canonical JSONL is copied verbatim, unknown header fields included", async () => {
+	// Older exports carry fields later versions dropped, and non-ASCII arrives
+	// escaped; a parse/stringify round-trip would silently rewrite both.
+	const legacyHeader = '{"type":"session","version":0,"id":"22222222-3333-4444-5555-666666666666","createdAt":1787076315465,"cwd":"D:\\\\Projects\\\\DSH-AV","delegationDepth":0,"agentPreset":"anchored-standard"}';
+	const legacy = `${legacyHeader}\n{"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"\\u4e2d\\u6587测试"}]}}`;
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-archives-verbatim-"));
+	const outcome = await importSessionJsonl(legacy, { projectRoot: project });
+	assert.equal(outcome.status, "created");
+	const raw = await readFile(path.join(project, ".agents", "memory", "session-logs", outcome.id, "session.jsonl"), "utf8");
+	assert.equal(raw, `${legacy}\n`); // only the missing trailing newline was added
+	assert.match(raw, /"delegationDepth":0/);
+	assert.match(raw, /\\u4e2d\\u6587/); // still escaped, not decoded
 });
 
 test("parseSessionJsonl rejects non-session and malformed archives", () => {
