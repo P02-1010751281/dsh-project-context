@@ -51,12 +51,16 @@ session.jsonl（项目内副本，唯一权威）
 | `/session-log` | 手动立即写出（含索引刷新） |
 
 - `session.jsonl`：首行 header，之后每个 dsh 事件一行；进程内按游标增量 append，长会话不重写整份文件。
+  每次写入都会记下文件的 **inode + 字节数 + mtime**，只有三者都仍是本进程写下的那一份才追加；被外部改写
+  （例如 `--replace` 回填、手工截断/删除、原地重写）时下一次写入**整份重建**，不会把新事件接到别人的内容后面。
+  没有新事件的写入不产生任何字节。
 - `session.md`：全事件 pretty-JSON 渲染（含 tool 调用、tool 结果、thinking、compaction、模型切换等），供人阅读与交接导航，不参与自动流程。
 - `INDEX.md`：每会话一行 `- [id](id/session.md) — YYYY-MM-DD — 标题`；标题取 dsh 自己的 `session/title` 事件（回退首条用户消息），同一会话原位刷新，每项目一条写链防并发丢行。
 - 项目根：会话 cwd 的 git 顶层（`git rev-parse --show-toplevel`），非 git 目录回退 cwd。
 - 首次写日志时自动在 `session-logs/` 放一个忽略一切的 `.gitignore`，不动项目根 ignore。
 - 只归档插件启用后实际发生的会话（首次写出会带上该会话此前的完整事件快照）；已结束且未归档的历史会话**用下面的回填导入补**。
-- 异常写入 `.agents/memory/errors.log`（scope `session-log`），不打断会话。
+- 异常写入 `.agents/memory/errors.log`（scope `session-log`），不打断会话；单条记录截断到 8000 字符，
+  文件超过 1MB（真实字节）时保留最新约 64000 字符并写入一条截断标记，长期运行不会无限增长。
 
 ## 数据布局（放在项目内）
 
@@ -145,7 +149,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 | 命令 | 行为 |
 |---|---|
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径 |
-| `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md |
+| `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 无新内容 / 被去重 / 失败 |
 | `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用；见上一节） |
 | `/memory` | 显示项目记忆路径与状态 |
@@ -160,13 +164,19 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 ## 说明
 
 - ② 由 `project-memory` 独占：在 agent idle / disposed 触发，`session/flush` 会等待进行中的调用；
-  异常写入 `.agents/memory/errors.log`，不打断会话。同一项目一次只跑一个整理 pass，版本去重避免重复写入。
+  异常写入 `.agents/memory/errors.log`（超过 1MB 自动截断保留最新），不打断会话。同一项目一次只跑一个整理 pass，版本去重避免重复写入。
+- 旧布局迁移在会话启动时执行：目标位置已存在时保留较新的一份（较旧的那份不再保留）；遇到**文件/目录类型冲突**时两侧都保留、
+  在日志里点名，不做删除（迁移失败会在下一个会话启动时重试，不会一次失败就放弃）。
 - ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`；模型可返回至多 3 个待回读会话，
   插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream` 等大负载、各截断 16KB）后二次调用；
   技能写入 `.agents/skills/<name>/SKILL.md`，由 dsh 原生发现，只把 description 放进技能目录、body 按需加载；
   已存在的技能不会覆盖。
 - ④ 摘要输入是 `MEMORY.md`、最近对话窗口与文件操作索引，不依赖整理是否运行（没有 `MEMORY.md` 也能交接）。
   摘要失败对会话退避 5 分钟；最后一条助手消息是未回答的问题时延后交接。
+  新会话沿用父会话的 **agent preset**（带上下文的工作不该换一套工具与提示词继续）；workspace 按 cwd **精确匹配**接入，
+  匹配不到（例如会话 cwd 是 workspace 路径的子目录）就退回只用 cwd 创建；
+  首条消息里的存档指针是绝对路径（子会话 cwd 可能是项目子目录），`HANDOFF.md` 里仍写仓库相对路径。
+  浏览器端在标题出现时自动切换，但**当前会话输入框非空或正在提交时不抢**，等输入框空下来再切。
 - ②③④ 只作用于顶层会话（`origin !== "subagent"`）；① 对子会话同样留档。
 
 ## 开发
