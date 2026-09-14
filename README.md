@@ -47,7 +47,7 @@ session.jsonl（唯一权威）──► session.md（全量渲染，人读）�
     ├── CONTEXT.md                  # ② 工作态：摘要 / 关键点 / open tasks（每轮注入）
     ├── HANDOFF.md                  # ④ 最近一次交接摘要（含旧存档指针）
     ├── skill-candidates/<name>.md  # ③ 待确认候选（approve 后转正）
-    ├── errors.log                  # 各阶段被吞掉的异常；单条截断 8000 字符，>1MB 轮换保留最新 64k
+    ├── errors.log                  # 各阶段捕获的异常（不打断会话）；单条截断 8000 字符，>1MB 轮换保留最新 64k
     └── session-logs/
         ├── INDEX.md                # ① 机械索引：每会话一行，按 id 去重、只留最新 200 行
         ├── .gitignore              # 首次写出时生成，忽略整个目录
