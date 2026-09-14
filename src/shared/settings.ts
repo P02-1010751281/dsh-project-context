@@ -34,6 +34,7 @@ export const PluginSettingsSchema = z.object({
 	handoffTargetTokens: z.natural().min(8_000).max(200_000).default(DEFAULT_CONFIG.handoffTargetTokens),
 	handoffKeepTokens: z.natural().max(200_000).default(DEFAULT_CONFIG.handoffKeepTokens),
 	handoffSummaryThinking: z.union(["off", "session"]).default(DEFAULT_CONFIG.handoffSummaryThinking),
+	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion),
 });
 
 let installed = false;

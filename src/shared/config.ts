@@ -35,6 +35,8 @@ export interface PluginConfig {
 	handoffKeepTokens: number;
 	/** Thinking for the summary call: "off" (fast) or the session's routed level. */
 	handoffSummaryThinking: "off" | "session";
+	/** Automatic handoff when the last assistant message is a question: "defer" waits for the answer, "wait" hands off and carries the question into the continuation. */
+	handoffPendingQuestion: "defer" | "wait";
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
@@ -55,6 +57,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	handoffTargetTokens: 64_000,
 	handoffKeepTokens: 20_000,
 	handoffSummaryThinking: "off",
+	handoffPendingQuestion: "defer",
 };
 
 const CONFIG_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
@@ -115,6 +118,11 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		throw new Error('dsh-project-context: handoffSummaryThinking must be "off" or "session"');
 	}
 
+	const pendingQuestion = input.handoffPendingQuestion;
+	if (pendingQuestion !== undefined && pendingQuestion !== "defer" && pendingQuestion !== "wait") {
+		throw new Error('dsh-project-context: handoffPendingQuestion must be "defer" or "wait"');
+	}
+
 	const provider = string("provider", DEFAULT_CONFIG.provider);
 	const model = string("model", DEFAULT_CONFIG.model);
 	if ((provider.length === 0) !== (model.length === 0)) {
@@ -139,5 +147,6 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		handoffTargetTokens: bounded("handoffTargetTokens", DEFAULT_CONFIG.handoffTargetTokens, 8_000, 200_000),
 		handoffKeepTokens: bounded("handoffKeepTokens", DEFAULT_CONFIG.handoffKeepTokens, 0, 200_000),
 		handoffSummaryThinking: summaryThinking ?? DEFAULT_CONFIG.handoffSummaryThinking,
+		handoffPendingQuestion: pendingQuestion ?? DEFAULT_CONFIG.handoffPendingQuestion,
 	};
 }

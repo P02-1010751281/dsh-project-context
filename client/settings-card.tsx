@@ -44,6 +44,7 @@ export interface ProjectContextSettings {
 	handoffTargetTokens: number;
 	handoffKeepTokens: number;
 	handoffSummaryThinking: "off" | "session";
+	handoffPendingQuestion: "defer" | "wait";
 }
 
 /** What the card renders. */
@@ -64,6 +65,7 @@ export interface ProjectContextSettingsCardState extends CardShell {
 	handoffTargetTokens: CardFieldState;
 	handoffKeepTokens: CardFieldState;
 	handoffSummaryThinking: CardFieldState;
+	handoffPendingQuestion: CardFieldState;
 }
 
 /** The registration-side face the card's slot entry injects. */
@@ -101,6 +103,7 @@ export class ProjectContextSettingsCardController {
 			numberField("handoffTargetTokens", 8000),
 			numberField("handoffKeepTokens", 0),
 			textField("handoffSummaryThinking"),
+			textField("handoffPendingQuestion"),
 		]);
 		this.store = this.form.bind(() => this.projection(), createStore);
 	}
@@ -124,6 +127,7 @@ export class ProjectContextSettingsCardController {
 			handoffTargetTokens: this.form.field("handoffTargetTokens"),
 			handoffKeepTokens: this.form.field("handoffKeepTokens"),
 			handoffSummaryThinking: this.form.field("handoffSummaryThinking"),
+			handoffPendingQuestion: this.form.field("handoffPendingQuestion"),
 		};
 	}
 
@@ -303,6 +307,7 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 						{field("pc-handoff-target", "field.handoffTargetTokens", "field.handoffTargetTokensHint", "number", state.handoffTargetTokens, "handoffTargetTokens")}
 						{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
 						{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "enum", state.handoffSummaryThinking, "handoffSummaryThinking", ["off", "session"])}
+						{field("pc-handoff-pending", "field.handoffPendingQuestion", "field.handoffPendingQuestionHint", "enum", state.handoffPendingQuestion, "handoffPendingQuestion", ["defer", "wait"])}
 					</Section>
 					<div className="dshPcFooter">
 						{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}

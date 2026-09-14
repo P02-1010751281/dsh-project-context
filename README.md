@@ -143,6 +143,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 | `handoffTargetTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000） |
 | `handoffKeepTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要） |
 | `handoffSummaryThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
+| `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 等回答后再交接，`wait` 照常交接并把问题带进新会话（= pi 侧 `handoffGuard: wait`） |
 
 四个插件共用同一配置命名空间；面板未覆盖的字段回落到 profile 配置，再回落到默认值。
 
@@ -162,6 +163,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 | `/handoff auto` / `0.4` / `60%` | 切自适应；给比例则切固定比例 |
 | `/handoff target 64k` / `keep 20k` | 自适应移交量 / 保留量（`keep 0` = 只带摘要） |
 | `/handoff thinking off\|session` | 切换摘要 thinking |
+| `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
 
 ## 说明
 
@@ -176,7 +178,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
   `.agents/memory/skill-candidates/<name>.md` 等待 `/autolearn approve <name>`（`reject` 丢弃，`list` 查看）；
   含提示注入话术的 body 一律拒绝。
 - ④ 摘要输入是 `MEMORY.md`、最近对话窗口与文件操作索引，不依赖整理是否运行（没有 `MEMORY.md` 也能交接）。
-  摘要失败对会话退避 5 分钟；最后一条助手消息是未回答的问题时延后交接。
+  摘要失败对会话退避 5 分钟；最后一条助手消息是未回答的问题时按 `handoffPendingQuestion` 处理（默认 `defer` 延后交接，`wait` 照常交接并把问题带进新会话）。
   新会话沿用父会话的 **agent preset**（带上下文的工作不该换一套工具与提示词继续）；workspace 按 cwd **精确匹配**接入，
   匹配不到（例如会话 cwd 是 workspace 路径的子目录）就退回只用 cwd 创建；
   首条消息里的存档指针是绝对路径（子会话 cwd 可能是项目子目录），`HANDOFF.md` 里仍写仓库相对路径。

@@ -780,6 +780,8 @@ test("resolvePluginConfig validates every documented bound", () => {
 	assert.throws(() => resolvePluginConfig({ handoffThresholdRatio: 0.96 }), /between 0.1 and 0.95/);
 	assert.throws(() => resolvePluginConfig({ handoffTargetTokens: 7_999 }), /between 8000 and 200000/);
 	assert.throws(() => resolvePluginConfig({ handoffSummaryThinking: "high" }), /handoffSummaryThinking/);
+	assert.throws(() => resolvePluginConfig({ handoffPendingQuestion: "skip" }), /handoffPendingQuestion/);
+	assert.equal(resolvePluginConfig({ handoffPendingQuestion: "wait" }).handoffPendingQuestion, "wait");
 	assert.throws(() => resolvePluginConfig("nope"), /config must be an object/);
 	assert.throws(() => resolvePluginConfig({ provider: "p" }), /provider and model must be set together/);
 
@@ -856,6 +858,8 @@ test("writeAtomic and the synchronous text cache agree on the file they serve", 
 test("resolvePluginConfig, settingPatch and the pending-question check behave", () => {
 	assert.deepEqual(settingPatch("on"), { patch: { handoffEnabled: true } });
 	assert.deepEqual(settingPatch("thinking session"), { patch: { handoffSummaryThinking: "session" } });
+	assert.deepEqual(settingPatch("pending wait"), { patch: { handoffPendingQuestion: "wait" } });
+	assert.equal(settingPatch("pending sometimes"), undefined);
 	assert.deepEqual(settingPatch("target 64k"), { patch: { handoffTargetTokens: 64_000 } });
 	assert.match(settingPatch("target 1k").error, /8000–200000/);
 	assert.deepEqual(settingPatch("keep 0"), { patch: { handoffKeepTokens: 0 } });

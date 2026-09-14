@@ -16,13 +16,14 @@
  * downstream plugin must not append custom event types at all.
  *
  * dsh adaptations of pi's behavior:
- *   - no editor draft mode: a pending assistant question defers the automatic
- *     handoff instead of auto-answering it on the user's behalf;
+ *   - no editor draft mode: `handoffPendingQuestion: "defer"` (default) waits for the
+ *     user's answer instead of auto-answering it on their behalf; `"wait"` hands off
+ *     and carries the question into the continuation (pi's `handoffGuard: wait`);
  *   - dsh model metadata exposes no cost tiers: the adaptive threshold is
  *     bounded by the window reserve and the keep budget only;
  *   - summary thinking defaults to `off` when the adapter exposes that effort.
  *
- * Commands: /handoff [status|now|on|off|auto|<ratio>|target <tokens>|keep <tokens>|thinking off|session]
+ * Commands: /handoff [status|now|on|off|auto|<ratio>|target <tokens>|keep <tokens>|thinking off|session|pending defer|wait]
  */
 
 import { randomUUID } from "node:crypto";
@@ -467,9 +468,10 @@ async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginCo
 	const threshold = resolveThreshold(config, measurement, contextWindow);
 	if (!threshold || measurement.totalTokens < threshold.tokens) return;
 
-	// dsh has no editor draft mode, so an open question defers the handoff
-	// instead of being answered by the continuation (pi's draft fallback).
-	if (pendingQuestion(session) !== undefined) {
+	// dsh has no editor draft mode, so by default an open question defers the handoff
+	// instead of being answered by the continuation (pi's wait). `handoffPendingQuestion`
+	// = "wait" opts into carrying the question into the new session.
+	if (config.handoffPendingQuestion === "defer" && pendingQuestion(session) !== undefined) {
 		ctx.logger.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
 		return;
 	}
@@ -506,6 +508,8 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	if (args === "auto") return { patch: { handoffAdaptive: true } };
 	const thinking = /^thinking\s+(off|session)$/.exec(args);
 	if (thinking) return { patch: { handoffSummaryThinking: thinking[1] } };
+	const pending = /^pending\s+(defer|wait)$/.exec(args);
+	if (pending) return { patch: { handoffPendingQuestion: pending[1] } };
 	const target = /^target\s+(\S+)$/.exec(args);
 	if (target) {
 		const tokens = parseTokenCount(target[1]);
@@ -523,7 +527,7 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	return undefined;
 }
 
-const USAGE = "Usage: /handoff [status|now|on|off|auto|<ratio>|target <tokens>|keep <tokens>|thinking off|session]";
+const USAGE = "Usage: /handoff [status|now|on|off|auto|<ratio>|target <tokens>|keep <tokens>|thinking off|session|pending defer|wait]";
 
 /** Persist one settings patch through the mounted settings service. */
 async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined> {
@@ -557,6 +561,7 @@ async function statusText(ctx: Context, session: Session, entry: PluginConfig, s
 	parts.push(config.handoffAdaptive ? `adaptive target ${config.handoffTargetTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);
 	parts.push(config.handoffKeepTokens > 0 ? `keep ~${config.handoffKeepTokens} recent tokens` : "summary only");
 	parts.push(`summary thinking ${config.handoffSummaryThinking}`);
+	parts.push(`pending question ${config.handoffPendingQuestion}`);
 	if (handedOff.has(String(session.id))) parts.push("already handed off in this process");
 	return parts.join(" · ");
 }

@@ -49,6 +49,8 @@ export const zh = {
 	"field.handoffKeepTokensHint": "原样带入新会话的最近对话，0 表示只带摘要（默认 20000）",
 	"field.handoffSummaryThinking": "摘要思考级别",
 	"field.handoffSummaryThinkingHint": "off（默认，避免思考与答案共享输出上限）或 session",
+	"field.handoffPendingQuestion": "未答问题的处理",
+	"field.handoffPendingQuestionHint": "defer（默认，等用户回答后再交接）或 wait（继续交接，把问题带进新会话）",
 } as const;
 
 export type SettingsCardKey = keyof typeof zh;
@@ -102,4 +104,6 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffKeepTokensHint": "Recent conversation carried into the new session verbatim; 0 = summary only (default 20000)",
 	"field.handoffSummaryThinking": "Summary thinking level",
 	"field.handoffSummaryThinkingHint": "off (default, avoids sharing the output cap with thinking) or session",
+	"field.handoffPendingQuestion": "Pending question handling",
+	"field.handoffPendingQuestionHint": "defer (default, wait for the answer before handing off) or wait (hand off and carry the question into the continuation)",
 };
