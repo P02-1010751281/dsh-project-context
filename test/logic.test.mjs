@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,7 +25,7 @@ import {
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/shared/context-doc.js";
 import { clip, conversationSplit, fallbackUpdate, parseConsolidation, truncateMiddle } from "../lib/shared/learn.js";
-import { parseAutolearn } from "../lib/shared/autolearn.js";
+import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } from "../lib/shared/autolearn.js";
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/shared/handoff-marker.js";
 import { watchHandoffSwitch } from "../lib/shared/handoff-watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/shared/archive.js";
@@ -193,6 +193,51 @@ test("parseAutolearn separates a skill from a backtrack request", () => {
 	assert.deepEqual(backlog.needSessions, ["session-a", "session-b", "session-c"]);
 
 	assert.deepEqual(parseAutolearn("not json"), { skill: null, needSessions: [] });
+});
+
+test("parseAutolearn reads evidence, candidate and reason", () => {
+	const parsed = parseAutolearn(JSON.stringify({
+		skill: { name: "n", description: " d ", body: " b ", evidence: ["a", "b"], candidate: true, reason: "why" },
+	}));
+	assert.equal(parsed.skill.name, "n");
+	assert.equal(parsed.skill.description, "d");
+	assert.deepEqual(parsed.skill.evidence, ["a", "b"]);
+	assert.equal(parsed.skill.candidate, true);
+	assert.equal(parsed.skill.reason, "why");
+});
+
+test("candidates list, approve and reject", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-candidates-"));
+	try {
+		await mkdir(path.join(root, ".agents/memory/skill-candidates"), { recursive: true });
+		const body = `## When to use\n\n${"step ".repeat(60)}\n`;
+		await writeFile(
+			path.join(root, ".agents/memory/skill-candidates/beta-workflow.md"),
+			`---\nname: beta-workflow\ndescription: "beta candidate"\ncandidate: true\n---\n\n<!-- evidence: sess-a -->\n\n${body}`,
+		);
+		assert.deepEqual(await listCandidates(root), ["beta-workflow"]);
+
+		const approved = await approveCandidate(root, "beta-workflow");
+		assert.equal(approved.ok, true);
+		const live = await readFile(path.join(root, ".agents/skills/beta-workflow/SKILL.md"), "utf8");
+		assert.match(live, /description: "beta candidate"/);
+		assert.doesNotMatch(live, /candidate: true/);
+		assert.doesNotMatch(live, /<!-- evidence/);
+		assert.deepEqual(await listCandidates(root), []);
+
+		await writeFile(
+			path.join(root, ".agents/memory/skill-candidates/gamma.md"),
+			`---\nname: gamma\ndescription: "gamma"\ncandidate: true\n---\n\n${body}`,
+		);
+		assert.equal((await rejectCandidate(root, "gamma")).ok, true);
+		assert.deepEqual(await listCandidates(root), []);
+
+		// Missing/unsafe names fail cleanly instead of throwing.
+		assert.equal((await approveCandidate(root, "nope")).ok, false);
+		assert.equal((await rejectCandidate(root, "bad name")).ok, false);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test("archivedConversationText renders dsh JSONL without stream payloads", () => {

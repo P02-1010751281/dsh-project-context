@@ -18,7 +18,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
-import { autolearnProjectSkills, type AutolearnOutcome } from "./shared/autolearn.js";
+import { approveCandidate, autolearnProjectSkills, listCandidates, rejectCandidate, type AutolearnOutcome } from "./shared/autolearn.js";
 import { getProjectRoot, logError, skillsDir } from "./shared/project-state.js";
 
 export const name = "project-autolearn";
@@ -40,7 +40,9 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 		const projectRoot = await getProjectRoot(projectCwd(agent.session));
 		try {
 			outcome = await autolearnProjectSkills(ctx, agent, config, { force: options.force, signal: options.signal });
-			if (outcome?.skill && !options.silent) {
+			if (outcome?.candidate && !options.silent) {
+				ctx.logger.info(`dsh-project-context: skill candidate saved for review: /autolearn approve ${outcome.skill?.name ?? ""}`);
+			} else if (outcome?.skill && !options.silent) {
 				ctx.logger.info(`dsh-project-context: project skill created: ${path.join(skillsDir(projectRoot), outcome.skill.name, "SKILL.md")}`);
 			}
 		} catch (error) {
@@ -76,10 +78,31 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "autolearn",
-		description: "Distill a project skill from memory, context, and archived sessions",
-		handler: async ({ agent, signal }) => {
+		description: "Distill a project skill from memory, context, and archived sessions; also: list | approve <name> | reject <name>",
+		input: { hint: "list | approve <name> | reject <name>" },
+		handler: async ({ agent, rawInput, signal }) => {
+			const parts = (rawInput ?? "").trim().split(/\s+/).filter(Boolean);
+			const verb = (parts[0] ?? "").toLowerCase();
+			const projectRoot = await getProjectRoot(projectCwd(agent.session));
+			if (verb === "list") {
+				const names = await listCandidates(projectRoot);
+				return names.length > 0
+					? { kind: "success" as const, text: `Skill candidates: ${names.join(", ")} (/autolearn approve <name>)` }
+					: { kind: "success" as const, text: "No skill candidates." };
+			}
+			if (verb === "approve") {
+				const result = await approveCandidate(projectRoot, parts[1]);
+				return result.ok ? { kind: "success" as const, text: result.message } : { kind: "error" as const, text: result.message };
+			}
+			if (verb === "reject") {
+				const result = await rejectCandidate(projectRoot, parts[1]);
+				return result.ok ? { kind: "success" as const, text: result.message } : { kind: "error" as const, text: result.message };
+			}
 			const outcome = await runAutolearn(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
 			if (outcome === undefined) return { kind: "error", text: "Autolearn did not run (no provider/model, or the pass failed; see errors.log)." };
+			if (outcome.candidate && outcome.skill) {
+				return { kind: "success", text: `Skill candidate "${outcome.skill.name}" saved for review — /autolearn approve ${outcome.skill.name}` };
+			}
 			return outcome.skill
 				? { kind: "success", text: `Skill created: ${outcome.skill.name}` }
 				: { kind: "success", text: "No new skill was warranted." };

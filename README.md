@@ -14,7 +14,7 @@ session.jsonl（项目内副本，唯一权威）
    │    （高频节流；每轮注入）                              │
    │                                                      ▼
    ├─③ autolearn pass      读 CONTEXT.md + MEMORY.md（+ 按缺证据回溯存档）
-   │    （低频）                    ──► .agents/skills/<name>/SKILL.md
+   │    （低频）                    ──► .agents/skills/<name>/SKILL.md（证据不足时写 skill-candidates/）
    │    （只注入 description，body 按需）
    │
    └─④ handoff             当前会话 raw ──► 新会话（老段摘要 + kept recent + 指向旧索引）
@@ -33,7 +33,7 @@ session.jsonl（项目内副本，唯一权威）
 |---|---|---|---|
 | `project-context`（包主入口） | ① 存档 | 事件驱动（见下）；`/context`、`/session-log` | `session.jsonl` / `session.md` / `INDEX.md` |
 | `project-memory`（`/memory`） | ② 整理 | idle / disposed + 节流；`/context-update` | `CONTEXT.md` + `MEMORY.md`（每轮注入） |
-| `project-autolearn`（`/autolearn`） | ③ 沉淀 | 低频（新材料 + 轮数/间隔）；`/autolearn` | `.agents/skills/<name>/SKILL.md` |
+| `project-autolearn`（`/autolearn`） | ③ 沉淀 | 低频（新材料 + 轮数/间隔）；`/autolearn` | `.agents/skills/<name>/SKILL.md`（证据不足时写 `.agents/memory/skill-candidates/`） |
 | `project-handoff`（`/handoff`） | ④ 交接 | 上下文越过阈值；`/handoff` | `HANDOFF.md` + 新会话 |
 
 四个插件共享同一份配置（设置面板一次编辑）。
@@ -71,6 +71,7 @@ session.jsonl（项目内副本，唯一权威）
     ├── MEMORY.md                     # ② 持久项目记忆
     ├── CONTEXT.md                    # ② 会话摘要 + key points + open tasks
     ├── HANDOFF.md                    # ④ 最近一次交接的摘要（含旧存档指针）
+    ├── skill-candidates/<name>.md    # ③ 待确认的候选技能
     ├── errors.log                    # 各阶段吞掉的异常（诊断用）
     └── session-logs/
         ├── INDEX.md                  # ① 机械会话索引（无 LLM）
@@ -153,7 +154,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 | `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用；见上一节） |
 | `/memory` | 显示项目记忆路径与状态 |
-| `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl` |
+| `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
 | `/handoff` | 立即交接：摘要当前会话并另开新会话继续 |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量 |
 | `/handoff on` / `off` | 开关自动交接 |
@@ -170,7 +171,9 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 - ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`；模型可返回至多 3 个待回读会话，
   插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream` 等大负载、各截断 16KB）后二次调用；
   技能写入 `.agents/skills/<name>/SKILL.md`，由 dsh 原生发现，只把 description 放进技能目录、body 按需加载；
-  已存在的技能不会覆盖。
+  已存在的技能不会覆盖。一个正式技能需要至少两个**已验证**的存档会话做证据，只举出一个会话的提案写入
+  `.agents/memory/skill-candidates/<name>.md` 等待 `/autolearn approve <name>`（`reject` 丢弃，`list` 查看）；
+  含提示注入话术的 body 一律拒绝。
 - ④ 摘要输入是 `MEMORY.md`、最近对话窗口与文件操作索引，不依赖整理是否运行（没有 `MEMORY.md` 也能交接）。
   摘要失败对会话退避 5 分钟；最后一条助手消息是未回答的问题时延后交接。
   新会话沿用父会话的 **agent preset**（带上下文的工作不该换一套工具与提示词继续）；workspace 按 cwd **精确匹配**接入，
