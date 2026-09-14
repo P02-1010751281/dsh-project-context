@@ -10,6 +10,7 @@
 			"types": "./lib/session-context.d.ts",
 			"default": "./lib/session-context.js"
 		},
+		"./cordis.patch.yml": "./cordis.patch.yml",
 		"./memory": {
 			"types": "./lib/memory.d.ts",
 			"default": "./lib/memory.js"

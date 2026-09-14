@@ -1,4 +1,5 @@
+# pnpm 11 reads build-script approvals from here. esbuild is the only dependency
+# with a postinstall (its platform binary + CLI shim), used by scripts/build-client.mjs.
 allowBuilds:
-  '0': esbuild
-  esbuild: set this to true or false
+  esbuild: true
 verifyDepsBeforeRun: false
