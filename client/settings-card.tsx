@@ -27,6 +27,7 @@ injectStyles();
 
 /** The `project-context` settings section shape (mirrors the host schema). */
 export interface ProjectContextSettings {
+	archiveEnabled: boolean;
 	autoConsolidate: boolean;
 	consolidateTurns: number;
 	consolidateIntervalMs: number;
@@ -47,6 +48,7 @@ export interface ProjectContextSettings {
 
 /** What the card renders. */
 export interface ProjectContextSettingsCardState extends CardShell {
+	archiveEnabled: CardFieldState;
 	autoConsolidate: CardFieldState;
 	consolidateTurns: CardFieldState;
 	consolidateIntervalMs: CardFieldState;
@@ -83,6 +85,7 @@ export class ProjectContextSettingsCardController {
 	 */
 	constructor(scope: SettingsScope<ProjectContextSettings>, createStore: typeof createSnapshotStore) {
 		this.form = new CardForm(scope, [
+			booleanField("archiveEnabled"),
 			booleanField("autoConsolidate"),
 			numberField("consolidateTurns", 1),
 			numberField("consolidateIntervalMs", 1000),
@@ -105,6 +108,7 @@ export class ProjectContextSettingsCardController {
 	private projection(): ProjectContextSettingsCardState {
 		return {
 			...this.form.shell(),
+			archiveEnabled: this.form.field("archiveEnabled"),
 			autoConsolidate: this.form.field("autoConsolidate"),
 			consolidateTurns: this.form.field("consolidateTurns"),
 			consolidateIntervalMs: this.form.field("consolidateIntervalMs"),
@@ -278,6 +282,7 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 				<div className="dshPcBody">
 					{!state.writable ? <p className="dshPcReadOnly">{t("chrome.readOnly")}</p> : null}
 					<Section title={t("section.memory.title")} description={t("section.memory.description")}>
+						{field("pc-archive-enabled", "field.archiveEnabled", "field.archiveEnabledHint", "boolean", state.archiveEnabled, "archiveEnabled")}
 						{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
 						{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
 						{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}

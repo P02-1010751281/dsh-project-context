@@ -748,6 +748,7 @@ test("the /context-update reply reflects what the consolidation pass did", () =>
 test("resolvePluginConfig validates every documented bound", () => {
 	assert.deepEqual(resolvePluginConfig(undefined), { ...DEFAULT_CONFIG });
 	assert.throws(() => resolvePluginConfig({ nope: 1 }), /unknown config key/);
+	assert.throws(() => resolvePluginConfig({ archiveEnabled: "yes" }), /archiveEnabled must be a boolean/);
 	assert.throws(() => resolvePluginConfig({ consolidateTurns: 0 }), /consolidateTurns must be a number >= 1/);
 	assert.throws(() => resolvePluginConfig({ handoffThresholdRatio: 0.96 }), /between 0.1 and 0.95/);
 	assert.throws(() => resolvePluginConfig({ handoffTargetTokens: 7_999 }), /between 8000 and 200000/);

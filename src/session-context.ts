@@ -14,7 +14,7 @@ import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
 import { resolvePluginConfig } from "./shared/config.js";
-import { installProjectContextSettings } from "./shared/settings.js";
+import { installProjectContextSettings, effectivePluginConfig } from "./shared/settings.js";
 import { projectCwd, SessionWorkTracker } from "./shared/lifecycle.js";
 import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "./shared/project-state.js";
 import { importArchiveFiles } from "./shared/import-archive.js";
@@ -62,6 +62,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.on("session/event", (session, event) => {
 		if (event.type !== "turn/end") return;
+		if (!effectivePluginConfig(entry).archiveEnabled) return;
 		void queueSessionArtifacts(session, { markdown: false });
 	});
 
@@ -69,10 +70,12 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	// and the session index are written when the agent settles or is disposed.
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle") return;
+		if (!effectivePluginConfig(entry).archiveEnabled) return;
 		pending.track(agent.session, queueSessionArtifacts(agent.session, { markdown: true }));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
+		if (!effectivePluginConfig(entry).archiveEnabled) return;
 		pending.track(agent.session, queueSessionArtifacts(agent.session, { markdown: true }));
 	});
 

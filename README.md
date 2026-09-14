@@ -127,6 +127,7 @@ host 侧实时生效。也可在 profile 的 `cordis.patch.yml` 用户层覆盖�
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
+| `archiveEnabled` | `true` | 关掉后不再自动写会话存档与索引（`/session-log` 仍可用） |
 | `autoConsolidate` | `true` | 关掉后不再自动整理（命令仍可用） |
 | `consolidateTurns` | `6` | 较上次整理新增的用户消息数达到后在 idle 触发 |
 | `consolidateIntervalMs` | `300000` | 自动整理最小间隔 |

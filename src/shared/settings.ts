@@ -17,6 +17,7 @@ export const SETTINGS_NAMESPACE = "project-context" as const;
 
 /** Wire schema shown by the web settings card and validated by the host. */
 export const PluginSettingsSchema = z.object({
+	archiveEnabled: z.boolean().default(DEFAULT_CONFIG.archiveEnabled),
 	autoConsolidate: z.boolean().default(DEFAULT_CONFIG.autoConsolidate),
 	consolidateTurns: z.natural().min(1).default(DEFAULT_CONFIG.consolidateTurns),
 	consolidateIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.consolidateIntervalMs),

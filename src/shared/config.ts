@@ -1,6 +1,8 @@
 /** Shared plugin configuration for the context pair. */
 
 export interface PluginConfig {
+	/** Write the per-session archive (session.jsonl / session.md / INDEX.md) on turns and settles. Explicit commands still work when false. */
+	archiveEnabled: boolean;
 	/** Run the automatic consolidation pass after turns settle. Commands still work when false. */
 	autoConsolidate: boolean;
 	/** User turns accumulated before an automatic consolidation pass. */
@@ -36,6 +38,7 @@ export interface PluginConfig {
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
+	archiveEnabled: true,
 	autoConsolidate: true,
 	consolidateTurns: 6,
 	consolidateIntervalMs: 5 * 60 * 1000,
@@ -119,6 +122,7 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 	}
 
 	return {
+		archiveEnabled: boolean("archiveEnabled", DEFAULT_CONFIG.archiveEnabled),
 		autoConsolidate: boolean("autoConsolidate", DEFAULT_CONFIG.autoConsolidate),
 		consolidateTurns: positive("consolidateTurns", DEFAULT_CONFIG.consolidateTurns, 1),
 		consolidateIntervalMs: positive("consolidateIntervalMs", DEFAULT_CONFIG.consolidateIntervalMs, 1000),
