@@ -174,7 +174,47 @@ export function parseJsonObject(text: string): Record<string, unknown> | undefin
 	}
 }
 
-export function parseConsolidation(text: string): ConsolidationResult {
+/**
+ * Read one `"key": "value"` string out of a reply whose object does not parse. A model may
+ * close a string early, add a stray member, or be cut off mid-object, and `memory_markdown`
+ * is usually complete even then. Undefined for a missing or unterminated value.
+ */
+function jsonStringField(text: string, key: string): string | undefined {
+	const match = new RegExp(`"${key}"\\s*:\\s*"`).exec(text);
+	if (!match) return undefined;
+	let index = match.index + match[0].length;
+	let out = "";
+	while (index < text.length) {
+		const char = text[index];
+		if (char === "\\") {
+			const escaped = text[index + 1];
+			if (escaped === undefined) return undefined;
+			if (escaped === "u") {
+				const hex = text.slice(index + 2, index + 6);
+				if (!/^[0-9a-f]{4}$/i.test(hex)) return undefined;
+				out += String.fromCharCode(Number.parseInt(hex, 16));
+				index += 6;
+				continue;
+			}
+			out += escaped === "n" ? "\n" : escaped === "t" ? "\t" : escaped === "r" ? "\r" : escaped;
+			index += 2;
+			continue;
+		}
+		if (char === '"') return out.trim();
+		out += char;
+		index += 1;
+	}
+	return undefined;
+}
+
+/** A reply that meant to be the requested JSON object; it must never be stored as memory. */
+function looksLikeJsonReply(text: string): boolean {
+	const candidate = text.replace(/^```(?:json)?\s*/i, "").trim();
+	return candidate.startsWith("{") || /"memory_markdown"\s*:/.test(candidate);
+}
+
+/** Undefined means the pass must fail without touching MEMORY.md. */
+export function parseConsolidation(text: string): ConsolidationResult | undefined {
 	const parsed = parseJsonObject(text);
 	if (parsed && typeof parsed.memory_markdown === "string") {
 		const context = parsed.context && typeof parsed.context === "object" ? parsed.context as Partial<ContextUpdate> : null;
@@ -190,8 +230,12 @@ export function parseConsolidation(text: string): ConsolidationResult {
 				: undefined,
 		};
 	}
+	// A reply that failed to parse can still carry the memory field intact.
+	const recovered = jsonStringField(text, "memory_markdown");
+	if (recovered) return { memory: recovered };
 	// Older or less capable models may still return Markdown directly.
-	return { memory: text };
+	if (!looksLikeJsonReply(text)) return { memory: text };
+	return undefined;
 }
 
 function pluginUserMessage(text: string): UserMessage {
@@ -328,15 +372,18 @@ export function consolidateProjectState(
 			throw error;
 		}
 		const result = parseConsolidation(raw);
+		if (!result) {
+			// Back off like any other failed pass, but never store the raw JSON as memory.
+			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
+			throw new Error("consolidation reply was not a usable JSON object");
+		}
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
 		const outcome: ConsolidationOutcome = { result, version };
 		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
 		return outcome;
-	})().catch((error: unknown) => {
-		ctx.logger.warn("dsh-project-context: consolidation pass failed: %s", error instanceof Error ? error.message : String(error));
-		return undefined;
-	}).finally(() => {
+	})().finally(() => {
+		// Failures reject; the caller logs them and returns a truthful "failed".
 		activeConsolidation.delete(projectKey);
 	});
 

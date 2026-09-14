@@ -183,6 +183,15 @@ test("parseConsolidation reads memory and context and never a skill", () => {
 	assert.deepEqual(parseConsolidation("plain markdown"), { memory: "plain markdown" });
 });
 
+test("parseConsolidation recovers memory from a malformed reply and fails closed otherwise", () => {
+	// The reply that used to poison MEMORY.md: a stray member made JSON.parse fail and the
+	// raw object was stored as memory.
+	const corrupted = '{"memory_markdown":"# Project Memory\\n\\n## Project\\n- kept.","context":"# Project Context","stray\\n\\n- tail"}';
+	assert.deepEqual(parseConsolidation(corrupted), { memory: "# Project Memory\n\n## Project\n- kept." });
+	assert.equal(parseConsolidation('{"memory_markdown":"# Project Memory\\n\\n- cut'), undefined);
+	assert.equal(parseConsolidation('{"memory_markdown": 17, "context": {'), undefined);
+});
+
 test("parseAutolearn separates a skill from a backtrack request", () => {
 	const direct = parseAutolearn(JSON.stringify({ skill: { name: "n", description: "d", body: "b" }, need_sessions: [] }));
 	assert.equal(direct.skill.name, "n");
