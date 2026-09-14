@@ -29,7 +29,7 @@ import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } fro
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/shared/handoff-marker.js";
 import { watchHandoffSwitch } from "../lib/shared/handoff-watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/shared/archive.js";
-import { parseSessionIndex, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
+import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
 import {
 	invalidateTextCache,
 	logError,
@@ -235,6 +235,33 @@ test("candidates list, approve and reject", async () => {
 		// Missing/unsafe names fail cleanly instead of throwing.
 		assert.equal((await approveCandidate(root, "nope")).ok, false);
 		assert.equal((await rejectCandidate(root, "bad name")).ok, false);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("the session index dedupes by id and keeps the newest 200", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-index-"));
+	try {
+		for (let index = 0; index < 205; index += 1) {
+			await queueIndexLine(root, `session-${index}`, `- [session-${index}](session-${index}/session.md) — 2026-09-01 — t${index}`);
+		}
+		const file = path.join(root, ".agents/memory/session-logs/INDEX.md");
+		const text = await readFile(file, "utf8");
+		assert.equal(text.split("\n").filter((line) => line.startsWith("- [")).length, 200);
+		assert.ok(!text.includes("[session-0]"), "oldest line drops off");
+		assert.ok(text.includes("[session-204]"), "newest line stays");
+
+		// Refreshing an id replaces its line instead of appending a duplicate.
+		await queueIndexLine(root, "session-100", "- [session-100](session-100/session.md) — 2026-09-02 — updated");
+		const refreshed = (await readFile(file, "utf8")).split("\n").filter((line) => line.startsWith("- [session-100]"));
+		assert.equal(refreshed.length, 1);
+		assert.match(refreshed[0], /updated/);
+
+		// A duplicate id left behind by a backfill collapses on the next write too.
+		await writeFile(file, `${await readFile(file, "utf8")}- [session-100](session-100/session.md) — 2026-09-03 — duplicate\n`);
+		await queueIndexLine(root, "session-50", "- [session-50](session-50/session.md) — 2026-09-04 — fifty");
+		assert.equal((await readFile(file, "utf8")).split("\n").filter((line) => line.startsWith("- [session-100]")).length, 1);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

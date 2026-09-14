@@ -319,12 +319,14 @@ export function autolearnProjectSkills(
 		if (force && previous && Date.now() - previous.at < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false };
 
 		if (!force) {
-			// New material is required; otherwise only remember the turn counter.
+			// New material is required; otherwise only remember the turn counter. Without a
+			// previous pass in this process the baseline starts now, so a restart does not
+			// immediately re-run on memory that was already distilled.
 			const stamp = Math.max(await fileMtimeMs(memoryFile(projectRoot)), await fileMtimeMs(contextFile(projectRoot)));
-			const changed = previous === undefined ? stamp > 0 : stamp > previous.at;
-			const due = totalTurns >= config.autolearnTurns || Date.now() - (previous?.at ?? 0) >= config.autolearnIntervalMs;
+			const changed = previous !== undefined && stamp > previous.at;
+			const due = previous !== undefined && (totalTurns >= config.autolearnTurns || Date.now() - previous.at >= config.autolearnIntervalMs);
 			if (!changed || !due) {
-				throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: previous?.at ?? 0 });
+				throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: previous?.at ?? Date.now() });
 				return undefined;
 			}
 		}

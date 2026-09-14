@@ -55,7 +55,7 @@ session.jsonl（项目内副本，唯一权威）
   （例如 `--replace` 回填、手工截断/删除、原地重写）时下一次写入**整份重建**，不会把新事件接到别人的内容后面。
   没有新事件的写入不产生任何字节。
 - `session.md`：全事件 pretty-JSON 渲染（含 tool 调用、tool 结果、thinking、compaction、模型切换等），供人阅读与交接导航，不参与自动流程。
-- `INDEX.md`：每会话一行 `- [id](id/session.md) — YYYY-MM-DD — 标题`；标题取 dsh 自己的 `session/title` 事件（回退首条用户消息），同一会话原位刷新，每项目一条写链防并发丢行。
+- `INDEX.md`：每会话一行 `- [id](id/session.md) — YYYY-MM-DD — 标题`；标题取 dsh 自己的 `session/title` 事件（回退首条用户消息），同一会话原位刷新，按 id 去重后只保留最新 200 行，每项目一条写链防并发丢行。
 - 项目根：会话 cwd 的 git 顶层（`git rev-parse --show-toplevel`），非 git 目录回退 cwd。
 - 首次写日志时自动在 `session-logs/` 放一个忽略一切的 `.gitignore`，不动项目根 ignore。
 - 只归档插件启用后实际发生的会话（首次写出会带上该会话此前的完整事件快照）；已结束且未归档的历史会话**用下面的回填导入补**。

@@ -25,6 +25,8 @@ type SessionEntry = ReturnType<Session["snapshotEvents"]>[number];
 
 const HEADING = "# Session Index";
 const MAX_TITLE_CHARS = 160;
+/** Newest sessions kept when the index is rewritten; older lines drop off the top. */
+const MAX_INDEX_LINES = 200;
 /** `- [id](<id>/session.md) — YYYY-MM-DD — title` (the link target is ignored on parse). */
 const LINE_PATTERN = /^- \[([^\]]+)\]\(([^)]+)\) — (\d{4}-\d{2}-\d{2}) — (.*)$/;
 
@@ -89,6 +91,28 @@ export function parseSessionIndex(text: string): Array<{ id: string; date: strin
 	return entries;
 }
 
+function indexLineId(line: string): string {
+	return /^- \[([^\]]+)\]/.exec(line)?.[1] ?? line;
+}
+
+/**
+ * Newest line per session id, oldest first, capped. The incoming line replaces any
+ * line with the same id, and duplicates left behind by an import collapse to one.
+ */
+function dedupeIndexLines(lines: readonly string[], line: string, limit: number, replaceId: string): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		const current = lines[index]!;
+		const id = indexLineId(current);
+		if (id === replaceId || seen.has(id)) continue;
+		seen.add(id);
+		result.unshift(current);
+	}
+	result.push(line);
+	return result.slice(-limit);
+}
+
 /** Read the index with absolute paths so later passes can open the archives directly. */
 export async function readSessionIndex(projectRoot: string): Promise<SessionIndexEntry[]> {
 	const text = await readOptional(sessionIndexFile(projectRoot));
@@ -117,15 +141,10 @@ export function queueIndexLine(projectRoot: string, id: string, line: string): P
 	const next = previous.catch(() => undefined).then(async () => {
 		const file = sessionIndexFile(projectRoot);
 		const existing = await readOptional(file);
-		const lines = existing.trim() ? existing.trimEnd().split("\n") : [HEADING, ""];
-		let replaced = false;
-		const rendered = lines.map((current) => {
-			if (!current.startsWith(`- [${id}](`)) return current;
-			replaced = true;
-			return line;
-		});
-		if (!replaced) rendered.push(line);
-		const document = `${rendered.join("\n")}\n`;
+		const entries = existing.trim()
+			? existing.split("\n").map((current) => current.trim()).filter((current) => current.startsWith("- ["))
+			: [];
+		const document = [HEADING, "", ...dedupeIndexLines(entries, line, MAX_INDEX_LINES, safeSessionId(id)), ""].join("\n");
 		if (document !== existing) await writeAtomic(file, document);
 	});
 	queues.set(key, next);
