@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -130,4 +131,23 @@ test("resetField stages an inherit and dispose releases the scope subscription",
 	assert.equal(harness.subscribeCount(), 0, "dispose releases the subscription");
 	form.dispose(); // idempotent
 	assert.equal(harness.subscribeCount(), 0);
+});
+
+test("every settings key has a card spec, a projection and a rendered row", async () => {
+	// Comments are stripped first: a commented-out spec or row must not satisfy a text scan.
+	const source = (await readFile(fileURLToPath(new URL("../client/settings-card.tsx", import.meta.url)), "utf8"))
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/^[ \t]*\/\/.*$/gm, "");
+	const { PluginSettingsSchema } = await import("../lib/shared/settings.js");
+	const keys = Object.keys(PluginSettingsSchema({}));
+	assert.ok(keys.length > 0);
+	for (const key of keys) {
+		const id = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		assert.match(source, new RegExp(`\\w+Field\\("${id}"`), `${key} must be in the card's spec list`);
+		assert.ok(source.includes(`this.form.field("${key}")`), `${key} must be projected into the card state`);
+		// The rendered row must bind the same key three times — its locale key, the state slot it
+		// reads and the field name it writes — so a copy-pasted row cannot render someone else's value.
+		const row = new RegExp(`\\{field\\(\\s*"[^"]*",\\s*"field\\.${id}",\\s*"field\\.${id}Hint",\\s*"[a-z]+",\\s*state\\.${id},\\s*"${id}"[^)]*\\)\\}`);
+		assert.match(source, row, `${key} must have a rendered row bound to its own state and locale key`);
+	}
 });

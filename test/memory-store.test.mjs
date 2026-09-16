@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+	MEMORY_LOCK_STALE_MS,
+	MEMORY_LOCK_WAIT_MS,
 	appendMemoryOp,
 	backupMemoryBeforeWrite,
 	foldMemoryJournal,
@@ -425,4 +427,32 @@ test("normalizeMemoryDocument rebuilds one canonical document", () => {
 	// The cap keeps the document inside the injection budget.
 	const huge = normalizeMemoryDocument("y".repeat(100_000));
 	assert.ok(huge.length <= 24_000 + "# Project Memory\n\n".length);
+});
+
+test("the lock waiter outlives the staleness horizon", () => {
+	// A lock is only stealable once it is older than the staleness horizon, so a wait shorter than
+	// that horizon would make a pass fail for the rest of the window instead of taking the abandoned
+	// lock over. This pins the production relationship; the behavior is exercised below.
+	assert.ok(MEMORY_LOCK_WAIT_MS > MEMORY_LOCK_STALE_MS, `wait ${MEMORY_LOCK_WAIT_MS} must exceed stale ${MEMORY_LOCK_STALE_MS}`);
+});
+
+test("an orphaned lock is stolen past the horizon and left alone before it", async () => {
+	const root = await project();
+	const target = memoryFile(root);
+	const lock = `${target}.lock`;
+	let ran = 0;
+
+	// Younger than the horizon: the writer waits its budget out and fails rather than stealing.
+	await writeFile(lock, "orphan-token");
+	const young = new Date(Date.now() - 20);
+	await utimes(lock, young, young);
+	await assert.rejects(() => withMemoryLock(target, async () => { ran += 1; }, { staleMs: 5_000, waitMs: 150 }), /timed out waiting for the memory write lock/);
+	assert.equal(ran, 0, "a lock inside the horizon is never stolen");
+
+	// Older than the horizon: the same orphan is taken over and the write goes through.
+	const old = new Date(Date.now() - 200);
+	await utimes(lock, old, old);
+	const result = await withMemoryLock(target, async () => { ran += 1; return "written"; }, { staleMs: 50, waitMs: 2_000 });
+	assert.equal(result, "written");
+	assert.equal(ran, 1, "the abandoned lock is stolen instead of failing the pass");
 });

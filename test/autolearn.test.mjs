@@ -8,11 +8,13 @@
  */
 
 import assert from "node:assert/strict";
+import { statSync, utimesSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adaptiveOutputTokens, autolearnProjectSkills } from "../lib/shared/autolearn.js";
+import { autolearnProjectSkills } from "../lib/shared/autolearn.js";
+import { adaptiveOutputTokens } from "../lib/shared/learn.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/learn.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { learnStateFile, readLearnState, updateLearnState } from "../lib/shared/learn-state.js";
@@ -129,7 +131,7 @@ function future() {
 }
 
 test("the gate timestamp survives a restart and new material re-opens it", async () => {
-	const root = await project();
+	const root = await project({ sessions: ["session-a"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1, autolearnIntervalMs: 60 * 60 * 1000 });
 	const agent = fakeAgent(root, { turns: 3 });
 
@@ -151,10 +153,18 @@ test("the gate timestamp survives a restart and new material re-opens it", async
 	const third = fakeContext(['{"skill": null}']);
 	assert.deepEqual(await restarted.autolearnProjectSkills(third, agent, config), { skill: null, backtracked: [], candidate: false });
 	assert.equal(third.calls.length, 1);
+
+	// The gate is the newer of the two artifacts: touching CONTEXT.md alone re-opens it too. The
+	// turn counter restarted at the previous recorded pass, so this needs a fresh accumulation.
+	const contextStamp = new Date(stamp.getTime() + 60_000);
+	await utimes(contextFile(root), contextStamp, contextStamp);
+	const fourth = fakeContext(['{"skill": null}']);
+	assert.deepEqual(await restarted.autolearnProjectSkills(fourth, fakeAgent(root, { turns: 6 }), config), { skill: null, backtracked: [], candidate: false });
+	assert.equal(fourth.calls.length, 1);
 });
 
 test("a recorded pass resets the accumulated turn counter", async () => {
-	const root = await project();
+	const root = await project({ sessions: ["session-a"] });
 	const config = resolvePluginConfig({ autolearnTurns: 3, autolearnIntervalMs: 60 * 60 * 1000 });
 	const agent = fakeAgent(root, { turns: 3 });
 	const ctx = fakeContext(['{"skill": null}']);
@@ -210,8 +220,9 @@ test("evidence ids without an archive on disk are dropped", async () => {
 });
 
 test("all requested ids missing behaves like no evidence", async () => {
-	// The index claims both sessions; neither has a log on disk.
-	const root = await project({ index: ["ghost-a", "ghost-b"] });
+	// The index claims both sessions; neither has a log on disk, and only an unrelated
+	// session is archived, so the pass still runs and the model asks for the ghosts.
+	const root = await project({ sessions: ["session-a"], index: ["ghost-a", "ghost-b"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
 	const ctx = fakeContext(['{"skill": null, "need_sessions": ["ghost-a", "ghost-b"]}']);
 
@@ -222,8 +233,9 @@ test("all requested ids missing behaves like no evidence", async () => {
 
 test("an indexed id whose log is gone does not count as verified evidence", async () => {
 	// Both ids are indexed, but no session.jsonl exists for either one: an index line
-	// is a claim about a session, not the evidence a citation needs.
-	const root = await project({ index: ["ghost-a", "ghost-b"] });
+	// is a claim about a session, not the evidence a citation needs. A real unrelated
+	// archive keeps the pass running so the filter itself is what the test exercises.
+	const root = await project({ sessions: ["session-a"], index: ["ghost-a", "ghost-b"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
 	const ctx = fakeContext([
 		JSON.stringify({ skill: { name: "ghost-steps", description: "unverifiable", body: BODY, evidence: ["ghost-a", "ghost-b"] } }),
@@ -253,14 +265,18 @@ test("the adaptive output cap is raised to fit, bounded by the model and by maxO
 	const needed = MAX_SKILL_BODY_CHARS + REPLY_OUTPUT_MARGIN_TOKENS;
 	assert.equal(needed, 21_024);
 	// Raised to fit a full-size body when the model publishes no limit.
-	assert.equal(adaptiveOutputTokens(8192, needed, undefined, 32_768), needed);
+	assert.equal(adaptiveOutputTokens(8192, needed, {}, 32_768), needed);
 	// Bounded by the model's own output limit.
-	assert.equal(adaptiveOutputTokens(8192, needed, 16_000, 32_768), 16_000);
-	// Bounded by the configured ceiling.
-	assert.equal(adaptiveOutputTokens(8192, needed, 100_000, 12_000), 12_000);
-	// Never lowered below the configured cap, and an unusable limit is ignored.
-	assert.equal(adaptiveOutputTokens(8192, 100, undefined, 32_768), 8192);
-	assert.equal(adaptiveOutputTokens(8192, 100, 0, 32_768), 8192);
+	assert.equal(adaptiveOutputTokens(8192, needed, { maxTokens: 16_000 }, 32_768), 16_000);
+	// Bounded by the configured ceiling, which caps how far the request may grow.
+	assert.equal(adaptiveOutputTokens(8192, needed, { maxTokens: 100_000 }, 12_000), 12_000);
+	// The ceiling is a growth bound, not an absolute cap (pi rule): it never forces the request
+	// below the configured starting budget, so a smaller ceiling loses to `maxTokens`.
+	assert.equal(adaptiveOutputTokens(8192, 100, { maxTokens: 100_000 }, 4_000), 8192);
+	// Never lowered below the configured cap for a request that needs less, and an unusable limit
+	// is ignored.
+	assert.equal(adaptiveOutputTokens(8192, 100, {}, 32_768), 8192);
+	assert.equal(adaptiveOutputTokens(8192, 100, { maxTokens: 0 }, 32_768), 8192);
 });
 
 test("both autolearn calls use the adaptive output budget", async () => {
@@ -285,27 +301,31 @@ test("the learn state file round-trips, and a corrupt file reads as never-ran", 
 	const root = await project();
 	const file = learnStateFile(root);
 	assert.equal(file, path.join(root, ".agents", "memory", "autolearn-state.json"));
-	assert.deepEqual(await readLearnState(root), { autolearnAt: 0 });
+	assert.deepEqual(await readLearnState(root), { autolearnAt: 0, lastAttemptAt: 0 });
 
 	const at = 1_700_000_000_000;
-	assert.deepEqual(await updateLearnState(root, { autolearnAt: at }), { autolearnAt: at });
-	assert.deepEqual(await readLearnState(root), { autolearnAt: at });
-	assert.deepEqual(JSON.parse(await readFile(file, "utf8")), { autolearnAt: at });
-	// A patch without the field keeps the recorded value.
-	assert.deepEqual(await updateLearnState(root, {}), { autolearnAt: at });
+	const attemptedAt = 1_700_000_012_345;
+	assert.deepEqual(await updateLearnState(root, { autolearnAt: at, lastAttemptAt: attemptedAt }), { autolearnAt: at, lastAttemptAt: attemptedAt });
+	assert.deepEqual(await readLearnState(root), { autolearnAt: at, lastAttemptAt: attemptedAt });
+	assert.deepEqual(JSON.parse(await readFile(file, "utf8")), { autolearnAt: at, lastAttemptAt: attemptedAt });
+	// A patch without the fields keeps the recorded values, and a fractional material stamp (a file
+	// mtime) survives the JSON round-trip exactly — rounding it would re-open the gate every idle.
+	const fraction = at + 0.4795;
+	assert.deepEqual(await updateLearnState(root, { autolearnAt: fraction }), { autolearnAt: fraction, lastAttemptAt: attemptedAt });
+	assert.equal((await readLearnState(root)).autolearnAt, fraction);
 
 	// Corrupt and unusable values read as "never ran" instead of throwing, and the next
 	// write replaces them with valid JSON.
 	for (const bad of ["{not json", JSON.stringify({ autolearnAt: "soon" }), JSON.stringify([1, 2])]) {
 		await writeFile(file, bad);
-		assert.deepEqual(await readLearnState(root), { autolearnAt: 0 });
+		assert.deepEqual(await readLearnState(root), { autolearnAt: 0, lastAttemptAt: 0 });
 	}
-	assert.deepEqual(await updateLearnState(root, { autolearnAt: at + 1 }), { autolearnAt: at + 1 });
-	assert.deepEqual(JSON.parse(await readFile(file, "utf8")), { autolearnAt: at + 1 });
+	assert.deepEqual(await updateLearnState(root, { autolearnAt: at + 1 }), { autolearnAt: at + 1, lastAttemptAt: 0 });
+	assert.deepEqual(JSON.parse(await readFile(file, "utf8")), { autolearnAt: at + 1, lastAttemptAt: 0 });
 });
 
 test("a corrupt state file does not lose the pass", async () => {
-	const root = await project();
+	const root = await project({ sessions: ["session-a"] });
 	await writeFile(learnStateFile(root), "garbage{");
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
 	const ctx = fakeContext(['{"skill": null}']);
@@ -316,7 +336,7 @@ test("a corrupt state file does not lose the pass", async () => {
 });
 
 test("a failed pass backs off until new material appears", async () => {
-	const root = await project();
+	const root = await project({ sessions: ["session-a"] });
 	// An old persisted gate opens the interval gate while few turns keep the turn gate
 	// closed, so the retry decision rests on the material check alone.
 	await updateLearnState(root, { autolearnAt: Date.now() - 2 * 60 * 60 * 1000 });
@@ -334,4 +354,61 @@ test("a failed pass backs off until new material appears", async () => {
 	await utimes(memoryFile(root), stamp, stamp);
 	assert.equal(await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config), undefined);
 	assert.equal(ctx.calls.length, 1);
+});
+
+test("a project with no archive spends no model call", async () => {
+	// A live skill needs two verified sessions and a candidate needs one, so with an empty archive
+	// the pass cannot produce anything: it must not pay for a model call to find that out.
+	const root = await project();
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const ctx = fakeContext(['{"skill": {"name": "x", "description": "y", "body": "z"}}']);
+	assert.deepEqual(await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 3 }), config), { skill: null, backtracked: [], candidate: false });
+	assert.equal(ctx.calls.length, 0);
+});
+
+test("material written while a pass runs is not masked by the gate", async () => {
+	const root = await project({ sessions: ["session-a"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1, autolearnIntervalMs: 60 * 60 * 1000 });
+	// The model reply writes new memory, exactly like a consolidation pass finishing on the same
+	// idle. The gate must record the material the pass actually distilled, not the clock, or that
+	// write would count as already distilled until it happened to be written again.
+	const ctx = fakeContext([() => {
+		const now = new Date();
+		utimesSync(memoryFile(root), now, now);
+		return '{"skill": null}';
+	}]);
+	assert.deepEqual(await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 3 }), config), { skill: null, backtracked: [], candidate: false });
+	assert.equal(ctx.calls.length, 1);
+	const gate = (await readLearnState(root)).autolearnAt;
+	const written = statSync(memoryFile(root)).mtimeMs;
+	assert.ok(gate < written, `the gate (${gate}) must predate material written during the pass (${written})`);
+
+	await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 6 }), config);
+	assert.equal(ctx.calls.length, 2, "the newer material re-opens the pass");
+});
+
+test("a forced pass still runs in a project with no archive", async () => {
+	// The skip is for the automatic path only: `/autolearn` is the user asking for the call, and it
+	// must not be silently turned into a no-op just because no skill can be saved afterwards.
+	const root = await project();
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const ctx = fakeContext(['{"skill": null}']);
+	assert.deepEqual(await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config, { force: true }), { skill: null, backtracked: [], candidate: false });
+	assert.equal(ctx.calls.length, 1);
+});
+
+test("the interval gate survives a restart instead of measuring from the material", async () => {
+	const root = await project({ sessions: ["session-a"] });
+	const config = resolvePluginConfig({ autolearnTurns: 5, autolearnIntervalMs: 60 * 60 * 1000 });
+	// A pass ran a moment ago on material that was already an hour old when the gate was recorded:
+	// new material exists, but the interval since the *attempt* is what must keep the gate closed.
+	const written = new Date(Date.now() - 60 * 60 * 1000);
+	await utimes(memoryFile(root), written, written);
+	await utimes(contextFile(root), written, written);
+	await updateLearnState(root, { autolearnAt: Date.now() - 2 * 60 * 60 * 1000, lastAttemptAt: Date.now() });
+
+	const restarted = await import("../lib/shared/autolearn.js?interval=1");
+	const ctx = fakeContext(['{"skill": null}']);
+	assert.equal(await restarted.autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config), undefined);
+	assert.equal(ctx.calls.length, 0, "the recorded attempt time keeps the interval gate closed");
 });

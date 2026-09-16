@@ -49,9 +49,13 @@ export function memoryJournalFile(projectRoot: string): string {
 // ---------------------------------------------------------------------------
 
 /** A lock older than this was left behind by a crashed writer and may be stolen. */
-const MEMORY_LOCK_STALE_MS = 30_000;
-/** How long a writer waits for the lock before failing the pass. */
-const MEMORY_LOCK_WAIT_MS = 5_000;
+export const MEMORY_LOCK_STALE_MS = 30_000;
+/**
+ * How long a writer waits for the lock before failing the pass. It must exceed the staleness
+ * horizon: a lock orphaned by a crash is not stealable until then, so a shorter wait would fail
+ * every pass for the rest of that window instead of taking the abandoned lock over.
+ */
+export const MEMORY_LOCK_WAIT_MS = MEMORY_LOCK_STALE_MS + 5_000;
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -178,10 +182,10 @@ async function releaseClaim(claimPath: string, token: string): Promise<void> {
  * writers except for a suspension between that final check and the unlink; no kernel-atomic
  * alternative is available through node:fs.
  */
-async function stealStaleLock(lockPath: string, claimPath: string, claimToken: string): Promise<void> {
+async function stealStaleLock(lockPath: string, claimPath: string, claimToken: string, staleMs: number): Promise<void> {
 	const before = await lstat(lockPath).catch(() => undefined);
 	if (!before || !before.isFile()) return; // Non-regular paths heal in tryLock.
-	if (Date.now() - before.mtimeMs <= MEMORY_LOCK_STALE_MS) return;
+	if (Date.now() - before.mtimeMs <= staleMs) return;
 	// Only the exact inode and bytes inspected may be removed; a lock replaced meanwhile is not ours.
 	const observed = await readFile(lockPath, "utf8").catch(() => undefined);
 	if (observed === undefined) return;
@@ -215,27 +219,39 @@ async function releaseLock(lockPath: string, token: string): Promise<void> {
  * writer backs up cannot be replaced between the backup read and the atomic rename that publishes
  * the new file. A lock left behind by a crashed writer is stolen once it is older than any live
  * write; the thief writes its own token and the original holder only deletes a lock it still owns.
+ *
+ * A lock orphaned by a crash is not stealable until `staleMs` has passed, and the waiter outlives
+ * that horizon by design: it would rather pause the idle/flush path for up to `waitMs` (35 s by
+ * default) than fail the pass and leave the orphan in place. The limits are injectable so a test can
+ * exercise both outcomes in milliseconds.
  * @param target - the file the lock protects (its path plus `.lock` is the lock).
  * @param action - the write to run while holding the lock.
+ * @param limits - staleness horizon and waiter budget; defaults to the production constants.
  * @returns whatever `action` produced.
  */
-export async function withMemoryLock<T>(target: string, action: () => Promise<T>): Promise<T> {
+export async function withMemoryLock<T>(
+	target: string,
+	action: () => Promise<T>,
+	limits: { staleMs?: number; waitMs?: number } = {},
+): Promise<T> {
+	const staleMs = limits.staleMs ?? MEMORY_LOCK_STALE_MS;
+	const waitMs = limits.waitMs ?? MEMORY_LOCK_WAIT_MS;
 	const lockPath = `${target}.lock`;
 	// The memory directory may not exist yet on a first write; the lock lives next to the file.
 	await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
 	await ensureMemoryGitignore(path.dirname(lockPath));
-	const deadline = Date.now() + MEMORY_LOCK_WAIT_MS;
+	const deadline = Date.now() + waitMs;
 	let token: string | undefined;
 	while (!token) {
 		token = await tryLock(lockPath);
 		if (token) break;
 		if (Date.now() >= deadline) throw new Error(`timed out waiting for the memory write lock at ${lockPath}`);
-		if (Date.now() - (await lockMtimeMs(lockPath)) > MEMORY_LOCK_STALE_MS) {
+		if (Date.now() - (await lockMtimeMs(lockPath)) > staleMs) {
 			const claimPath = `${lockPath}.steal`;
 			const claimToken = await acquireClaim(claimPath);
 			if (claimToken) {
 				try {
-					await stealStaleLock(lockPath, claimPath, claimToken);
+					await stealStaleLock(lockPath, claimPath, claimToken, staleMs);
 				} finally {
 					await releaseClaim(claimPath, claimToken);
 				}

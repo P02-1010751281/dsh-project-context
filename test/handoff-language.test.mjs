@@ -11,8 +11,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	REPLAY_MARKER,
+	assertHandoffSummarizable,
 	continuation,
 	handoffArtifacts,
+	outstandingSubagents,
 	resolveHandoffLanguage,
 	sessionLanguageMessages,
 	handoffPrompt,
@@ -20,6 +22,7 @@ import {
 	isHandoffContinuationText,
 	pendingQuestionFor,
 	settingPatch,
+	summaryAttemptBudgets,
 } from "../lib/handoff.js";
 import {
 	SCAFFOLDING,
@@ -282,16 +285,29 @@ test("a wait handoff carries the open question into the continuation", () => {
 	const withPending = continuation("session-parent", "summary", "", ARCHIVE, "en", question);
 	assert.ok(withPending.includes(question));
 	assert.match(withPending, /## Pending question/);
-	assert.ok(withPending.endsWith(SCAFFOLDING.en.continuationClosing));
+	// The wait line is the last instruction: a trailing "start with the next concrete step" would
+	// override it and the child would choose an option the previous session stopped to ask about.
+	assert.ok(withPending.endsWith(SCAFFOLDING.en.pendingWait));
+	assert.ok(!withPending.includes(SCAFFOLDING.en.continuationClosing));
+	// The carried-over prompt must still be recognizable as a handoff prompt on the next handoff.
+	assert.equal(isHandoffContinuationText(withPending), true);
 
 	const withoutPending = continuation("session-parent", "summary", "", ARCHIVE);
 	assert.ok(!withoutPending.includes("Pending question"));
+	assert.ok(withoutPending.endsWith(SCAFFOLDING.en.continuationClosing));
 	assert.notEqual(withoutPending, withPending);
 
 	const zh = continuation("session-parent", "摘要", "", ARCHIVE, "zh", "推哪个分支？");
 	assert.match(zh, /## 待用户回答的问题/);
 	assert.ok(zh.includes("推哪个分支？"));
-	assert.ok(zh.endsWith(SCAFFOLDING.zh.continuationClosing));
+	assert.ok(zh.endsWith(SCAFFOLDING.zh.pendingWait));
+	assert.ok(!zh.includes(SCAFFOLDING.zh.continuationClosing));
+	assert.equal(isHandoffContinuationText(zh), true);
+
+	// A whitespace-only question is not a question: no empty block, and the usual closing stays.
+	const blank = continuation("session-parent", "summary", "", ARCHIVE, "en", "   ");
+	assert.ok(!blank.includes("Pending question"));
+	assert.ok(blank.endsWith(SCAFFOLDING.en.continuationClosing));
 });
 
 test("pendingQuestionFor only carries the question when the config says wait", () => {
@@ -339,4 +355,82 @@ test("handoffLanguage and maxOutputTokens are wired through every layer", () => 
 	assert.equal(schemaDefaults.handoffLanguage, "auto");
 	assert.equal(schemaDefaults.maxOutputTokens, 32_768);
 	assert.equal(PluginSettingsSchema({ handoffLanguage: "en" }).handoffLanguage, "en");
+});
+
+test("headings are localized only outside a code fence that really closes", () => {
+	const doc = ["```bash", "## Goal", "```", "## Goal"].join("\n");
+	const localized = localizeSummaryHeadings(doc, "zh");
+	assert.ok(localized.includes("```bash\n## Goal\n```"), "fenced code content stays as written");
+	assert.ok(localized.endsWith("## 目标"), "the heading after the fence is translated");
+
+	// A closer repeats the opener's character and length; a shorter ``` must not end a ```` block.
+	const mismatched = ["````", "## Goal", "```", "## Next steps", "````"].join("\n");
+	const stillInside = localizeSummaryHeadings(mismatched, "zh");
+	assert.ok(!stillInside.includes("目标"));
+	assert.ok(!stillInside.includes("下一步"));
+
+	// An info string is not a closer either, so the block stays open to the real one.
+	const infoString = ["```", "## Goal", "```js", "## Next steps", "```"].join("\n");
+	const infoLocalized = localizeSummaryHeadings(infoString, "zh");
+	assert.ok(!infoLocalized.includes("目标"));
+	assert.ok(!infoLocalized.includes("下一步"));
+
+	// A four-space indent is an indented code block, not a fence, so it cannot swallow the rest.
+	assert.ok(localizeSummaryHeadings(["    ```", "## Goal", "    ```"].join("\n"), "zh").includes("## 目标"));
+	assert.equal(localizeSummaryHeadings("    ## Goal", "zh"), "    ## Goal");
+
+	// A properly closed fence still protects its content in both directions.
+	assert.equal(localizeSummaryHeadings("~~~\n## 目标\n~~~\n## 目标", "en"), "~~~\n## 目标\n~~~\n## Goal");
+	// A backtick in an opening backtick fence's info string makes it not a fence at all (CommonMark),
+	// so the heading after it is ordinary text and is localized.
+	assert.ok(localizeSummaryHeadings(["```a`b", "## Goal"].join("\n"), "zh").includes("## 目标"));
+});
+
+test("an unsettled continuable background subagent defers the automatic handoff", () => {
+	const now = 1_700_000_000_000;
+	const events = [
+		{ type: "subagent/catalog", time: now - 120_000, data: { childId: "child-settled", mode: "continuable" } },
+		{ type: "subagent/catalog", time: now - 60_000, data: { childId: "child-running", mode: "continuable" } },
+		{ type: "user/message", time: now - 90_000, data: { source: { kind: "subagent-settled", senderSessionId: "child-settled" } } },
+	];
+	assert.deepEqual(outstandingSubagents(events, now), ["child-running"]);
+	// A one-shot child never reports a settlement, so counting it would defer the handoff for the
+	// whole horizon after a delegation that already returned its result.
+	assert.deepEqual(
+		outstandingSubagents([{ type: "subagent/catalog", time: now - 1_000, data: { childId: "one-shot", mode: "one-shot" } }], now),
+		[],
+	);
+	// A child catalogued again after it settled counts as running once more.
+	assert.deepEqual(
+		outstandingSubagents([
+			{ type: "subagent/catalog", time: now - 120_000, data: { childId: "child-resumed", mode: "continuable" } },
+			{ type: "user/message", time: now - 60_000, data: { source: { kind: "subagent-settled", senderSessionId: "child-resumed" } } },
+			{ type: "subagent/catalog", time: now - 30_000, data: { childId: "child-resumed", mode: "continuable" } },
+		], now),
+		["child-resumed"],
+	);
+	// A child that never reports a settlement stops counting after the horizon, so an abandoned
+	// child cannot block handoffs forever.
+	assert.deepEqual(outstandingSubagents(events, now + 61 * 60_000), []);
+	// Unknown or empty logs mean "nothing pending": the guard fails open.
+	assert.deepEqual(outstandingSubagents([], now), []);
+	assert.deepEqual(outstandingSubagents([{ type: "user/message", data: {} }], now), []);
+});
+
+test("an empty span is refused instead of summarized into a fabricated handoff", () => {
+	// Whitespace-only covers the empty session; the message names the `keep` escape because a short
+	// conversation that fits the carried window reaches the same guard.
+	assert.throws(() => assertHandoffSummarizable("   \n\t "), /nothing to hand off.*keep 0/);
+	assert.doesNotThrow(() => assertHandoffSummarizable("## user\nhello"));
+});
+
+test("the summary retry grows but never passes the configured growth boundary", () => {
+	// The default pair: the fixed floor wins, exactly as before the boundary existed.
+	assert.deepEqual(summaryAttemptBudgets(DEFAULT_CONFIG), [8192, 32_768]);
+	// A lowered boundary bounds the retry instead of the fixed floor overriding the user's choice.
+	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxOutputTokens: 12_000 }), [8192, 12_000]);
+	// A user-raised starting cap is never lowered by a smaller boundary, and a big cap still retries
+	// at double its own size rather than at the small floor.
+	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxOutputTokens: 4_000 }), [8192]);
+	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxTokens: 20_000 }), [20_000, 32_768]);
 });

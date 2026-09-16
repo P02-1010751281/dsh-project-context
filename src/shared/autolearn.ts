@@ -16,8 +16,8 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import type { PluginConfig } from "./config.js";
 import { readArchivedConversation } from "./archive.js";
-import { REPLY_OUTPUT_MARGIN_TOKENS, parseJsonObject, requestPluginText, resolveTarget, userTurnCount } from "./learn.js";
-import { markAutolearnAt, readLearnState } from "./learn-state.js";
+import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, parseJsonObject, requestPluginText, resolveTarget, userTurnCount } from "./learn.js";
+import { readLearnState, updateLearnState } from "./learn-state.js";
 import {
 	MAX_CONTEXT_CHARS,
 	MAX_SKILL_BODY_CHARS,
@@ -359,20 +359,6 @@ function backtrackPrompt(projectRoot: string, memoryText: string, skillsText: st
 	].join("\n");
 }
 
-/** Worst-case answer room around a full-size skill body (1 token per char). */
-
-/**
- * Raise the configured output cap to what the pass needs, bounded by the
- * model's own limit and the configured ceiling. Without model metadata an
- * adaptive cap could exceed what the provider accepts, so the pass never asks
- * for more than the ceiling; an over-long answer is rejected afterwards.
- */
-export function adaptiveOutputTokens(configured: number, needed: number, modelLimit: number | undefined, ceiling: number): number {
-	const cap = typeof modelLimit === "number" && Number.isFinite(modelLimit) && modelLimit > 0 ? modelLimit : undefined;
-	const grown = Math.max(configured, needed);
-	return Math.min(cap ? Math.min(grown, cap) : grown, Math.max(configured, ceiling));
-}
-
 /**
  * The routed model's own output cap, when its adapter publishes one. Model
  * catalog metadata is advisory, so an unknown provider simply yields no cap.
@@ -412,20 +398,25 @@ export function autolearnProjectSkills(
 		const previous = throttle.get(projectRoot);
 		const baseline = previous?.session === sessionId ? previous.sessionTurns : 0;
 		const totalTurns = (previous?.turns ?? 0) + Math.max(0, turns - baseline);
-		// The gate timestamp is stored in the project, so it survives a process restart:
-		// without it the material and interval gates restart from zero and re-run a pass
-		// over memory that was already distilled. The in-process record still covers the
-		// attempts a restart cannot know about — skips and failures — so a failed pass
-		// backs off until new material instead of retrying on every idle.
-		const gateAt = (await readLearnState(projectRoot)).autolearnAt;
-		const attemptAt = Math.max(gateAt, previous?.at ?? 0);
+		// Both gates are stored in the project, so they survive a process restart: without them the
+		// material and interval gates restart from zero and re-run a pass over memory that was
+		// already distilled. The in-process record still covers what a restart cannot know about —
+		// skips and failures — so a failed pass backs off instead of retrying on every idle.
+		const persisted = await readLearnState(projectRoot);
+		const gateAt = persisted.autolearnAt;
+		const attemptAt = Math.max(persisted.lastAttemptAt, previous?.at ?? 0);
+		// The material stamp the gate compares against, read before any model call, so a memory or
+		// context write landing *during* the pass stays newer than the recorded gate and re-opens it.
+		const stamp = Math.max(await fileMtimeMs(memoryFile(projectRoot)), await fileMtimeMs(contextFile(projectRoot)));
 
 		if (force && Date.now() - attemptAt < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false };
 
 		if (!force) {
-			// New material is required; otherwise only remember the turn counter.
-			const stamp = Math.max(await fileMtimeMs(memoryFile(projectRoot)), await fileMtimeMs(contextFile(projectRoot)));
-			const changed = stamp > attemptAt;
+			// New material is required; otherwise only remember the turn counter. The material check
+			// compares against the persisted gate alone — comparing against the last attempt would
+			// hide a write that landed while that attempt was still running. The interval check uses
+			// the separate attempt timestamp, so a restart cannot make it look long overdue.
+			const changed = stamp > gateAt;
 			const due = totalTurns >= config.autolearnTurns || Date.now() - attemptAt >= config.autolearnIntervalMs;
 			if (!changed || !due) {
 				throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: attemptAt });
@@ -454,20 +445,27 @@ export function autolearnProjectSkills(
 			const maxTokens = adaptiveOutputTokens(
 				config.maxTokens,
 				MAX_SKILL_BODY_CHARS + REPLY_OUTPUT_MARGIN_TOKENS,
-				await modelOutputLimit(ctx, target, options.signal),
+				{ maxTokens: await modelOutputLimit(ctx, target, options.signal) },
 				config.maxOutputTokens,
 			);
 			// Evidence is a file on disk, not a line in the index: an indexed session whose log
 			// is gone is not evidence, and a hallucinated id must not become a verified citation.
 			const archived = await archivedSessionIds(projectRoot);
+			// A live skill needs two verified sessions and a candidate needs one, so an automatic
+			// pass in a project with no archive at all can never produce either: skip before
+			// spending a model call on it. A forced pass (`/autolearn`) still runs, because the
+			// command is the user asking for the call.
+			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false };
 
 			const first = parseAutolearn(await requestPluginText(ctx, target, maxTokens, basePrompt(projectRoot, memory.text, contextText, indexText, skillsText), options.signal));
-			// Record the gate now, right after the first model call: a crash before it re-runs the
-			// pass, a pass that got this far does not, and the accumulated turn counter restarts
-			// so the next automatic pass needs a fresh accumulation.
+			// Record the gate at the material stamp this pass actually distilled: a newer write is
+			// then still newer than the gate, so a pass that ran while consolidation was writing
+			// re-opens on the next idle instead of masking that memory until it is written again.
+			// The attempt time is recorded separately, so the interval gate still measures from the
+			// pass and not from whenever the material was last touched.
 			const recordedAt = Date.now();
 			recorded = true;
-			await markAutolearnAt(projectRoot, recordedAt);
+			await updateLearnState(projectRoot, { autolearnAt: stamp, lastAttemptAt: recordedAt });
 			throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: 0, at: recordedAt });
 
 			let skill = first.skill;

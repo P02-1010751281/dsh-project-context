@@ -167,8 +167,10 @@ function allocateTokens(budget: number, memoryTokens: number, contextTokens: num
 
 /**
  * Raise the configured output cap to what the pass needs, bounded by the model's own limit and the
- * configured ceiling. Without model metadata an adaptive cap could exceed what the provider
- * accepts, so the pass never asks for more than the ceiling; an over-long input is then clipped.
+ * configured ceiling. The ceiling bounds how far the cap may *grow*: it never forces the request
+ * below the configured starting cap, so `maxTokens` stays the base budget (pi's rule). Without model
+ * metadata an adaptive cap could exceed what the provider accepts, so the pass never asks for more
+ * than those bounds; an over-long input is then clipped.
  */
 export function adaptiveOutputTokens(configured: number, needed: number, model: { maxTokens?: number }, ceiling: number): number {
 	const cap = typeof model.maxTokens === "number" && model.maxTokens > 0 ? model.maxTokens : undefined;

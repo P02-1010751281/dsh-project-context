@@ -5,6 +5,10 @@
  *   - adaptive threshold (default): derived from the routed window, the measured
  *     baseline, the carried-over recent tail, and `handoffTargetTokens`;
  *   - fixed threshold: `handoffThresholdRatio` × window.
+ * A handoff is deferred while the last assistant message is an open question
+ * (`handoffPendingQuestion: defer`) and while a *continuable* subagent child this
+ * session started is still running: that child's settlement notice wakes this
+ * session again, so handing off first would leave two sessions on the same project.
  * One auxiliary model call distills the older conversation; the recent tail
  * (`handoffKeepTokens`) is carried into the continuation verbatim. The
  * document is archived to `.agents/memory/HANDOFF.md`, a fresh session is
@@ -263,12 +267,10 @@ export interface HandoffSplit {
 }
 
 /**
- * Split of the rendered conversation for a handoff. Shares `conversationMessageSections`
- * with `conversationSplit` in `shared/learn.ts`, but works from the derived sections so it
- * can (a) replace a recognized continuation prompt in the carried tail with
- * {@link REPLAY_MARKER} and (b) hand `auto` detection the unclipped text, since the
- * rendered section cuts user text at 4000 characters — shorter than a real continuation,
- * which would hide its closing line.
+ * Split of the rendered conversation for a handoff. Works from `conversationMessageSections` so it
+ * can (a) replace a recognized continuation prompt in the carried tail with {@link REPLAY_MARKER}
+ * and (b) hand `auto` detection the unclipped text, since the rendered section cuts user text at
+ * 4000 characters — shorter than a real continuation, which would hide its closing line.
  */
 export function handoffSplit(session: Session, keepChars: number): HandoffSplit {
 	const sections = conversationMessageSections(session);
@@ -362,11 +364,14 @@ export function continuation(
 	}
 	// With `handoffKeepTokens: 0` the tail cannot carry the open question, so the
 	// explicit block is the only thing that keeps a `wait` handoff from silently
-	// dropping the decision the previous session stopped on.
+	// dropping the decision the previous session stopped on. It also replaces the
+	// usual closing: "start with the next concrete step" immediately after "wait for
+	// the user" reads as the last instruction and cancels the wait.
 	if (pending !== undefined && pending.trim().length > 0) {
 		parts.push("", text.pendingHeading, "", pending.trim(), "", text.pendingWait);
+	} else {
+		parts.push("", text.continuationClosing);
 	}
-	parts.push("", text.continuationClosing);
 	return parts.join("\n");
 }
 
@@ -374,6 +379,20 @@ export function continuation(
 function withTimeout(signal: AbortSignal | undefined): AbortSignal {
 	const timeout = AbortSignal.timeout(SUMMARY_TIMEOUT_MS);
 	return signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+}
+
+/**
+ * The output budgets one summary call may try, in order. A truncated summary retries once with more
+ * room than the configured starting cap, but the retry never passes the adaptive growth boundary
+ * `max(maxTokens, maxOutputTokens)` — so a lowered `maxOutputTokens` bounds the retry too, instead
+ * of the fixed 32k floor overriding it. Exported so a test can pin the bounds.
+ * @param config - the effective plugin config.
+ * @returns one or two distinct token budgets.
+ */
+export function summaryAttemptBudgets(config: PluginConfig): number[] {
+	const retryCeiling = Math.max(config.maxTokens, config.maxOutputTokens);
+	const retryTokens = Math.min(Math.max(config.maxTokens * 2, SUMMARY_RETRY_FLOOR), retryCeiling);
+	return [...new Set([config.maxTokens, retryTokens])];
 }
 
 /** One summary call; a token-cap truncation retries once with more output room. */
@@ -385,10 +404,7 @@ async function summarize(
 	signal: AbortSignal,
 	reasoningEffort: string | undefined,
 ): Promise<string> {
-	// The floor is a minimum retry target, not a ceiling on the user's budget:
-	// a truncated summary retries once with more room than the configured cap.
-	const retryTokens = Math.max(config.maxTokens * 2, SUMMARY_RETRY_FLOOR);
-	const attempts = [...new Set([config.maxTokens, retryTokens])];
+	const attempts = summaryAttemptBudgets(config);
 	let lastError: unknown;
 	for (const maxTokens of attempts) {
 		try {
@@ -495,6 +511,21 @@ export function handoffArtifacts(args: {
 	};
 }
 
+/**
+ * The span a handoff summarizes, or an error when there is none. Two cases reach this: a session
+ * with no messages at all, and — with the default `handoffKeepTokens` — a short conversation that
+ * fits entirely inside the carried-over window. Both would otherwise pay for a model call and seed
+ * the child with a fabricated summary; the error names the `keep 0` escape for the second case.
+ * The automatic path cannot reach it (it refuses a span below `MIN_SUMMARIZE_TOKENS` first).
+ * Exported so a test can pin the guard instead of only the happy path.
+ * @param older - the rendered conversation before the kept tail.
+ */
+export function assertHandoffSummarizable(older: string): void {
+	if (older.trim().length === 0) {
+		throw new Error("nothing to hand off: every message is inside the carried-over window; run `/handoff keep 0` to summarize the whole conversation");
+	}
+}
+
 /** Summarize the session, persist the document, and start the seeded child session. */
 async function performHandoff(
 	ctx: Context,
@@ -512,6 +543,7 @@ async function performHandoff(
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
 	const memory = await loadMemory(projectRoot);
 	const { older, tail, languageMessages } = split ?? handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
+	assertHandoffSummarizable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
 	const raw = (
 		await summarize(ctx, target, config, handoffPrompt(projectRoot, memory.text, older, fileOperations(session), language), withTimeout(signal), resolveSummaryEffort(config, session, resolved))
@@ -583,8 +615,65 @@ async function performHandoff(
 	return { childId, file };
 }
 
-/** Measure pressure and hand off when the configured threshold is crossed. */
-async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig): Promise<void> {
+/**
+ * A *continuable* background subagent that has not reported a settlement yet keeps the parent
+ * session alive: when it settles, dsh wakes the parent with a notice and the parent starts a new
+ * turn. Firing the automatic handoff inside that window hands the task off and *then* wakes the
+ * parent, so parent and child work the same project at once. An unsettled child only counts for one
+ * horizon, so a child that died without a notice cannot block handoffs forever.
+ *
+ * One-shot children are deliberately ignored: dsh catalogues them the same way, but only the
+ * continuable activation reports a settlement, so counting them would defer every handoff for an
+ * hour after a one-shot delegation (the default `subagent` mode, and all of `workflow`) had already
+ * returned its result. A continuable child that is later *resumed* by a parent-side message is also
+ * invisible here (resuming appends no new catalogue entry), which is the one known gap of this guard.
+ */
+const SUBAGENT_WORK_HORIZON_MS = 60 * 60_000;
+
+/**
+ * This session's continuable subagent children that were spawned within the horizon and have not
+ * reported a settlement since. Read structurally: `subagent/catalog` and the `subagent-settled`
+ * source kind are dsh-internal shapes, so a log from another version simply yields no pending work —
+ * the guard fails open instead of blocking every handoff.
+ * @param events - the session's *own* event log (a fork's inherited prefix is not this session's work).
+ * @param now - current time in milliseconds.
+ * @param horizonMs - how long an unsettled child keeps counting as running.
+ * @returns the outstanding child session ids.
+ */
+export function outstandingSubagents(events: readonly unknown[], now: number, horizonMs: number = SUBAGENT_WORK_HORIZON_MS): string[] {
+	const spawned = new Map<string, number>();
+	const settled = new Map<string, number>();
+	for (const raw of events) {
+		const event = raw as {
+			type?: unknown;
+			time?: unknown;
+			data?: { childId?: unknown; mode?: unknown; source?: { kind?: unknown; senderSessionId?: unknown } };
+		};
+		if (event.type === "subagent/catalog") {
+			const id = event.data?.childId;
+			// Only a continuable child reports a settlement; a one-shot child is done when its call
+			// returns, so treating it as running would defer the handoff for the whole horizon.
+			if (event.data?.mode !== "continuable") continue;
+			if (typeof id === "string" && typeof event.time === "number") spawned.set(id, event.time);
+			continue;
+		}
+		if (event.type === "user/message" && event.data?.source?.kind === "subagent-settled") {
+			const id = event.data.source.senderSessionId;
+			if (typeof id === "string" && typeof event.time === "number") settled.set(id, event.time);
+		}
+	}
+	// The latest event per child wins, so a child that settled and was catalogued again counts again.
+	return [...spawned]
+		.filter(([id, at]) => at > (settled.get(id) ?? 0) && now - at <= horizonMs)
+		.map(([id]) => id);
+}
+
+/**
+ * Measure pressure and hand off when the configured threshold is crossed. Exported so a test can
+ * drive the guards (pending question, running subagents, minimum span) without the session/event
+ * plumbing of the plugin's own turn-end listener.
+ */
+export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig): Promise<void> {
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
 	if (!controller || !meter) return;
@@ -610,6 +699,19 @@ async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginCo
 	// = "wait" opts into carrying the question into the new session.
 	if (config.handoffPendingQuestion === "defer" && pendingQuestion(session) !== undefined) {
 		ctx.logger.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
+		return;
+	}
+
+	// A running background subagent will wake this session again when it settles, so handing off
+	// now would leave two sessions working the same project. `ownEvents` (not `snapshotEvents`):
+	// a fork inherits its parent's log, and an inherited child's notice goes to the original parent.
+	const ownEvents = session as { ownEvents?: () => readonly unknown[] };
+	const pending = outstandingSubagents(ownEvents.ownEvents?.() ?? session.snapshotEvents(), now);
+	if (pending.length > 0) {
+		ctx.logger.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", pending.length);
+		// Re-check on the next idle rather than after the measurement interval: the child settling
+		// is exactly what starts this session's next turn.
+		pressureCheckedAt.delete(key);
 		return;
 	}
 
@@ -707,8 +809,11 @@ async function statusText(ctx: Context, session: Session, entry: PluginConfig, s
 	return parts.join(" · ");
 }
 
-/** Manual handoff shared by the bare command and `now`. */
-async function runManual(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal) {
+/**
+ * Manual handoff shared by the bare command and `now`. Exported so a test can drive the whole reply
+ * path (an empty span must come back as an error reply, not as a fabricated child).
+ */
+export async function runManual(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal) {
 	const key = String(session.id);
 	if (inFlight.has(key)) return { kind: "error" as const, text: "A handoff is already running for this session." };
 

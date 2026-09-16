@@ -16,9 +16,11 @@ import {
 	continuation,
 	createChildSession,
 	parseRatio,
+	maybeAutoHandoff,
 	parseTokenCount,
 	pendingQuestion,
 	resolveThreshold,
+	runManual,
 	settingPatch,
 	textAsksQuestion,
 } from "../lib/handoff.js";
@@ -45,6 +47,7 @@ import {
 	logError,
 	migrateProjectState,
 	readTextCachedSync,
+	redactSecrets,
 	safeSessionId,
 	validSkillName,
 	writeAtomic,
@@ -1082,4 +1085,102 @@ test("migration keeps the newer of two colliding files", async () => {
 	assert.equal(await readFile(path.join(memory, "MEMORY.md"), "utf8"), "# new\n", "the newer destination wins");
 	assert.equal(existsSync(path.join(project, ".pi", "MEMORY.md")), false, "the consumed legacy file is gone");
 	assert.deepEqual(result.conflicts, []);
+});
+
+test("maxOutputTokens bounds adaptive growth without capping the starting budget", () => {
+	// The ceiling only bounds how far a request may grow (pi's rule); it never forces the request
+	// below the configured starting cap, so a contradictory pair is used as written instead of
+	// being rejected — an existing settings file must not stop the plugin from loading.
+	assert.equal(resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 256 }).maxTokens, 8192);
+	assert.equal(resolvePluginConfig({ maxTokens: 4096, maxOutputTokens: 4096 }).maxOutputTokens, 4096);
+	assert.equal(resolvePluginConfig({}).maxOutputTokens, 32_768);
+
+	// The ceiling wins over the model's own (larger) limit and over a request that would need more.
+	assert.equal(adaptiveOutputTokens(4096, 100_000, { maxTokens: 1_000_000 }, 4096), 4096);
+	// A ceiling below the starting cap is ignored rather than lowering the request below it.
+	assert.equal(adaptiveOutputTokens(8192, 100, { maxTokens: 1_000_000 }, 256), 8192);
+});
+
+test("credentials are masked before a diagnostic reaches the project log", () => {
+	const text = [
+		'authorization: Bearer abcdefghijklmnop',
+		"apiKey = sk-abcdefghijklmnop",
+		"github token ghp_abcdefghijklmnop",
+		"aws AKIAIOSFODNN7EXAMPLE",
+		"jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signaturepart",
+	].join("\n");
+	const safe = redactSecrets(text);
+	for (const secret of ["abcdefghijklmnop", "sk-abcdefghijklmnop", "ghp_abcdefghijklmnop", "AKIAIOSFODNN7EXAMPLE", "eyJhbGciOiJIUzI1NiJ9"]) {
+		assert.ok(!safe.includes(secret), `${secret} must be masked`);
+	}
+	assert.match(safe, /\[redacted/);
+	// Ordinary prose is left alone.
+	assert.equal(redactSecrets("the token budget is 8192 tokens"), "the token budget is 8192 tokens");
+});
+
+test("the automatic handoff waits for background subagents to settle", async () => {
+	// A session over the threshold whose last turn ended while a subagent is still running: when
+	// that subagent settles, dsh wakes this session again, so handing off now would leave parent and
+	// child working the same project.
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const makeSession = (events) => ({
+		id: "session-parent-000000000000",
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		snapshotEvents: () => events,
+	});
+	const spawned = { type: "subagent/catalog", time: Date.now() - 60_000, data: { childId: "child-live", mode: "continuable" } };
+	const settledEvent = { type: "user/message", time: Date.now() - 30_000, data: { source: { kind: "subagent-settled", senderSessionId: "child-live" } } };
+
+	const created = [];
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
+	const ctxFor = () => ({
+		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : undefined),
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
+		logger: { info() {}, warn() {} },
+	});
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+
+	const running = makeSession([spawned]);
+	// Resolves without a model call: the guard returns before the summary is attempted.
+	await maybeAutoHandoff(ctxFor(), running, config);
+	assert.equal(created.length, 0, "no child session is created while a subagent is still running");
+
+	// The same session with the child settled proceeds past the guard and reaches the summary call,
+	// which this fake cannot serve — the rejection is the proof that only the guard stopped it above.
+	const done = makeSession([spawned, settledEvent]);
+	await assert.rejects(() => maybeAutoHandoff(ctxFor(), done, config), /async iterable/, "the run reached the summary call");
+	assert.equal(created.length, 0);
+});
+
+test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {
+	const cwd = await mkdtemp(path.join(tmpdir(), "dsh-handoff-empty-"));
+	const created = [];
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
+	let modelCalls = 0;
+	const ctx = {
+		get: (name) => (name === "sessionController" ? controller : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => { modelCalls += 1; throw new Error("the model must not be called"); },
+		},
+		logger: { info() {}, warn() {} },
+	};
+	// Three short messages fit entirely inside the default `handoffKeepTokens`, so `older` is empty
+	// even though the conversation is not: the reply must say why instead of summarizing nothing.
+	const session = {
+		id: "session-short-000000000000",
+		header: { cwd, createdAt: Date.now() },
+		deriveMessages: () => [message("user", "hello"), message("assistant", "hi"), message("user", "again")],
+		snapshotEvents: () => [],
+		requestHeader: () => undefined,
+	};
+	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model" });
+	const reply = await runManual(ctx, session, entry, new AbortController().signal);
+	assert.equal(reply.kind, "error");
+	assert.match(reply.text, /nothing to hand off/);
+	assert.match(reply.text, /keep 0/, "the reply names the escape hatch");
+	assert.equal(created.length, 0);
+	assert.equal(modelCalls, 0);
 });

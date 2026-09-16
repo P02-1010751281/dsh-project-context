@@ -119,22 +119,41 @@ const SUMMARY_HEADINGS: Record<HandoffLanguage, Record<string, string>> = {
 	},
 };
 
-/** Localize the summarizer template's headings; only exact heading lines outside code fences are touched. */
+/**
+ * A fenced-code opener or closer: at most three leading spaces, then ``` or ~~~. A deeper indent is
+ * an indented code block, not a fence, so it must not swallow the rest of the document.
+ */
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Localize the summarizer template's headings; only exact heading lines outside code fences are
+ * touched. A fence closes only on its own marker character with at least the opening length and
+ * nothing but whitespace after it, so a mismatched or info-string-bearing line cannot end a block
+ * early and expose code content to translation.
+ */
 export function localizeSummaryHeadings(text: string, language: HandoffLanguage): string {
 	const headings = SUMMARY_HEADINGS[language];
-	let fence: string | undefined;
+	let fence: { char: string; length: number } | undefined;
 	return text
 		.split("\n")
 		.map((line) => {
-			const trimmed = line.trim();
-			const fenceMatch = /^(`{3,}|~{3,})/.exec(trimmed);
+			const fenceMatch = FENCE_LINE.exec(line);
 			if (fenceMatch) {
-				// Track fenced code blocks so heading-shaped lines inside them stay untouched.
-				if (fence === undefined) fence = fenceMatch[1][0];
-				else if (trimmed.startsWith(fence)) fence = undefined;
+				const marker = fenceMatch[1];
+				const rest = fenceMatch[2];
+				if (fence === undefined) {
+					// CommonMark: an opening backtick fence's info string may not contain a backtick.
+					if (marker[0] !== "`" || !rest.includes("`")) fence = { char: marker[0], length: marker.length };
+				} else if (marker[0] === fence.char && marker.length >= fence.length && rest.trim().length === 0) {
+					fence = undefined;
+				}
 				return line;
 			}
 			if (fence !== undefined) return line;
+			// An indented code block needs four *columns*; a tab advances to the next multiple of
+			// four, so a leading tab counts as four even though it is one character.
+			if (line.replace(/\t/g, "    ").length - line.replace(/\t/g, "    ").trimStart().length >= 4) return line;
+			const trimmed = line.trim();
 			const mapped = headings[trimmed];
 			if (mapped === undefined) return line;
 			const indent = line.slice(0, line.indexOf(trimmed));
@@ -224,6 +243,13 @@ export function isHandoffContinuationText(text: string): boolean {
 	const prefixes = [SCAFFOLDING.en.continuationPrefix, SCAFFOLDING.zh.continuationPrefix];
 	if (!prefixes.some((prefix) => trimmed.startsWith(prefix))) return false;
 	if (!CONTINUATION_MARKERS.every((marker) => trimmed.includes(marker))) return false;
-	const closings = [SCAFFOLDING.en.continuationClosing, SCAFFOLDING.zh.continuationClosing];
+	// A `wait` handoff ends on the pending-question line instead of the usual closing, so both are
+	// recognized; accepting only the usual one made every carried-over wait prompt unrecognizable.
+	const closings = [
+		SCAFFOLDING.en.continuationClosing,
+		SCAFFOLDING.en.pendingWait,
+		SCAFFOLDING.zh.continuationClosing,
+		SCAFFOLDING.zh.pendingWait,
+	];
 	return closings.some((closing) => trimmed.endsWith(closing));
 }
