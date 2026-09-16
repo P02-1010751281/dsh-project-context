@@ -13,6 +13,7 @@ import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { apply as applyAutolearn } from "../lib/autolearn.js";
 import { autolearnProjectSkills } from "../lib/shared/autolearn.js";
 import { adaptiveOutputTokens } from "../lib/shared/learn.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/learn.js";
@@ -411,4 +412,42 @@ test("the interval gate survives a restart instead of measuring from the materia
 	const ctx = fakeContext(['{"skill": null}']);
 	assert.equal(await restarted.autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config), undefined);
 	assert.equal(ctx.calls.length, 0, "the recorded attempt time keeps the interval gate closed");
+});
+
+test("the autoLearn switch alone suppresses the automatic pass", async () => {
+	// Every other gate is open here — one verified archive, new material, a due turn count — so the
+	// switch is the only thing that can stop the pass. Without this the mutation "drop the switch
+	// check" survives the suite while the plugin keeps spending model calls with autoLearn off.
+	const root = await project({ sessions: ["session-a"] });
+	const modelCalls = [];
+	const handlers = new Map();
+	const makeCtx = () => ({
+		effect: (callback) => callback(),
+		inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
+		on: (type, handler) => { handlers.set(type, handler); },
+		commands: { register: (command) => handlers.set("command", command) },
+		logger: { info() {}, warn() {} },
+		llm: {
+			resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }),
+			stream: () => {
+				modelCalls.push(1);
+				return (async function* generate() { yield { type: "text-delta", text: '{"skill": null}' }; })();
+			},
+		},
+	});
+	const settings = { autoLearn: false, autolearnTurns: 1, autolearnIntervalMs: 1000, provider: "test-provider", model: "test-model" };
+
+	applyAutolearn(makeCtx(), resolvePluginConfig(settings));
+	const off = fakeAgent(root, { turns: 5 });
+	await handlers.get("agent/status")({ agent: off, status: "idle" });
+	await handlers.get("session/flush")(off.session);
+	assert.equal(modelCalls.length, 0, "autoLearn: false must not run a pass");
+
+	// Positive control: the same project with the switch on does run one, so the assertion above
+	// cannot pass merely because no pass can run at all.
+	applyAutolearn(makeCtx(), resolvePluginConfig({ ...settings, autoLearn: true }));
+	const on = fakeAgent(root, { turns: 5 });
+	await handlers.get("agent/status")({ agent: on, status: "idle" });
+	await handlers.get("session/flush")(on.session);
+	assert.equal(modelCalls.length, 1, "the same event runs a pass once the switch is on");
 });
