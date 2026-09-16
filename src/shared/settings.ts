@@ -23,6 +23,7 @@ export const PluginSettingsSchema = z.object({
 	consolidateIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.consolidateIntervalMs),
 	forceDedupeMs: z.natural().default(DEFAULT_CONFIG.forceDedupeMs),
 	maxTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxTokens),
+	maxOutputTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxOutputTokens),
 	provider: z.string().default(DEFAULT_CONFIG.provider),
 	model: z.string().default(DEFAULT_CONFIG.model),
 	autoLearn: z.boolean().default(DEFAULT_CONFIG.autoLearn),
@@ -35,6 +36,7 @@ export const PluginSettingsSchema = z.object({
 	handoffKeepTokens: z.natural().max(200_000).default(DEFAULT_CONFIG.handoffKeepTokens),
 	handoffSummaryThinking: z.union(["off", "session"]).default(DEFAULT_CONFIG.handoffSummaryThinking),
 	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion),
+	handoffLanguage: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLanguage),
 });
 
 let installed = false;

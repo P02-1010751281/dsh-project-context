@@ -82,7 +82,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("session/flush", (session) => pending.flush(session));
 
 	ctx.on("session/disposed", (session) => {
-		void queueSessionArtifacts(session, { markdown: true }).finally(() => releaseSessionQueue(String(session.id)));
+		void queueSessionArtifacts(session, { markdown: true }).finally(() => releaseSessionQueue(session));
 	});
 
 	ctx.commands.register({

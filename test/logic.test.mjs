@@ -24,7 +24,17 @@ import {
 } from "../lib/handoff.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/shared/context-doc.js";
-import { clip, conversationSplit, fallbackUpdate, parseConsolidation, truncateMiddle } from "../lib/shared/learn.js";
+import {
+	adaptiveOutputTokens,
+	clip,
+	clipText,
+	fallbackUpdate,
+	fitMemoryInput,
+	parseConsolidation,
+	replyHead,
+	replyTokenRate,
+	truncateMiddle,
+} from "../lib/shared/learn.js";
 import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } from "../lib/shared/autolearn.js";
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/shared/handoff-marker.js";
 import { watchHandoffSwitch } from "../lib/shared/handoff-watch.js";
@@ -50,25 +60,6 @@ function message(role, text) {
 function fakeSession(messages) {
 	return { deriveMessages: () => messages };
 }
-
-test("conversationSplit keeps the tail whole and summarizes the rest", () => {
-	const session = fakeSession([
-		message("user", "first question"),
-		message("assistant", "first answer"),
-		message("user", "second question"),
-	]);
-
-	const everything = conversationSplit(session, 0);
-	assert.equal(everything.tail, "");
-	assert.match(everything.older, /first question/);
-	assert.match(everything.older, /second question/);
-
-	const split = conversationSplit(session, 10);
-	assert.match(split.tail, /second question/);
-	assert.doesNotMatch(split.tail, /first question/);
-	assert.match(split.older, /first question/);
-	assert.doesNotMatch(split.older, /second question/);
-});
 
 test("fixed threshold is a window share, clamped below the safety margin", () => {
 	const config = { ...DEFAULT_CONFIG, handoffAdaptive: false };
@@ -133,6 +124,42 @@ test("renderContextDocument preserves short lists verbatim", () => {
 	assert.match(document, /- k2/);
 	assert.match(document, /- o1/);
 	assert.ok(document.length < 32_000);
+});
+
+test("a legacy session-index.md is adopted once and its links are normalized", async () => {
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-legacy-"));
+	const memory = path.join(project, ".agents", "memory");
+	await mkdir(memory, { recursive: true });
+	await writeFile(
+		path.join(memory, "session-index.md"),
+		"# Session Index\n\n- [11111111-2222-3333-4444-555555555555](session-logs/11111111-2222-3333-4444-555555555555/session.md) — 2026-09-12 — old session\n",
+		"utf8",
+	);
+
+	await queueIndexLine(project, "session-new", "- [session-new](session-new/session.md) — 2026-09-14 — new session");
+
+	const index = await readFile(path.join(memory, "session-logs", "INDEX.md"), "utf8");
+	assert.match(index, /\]\(11111111-2222-3333-4444-555555555555\/session\.md\)/, "the pre-move link is converted");
+	assert.doesNotMatch(index, /session-logs\/11111111/);
+	assert.match(index, /- \[session-new\]\(session-new\/session\.md\) — 2026-09-14 — new session/);
+	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the adopted legacy file is removed");
+});
+
+test("adoption never removes the legacy index before the new one exists", async () => {
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-adopt-"));
+	const memory = path.join(project, ".agents", "memory");
+	await mkdir(memory, { recursive: true });
+	// Already in the current form: re-queueing the same line produces a byte-identical document,
+	// so a "write only when it changed" rule would leave nothing behind after the legacy file goes.
+	const canonical = "# Session Index\n\n- [abc](abc/session.md) — 2026-09-12 — t\n";
+	await writeFile(path.join(memory, "session-index.md"), canonical, "utf8");
+
+	await queueIndexLine(project, "abc", "- [abc](abc/session.md) — 2026-09-12 — t");
+
+	const index = path.join(memory, "session-logs", "INDEX.md");
+	assert.ok(existsSync(index), "the new index exists even when the legacy bytes already match");
+	assert.equal(await readFile(index, "utf8"), canonical);
+	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the source is removed only after the write");
 });
 
 test("session index lines are mechanical and relative to the logs directory", () => {
@@ -778,6 +805,7 @@ test("the /context-update reply reflects what the consolidation pass did", () =>
 	assert.match(contextUpdateReply("updated").text, /updated/);
 	assert.match(contextUpdateReply("deduped").text, /already up to date/);
 	assert.match(contextUpdateReply("unchanged").text, /no new memory/);
+	assert.match(contextUpdateReply("clipped").text, /shortened to fit the model output budget/);
 	assert.notEqual(contextUpdateReply("deduped").text, contextUpdateReply("updated").text, "a deduped no-op must not read as a successful rewrite");
 });
 
@@ -811,6 +839,62 @@ test("clip and truncateMiddle keep the head and the tail inside the budget", () 
 	assert.match(cut, /^h+\n\n\[\.\.\.middle of conversation omitted\.\.\.\]\n\nt+$/);
 	assert.ok(cut.length <= 40 + 50, `truncated length ${cut.length}`);
 	assert.equal(truncateMiddle("short", 40), "short");
+});
+
+test("the output budget is raised to fit the reply and bounded by the ceiling", () => {
+	// Dense scripts cost about a token per character; ASCII prose costs well under one.
+	assert.ok(replyTokenRate("汉字" .repeat(10)) > 0.95);
+	assert.ok(replyTokenRate("plain ascii prose") < 0.5);
+	assert.equal(replyTokenRate(""), 0.4);
+
+	// Configured wins unless more room is needed; the model's own limit and the ceiling bound it.
+	assert.equal(adaptiveOutputTokens(8192, 100, {}, 32_768), 8192);
+	assert.equal(adaptiveOutputTokens(8192, 20_000, {}, 32_768), 20_000);
+	assert.equal(adaptiveOutputTokens(8192, 100_000, {}, 32_768), 32_768);
+	assert.equal(adaptiveOutputTokens(8192, 100_000, { maxTokens: 12_000 }, 32_768), 12_000);
+	assert.equal(adaptiveOutputTokens(8192, 100_000, { maxTokens: 0 }, 32_768), 32_768);
+
+	// A small input passes through untouched and is not reported as clipped.
+	const small = fitMemoryInput("# Project Memory\n\nsmall", "## Summary\nsmall", 8192, {}, 32_768);
+	assert.equal(small.clipped, false);
+	assert.equal(small.text, "# Project Memory\n\nsmall");
+	assert.equal(small.maxTokens, 8192);
+
+	// A huge input is shortened on both sides, and the estimate stays inside the budget.
+	const memory = "m".repeat(400_000);
+	const context = "c".repeat(400_000);
+	const fitted = fitMemoryInput(memory, context, 8192, {}, 32_768);
+	assert.equal(fitted.clipped, true);
+	assert.ok(fitted.text.length < memory.length && fitted.contextText.length < context.length);
+	const estimate = fitted.text.length * replyTokenRate(fitted.text) + fitted.contextText.length * replyTokenRate(fitted.contextText);
+	// The real invariant: the reply must still have room for its own JSON scaffolding.
+	assert.ok(estimate <= fitted.maxTokens - 64, `estimate ${estimate} leaves no margin inside ${fitted.maxTokens}`);
+	assert.ok(fitted.maxTokens >= 8192, "the adaptive cap never drops below the configured maxTokens");
+	assert.equal(fitted.maxTokens <= 32_768, true, "and never exceeds the ceiling");
+	// Head and tail survive, the middle is what is dropped.
+	assert.ok(fitted.text.startsWith("m") && fitted.text.endsWith("m"));
+	assert.match(fitted.text, /\n\n/);
+});
+
+test("clipText never splits a surrogate pair and replyHead fences the raw reply", () => {
+	const emoji = "a".repeat(50) + "🎉".repeat(50);
+	const cut = clipText(emoji, 60);
+	assert.ok(cut.length <= 60);
+	// Re-encoding must not produce a replacement character.
+	assert.equal(Buffer.from(cut, "utf8").toString("utf8"), cut);
+	assert.match(cut, /\n\n/);
+
+	// Sweep every limit: a clip must never end or start on half of a surrogate pair.
+	for (let limit = 0; limit <= 70; limit += 1) {
+		const piece = clipText(emoji, limit);
+		assert.ok(piece.length <= limit, `limit ${limit} produced ${piece.length} chars`);
+		assert.equal(Buffer.from(piece, "utf8").toString("utf8"), piece, `limit ${limit} split a character`);
+	}
+
+	const short = replyHead("{}");
+	assert.match(short, /^--- raw reply ---\n\{\}$/);
+	const long = replyHead("x".repeat(5000));
+	assert.match(long, /\[\.\.\.reply omitted after 4000 of 5000 chars\.\.\.\]/);
 });
 
 test("fallbackUpdate summarizes a session from its first user message alone", () => {
@@ -927,7 +1011,7 @@ test("the session log appends incrementally and rebuilds after an external rewri
 	assert.equal(again.length, 3, "a same-length external rewrite is rebuilt too");
 	assert.match(again[0], /"session-log-1"/);
 
-	releaseSessionQueue("session-log-1");
+	releaseSessionQueue(session);
 });
 
 test("a flush with no new events writes nothing at all", async () => {
@@ -945,7 +1029,7 @@ test("a flush with no new events writes nothing at all", async () => {
 	await writeSessionArtifacts(session, {});
 	assert.equal(await readFile(path.join(dir, "session.jsonl"), "utf8"), rawBefore);
 	assert.equal(await readFile(path.join(dir, "session.md"), "utf8"), markdownBefore);
-	releaseSessionQueue("session-noop");
+	releaseSessionQueue(session);
 });
 
 test("errors.log is truncated past its cap and single records are bounded", async () => {

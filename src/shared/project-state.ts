@@ -113,6 +113,11 @@ export function sessionIndexFile(projectRoot: string): string {
 	return path.join(logsDir(projectRoot), "INDEX.md");
 }
 
+/** Pre-move index location (`<memory>/session-index.md`), adopted once when the new index is empty. */
+export function legacySessionIndexFile(projectRoot: string): string {
+	return path.join(memoryDir(projectRoot), "session-index.md");
+}
+
 export function legacyPiDir(projectRoot: string): string {
 	return path.join(projectRoot, LEGACY_DIR);
 }
@@ -156,13 +161,53 @@ async function rotateErrorLog(file: string): Promise<void> {
 	}
 }
 
+/** Header and entry list for the memory directory's local-artifact ignore file. */
+const MEMORY_GITIGNORE_HEADER = "# project-context: local artifacts, do not commit";
+const MEMORY_GITIGNORE_LINES = ["*.memory-backup-*", "errors.log", "*.lock", "*.steal", "*.broken-*", "memory.jsonl", "memory-log-*.jsonl", "memory.jsonl.*.tmp", "autolearn-state.json"];
+const gitignoreEnsured = new Set<string>();
+
+/**
+ * Keep local artifacts (journal, backups, locks, the error log) out of the project's commits,
+ * once per process. Best effort: a failure is not retried so a write is never blocked by it.
+ * @param memoryDirectory - the `.agents/memory` directory.
+ */
+export async function ensureMemoryGitignore(memoryDirectory: string): Promise<void> {
+	const file = path.join(memoryDirectory, ".gitignore");
+	if (gitignoreEnsured.has(file)) return;
+	gitignoreEnsured.add(file);
+	try {
+		const existing = await readOptional(file);
+		const lines = new Set(existing.split(/\r?\n/).map((line) => line.trim()));
+		const missing = MEMORY_GITIGNORE_LINES.filter((line) => !lines.has(line));
+		if (missing.length === 0) return;
+		const head = existing && !existing.endsWith("\n") ? `${existing}\n` : existing;
+		await writeAtomic(file, `${head}${MEMORY_GITIGNORE_HEADER}\n${missing.join("\n")}\n`);
+	} catch {
+		// Ignoring local artifacts is best-effort; a failure must not block the write.
+	}
+}
+
+/** Mask credential-looking substrings before anything lands in the project's log file. */
+export function redactSecrets(text: string): string {
+	return text
+		.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[redacted-jwt]")
+		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/gi, "Bearer [redacted]")
+		.replace(/\b(sk|pk|rk)-[A-Za-z0-9_-]{8,}\b/g, "[redacted-key]")
+		.replace(/\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{8,}\b/g, "[redacted-token]")
+		.replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[redacted-key]")
+		.replace(/(\b(?:api[_-]?key|token|secret|password|passwd|authorization)\b\s*[:=]\s*)["']?[^\s"',}\]]{6,}/gi, "$1[redacted]");
+}
+
 export async function logError(projectRoot: string, scope: string, error: unknown): Promise<void> {
 	try {
 		const file = path.join(memoryDir(projectRoot), "errors.log");
 		await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+		await ensureMemoryGitignore(path.dirname(file));
 		await rotateErrorLog(file);
 		const full = error instanceof Error ? (error.stack ?? error.message) : String(error);
-		const detail = full.length > MAX_ERROR_DETAIL_CHARS ? `${full.slice(0, MAX_ERROR_DETAIL_CHARS)}\n[...detail truncated...]` : full;
+		// A stack can quote the payload that failed, so mask credentials before they land on disk.
+		const safe = redactSecrets(full);
+		const detail = safe.length > MAX_ERROR_DETAIL_CHARS ? `${safe.slice(0, MAX_ERROR_DETAIL_CHARS)}\n[...detail truncated...]` : safe;
 		await appendFile(file, `${new Date().toISOString()} [${scope}] ${detail}\n`, { encoding: "utf8", mode: 0o600 });
 	} catch {
 		// Diagnostics must never throw.
@@ -217,12 +262,19 @@ export async function fileMtimeMs(file: string): Promise<number> {
 	}
 }
 
-export async function writeAtomic(file: string, content: string): Promise<void> {
+/**
+ * Publish a file by writing a unique temp name and renaming it over the target, so readers only
+ * ever see the old or the new bytes. `content` may be raw bytes: the memory backup keeps the exact
+ * bytes it found, not a re-encoded string.
+ * @param file - destination path.
+ * @param content - UTF-8 text or raw bytes.
+ */
+export async function writeAtomic(file: string, content: string | Uint8Array): Promise<void> {
 	await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 	// The UUID keeps two concurrent writers of the same file from sharing a temp path.
 	const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	try {
-		await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 });
+		await writeFile(temporary, content, { mode: 0o600 });
 		await rename(temporary, file);
 	} catch (error) {
 		await rm(temporary, { force: true }).catch(() => undefined);
@@ -340,7 +392,6 @@ async function importSkillDirs(sourceDir: string, targetDir: string, options: { 
 export type MigrationResult = {
 	moved: string[];
 	importedSkills: number;
-	importedMemory: boolean;
 	/** Destination paths whose legacy counterpart could not be merged and was left in place. */
 	conflicts: string[];
 };
@@ -367,40 +418,11 @@ export async function migrateProjectState(projectRoot: string): Promise<Migratio
 		await importSkillDirs(path.join(memoryDir(projectRoot), SKILLS_SUBDIR), skillsDir(projectRoot), { remove: true }) +
 		await importSkillDirs(path.join(legacyOmpDir(projectRoot), SKILLS_SUBDIR), skillsDir(projectRoot));
 
-	let importedMemory = false;
-	if (!await pathExists(memoryFile(projectRoot))) {
-		for (const name of ["MEMORY.md", "memory_summary.md", "learned.md"]) {
-			const source = path.join(legacyOmpDir(projectRoot), name);
-			const text = (await readOptional(source)).trim();
-			if (!text) continue;
-			await writeAtomic(memoryFile(projectRoot), text.endsWith("\n") ? text : `${text}\n`);
-			importedMemory = true;
-			break;
-		}
-	}
-
 	await cleanStaleTemps(legacyPi);
 	await cleanStaleTemps(memoryDir(projectRoot));
 	// Drop the legacy directory when migration emptied it.
 	await rmdir(legacyPi).catch(() => undefined);
 
-	return { moved, importedSkills, importedMemory, conflicts };
+	return { moved, importedSkills, conflicts };
 }
 
-export async function loadMemory(projectRoot: string): Promise<{ text: string; source: string }> {
-	const target = memoryFile(projectRoot);
-	const current = (await readOptional(target)).trim();
-	if (current) return { text: current.slice(0, MAX_MEMORY_CHARS), source: target };
-
-	const legacyPi = path.join(legacyPiDir(projectRoot), "MEMORY.md");
-	const fromPi = (await readOptional(legacyPi)).trim();
-	if (fromPi) return { text: fromPi.slice(0, MAX_MEMORY_CHARS), source: legacyPi };
-
-	for (const name of ["MEMORY.md", "memory_summary.md", "learned.md"]) {
-		const fallback = path.join(legacyOmpDir(projectRoot), name);
-		const text = (await readOptional(fallback)).trim();
-		if (text) return { text: text.slice(0, MAX_MEMORY_CHARS), source: fallback };
-	}
-
-	return { text: "", source: target };
-}

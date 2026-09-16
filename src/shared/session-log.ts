@@ -12,7 +12,9 @@ import { appendFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import {
+	cachedProjectRoot,
 	getProjectRoot,
+	getProjectRootSync,
 	logError,
 	logsDir,
 	pathExists,
@@ -173,7 +175,7 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 
 	const header = fileHeader(session);
 	const events = session.snapshotEvents();
-	const key = String(session.id);
+	const key = sessionKey(session);
 	const rawPath = path.join(dir, "session.jsonl");
 
 	const persisted = persistedEvents.get(key);
@@ -223,11 +225,24 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 	return { dir };
 }
 
+/**
+ * Cursor/queue key for one session's artifacts. The project root is part of the key because a
+ * session id is unique only inside its own harness store: two projects could otherwise share a
+ * cursor and have one project's stamps judged against the other project's file.
+ * Synchronous by design (the writer's queue cannot await git): the root cache is warm whenever a
+ * session has actually written, and `getProjectRootSync` fills it otherwise.
+ */
+function sessionKey(session: Session): string {
+	const cwd = session.header.cwd ?? process.cwd();
+	const root = cachedProjectRoot(cwd) ?? getProjectRootSync(cwd);
+	return `${root}\u0000${safeSessionId(String(session.id))}`;
+}
+
 /** One write chain per session so concurrent turn ends cannot interleave files. */
 const writeQueues = new Map<string, Promise<void>>();
 
 export function queueSessionArtifacts(session: Session, options: { markdown?: boolean } = {}): Promise<void> {
-	const key = String(session.id);
+	const key = sessionKey(session);
 	const previous = writeQueues.get(key) ?? Promise.resolve();
 	const next = previous
 		.then(() => writeSessionArtifacts(session, options).then(() => undefined))
@@ -244,8 +259,8 @@ export function queueSessionArtifacts(session: Session, options: { markdown?: bo
 }
 
 /** Release a disposed session's queue entry and append bookkeeping after its writes settle. */
-export function releaseSessionQueue(sessionId: string): void {
-	const key = sessionId;
+export function releaseSessionQueue(session: Session): void {
+	const key = sessionKey(session);
 	persistedEvents.delete(key);
 	renderedEvents.delete(key);
 	persistedStamps.delete(key);

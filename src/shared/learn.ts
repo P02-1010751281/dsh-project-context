@@ -23,9 +23,10 @@ import {
 	contextFile,
 	getProjectRoot,
 	getProjectRootSync,
-	loadMemory,
+	logError,
 	readOptional,
 } from "./project-state.js";
+import { loadMemory } from "./memory-store.js";
 
 export const LEARN_PLUGIN_NAME = "dsh-project-context";
 
@@ -45,7 +46,228 @@ export type ConsolidationResult = {
 export type ConsolidationOutcome = {
 	result: ConsolidationResult;
 	version: number;
+	/** True when the stored memory or context had to be shortened to fit the output budget. */
+	clipped: boolean;
 };
+
+/** Worst-case output tokens per character for dense scripts (a Han character is close to one token). */
+const DENSE_TOKENS_PER_CHAR = 1;
+/** Conservative rate for markdown, paths and ASCII prose (real tokenizers need less). */
+const ASCII_TOKENS_PER_CHAR = 0.4;
+/** Extra cost for a quote or backslash, which JSON escaping doubles when the reply re-emits it. */
+const ESCAPE_TOKENS_PER_CHAR = 0.2;
+/** Output room reserved for the JSON scaffolding and the rewritten context. */
+export const REPLY_OUTPUT_MARGIN_TOKENS = 1024;
+/** Chars kept per artifact when the budget allows; the split also reserves it as a token floor. */
+const MIN_CLIP_CHARS = 400;
+/** Hard ceiling for an adaptive output cap when the model reports no limit of its own. */
+export const MAX_ADAPTIVE_OUTPUT_TOKENS = 32_768;
+
+/** Characters of the raw reply kept in a failure record; `errors.log` caps the whole record anyway. */
+const MAX_LOGGED_REPLY_CHARS = 4000;
+
+/**
+ * Attach the head of the reply the model actually sent so `errors.log` can be diagnosed later.
+ * @param raw - the raw model reply.
+ * @returns a fenced excerpt for an error message.
+ */
+export function replyHead(raw: string): string {
+	const head = raw.slice(0, MAX_LOGGED_REPLY_CHARS);
+	const notice = raw.length > head.length ? `\n[...reply omitted after ${head.length} of ${raw.length} chars...]` : "";
+	return `--- raw reply ---\n${head}${notice}`;
+}
+
+/**
+ * Conservative output-token rate for text the reply must re-emit. Dense scripts (CJK and every
+ * other non-ASCII script, including emoji) are charged a full token per code point; ASCII prose is
+ * charged 0.4; quotes and backslashes pay extra for their JSON escape. Never underestimates.
+ * @param text - the text the reply has to reproduce.
+ * @returns tokens per UTF-16 unit.
+ */
+export function replyTokenRate(text: string): number {
+	if (!text) return ASCII_TOKENS_PER_CHAR;
+	let tokens = 0;
+	for (const char of text) {
+		const code = char.codePointAt(0) ?? 0;
+		if (code > 0x7f) tokens += DENSE_TOKENS_PER_CHAR;
+		else tokens += ASCII_TOKENS_PER_CHAR + (char === '"' || char === "\\" ? ESCAPE_TOKENS_PER_CHAR : 0);
+	}
+	// Rate per UTF-16 unit, so `text.length * rate` stays the token estimate.
+	return tokens / text.length;
+}
+
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+	return code >= 0xdc00 && code <= 0xdfff;
+}
+
+/**
+ * Head and tail of a text, shortened to a char limit (the `\n\n` joiner included). Never ends or
+ * starts on half of a surrogate pair, which a provider cannot re-encode.
+ * @param text - the text to shorten.
+ * @param limit - maximum characters in the result.
+ * @returns the shortened text.
+ */
+export function clipText(text: string, limit: number): string {
+	if (text.length <= limit) return text;
+	if (limit < 16) {
+		let cut = Math.max(0, limit);
+		if (cut > 0 && isHighSurrogate(text.charCodeAt(cut - 1))) cut -= 1;
+		return text.slice(0, cut);
+	}
+	const size = limit - 2;
+	let head = Math.ceil(size * 0.6);
+	if (head > 0 && head < text.length && isHighSurrogate(text.charCodeAt(head - 1))) head -= 1;
+	let tailStart = text.length - (size - head);
+	if (tailStart > head && isLowSurrogate(text.charCodeAt(tailStart))) {
+		if (isHighSurrogate(text.charCodeAt(tailStart - 1))) {
+			// Include the pair's high surrogate and take the extra unit back out of the head, so the
+			// result never exceeds `limit`.
+			tailStart -= 1;
+			head = Math.max(0, head - 1);
+			if (head > 0 && isHighSurrogate(text.charCodeAt(head - 1))) head -= 1;
+		} else {
+			// An unpaired low surrogate from malformed input: skip it instead of starting on half.
+			tailStart += 1;
+		}
+	}
+	return `${text.slice(0, head)}\n\n${text.slice(tailStart)}`;
+}
+
+/** Clip from the original text to a char limit, keeping the original when it already fits. */
+function clipTo(text: string, limit: number): string {
+	return text.length <= limit ? text : limit <= 0 ? "" : clipText(text, limit);
+}
+
+/** Split a token budget between two artifacts: each keeps a floor, the rest follows the need. */
+function allocateTokens(budget: number, memoryTokens: number, contextTokens: number): { memory: number; context: number } {
+	if (memoryTokens + contextTokens <= budget) return { memory: memoryTokens, context: contextTokens };
+	const active = (memoryTokens > 0 ? 1 : 0) + (contextTokens > 0 ? 1 : 0);
+	if (active === 0) return { memory: 0, context: 0 };
+	if (memoryTokens === 0) return { memory: 0, context: budget };
+	if (contextTokens === 0) return { memory: budget, context: 0 };
+	const floor = Math.min(MIN_CLIP_CHARS, Math.floor(budget / 2));
+	let memory = Math.min(memoryTokens, floor);
+	let context = Math.min(contextTokens, floor);
+	const rest = Math.max(0, budget - memory - context);
+	// Whatever a floored artifact does not need flows to the other one, by remaining need.
+	const needMemory = memoryTokens - memory;
+	const needContext = contextTokens - context;
+	if (rest > 0 && needMemory + needContext > 0) {
+		const giveMemory = Math.min(needMemory, rest * (needMemory / (needMemory + needContext)));
+		const giveContext = Math.min(needContext, rest - giveMemory);
+		memory += giveMemory;
+		context += giveContext;
+	}
+	return { memory, context };
+}
+
+/**
+ * Raise the configured output cap to what the pass needs, bounded by the model's own limit and the
+ * configured ceiling. Without model metadata an adaptive cap could exceed what the provider
+ * accepts, so the pass never asks for more than the ceiling; an over-long input is then clipped.
+ */
+export function adaptiveOutputTokens(configured: number, needed: number, model: { maxTokens?: number }, ceiling: number): number {
+	const cap = typeof model.maxTokens === "number" && model.maxTokens > 0 ? model.maxTokens : undefined;
+	const grown = Math.max(configured, needed);
+	return Math.min(cap ? Math.min(grown, cap) : grown, Math.max(configured, ceiling));
+}
+
+/** What the pass sends instead of the stored artifacts, plus the budget it asks for. */
+export type MemoryInput = { text: string; contextText: string; maxTokens: number; clipped: boolean };
+
+/**
+ * Match the output budget to everything the reply must re-emit. A large memory is what truncated
+ * replies (and the poisoned files they used to leave) came from: the cap is raised up to the
+ * model's own limit, and when even that cannot hold memory plus context, both are shortened
+ * head-and-tail so the reply can still come back complete and parseable. Each artifact is budgeted
+ * by its own token rate, so a large cheap context cannot let a small dense memory pass the cap.
+ */
+export function fitMemoryInput(
+	memory: string,
+	context: string,
+	configuredMaxTokens: number,
+	model: { maxTokens?: number },
+	ceilingTokens: number = MAX_ADAPTIVE_OUTPUT_TOKENS,
+): MemoryInput {
+	const memoryRate = replyTokenRate(memory);
+	const contextRate = replyTokenRate(context);
+	const needed = Math.ceil(memory.length * memoryRate + context.length * contextRate) + REPLY_OUTPUT_MARGIN_TOKENS;
+	const maxTokens = adaptiveOutputTokens(configuredMaxTokens, needed, model, ceilingTokens);
+	// Keep a JSON-scaffolding margin, with a small absolute floor so a tiny cap cannot spend every
+	// token on content and then truncate the reply's own braces and keys.
+	const reserved = Math.min(REPLY_OUTPUT_MARGIN_TOKENS, maxTokens, Math.max(64, maxTokens - MIN_CLIP_CHARS));
+	const budget = Math.max(0, maxTokens - reserved);
+	if (memory.length * memoryRate + context.length * contextRate <= budget) {
+		return { text: memory, contextText: context, maxTokens, clipped: false };
+	}
+	// Over budget: each artifact keeps a floor in tokens and the rest follows its measured need, so
+	// a big cheap artifact cannot crowd out a small dense one. Repeat with the clipped texts' own
+	// rates: clipping can change the density, and the reallocation only shrinks what is over.
+	const initial = allocateTokens(budget, memory.length * memoryRate, context.length * contextRate);
+	let text = clipTo(memory, Math.floor(initial.memory / Math.max(memoryRate, 0.001)));
+	let contextText = clipTo(context, Math.floor(initial.context / Math.max(contextRate, 0.001)));
+	for (let attempt = 0; attempt < 10; attempt += 1) {
+		const textTokens = text.length * replyTokenRate(text);
+		const contextTokens = contextText.length * replyTokenRate(contextText);
+		if (textTokens + contextTokens <= budget + 0.5) break;
+		const next = allocateTokens(budget, textTokens, contextTokens);
+		const stepText = clipTo(memory, Math.floor(next.memory / Math.max(replyTokenRate(text), 0.001)));
+		const stepContext = clipTo(context, Math.floor(next.context / Math.max(replyTokenRate(contextText), 0.001)));
+		if (stepText.length === text.length && stepContext.length === contextText.length) break;
+		text = stepText;
+		contextText = stepContext;
+	}
+	// Clipping can also come out lighter than the original text, leaving budget unused. Fill it by
+	// growing both artifacts toward their full length; a step that overshoots is retried smaller,
+	// and the last fitting result is kept.
+	let step = 1;
+	for (let attempt = 0; attempt < 12 && step > 0.002; attempt += 1) {
+		const textTokens = text.length * replyTokenRate(text);
+		const contextTokens = contextText.length * replyTokenRate(contextText);
+		const spare = budget - (textTokens + contextTokens);
+		if (spare <= Math.max(0.5, budget * 0.005)) break;
+		const rateText = Math.max(replyTokenRate(text), 0.001);
+		const rateContext = Math.max(replyTokenRate(contextText), 0.001);
+		const needText = Math.max(0, memory.length - text.length) * rateText;
+		const needContext = Math.max(0, context.length - contextText.length) * rateContext;
+		if (needText + needContext <= 0) break;
+		const growText = (spare * step * needText) / (needText + needContext) / rateText;
+		const growContext = (spare * step * needContext) / (needText + needContext) / rateContext;
+		const grownText = clipTo(memory, Math.min(memory.length, text.length + Math.ceil(growText)));
+		const grownContext = clipTo(context, Math.min(context.length, contextText.length + Math.ceil(growContext)));
+		const grownTokens = grownText.length * replyTokenRate(grownText) + grownContext.length * replyTokenRate(grownContext);
+		if (grownTokens > budget + 0.5) {
+			step /= 2;
+			continue;
+		}
+		text = grownText;
+		contextText = grownContext;
+		step = 1;
+	}
+	// Absolute safety: the char count of a clip cannot exceed its token count (rate ≤ 1.0).
+	if (text.length * replyTokenRate(text) + contextText.length * replyTokenRate(contextText) > budget + 0.5) {
+		const safe = allocateTokens(budget, text.length * replyTokenRate(text), contextText.length * replyTokenRate(contextText));
+		text = clipTo(text, Math.floor(safe.memory));
+		contextText = clipTo(contextText, Math.floor(safe.context));
+	}
+	// Exact trim: char rounding in the limits can leave a fraction of a token over budget.
+	for (let attempt = 0; attempt < 4; attempt += 1) {
+		const textTokens = text.length * replyTokenRate(text);
+		const contextTokens = contextText.length * replyTokenRate(contextText);
+		const over = textTokens + contextTokens - budget;
+		if (over <= 0.0001) break;
+		if (textTokens >= contextTokens && text.length > 0) {
+			text = clipTo(text, text.length - Math.max(1, Math.ceil(over / Math.max(replyTokenRate(text), 0.001))));
+		} else if (contextText.length > 0) {
+			contextText = clipTo(contextText, contextText.length - Math.max(1, Math.ceil(over / Math.max(replyTokenRate(contextText), 0.001))));
+		} else break;
+	}
+	return { text, contextText, maxTokens, clipped: text.length < memory.length || contextText.length < context.length };
+}
 
 export interface ConsolidationOptions {
 	force?: boolean;
@@ -79,19 +301,35 @@ export function textOf(content: readonly ContentBlock[]): string {
 		.trim();
 }
 
+/**
+ * One rendered conversation section, with the unclipped user text kept alongside it.
+ *
+ * The handoff pass must recognize a previous continuation prompt in the *raw* text — the render
+ * clips a user message to 4000 characters, which is shorter than a real continuation — so both
+ * callers share this one pass instead of each re-implementing the rendering and drifting apart.
+ */
+export interface ConversationSection {
+	/** The rendered `## user` / `## assistant` / `## tool result` block. */
+	readonly rendered: string;
+	/** Unclipped text, present only for user-role messages. */
+	readonly userText?: string;
+	/** dsh source kind of that user message. */
+	readonly sourceKind?: string;
+}
+
 /** Compact section-per-message rendering of the derived conversation. */
-function conversationSections(session: Session): string[] {
-	const sections: string[] = [];
+export function conversationMessageSections(session: Session): ConversationSection[] {
+	const sections: ConversationSection[] = [];
 	for (const message of session.deriveMessages()) {
 		if (message.role === "system") continue;
 		if (message.source.kind === "tool") {
 			const text = textOf(message.content);
-			if (text) sections.push(`## tool result\n${clip(text, 1500)}`);
+			if (text) sections.push({ rendered: `## tool result\n${clip(text, 1500)}` });
 			continue;
 		}
 		if (message.role === "user") {
 			const text = textOf(message.content);
-			if (text) sections.push(`## user\n${clip(text, 4000)}`);
+			if (text) sections.push({ rendered: `## user\n${clip(text, 4000)}`, userText: text, sourceKind: message.source.kind });
 			continue;
 		}
 		const text = textOf(message.content);
@@ -100,37 +338,19 @@ function conversationSections(session: Session): string[] {
 			.map((block) => `[tool: ${block.name}]`)
 			.join(" ");
 		const parts = [text ? clip(text, 4000) : "", tools].filter(Boolean);
-		if (parts.length > 0) sections.push(`## assistant\n${parts.join("\n")}`);
+		if (parts.length > 0) sections.push({ rendered: `## assistant\n${parts.join("\n")}` });
 	}
 	return sections;
+}
+
+/** The rendered sections alone, for the learn prompt. */
+function conversationSections(session: Session): string[] {
+	return conversationMessageSections(session).map((section) => section.rendered);
 }
 
 /** Compact, budgeted rendering of the derived conversation for the learn prompt. */
 export function conversationText(session: Session): string {
 	return truncateMiddle(conversationSections(session).join("\n\n"), MAX_CONVERSATION_CHARS);
-}
-
-/**
- * Split the rendered conversation into the older part (summarized) and the
- * recent tail (carried verbatim). Whole message sections are kept, tail-first,
- * up to `keepChars`; `keepChars <= 0` keeps everything in the older part.
- */
-export function conversationSplit(session: Session, keepChars: number): { older: string; tail: string } {
-	const sections = conversationSections(session);
-	let start = sections.length;
-	if (keepChars > 0) {
-		let used = 0;
-		while (start > 0) {
-			const size = sections[start - 1].length + 2;
-			if (used > 0 && used + size > keepChars) break;
-			used += size;
-			start -= 1;
-		}
-	}
-	return {
-		older: truncateMiddle(sections.slice(0, start).join("\n\n"), MAX_CONVERSATION_CHARS),
-		tail: sections.slice(start).join("\n\n"),
-	};
 }
 
 /** Human turns only: plugin-injected user-role context does not count. */
@@ -295,10 +515,10 @@ export async function requestPluginText(
 }
 
 /** Run one model call and collect its visible text. Throws on a failed or aborted stream. */
-async function requestConsolidationText(ctx: Context, agent: Agent, config: PluginConfig, prompt: string, signal: AbortSignal | undefined): Promise<string> {
+async function requestConsolidationText(ctx: Context, agent: Agent, config: PluginConfig, prompt: string, signal: AbortSignal | undefined, maxTokens: number): Promise<string> {
 	const target = resolveTarget(agent, config);
 	if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
-	return requestPluginText(ctx, target, config.maxTokens, prompt, signal);
+	return requestPluginText(ctx, target, maxTokens, prompt, signal);
 }
 
 /**
@@ -337,7 +557,17 @@ export function consolidateProjectState(
 		if (force && cached && Date.now() - cached.at < config.forceDedupeMs) return cached.outcome;
 
 		const existing = await loadMemory(projectRoot);
+		// The pass continues with whatever is readable, but a broken source must stay diagnosable:
+		// the prompt would otherwise look as if the project had no memory at all.
+		if (existing.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${existing.source}`);
+		else if (existing.damaged) await logError(projectRoot, "memory", `memory journal has ${existing.damaged} unusable line(s); they were skipped`);
 		const existingContext = (await readOptional(contextFile(projectRoot))).slice(0, MAX_CONTEXT_CHARS);
+		// The reply must re-emit both artifacts, so the output cap is matched to them (raised up to
+		// the configured ceiling) and the input is shortened head-and-tail when even that cannot
+		// hold both. An over-long memory is what used to truncate the reply and leave an unparseable
+		// document behind. dsh exposes no per-model token limit on this path, so the ceiling alone
+		// bounds the adaptive cap.
+		const fitted = fitMemoryInput(existing.text, existingContext, config.maxTokens, {}, config.maxOutputTokens);
 		const prompt = [
 			"Maintain project memory and project context for the coding project below.",
 			"Return exactly one JSON object with keys memory_markdown and context. Do not use a Markdown code fence.",
@@ -350,11 +580,11 @@ export function consolidateProjectState(
 			`Project root: ${projectRoot}`,
 			"",
 			"<existing-memory>",
-			existing.text || "(none)",
+			fitted.text || "(none)",
 			"</existing-memory>",
 			"",
 			"<existing-context>",
-			existingContext || "(none)",
+			fitted.contextText || "(none)",
 			"</existing-context>",
 			"",
 			"<recent-conversation>",
@@ -364,7 +594,7 @@ export function consolidateProjectState(
 
 		let raw: string;
 		try {
-			raw = await requestConsolidationText(ctx, agent, config, prompt, options.signal);
+			raw = await requestConsolidationText(ctx, agent, config, prompt, options.signal, fitted.maxTokens);
 		} catch (error: unknown) {
 			// Record the attempt so a persistent failure backs off instead of
 			// retrying on every idle.
@@ -375,11 +605,11 @@ export function consolidateProjectState(
 		if (!result) {
 			// Back off like any other failed pass, but never store the raw JSON as memory.
 			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
-			throw new Error("consolidation reply was not a usable JSON object");
+			throw new Error(`consolidation reply was not a usable JSON object\n${replyHead(raw)}`);
 		}
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
-		const outcome: ConsolidationOutcome = { result, version };
+		const outcome: ConsolidationOutcome = { result, version, clipped: fitted.clipped };
 		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
 		return outcome;
 	})().finally(() => {

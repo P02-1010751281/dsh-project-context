@@ -23,8 +23,12 @@ export const zh = {
 	"field.consolidateTurnsHint": "本会话用户消息数比上次整理增加该值后触发（仍受最小间隔限制）",
 	"field.consolidateIntervalMs": "最小间隔（毫秒）",
 	"field.consolidateIntervalMsHint": "两次自动整理之间的最短时间",
+	"field.forceDedupeMs": "强制调用去重窗口（毫秒）",
+	"field.forceDedupeMsHint": "同一窗口内重复的强制 /context-update 直接返回上一次结果，不再调用模型",
 	"field.maxTokens": "输出上限（token）",
 	"field.maxTokensHint": "辅助模型调用（整理 / 技能 / 交接摘要）允许生成的最大 token 数",
+	"field.maxOutputTokens": "大输出上限（token）",
+	"field.maxOutputTokensHint": "需要更长回答的辅助调用允许生成的最大 token 数，默认 32768",
 	"field.provider": "Provider",
 	"field.providerHint": "可选的 provider 路由覆盖；记忆整理 / 技能沉淀 / 交接摘要共用",
 	"field.model": "Model",
@@ -51,6 +55,8 @@ export const zh = {
 	"field.handoffSummaryThinkingHint": "off（默认，避免思考与答案共享输出上限）或 session",
 	"field.handoffPendingQuestion": "未答问题的处理",
 	"field.handoffPendingQuestionHint": "defer（默认，等用户回答后再交接）或 wait（继续交接，把问题带进新会话）",
+	"field.handoffLanguage": "交接语言",
+	"field.handoffLanguageHint": "auto（默认，跟随会话语言）、zh 或 en；摘要标题会一并本地化",
 } as const;
 
 export type SettingsCardKey = keyof typeof zh;
@@ -78,8 +84,12 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.consolidateTurnsHint": "New user messages in this session since the last consolidation pass",
 	"field.consolidateIntervalMs": "Minimum interval (ms)",
 	"field.consolidateIntervalMsHint": "Shortest gap between two automatic consolidation passes",
+	"field.forceDedupeMs": "Forced-pass dedupe window (ms)",
+	"field.forceDedupeMsHint": "A repeated forced /context-update inside this window returns the previous result instead of calling the model again",
 	"field.maxTokens": "Output cap (tokens)",
 	"field.maxTokensHint": "Maximum tokens any auxiliary call (consolidation / autolearn / handoff summary) may generate",
+	"field.maxOutputTokens": "Large output cap (tokens)",
+	"field.maxOutputTokensHint": "Maximum tokens an auxiliary call that needs a longer answer may generate, default 32768",
 	"field.provider": "Provider",
 	"field.providerHint": "Optional provider route override; shared by consolidation / autolearn / handoff summary",
 	"field.model": "Model",
@@ -106,4 +116,6 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffSummaryThinkingHint": "off (default, avoids sharing the output cap with thinking) or session",
 	"field.handoffPendingQuestion": "Pending question handling",
 	"field.handoffPendingQuestionHint": "defer (default, wait for the answer before handing off) or wait (hand off and carry the question into the continuation)",
+	"field.handoffLanguage": "Handoff language",
+	"field.handoffLanguageHint": "auto (default, follows the conversation), zh or en; summary headings are localized too",
 };

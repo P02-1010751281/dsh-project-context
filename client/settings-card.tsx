@@ -33,6 +33,7 @@ export interface ProjectContextSettings {
 	consolidateIntervalMs: number;
 	forceDedupeMs: number;
 	maxTokens: number;
+	maxOutputTokens: number;
 	provider: string;
 	model: string;
 	autoLearn: boolean;
@@ -45,6 +46,7 @@ export interface ProjectContextSettings {
 	handoffKeepTokens: number;
 	handoffSummaryThinking: "off" | "session";
 	handoffPendingQuestion: "defer" | "wait";
+	handoffLanguage: "auto" | "zh" | "en";
 }
 
 /** What the card renders. */
@@ -53,7 +55,9 @@ export interface ProjectContextSettingsCardState extends CardShell {
 	autoConsolidate: CardFieldState;
 	consolidateTurns: CardFieldState;
 	consolidateIntervalMs: CardFieldState;
+	forceDedupeMs: CardFieldState;
 	maxTokens: CardFieldState;
+	maxOutputTokens: CardFieldState;
 	provider: CardFieldState;
 	model: CardFieldState;
 	autoLearn: CardFieldState;
@@ -66,6 +70,7 @@ export interface ProjectContextSettingsCardState extends CardShell {
 	handoffKeepTokens: CardFieldState;
 	handoffSummaryThinking: CardFieldState;
 	handoffPendingQuestion: CardFieldState;
+	handoffLanguage: CardFieldState;
 }
 
 /** The registration-side face the card's slot entry injects. */
@@ -91,7 +96,9 @@ export class ProjectContextSettingsCardController {
 			booleanField("autoConsolidate"),
 			numberField("consolidateTurns", 1),
 			numberField("consolidateIntervalMs", 1000),
+			numberField("forceDedupeMs", 0),
 			numberField("maxTokens", 256),
+			numberField("maxOutputTokens", 256),
 			textField("provider"),
 			textField("model"),
 			booleanField("autoLearn"),
@@ -104,6 +111,7 @@ export class ProjectContextSettingsCardController {
 			numberField("handoffKeepTokens", 0),
 			textField("handoffSummaryThinking"),
 			textField("handoffPendingQuestion"),
+			textField("handoffLanguage"),
 		]);
 		this.store = this.form.bind(() => this.projection(), createStore);
 	}
@@ -115,7 +123,9 @@ export class ProjectContextSettingsCardController {
 			autoConsolidate: this.form.field("autoConsolidate"),
 			consolidateTurns: this.form.field("consolidateTurns"),
 			consolidateIntervalMs: this.form.field("consolidateIntervalMs"),
+			forceDedupeMs: this.form.field("forceDedupeMs"),
 			maxTokens: this.form.field("maxTokens"),
+			maxOutputTokens: this.form.field("maxOutputTokens"),
 			provider: this.form.field("provider"),
 			model: this.form.field("model"),
 			autoLearn: this.form.field("autoLearn"),
@@ -128,6 +138,7 @@ export class ProjectContextSettingsCardController {
 			handoffKeepTokens: this.form.field("handoffKeepTokens"),
 			handoffSummaryThinking: this.form.field("handoffSummaryThinking"),
 			handoffPendingQuestion: this.form.field("handoffPendingQuestion"),
+			handoffLanguage: this.form.field("handoffLanguage"),
 		};
 	}
 
@@ -290,8 +301,10 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 						{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
 						{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
 						{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}
+						{field("pc-force-dedupe", "field.forceDedupeMs", "field.forceDedupeMsHint", "number", state.forceDedupeMs, "forceDedupeMs")}
 						{/* Shared auxiliary route: consolidation, autolearn and the handoff summary all use it. */}
 						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
+						{field("pc-max-output-tokens", "field.maxOutputTokens", "field.maxOutputTokensHint", "number", state.maxOutputTokens, "maxOutputTokens")}
 						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
 						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
 					</Section>
@@ -308,6 +321,7 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 						{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
 						{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "enum", state.handoffSummaryThinking, "handoffSummaryThinking", ["off", "session"])}
 						{field("pc-handoff-pending", "field.handoffPendingQuestion", "field.handoffPendingQuestionHint", "enum", state.handoffPendingQuestion, "handoffPendingQuestion", ["defer", "wait"])}
+						{field("pc-handoff-language", "field.handoffLanguage", "field.handoffLanguageHint", "enum", state.handoffLanguage, "handoffLanguage", ["auto", "zh", "en"])}
 					</Section>
 					<div className="dshPcFooter">
 						{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}

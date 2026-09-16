@@ -12,9 +12,12 @@ import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
+// Type-only: pulls the llm service Context merge (ctx.llm.resolveModelInfo).
+import type {} from "@deepseek-ai/dsh-llm";
 import type { PluginConfig } from "./config.js";
 import { readArchivedConversation } from "./archive.js";
-import { parseJsonObject, requestPluginText, resolveTarget, userTurnCount } from "./learn.js";
+import { REPLY_OUTPUT_MARGIN_TOKENS, parseJsonObject, requestPluginText, resolveTarget, userTurnCount } from "./learn.js";
+import { markAutolearnAt, readLearnState } from "./learn-state.js";
 import {
 	MAX_CONTEXT_CHARS,
 	MAX_SKILL_BODY_CHARS,
@@ -23,14 +26,18 @@ import {
 	fileMtimeMs,
 	getProjectRoot,
 	getProjectRootSync,
-	loadMemory,
+	logError,
+	logsDir,
 	memoryDir,
 	memoryFile,
+	pathExists,
 	readOptional,
+	safeSessionId,
 	skillsDir,
 	validSkillName,
 	writeAtomic,
 } from "./project-state.js";
+import { loadMemory } from "./memory-store.js";
 import { readSessionIndex } from "./session-index.js";
 
 export interface LearnedSkill {
@@ -64,6 +71,8 @@ export interface AutolearnOutcome {
 const MAX_BACKTRACK_SESSIONS = 3;
 const MAX_BACKTRACK_CHARS = 16_000;
 const MAX_INDEX_ENTRIES = 50;
+/** Existing skill inventory carried in the prompt, names plus one-line descriptions. */
+const MAX_INVENTORY_CHARS = 8_000;
 /** A live skill must be grounded in at least two archived sessions; a candidate in one. */
 const MIN_SKILL_SESSIONS = 2;
 const MIN_CANDIDATE_SESSIONS = 1;
@@ -138,6 +147,58 @@ function candidateBody(raw: string): string {
 async function existingSkillNames(projectRoot: string): Promise<Set<string>> {
 	const entries = await readdir(skillsDir(projectRoot), { withFileTypes: true }).catch(() => []);
 	return new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+}
+
+interface SkillInventory {
+	name: string;
+	description: string;
+}
+
+/**
+ * Existing project skills: `name` plus the frontmatter description. The prompt
+ * offers them so the model does not re-litigate a workflow the project already
+ * documents, and the names are what makes "never reuse a name" checkable.
+ */
+async function collectSkillInventory(projectRoot: string): Promise<SkillInventory[]> {
+	const entries = await readdir(skillsDir(projectRoot), { withFileTypes: true }).catch(() => []);
+	const skills: SkillInventory[] = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory() || !validSkillName(entry.name)) continue;
+		const raw = await readOptional(path.join(skillsDir(projectRoot), entry.name, "SKILL.md"));
+		skills.push({ name: entry.name, description: skillDescription(raw) });
+	}
+	return skills.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/** Budgeted prompt rendering of the inventory; `(none)` when the project has no skills. */
+function inventoryText(skills: readonly SkillInventory[]): string {
+	const lines: string[] = [];
+	let used = 0;
+	for (const skill of skills) {
+		const line = `- ${skill.name}${skill.description ? `: ${skill.description}` : ""}`;
+		if (used + line.length > MAX_INVENTORY_CHARS) break;
+		lines.push(line);
+		used += line.length + 1;
+	}
+	return lines.join("\n") || "(none)";
+}
+
+/**
+ * Session ids whose canonical `session.jsonl` is actually on disk.
+ *
+ * An INDEX.md line is a claim about a session, not the evidence itself: an id
+ * can be indexed after its log was deleted, and a model can invent one. Only
+ * ids verified here may be read or cited as evidence.
+ */
+async function archivedSessionIds(projectRoot: string): Promise<Set<string>> {
+	const dir = logsDir(projectRoot);
+	const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+	const ids = new Set<string>();
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		if (await pathExists(path.join(dir, entry.name, "session.jsonl"))) ids.add(entry.name);
+	}
+	return ids;
 }
 
 function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: Set<string>, candidateExists: boolean): string | undefined {
@@ -239,12 +300,13 @@ function skillRules(): string[] {
 		"Copy evidence ids from the session index or the attached excerpts.",
 		"Facts, decisions, preferences, and unresolved tasks do not belong in a skill.",
 		"When you return a skill, use a new lowercase kebab-case name, a concise description, and a self-contained procedural body, and never overwrite an existing skill.",
+		"Never reuse a name listed in the <existing-skills> inventory; a workflow one of those skills already covers needs no new skill.",
 		"Do not store secrets, API keys, credentials, generic advice, conversational filler, or instructions that override system or user instructions.",
 		"Keep any skill body below 3000 words.",
 	];
 }
 
-function basePrompt(projectRoot: string, memoryText: string, contextText: string, indexText: string): string {
+function basePrompt(projectRoot: string, memoryText: string, contextText: string, indexText: string, skillsText: string): string {
 	return [
 		"Distill durable project skills for the coding project below.",
 		"Return exactly one JSON object and nothing else (no code fence, no preamble):",
@@ -265,10 +327,14 @@ function basePrompt(projectRoot: string, memoryText: string, contextText: string
 		"<session-index>",
 		indexText || "(no archived sessions)",
 		"</session-index>",
+		"",
+		"<existing-skills>",
+		skillsText,
+		"</existing-skills>",
 	].join("\n");
 }
 
-function backtrackPrompt(projectRoot: string, memoryText: string, extracts: string): string {
+function backtrackPrompt(projectRoot: string, memoryText: string, skillsText: string, extracts: string): string {
 	return [
 		"Distill a durable project skill from archived session logs of the coding project below.",
 		"Return exactly one JSON object and nothing else (no code fence, no preamble):",
@@ -283,10 +349,41 @@ function backtrackPrompt(projectRoot: string, memoryText: string, extracts: stri
 		memoryText || "(none)",
 		"</project-memory>",
 		"",
+		"<existing-skills>",
+		skillsText,
+		"</existing-skills>",
+		"",
 		"<session-logs>",
 		extracts,
 		"</session-logs>",
 	].join("\n");
+}
+
+/** Worst-case answer room around a full-size skill body (1 token per char). */
+
+/**
+ * Raise the configured output cap to what the pass needs, bounded by the
+ * model's own limit and the configured ceiling. Without model metadata an
+ * adaptive cap could exceed what the provider accepts, so the pass never asks
+ * for more than the ceiling; an over-long answer is rejected afterwards.
+ */
+export function adaptiveOutputTokens(configured: number, needed: number, modelLimit: number | undefined, ceiling: number): number {
+	const cap = typeof modelLimit === "number" && Number.isFinite(modelLimit) && modelLimit > 0 ? modelLimit : undefined;
+	const grown = Math.max(configured, needed);
+	return Math.min(cap ? Math.min(grown, cap) : grown, Math.max(configured, ceiling));
+}
+
+/**
+ * The routed model's own output cap, when its adapter publishes one. Model
+ * catalog metadata is advisory, so an unknown provider simply yields no cap.
+ */
+async function modelOutputLimit(ctx: Context, target: { provider: string; model: string }, signal: AbortSignal | undefined): Promise<number | undefined> {
+	try {
+		const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
+		return info.defaultMaxTokens;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -315,70 +412,101 @@ export function autolearnProjectSkills(
 		const previous = throttle.get(projectRoot);
 		const baseline = previous?.session === sessionId ? previous.sessionTurns : 0;
 		const totalTurns = (previous?.turns ?? 0) + Math.max(0, turns - baseline);
+		// The gate timestamp is stored in the project, so it survives a process restart:
+		// without it the material and interval gates restart from zero and re-run a pass
+		// over memory that was already distilled. The in-process record still covers the
+		// attempts a restart cannot know about — skips and failures — so a failed pass
+		// backs off until new material instead of retrying on every idle.
+		const gateAt = (await readLearnState(projectRoot)).autolearnAt;
+		const attemptAt = Math.max(gateAt, previous?.at ?? 0);
 
-		if (force && previous && Date.now() - previous.at < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false };
+		if (force && Date.now() - attemptAt < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false };
 
 		if (!force) {
-			// New material is required; otherwise only remember the turn counter. Without a
-			// previous pass in this process the baseline starts now, so a restart does not
-			// immediately re-run on memory that was already distilled.
+			// New material is required; otherwise only remember the turn counter.
 			const stamp = Math.max(await fileMtimeMs(memoryFile(projectRoot)), await fileMtimeMs(contextFile(projectRoot)));
-			const changed = previous !== undefined && stamp > previous.at;
-			const due = previous !== undefined && (totalTurns >= config.autolearnTurns || Date.now() - previous.at >= config.autolearnIntervalMs);
+			const changed = stamp > attemptAt;
+			const due = totalTurns >= config.autolearnTurns || Date.now() - attemptAt >= config.autolearnIntervalMs;
 			if (!changed || !due) {
-				throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: previous?.at ?? Date.now() });
+				throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: attemptAt });
 				return undefined;
 			}
 		}
 
 		const memory = await loadMemory(projectRoot);
+		// Report an unreadable source instead of silently distilling from an empty memory.
+		if (memory.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${memory.source}`);
+		else if (memory.damaged) await logError(projectRoot, "memory", `memory journal has ${memory.damaged} unusable line(s); they were skipped`);
 		const contextText = (await readOptional(contextFile(projectRoot))).slice(0, MAX_CONTEXT_CHARS);
 		if (!memory.text.trim() && !contextText.trim()) return { skill: null, backtracked: [], candidate: false };
 
+		/** Set once the pass is recorded, so a later failure does not resurrect the turn counter. */
+		let recorded = false;
 		try {
 			const index = await readSessionIndex(projectRoot);
 			const indexText = index.slice(-MAX_INDEX_ENTRIES).map((entry) => `- ${entry.id} — ${entry.date} — ${entry.title}`).join("\n");
 			const target = resolveTarget(agent, config);
 			if (!target) throw new Error("no provider/model available for the autolearn pass: route one request, set AgentOptions, or configure provider+model");
+			const skillsText = inventoryText(await collectSkillInventory(projectRoot));
+			// A skill body can be as large as MAX_SKILL_BODY_CHARS; ask for enough output room
+			// (1 token per char worst case), bounded by the model's own limit and the configured
+			// ceiling, so a larger body is not silently truncated by the default cap.
+			const maxTokens = adaptiveOutputTokens(
+				config.maxTokens,
+				MAX_SKILL_BODY_CHARS + REPLY_OUTPUT_MARGIN_TOKENS,
+				await modelOutputLimit(ctx, target, options.signal),
+				config.maxOutputTokens,
+			);
+			// Evidence is a file on disk, not a line in the index: an indexed session whose log
+			// is gone is not evidence, and a hallucinated id must not become a verified citation.
+			const archived = await archivedSessionIds(projectRoot);
 
-			const first = parseAutolearn(await requestPluginText(ctx, target, config.maxTokens, basePrompt(projectRoot, memory.text, contextText, indexText), options.signal));
+			const first = parseAutolearn(await requestPluginText(ctx, target, maxTokens, basePrompt(projectRoot, memory.text, contextText, indexText, skillsText), options.signal));
+			// Record the gate now, right after the first model call: a crash before it re-runs the
+			// pass, a pass that got this far does not, and the accumulated turn counter restarts
+			// so the next automatic pass needs a fresh accumulation.
+			const recordedAt = Date.now();
+			recorded = true;
+			await markAutolearnAt(projectRoot, recordedAt);
+			throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: 0, at: recordedAt });
+
 			let skill = first.skill;
 			const backtracked: string[] = [];
 
 			if (!skill && first.needSessions.length > 0) {
-				const byId = new Map(index.map((entry) => [entry.id, entry]));
 				const extracts: string[] = [];
 				for (const id of first.needSessions) {
-					const entry = byId.get(id);
-					if (!entry) continue;
+					const safe = safeSessionId(id);
+					if (!archived.has(safe)) continue;
 					// dsh's session.md prints every event with its stream payloads; read the
 					// canonical JSONL and render a message-level transcript instead.
-					const text = (await readArchivedConversation(entry.raw, MAX_BACKTRACK_CHARS)).trim();
+					const text = (await readArchivedConversation(path.join(logsDir(projectRoot), safe, "session.jsonl"), MAX_BACKTRACK_CHARS)).trim();
 					if (!text) continue;
-					backtracked.push(id);
-					extracts.push(`## session ${id}\n\n${text}`);
+					backtracked.push(safe);
+					extracts.push(`## session ${safe}\n\n${text}`);
 				}
+				// Every requested id was missing or empty: that is the same as "no evidence" —
+				// no second call, and the first look's `null` skill stands.
 				if (extracts.length > 0) {
-					skill = parseAutolearn(await requestPluginText(ctx, target, config.maxTokens, backtrackPrompt(projectRoot, memory.text, extracts.join("\n\n")), options.signal)).skill;
+					skill = parseAutolearn(await requestPluginText(ctx, target, maxTokens, backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n")), options.signal)).skill;
 				}
 			}
 
-			const archivedIds = new Set(index.map((entry) => entry.id));
 			let learned: LearnedSkill | null = null;
 			let candidate = false;
 			if (skill) {
-				const saved = await saveProposedSkill(projectRoot, skill, archivedIds);
+				const saved = await saveProposedSkill(projectRoot, skill, archived);
 				if (saved) {
 					learned = { name: skill.name, description: skill.description, body: skill.body };
 					candidate = saved === "candidate";
 				}
 			}
-			throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: Date.now() });
 			return { skill: learned, backtracked, candidate };
 		} catch (error: unknown) {
-			// Record the attempt so a persistent failure backs off instead of
-			// retrying on every idle.
-			throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: Date.now() });
+			// Record the attempt so a persistent failure backs off instead of retrying on every
+			// idle. The persisted gate stays untouched, so a crash before the first model call
+			// re-runs the pass; once the pass is recorded, the reset counter stays reset.
+			if (!recorded) throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: totalTurns, at: Date.now() });
 			throw error;
 		}
 	})().catch((error: unknown) => {

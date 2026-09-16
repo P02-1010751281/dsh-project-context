@@ -33,6 +33,16 @@ import {
 	readTextCachedSync,
 	writeAtomic,
 } from "./shared/project-state.js";
+import {
+	backupMemoryBeforeWrite,
+	importLegacyMemory,
+	loadMemory,
+	loadMemorySync,
+	memoryJournalFile,
+	readMemoryDamage,
+	recordMemoryDocument,
+	withMemoryLock,
+} from "./shared/memory-store.js";
 
 export const name = "project-memory";
 export const inject = ["llm", "systemPrompt", "commands"];
@@ -44,12 +54,6 @@ const migrated = new Set<string>();
 /** Serialize consolidation so a forced shutdown pass always runs last. */
 const updates = new SerialQueue();
 
-function cleanMemory(text: string): string {
-	const withoutFence = text.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
-	const body = withoutFence.replace(/^# Project Memory\s*/i, "").trim();
-	return `# Project Memory\n\n${body}`.slice(0, MAX_MEMORY_CHARS).trimEnd() + "\n";
-}
-
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
 function projectMemoryInjection(cwd: string | undefined): string {
 	if (!cwd) return "";
@@ -59,7 +63,9 @@ function projectMemoryInjection(cwd: string | undefined): string {
 		void getProjectRoot(cwd).catch(() => undefined);
 		return "";
 	}
-	const text = readTextCachedSync(memoryFile(projectRoot)).trim();
+	// Folds the append-only journal synchronously: the render can lag a crash between the
+	// journal append and the render, and dsh's prompt assembly cannot await.
+	const text = loadMemorySync(projectRoot).trim();
 	if (!text) return "";
 	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${text.slice(0, MAX_MEMORY_CHARS)}`;
 }
@@ -84,32 +90,68 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/context-update` reply can be truthful. */
-export type ConsolidateReport = "updated" | "unchanged" | "deduped" | "failed";
+export type ConsolidateReport = "updated" | "clipped" | "unchanged" | "deduped" | "failed";
 
 /** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
-function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<ConsolidateReport> {
+/** One consolidation pass. Exported so the version-claim/backoff behaviour is testable. */
+export function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<ConsolidateReport> {
 	return updates.run(async (): Promise<ConsolidateReport> => {
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
+		let wroteMemory = false;
 		try {
 			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
 			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return "deduped";
 
 			const memoryText = outcome.result.memory.trim();
 			const memoryChanged = memoryText.length >= 40;
+			// Claim the version before the first await: another pass reaching this point while the
+			// writes below are in flight must see it as done, not run a second time.
 			written.set(projectRoot, outcome.version);
 
-			if (memoryChanged) await writeAtomic(memoryFile(projectRoot), cleanMemory(memoryText));
+			if (memoryChanged) {
+				// Always keep the bytes on disk right now, whatever this pass believed earlier; the
+				// lock keeps another process from replacing them mid-write, and the journal is the
+				// source of truth (this pass appends its document, then MEMORY.md is rendered).
+				const kept = await withMemoryLock(memoryFile(projectRoot), async () => {
+					const backup = await backupMemoryBeforeWrite(memoryFile(projectRoot));
+					await recordMemoryDocument(projectRoot, memoryText);
+					return backup;
+				});
+				wroteMemory = true;
+				if (kept.poisoned) {
+					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${kept.path ?? "(none)"}`);
+				}
+			}
 
 			const existing = await readOptional(contextFile(projectRoot));
 			const update = outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
 			if (update) await writeAtomic(contextFile(projectRoot), renderContextDocument(update, { updatedAt: new Date().toISOString() }));
 
-			if (!options.silent && (memoryChanged || update !== undefined)) {
-				ctx.logger.info(`dsh-project-context: project memory and context updated: ${memoryFile(projectRoot)}`);
+			// A torn journal tail is skipped at read time; record it so a silent loss of history is
+			// diagnosable. This is the only place the damage counter is reported.
+			const damage = await readMemoryDamage(projectRoot);
+			if (damage.unreadable || damage.damaged > 0) {
+				await logError(projectRoot, "memory", damage.unreadable
+					? `memory journal exists but cannot be read: ${memoryJournalFile(projectRoot)}`
+					: `memory journal has ${damage.damaged} unusable line(s); they were skipped`);
 			}
-			return memoryChanged || update !== undefined ? "updated" : "unchanged";
+
+			const wrote = memoryChanged || update !== undefined;
+			if (wrote && outcome.clipped) {
+				// Always leave a trace: the log line below is hidden by `silent`, and a shortened
+				// rewrite is the symptom that used to precede a truncated, unparseable memory.
+				await logError(projectRoot, "memory", "consolidation shortened the existing memory or context to fit the model output budget");
+			}
+			if (!options.silent && wrote) {
+				const note = outcome.clipped ? " (the rewrite also shortened the content to fit the output budget)" : "";
+				ctx.logger.info(`dsh-project-context: project memory and context updated: ${memoryFile(projectRoot)}${note}`);
+			}
+			return wrote ? (outcome.clipped ? "clipped" : "updated") : "unchanged";
 		} catch (error) {
+			// Release the claimed version when nothing was written: otherwise the next forced pass
+			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
+			if (!wroteMemory) written.delete(projectRoot);
 			await logError(projectRoot, "memory", error);
 			if (!options.silent) ctx.logger.warn(`dsh-project-context: project memory update failed: ${error instanceof Error ? error.message : String(error)}`);
 			return "failed";
@@ -148,7 +190,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				const details: string[] = [];
 				if (result.moved.length > 0) details.push(`moved ${result.moved.join(", ")}`);
 				if (result.importedSkills > 0) details.push(`imported ${result.importedSkills} skill${result.importedSkills === 1 ? "" : "s"}`);
-				if (result.importedMemory) details.push("imported legacy OMP memory");
+				// The legacy `.omp` import holds the memory lock and refuses to run beside an
+				// existing journal, so it is its own step rather than part of the layout migration.
+				if (await importLegacyMemory(projectRoot)) details.push("imported legacy OMP memory");
 				if (details.length > 0) ctx.logger.info(`dsh-project-context: project memory in ${memoryDir(projectRoot)}: ${details.join("; ")}`);
 				if (result.conflicts.length > 0) {
 					ctx.logger.warn(`dsh-project-context: legacy layout left in place (file/directory type conflict, merge it by hand): ${result.conflicts.join(", ")}`);
@@ -183,10 +227,25 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		description: "Show this project's memory location and status",
 		handler: async ({ agent }) => {
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
-			const memory = (await readOptional(memoryFile(projectRoot))).trim();
+			const memory = await loadMemory(projectRoot);
+			const journal = memoryJournalFile(projectRoot);
+			// The reply distinguishes the states a silent fold would otherwise hide: a torn journal
+			// line, a source that exists but cannot be read, and a stored reply from the old bug.
+			if (memory.unreadable) {
+				const hint = memory.source.endsWith("memory.jsonl")
+					? `Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl`
+					: `check its permissions`;
+				return { kind: "error", text: `Project memory exists but cannot be read: ${memory.source}; ${hint}.` };
+			}
+			if (memory.damaged) {
+				return { kind: "success", text: `Project memory: ${journal} (${memory.damaged} unusable line(s) skipped; see .agents/memory/errors.log).` };
+			}
+			if (memory.poisoned) {
+				return { kind: "success", text: `Project memory: ${memory.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).` };
+			}
 			return {
 				kind: "success",
-				text: memory ? `Project memory: ${memoryFile(projectRoot)}` : `No project memory yet: ${memoryFile(projectRoot)}`,
+				text: memory.text.trim() ? `Project memory: ${memory.source}` : `No project memory yet: ${memoryFile(projectRoot)}`,
 			};
 		},
 	});
@@ -212,5 +271,6 @@ export function contextUpdateReply(report: ConsolidateReport): { kind: "success"
 	if (report === "failed") return { kind: "error", text: "Project memory update failed; see .agents/memory/errors.log." };
 	if (report === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
 	if (report === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
+	if (report === "clipped") return { kind: "success", text: "Project memory and context updated, but the existing content was shortened to fit the model output budget." };
 	return { kind: "success", text: "Project memory and context updated." };
 }

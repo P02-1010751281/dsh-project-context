@@ -48,5 +48,7 @@ export function renderContextDocument(update: ContextUpdate, options: { updatedA
 		else openTasks = openTasks.slice(0, -1);
 		document = render(keyPoints, openTasks);
 	}
-	return document;
+	// Last resort: the header plus a summary that alone exceeds the budget can still overshoot, so
+	// what a caller injects is never longer than the cap.
+	return document.length > MAX_CONTEXT_CHARS ? document.slice(0, MAX_CONTEXT_CHARS) : document;
 }

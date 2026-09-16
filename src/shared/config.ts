@@ -13,6 +13,8 @@ export interface PluginConfig {
 	forceDedupeMs: number;
 	/** Output cap for every auxiliary model call (consolidation, autolearn, handoff summary). */
 	maxTokens: number;
+	/** Output cap for auxiliary passes whose answer can need more room than `maxTokens`. */
+	maxOutputTokens: number;
 	/** Optional auxiliary-call route override; must be set together with `model`. */
 	provider: string;
 	/** Optional auxiliary-call route override; must be set together with `provider`. */
@@ -37,6 +39,8 @@ export interface PluginConfig {
 	handoffSummaryThinking: "off" | "session";
 	/** Automatic handoff when the last assistant message is a question: "defer" waits for the answer, "wait" hands off and carries the question into the continuation. */
 	handoffPendingQuestion: "defer" | "wait";
+	/** Handoff scaffolding language: "auto" follows the conversation, otherwise "zh" or "en". */
+	handoffLanguage: "auto" | "zh" | "en";
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
@@ -46,6 +50,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	consolidateIntervalMs: 5 * 60 * 1000,
 	forceDedupeMs: 15 * 1000,
 	maxTokens: 8192,
+	maxOutputTokens: 32_768,
 	provider: "",
 	model: "",
 	autoLearn: true,
@@ -58,6 +63,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	handoffKeepTokens: 20_000,
 	handoffSummaryThinking: "off",
 	handoffPendingQuestion: "defer",
+	handoffLanguage: "auto",
 };
 
 const CONFIG_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
@@ -123,6 +129,11 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		throw new Error('dsh-project-context: handoffPendingQuestion must be "defer" or "wait"');
 	}
 
+	const handoffLanguage = input.handoffLanguage;
+	if (handoffLanguage !== undefined && handoffLanguage !== "auto" && handoffLanguage !== "zh" && handoffLanguage !== "en") {
+		throw new Error('dsh-project-context: handoffLanguage must be "auto", "zh", or "en"');
+	}
+
 	const provider = string("provider", DEFAULT_CONFIG.provider);
 	const model = string("model", DEFAULT_CONFIG.model);
 	if ((provider.length === 0) !== (model.length === 0)) {
@@ -136,6 +147,7 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		consolidateIntervalMs: positive("consolidateIntervalMs", DEFAULT_CONFIG.consolidateIntervalMs, 1000),
 		forceDedupeMs: positive("forceDedupeMs", DEFAULT_CONFIG.forceDedupeMs, 0),
 		maxTokens: positive("maxTokens", DEFAULT_CONFIG.maxTokens, 256),
+		maxOutputTokens: positive("maxOutputTokens", DEFAULT_CONFIG.maxOutputTokens, 256),
 		provider,
 		model,
 		autoLearn: boolean("autoLearn", DEFAULT_CONFIG.autoLearn),
@@ -148,5 +160,6 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		handoffKeepTokens: bounded("handoffKeepTokens", DEFAULT_CONFIG.handoffKeepTokens, 0, 200_000),
 		handoffSummaryThinking: summaryThinking ?? DEFAULT_CONFIG.handoffSummaryThinking,
 		handoffPendingQuestion: pendingQuestion ?? DEFAULT_CONFIG.handoffPendingQuestion,
+		handoffLanguage: handoffLanguage ?? DEFAULT_CONFIG.handoffLanguage,
 	};
 }

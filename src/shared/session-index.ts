@@ -7,9 +7,10 @@
  * handoff pointers) read the index to navigate the raw archive.
  */
 
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
-import { logsDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "./project-state.js";
+import { legacySessionIndexFile, logsDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "./project-state.js";
 
 export interface SessionIndexEntry {
 	id: string;
@@ -81,6 +82,18 @@ export function sessionIndexLine(session: Session, title: string = sessionTitle(
 	return sessionIndexLineFrom(String(session.id), session.header.createdAt, title);
 }
 
+/**
+ * Convert pre-move index links (`session-logs/<id>/session.md`) to the current relative form.
+ * @param document - the legacy index body.
+ * @returns the body with every link made relative to `session-logs/`.
+ */
+export function normalizeLegacyIndex(document: string): string {
+	return document
+		.split("\n")
+		.map((line) => line.replace(/\]\(session-logs\//, "]("))
+		.join("\n");
+}
+
 /** Parse an INDEX.md body; unrecognized lines are ignored. */
 export function parseSessionIndex(text: string): Array<{ id: string; date: string; title: string }> {
 	const entries: Array<{ id: string; date: string; title: string }> = [];
@@ -140,12 +153,27 @@ export function queueIndexLine(projectRoot: string, id: string, line: string): P
 	const previous = queues.get(key) ?? Promise.resolve();
 	const next = previous.catch(() => undefined).then(async () => {
 		const file = sessionIndexFile(projectRoot);
-		const existing = await readOptional(file);
+		// Adopt a pre-move `<memory>/session-index.md` once, converting its links, so an existing
+		// index survives the layout change into `session-logs/`.
+		let existing = await readOptional(file);
+		let legacyFile: string | undefined;
+		if (!existing.trim()) {
+			const candidate = legacySessionIndexFile(projectRoot);
+			const legacy = normalizeLegacyIndex(await readOptional(candidate));
+			if (legacy.trim()) {
+				existing = legacy.endsWith("\n") ? legacy : `${legacy}\n`;
+				legacyFile = candidate;
+			}
+		}
 		const entries = existing.trim()
 			? existing.split("\n").map((current) => current.trim()).filter((current) => current.startsWith("- ["))
 			: [];
 		const document = [HEADING, "", ...dedupeIndexLines(entries, line, MAX_INDEX_LINES, safeSessionId(id)), ""].join("\n");
-		if (document !== existing) await writeAtomic(file, document);
+		// Write before removing the adopted source, and write even when the legacy bytes were
+		// already canonical: otherwise an adoption whose content needs no change deletes the only
+		// copy of the index. A crash between the two now leaves both files, never neither.
+		if (document !== existing || legacyFile !== undefined) await writeAtomic(file, document);
+		if (legacyFile !== undefined) await rm(legacyFile, { force: true }).catch(() => undefined);
 	});
 	queues.set(key, next);
 	void next.catch(() => undefined).finally(() => {
