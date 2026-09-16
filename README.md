@@ -43,18 +43,26 @@ session.jsonl（唯一权威）──► session.md（全量渲染，人读）�
 <project>/.agents/
 ├── skills/<name>/SKILL.md          # ③ 沉淀的项目技能（description 常驻，body 按需加载）
 └── memory/
-    ├── MEMORY.md                   # ② 长期记忆（每轮注入）
+    ├── memory.jsonl                # ② 权威记忆：append-only 记录 {"ts","op":"replace"|"append","text"}
+    ├── MEMORY.md                   # ② 由 journal 折叠渲染（人读 / 注入 / 外部手改入口）
+    ├── MEMORY.md.memory-backup-*   # 覆写前的字节级备份（保留最新 5 份；1 小时内的不删）
+    ├── MEMORY.md.lock / .steal     # 跨进程写锁（30s 陈旧；claim 防双抢）
+    ├── memory-log-*.jsonl          # journal 超 512KB 折叠后的归档（保留最新 5 份）
     ├── CONTEXT.md                  # ② 工作态：摘要 / 关键点 / open tasks（每轮注入）
     ├── HANDOFF.md                  # ④ 最近一次交接摘要（含旧存档指针）
+    ├── autolearn-state.json        # ③ 沉淀闸门（跨重启记住上次运行时刻）
     ├── skill-candidates/<name>.md  # ③ 待确认候选（approve 后转正）
-    ├── errors.log                  # 各阶段捕获的异常（不打断会话）；单条截断 8000 字符，>1MB 轮换保留最新 64k
+    ├── .gitignore                  # 首次写出时生成：忽略 journal / 备份 / 锁 / errors.log 等本地件
+    ├── errors.log                  # 各阶段捕获的异常；密钥脱敏后写入，单条截断 8000 字符，>1MB 轮换保留最新 64k
     └── session-logs/
         ├── INDEX.md                # ① 机械索引：每会话一行，按 id 去重、只留最新 200 行
         ├── .gitignore              # 首次写出时生成，忽略整个目录
         └── <session-id>/{session.jsonl,session.md}
 ```
 
-配置不在项目内：开关与参数在 `~/.dsh/settings.yaml` 的 `project-context` 段（设置卡片编辑）。dsh 自身仍把会话存在 `~/.dsh/sessions/…`，`session-logs/` 是项目内副本，便于随项目阅读与检索。更早版本的目录布局在 session 启动时自动迁移（旧记忆 / 上下文 / 日志 / 技能各归其位；文件/目录类型冲突时两侧都保留并在日志点名）。
+记忆与存档同构：**journal 是唯一权威、`MEMORY.md` 是派生渲染**。写入顺序固定为「先在锁内做字节级备份 → 追加 journal → 渲染 `MEMORY.md`」，因此崩溃只会让渲染落后于 journal，读取时以 journal 折叠结果为准；手改 `MEMORY.md`（且比 journal 新）会被读取优先采信，并在下一次整理时作为一条记录收进 journal 历史。损坏的 journal 行会被跳过并计数（写 `errors.log`，`/memory` 提示），整份不可读时 fail closed 而不是静默回退。旧版 `<memory>/session-index.md` 也会在首次写索引时被采纳并改写链接。
+
+配置不在项目内：开关与参数在 `~/.dsh/settings.yaml` 的 `project-context` 段（设置卡片编辑）。dsh 自身仍把会话存在 `~/.dsh/sessions/…`，`session-logs/` 是项目内副本，便于随项目阅读与检索。更早版本的目录布局在 session 启动时自动迁移（旧记忆 / 上下文 / 日志 / 技能各归其位；文件/目录类型冲突时两侧都保留并在日志点名；`.omp` 旧记忆存在但读不了会记进 `errors.log` 而不是静默跳过）。
 
 ## 源码结构
 
@@ -67,7 +75,8 @@ src/
 └── shared/             # 四个插件共用
     ├── config.ts       # 默认值与字段定义
     ├── settings.ts     # 设置命名空间（web 卡片 ↔ cordis 配置）
-    ├── project-state.ts# 路径、原子写、errors.log 轮换、旧数据迁移
+    ├── project-state.ts# 路径、原子写、errors.log 轮换与密钥脱敏、旧数据迁移
+    ├── memory-store.ts # 记忆 journal / 渲染 / 备份 / 跨进程锁 / 污点解码
     ├── lifecycle.ts    # 会话身份、串行后台任务、落盘跟踪
     ├── session-log.ts  # session.jsonl / session.md 写入
     ├── session-index.ts# INDEX.md 渲染
@@ -75,7 +84,9 @@ src/
     ├── import-archive.ts # zip / jsonl 回填
     ├── learn.ts        # ② 整理 pass + 模型调用管线（③ 复用）
     ├── autolearn.ts    # ③ pass 逻辑与技能校验
+    ├── learn-state.ts  # 项目本地状态（③ 的闸门时间戳等）
     ├── context-doc.ts  # CONTEXT.md 渲染
+    ├── handoff-language.ts # 交接语言检测、标题本地化、陈旧提示识别
     ├── handoff-marker.ts # 交接会话标记（host 与浏览器共用）
     └── handoff-watch.ts  # 浏览器侧自动切换
 client/                 # 设置卡片、表单、zh/en 文案（bundle 进 lib/client.js）
@@ -130,7 +141,8 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
 | `autoLearn` | `true` | 关掉后不再自动沉淀技能（命令仍可用） |
 | `autolearnTurns` | `20` | 自上次沉淀累计的用户消息数阈值 |
 | `autolearnIntervalMs` | `1800000` | 自动沉淀最小间隔；仅在有新 MEMORY/CONTEXT 内容时执行 |
-| `maxTokens` | `8192` | 辅助模型调用（整理 / 沉淀 / 交接摘要）输出上限 |
+| `maxTokens` | `8192` | 辅助模型调用的起始输出上限；整理会按「记忆+上下文需回吐的 token 数」自适应上调 |
+| `maxOutputTokens` | `32768` | 自适应上调的上限（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准 |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接，`/handoff` 仍可用 |
 | `handoffAdaptive` | `true` | 自适应阈值（按窗口/基线/保留量推导）；false 时用固定比例 |
@@ -138,14 +150,15 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
 | `handoffTargetTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000） |
 | `handoffKeepTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要） |
 | `handoffSummaryThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
-| `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 等回答后再交接，`wait` 照常交接并把问题带进新会话（= pi 侧 `handoffGuard: wait`） |
+| `handoffLanguage` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
+| `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话（= pi 侧 `handoffGuard: wait`） |
 
 ## 命令（web/交互 profile）
 
 | 命令 | 行为 |
 |---|---|
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径 |
-| `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 无新内容 / 被去重 / 失败 |
+| `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |
 | `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/memory` | 显示项目记忆路径与状态 |
@@ -157,12 +170,13 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
 | `/handoff target 64k` / `keep 20k` | 自适应移交量 / 保留量（`keep 0` = 只带摘要） |
 | `/handoff thinking off\|session` | 切换摘要 thinking |
 | `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
+| `/handoff lang auto\|zh\|en` | 交接语言：自动判定或固定中文 / 英文 |
 
 ## 说明
 
 - ② 由 `project-memory` 独占：idle / disposed 触发，`session/flush` 等待进行中的调用；同一项目一次只跑一个整理 pass，版本去重避免重复写入。
-- ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`，模型可返回至多 3 个待回读会话，插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream` 等大负载、各截断 16KB）后二次调用；正式技能需要至少两个**已验证**的存档会话做证据，只举一个会话的提案进 `skill-candidates/` 等 `/autolearn approve`；已存在的技能不覆盖，含提示注入话术的 body 一律拒绝。
-- ④：摘要输入是 `MEMORY.md`、最近对话窗口与文件操作索引，不依赖整理是否运行；摘要失败退避 5 分钟；未答问题按 `handoffPendingQuestion` 处理。新会话沿用父会话的 **agent preset**，workspace 按 cwd **精确匹配**接入（匹配不到就只用 cwd 创建），首条消息里的存档指针是绝对路径、`HANDOFF.md` 里写仓库相对路径；浏览器端在标题出现时自动切换，但**当前会话输入框非空或正在提交时不抢**。阈值 0.4 早于 dsh 内置压缩的 0.8，两者可共存。
+- ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`，模型可返回至多 3 个待回读会话，插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream` 等大负载、各截断 16KB）后二次调用。闸门时间戳持久化在 `.agents/memory/autolearn-state.json`，**重启后不会重复沉淀**；prompt 里带 `<existing-skills>` 清单并禁止重名；回读前逐个校验 `session-logs/<id>/session.jsonl` 真实存在（模型幻觉出的 id 会被丢弃，全部落空时按“无证据”处理）；输出上限按需自适应上调（受 `maxOutputTokens` 约束）。正式技能需要至少两个**已验证**的存档会话做证据，只举一个会话的提案进 `skill-candidates/` 等 `/autolearn approve`；已存在的技能不覆盖，含提示注入话术的 body 一律拒绝。
+- ④：摘要输入是 `MEMORY.md`、最近对话窗口与文件操作索引，不依赖整理是否运行；摘要失败退避 5 分钟；未答问题按 `handoffPendingQuestion` 处理——`wait` 会把问题原文作为独立段落带进新会话（此前只跳过延后、问题实际会丢）。交接**跟随对话语言**（`handoffLanguage`，含摘要指令、六个段落标题与首条消息）；重放中**上一轮交接提示会被替换成一行标记**，不再把陈旧的交接提示原样带进孙会话。新会话沿用父会话的 **agent preset**，workspace 按 cwd **精确匹配**接入（匹配不到就只用 cwd 创建），首条消息里的存档指针是绝对路径、`HANDOFF.md` 里写仓库相对路径；浏览器端在标题出现时自动切换，但**当前会话输入框非空或正在提交时不抢**。阈值 0.4 早于 dsh 内置压缩的 0.8，两者可共存。
 - ②③④ 只作用于顶层会话（`origin !== "subagent"`），① 对子会话同样留档；各阶段异常都写 `.agents/memory/errors.log`，不打断会话。
 
 ## 开发
