@@ -284,6 +284,13 @@ export function handoffSplit(session: Session, keepChars: number): HandoffSplit 
 			start -= 1;
 		}
 	}
+	// The cut lands between whole messages, so the tail may exceed the budget by at most the one
+	// message this loop is forced to keep (`used > 0`). That floor is also why the pi fix
+	// "cut mid-turn so one huge turn cannot block the handoff" (pi 093dbf3) has no dsh counterpart:
+	// pi pulled the cut back to a turn start and could leave nothing to summarize, while every
+	// rendered section here is clipped to 4000 chars (`conversationMessageSections`), far below a
+	// realistic keep budget, so a session larger than the budget always leaves an older span —
+	// only a conversation that genuinely fits the window has none (the empty-span guard).
 	const olderSections = sections.slice(0, start);
 	const tailSections = sections.slice(start);
 	return {
