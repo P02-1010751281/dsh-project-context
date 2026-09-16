@@ -1154,6 +1154,86 @@ test("the automatic handoff waits for background subagents to settle", async () 
 	assert.equal(created.length, 0);
 });
 
+test("the live subagent registry is preferred over the event log", async () => {
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	// Each case needs its own session id: the pressure check is throttled per session for 15 s
+	// process-wide, so a second call on the same id would return before reaching any guard.
+	let caseId = 0;
+	const session = (events) => ({
+		id: `session-registry-${caseId}`,
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		snapshotEvents: () => events,
+	});
+	const created = [];
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
+	const ctxWith = (subagents) => ({
+		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : name === "subagents" ? subagents : undefined),
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
+		logger: { info() {}, warn() {} },
+	});
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+	const runningChild = (mode) => ({ listChildren: async () => [{ kind: "child", id: "child-live", mode, activity: "running", hasChildren: false }] });
+
+	// The registry knows about work the log cannot show at all (here: no events).
+	caseId += 1;
+	await maybeAutoHandoff(ctxWith(runningChild("continuable")), session([]), config);
+	assert.equal(created.length, 0, "a running continuable child defers before any child session is created");
+
+	// It also outlives the log fallback's one-hour horizon: that entry alone would have proceeded.
+	caseId += 1;
+	const ancient = [{ type: "subagent/catalog", time: Date.now() - 3 * 60 * 60_000, data: { childId: "child-live", mode: "continuable" } }];
+	await maybeAutoHandoff(ctxWith(runningChild("continuable")), session(ancient), config);
+	assert.equal(created.length, 0);
+
+	// And its `mode` wins over a contradicting log: a one-shot child never settles, so the log
+	// fallback would defer forever, while the run must reach the summary call and reject here.
+	caseId += 1;
+	const looksContinuable = [{ type: "subagent/catalog", time: Date.now() - 1_000, data: { childId: "child-live", mode: "continuable" } }];
+	await assert.rejects(() => maybeAutoHandoff(ctxWith(runningChild("one-shot")), session(looksContinuable), config), /async iterable/);
+
+	// A registry that cannot answer falls back to the log, which still sees the running child.
+	caseId += 1;
+	await maybeAutoHandoff(
+		ctxWith({ listChildren: async () => { throw new Error("projections unavailable"); } }),
+		session(looksContinuable),
+		config,
+	);
+	assert.equal(created.length, 0);
+
+	// An inactive continuable child cannot wake this session, so it must not hold the handoff.
+	caseId += 1;
+	await assert.rejects(
+		() => maybeAutoHandoff(ctxWith({ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "inactive", hasChildren: false }] }), session([]), config),
+		/async iterable/,
+	);
+});
+
+test("a skipped automatic handoff says why in the server log", async () => {
+	// The conversation fits the recent window, so there is nothing to summarize: dsh has no host-side
+	// notification channel, so the reason is a log line (findable with `/handoff status` next to it).
+	const logs = [];
+	const controller = { create: async () => ({ sessionId: "child-1" }), rename: async () => undefined, prompt: async () => undefined };
+	const ctx = {
+		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : undefined),
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
+		logger: { info: (...args) => { logs.push(args.join(" ")); }, warn() {} },
+	};
+	const session = {
+		id: "session-skip-000000000000",
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => [message("user", "hello"), message("assistant", "hi")],
+		requestHeader: () => undefined,
+		snapshotEvents: () => [],
+	};
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait" });
+
+	await maybeAutoHandoff(ctx, session, config);
+	assert.equal(logs.filter((line) => line.includes("automatic handoff skipped")).length, 1);
+	assert.match(logs.join("\n"), /handoffKeepTokens/, "the log names the setting that decides it");
+});
+
 test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {
 	const cwd = await mkdtemp(path.join(tmpdir(), "dsh-handoff-empty-"));
 	const created = [];

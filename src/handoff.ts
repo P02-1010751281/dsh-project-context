@@ -128,6 +128,10 @@ const SUMMARY_TIMEOUT_MS = 180_000;
 const FAILURE_BACKOFF_MS = 5 * 60_000;
 /** Automatic handoffs re-measure context pressure at most this often per session. */
 const PRESSURE_CHECK_INTERVAL_MS = 15_000;
+/** How often one session may log "nothing to summarize": the skip repeats on every idle. */
+const SKIP_LOG_INTERVAL_MS = 10 * 60_000;
+/** Bound on the live subagent listing, so a slow registry cannot stall the turn end. */
+const SUBAGENT_LIST_TIMEOUT_MS = 5_000;
 /** Rough character budget per token for the carried-over recent tail. */
 const CHARS_PER_TOKEN = 3.5;
 
@@ -138,6 +142,8 @@ const inFlight = new Set<string>();
 const failedUntil = new Map<string, number>();
 /** Last automatic pressure check per session, so measurement is not run every turn. */
 const pressureCheckedAt = new Map<string, number>();
+/** Last logged "nothing older to summarize" per session; the skip repeats on every idle. */
+const skippedLoggedAt = new Map<string, number>();
 
 /** Resolve the handoff route: explicit config, then the session's latest routed request. */
 function resolveTarget(session: Session, config: PluginConfig): { provider: string; model: string } | undefined {
@@ -638,10 +644,11 @@ async function performHandoff(
 const SUBAGENT_WORK_HORIZON_MS = 60 * 60_000;
 
 /**
- * This session's continuable subagent children that were spawned within the horizon and have not
- * reported a settlement since. Read structurally: `subagent/catalog` and the `subagent-settled`
- * source kind are dsh-internal shapes, so a log from another version simply yields no pending work —
- * the guard fails open instead of blocking every handoff.
+ * The event-log **fallback** for {@link runningContinuableChildren}: this session's continuable
+ * subagent children that were spawned within the horizon and have not reported a settlement since.
+ * Used only when the `subagents` service is unavailable. Read structurally: `subagent/catalog` and
+ * the `subagent-settled` source kind are dsh-internal shapes, so a log from another version simply
+ * yields no pending work — the guard fails open instead of blocking every handoff.
  * @param events - the session's *own* event log (a fork's inherited prefix is not this session's work).
  * @param now - current time in milliseconds.
  * @param horizonMs - how long an unsettled child keeps counting as running.
@@ -673,6 +680,48 @@ export function outstandingSubagents(events: readonly unknown[], now: number, ho
 	return [...spawned]
 		.filter(([id, at]) => at > (settled.get(id) ?? 0) && now - at <= horizonMs)
 		.map(([id]) => id);
+}
+
+/**
+ * This session's *own* events. A fork inherits its parent's log and an inherited child's notice
+ * goes to the original parent, so the inherited prefix must not read as this session's work.
+ */
+function ownEventsOf(session: Session): readonly unknown[] {
+	const withOwn = session as { ownEvents?: () => readonly unknown[] };
+	return withOwn.ownEvents?.() ?? session.snapshotEvents();
+}
+
+/** Structural view of the optional `subagents` host service. */
+interface SubagentsLike {
+	listChildren(parentSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
+}
+
+/**
+ * Continuable children the live registry still reports as running, or `undefined` when the service
+ * is absent or failed, so the caller falls back to the event log. The registry is authoritative
+ * where it exists: it knows `mode` (a one-shot child never reports a settlement), reports
+ * `activity` directly instead of inferring it from a one-hour horizon, and lists what the session
+ * store holds rather than what a fork inherited.
+ * @param ctx - plugin context, for the optional `subagents` lookup.
+ * @param session - the session about to be handed off.
+ * @returns the running continuable child ids, or `undefined` when the log must be consulted.
+ */
+async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
+	const service = ctx.get("subagents") as SubagentsLike | undefined;
+	if (service === undefined || typeof service.listChildren !== "function") return undefined;
+	try {
+		const entries = await service.listChildren(String(session.id), AbortSignal.timeout(SUBAGENT_LIST_TIMEOUT_MS));
+		const ids: string[] = [];
+		for (const raw of entries) {
+			const entry = raw as { kind?: unknown; id?: unknown; mode?: unknown; activity?: unknown };
+			if (entry.kind === "child" && entry.mode === "continuable" && entry.activity === "running" && typeof entry.id === "string") ids.push(entry.id);
+		}
+		return ids;
+	} catch {
+		// Projections unavailable, the listing timed out, or a shape from another version: the
+		// caller reads the event log instead of letting the guard fail.
+		return undefined;
+	}
 }
 
 /**
@@ -709,11 +758,9 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 		return;
 	}
 
-	// A running background subagent will wake this session again when it settles, so handing off
-	// now would leave two sessions working the same project. `ownEvents` (not `snapshotEvents`):
-	// a fork inherits its parent's log, and an inherited child's notice goes to the original parent.
-	const ownEvents = session as { ownEvents?: () => readonly unknown[] };
-	const pending = outstandingSubagents(ownEvents.ownEvents?.() ?? session.snapshotEvents(), now);
+	// A running continuable subagent will wake this session again when it settles, so handing off
+	// now would leave two sessions working the same project.
+	const pending = await runningContinuableChildren(ctx, session) ?? outstandingSubagents(ownEventsOf(session), now);
 	if (pending.length > 0) {
 		ctx.logger.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", pending.length);
 		// Re-check on the next idle rather than after the measurement interval: the child settling
@@ -723,7 +770,16 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	}
 
 	const split = handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
-	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_SUMMARIZE_TOKENS) return;
+	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_SUMMARIZE_TOKENS) {
+		// Nothing worth summarizing: the conversation fits the recent window. Not a failure, and
+		// dsh has no host-side notification channel, so this is a rate-limited log line — the user
+		// can see the measured context with `/handoff status` (README documents the limitation).
+		if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
+			skippedLoggedAt.set(key, now);
+			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffKeepTokens), so there is nothing older to summarize");
+		}
+		return;
+	}
 
 	await performHandoff(ctx, session, target, config, resolved, "auto", undefined, split);
 }
@@ -883,6 +939,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		handedOff.delete(key);
 		pressureCheckedAt.delete(key);
 		failedUntil.delete(key);
+		skippedLoggedAt.delete(key);
 	});
 
 	ctx.commands.register({
