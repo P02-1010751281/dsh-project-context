@@ -1281,24 +1281,33 @@ test("a manual handoff on a conversation that fits the carried window is refused
 	assert.equal(modelCalls, 0);
 });
 
-test("a handoff child inherits the parent's session-local model", async () => {
-	// `sessionController.create` takes no model, so the child would start on the deployment default
-	// and drop whatever the user had switched to — pi's 8a2e6e4 in dsh terms. The carry must land
-	// before the seed prompt, or the child's first turn would already be routed to the default.
+test("a handoff child inherits the parent's session-local model and permission preset", async () => {
+	// `sessionController.create` takes neither a model nor a permission preset, so the child would
+	// start on the deployment defaults and drop whatever the user had switched to — pi's 8a2e6e4 in
+	// dsh terms. Both carries must land before the seed prompt, or the child's first turn is already
+	// routed to the default and asks for approval the parent no longer required.
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-model-"));
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 	const summaryStream = () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue the work" }; })();
 
-	const run = async ({ selectModel, requestHeader }) => {
+	const run = async ({ selectModel, requestHeader, preset, resident = true, setThrows = false, presetsAbsent = false }) => {
 		const calls = [];
+		const childSession = { id: "child-1" };
 		const controller = {
 			create: async () => { calls.push(["create"]); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
 			prompt: async () => { calls.push(["prompt"]); },
 			...(selectModel === undefined ? {} : { selectModel: async (request) => { calls.push(["selectModel", request]); if (selectModel === "throw") throw new Error("selection rejected"); } }),
 		};
+		const presets = {
+			current: (session) => { calls.push(["current", session?.id]); return preset; },
+			set: (session, name) => { calls.push(["setPreset", name, session === childSession]); if (setThrows) throw new Error("switch rejected"); },
+		};
 		const ctx = {
-			get: (name) => (name === "sessionController" ? controller : undefined),
+			get: (name) => (name === "sessionController" ? controller
+				: name === "permissionPresets" ? (presetsAbsent ? undefined : presets)
+					: name === "sessions" ? { get: (id) => (resident && id === "child-1" ? childSession : undefined) }
+						: undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }), stream: summaryStream },
 			logger: { info() {}, warn() {} },
 		};
@@ -1311,33 +1320,57 @@ test("a handoff child inherits the parent's session-local model", async () => {
 		};
 		const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
 		const reply = await runManual(ctx, session, entry, new AbortController().signal);
-		return { calls, reply };
+		return { calls, reply, sessionId: session.id };
 	};
 
 	const routed = () => ({ config: { provider: "parent-provider", model: "parent-model", reasoningEffort: "high" } });
-	const carried = await run({ selectModel: true, requestHeader: routed });
+	const carried = await run({ selectModel: true, requestHeader: routed, preset: "danger-full-access" });
 	assert.equal(carried.reply.kind, "success");
-	assert.deepEqual(carried.calls.map(([kind]) => kind), ["create", "selectModel", "prompt"], "the selection lands before the seed prompt");
-	assert.deepEqual(carried.calls[1][1], { sessionId: "child-1", provider: "parent-provider", model: "parent-model", reasoningEffort: "high" });
+	assert.deepEqual(carried.calls.map(([kind]) => kind), ["create", "current", "setPreset", "selectModel", "prompt"], "both carries land before the seed prompt");
+	assert.deepEqual(carried.calls[1], ["current", carried.sessionId], "the preset is read from the parent session");
+	assert.deepEqual(carried.calls[2], ["setPreset", "danger-full-access", true], "the switch lands on the child session");
+	assert.deepEqual(carried.calls[3][1], { sessionId: "child-1", provider: "parent-provider", model: "parent-model", reasoningEffort: "high" });
 
 	// A parent that never routed a request has no selection to carry, and the handoff is unchanged.
-	const unrouted = await run({ selectModel: true, requestHeader: () => undefined });
+	// These four exercise the model carry on a profile without the permission service, so the
+	// permission cases below stay independent of them.
+	const unrouted = await run({ selectModel: true, requestHeader: () => undefined, presetsAbsent: true });
 	assert.equal(unrouted.reply.kind, "success");
 	assert.deepEqual(unrouted.calls.map(([kind]) => kind), ["create", "prompt"]);
 
 	// An empty pair in the header is not a selection either: installing it would break the route.
-	const blank = await run({ selectModel: true, requestHeader: () => ({ config: { provider: "", model: "" } }) });
+	const blank = await run({ selectModel: true, requestHeader: () => ({ config: { provider: "", model: "" } }), presetsAbsent: true });
 	assert.equal(blank.reply.kind, "success");
 	assert.deepEqual(blank.calls.map(([kind]) => kind), ["create", "prompt"]);
 
 	// Fail-open: a rejected selection, or a runtime without the call, must not fail a handoff whose
 	// child already exists.
-	const rejected = await run({ selectModel: "throw", requestHeader: routed });
+	const rejected = await run({ selectModel: "throw", requestHeader: routed, presetsAbsent: true });
 	assert.equal(rejected.reply.kind, "success");
 	assert.deepEqual(rejected.calls.map(([kind]) => kind), ["create", "selectModel", "prompt"]);
-	const absent = await run({ selectModel: undefined, requestHeader: routed });
+	const absent = await run({ selectModel: undefined, requestHeader: routed, presetsAbsent: true });
 	assert.equal(absent.reply.kind, "success");
 	assert.deepEqual(absent.calls.map(([kind]) => kind), ["create", "prompt"]);
+
+	// The permission half, which the user reported as missing: a parent switched to full access must
+	// not hand off into a child that asks for approval again.
+	const permissive = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access" });
+	assert.equal(permissive.reply.kind, "success");
+	assert.deepEqual(permissive.calls.map(([kind]) => kind), ["create", "current", "setPreset", "prompt"]);
+
+	// `custom` means the effective knobs match no preset and is never a switch target.
+	const custom = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "custom" });
+	assert.deepEqual(custom.calls.map(([kind]) => kind), ["create", "current", "prompt"]);
+
+	// A child that is not resident, a profile without the service, and a rejected switch are all
+	// fail-open: the handoff still completes with the child that was already created.
+	const gone = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", resident: false });
+	assert.deepEqual(gone.calls.map(([kind]) => kind), ["create", "prompt"], "no child session, nothing to switch");
+	const noService = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", presetsAbsent: true });
+	assert.deepEqual(noService.calls.map(([kind]) => kind), ["create", "prompt"]);
+	const refused = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", setThrows: true });
+	assert.equal(refused.reply.kind, "success");
+	assert.deepEqual(refused.calls.map(([kind]) => kind), ["create", "current", "setPreset", "prompt"]);
 });
 
 test("tool results reach the live transcript, not just the tool name", () => {

@@ -503,6 +503,52 @@ export function pendingQuestionFor(config: PluginConfig, session: Session): stri
 	return config.handoffPendingQuestion === "wait" ? pendingQuestion(session) : undefined;
 }
 
+/** The permission-preset service's reserved "no table entry matches" value; never a switch target. */
+const CUSTOM_PERMISSION_PRESET = "custom";
+
+/** Structural view of the permission-preset service (`permissionPresets`); optional per profile. */
+interface PermissionPresetsLike {
+	/** The session's effective preset name, or {@link CUSTOM_PERMISSION_PRESET}. */
+	current(session: unknown): string;
+	/** Record the preset and write its sandbox/approval knobs onto the session. */
+	set(session: unknown, name: string): void;
+}
+
+/** Structural view of the in-memory session store, used to reach the freshly created child. */
+interface LiveSessionsLike {
+	get(id: string): unknown;
+}
+
+/**
+ * Carry the parent's permission preset into the continuation. `SessionCreateRequest` has no
+ * permission field either, so the child otherwise starts on the deployment/user default: a parent
+ * the user had switched to full access hands off to a child that asks for approval again (observed
+ * 2026-09-16 — parent `danger-full-access`/`never`, child `workspace-write`/`ask`), which stalls the
+ * continuation on its first sensitive tool call.
+ *
+ * The preset service writes through the child's live Session (`session.append` + the sandbox and
+ * approval knob setters), and `session/create` publishes that Session into the in-memory store
+ * before it returns, so the child is reachable here. Fail-open in every direction: no service, a
+ * child that is not resident, a derived `custom` combination (which the service refuses as a switch
+ * target), or a rejected switch must never fail a handoff whose child already exists.
+ * @param ctx - plugin context, for the optional services and the warning log.
+ * @param childId - the child session to configure.
+ * @param session - the parent session being handed off.
+ */
+export function carryPermissionPreset(ctx: Context, childId: string, session: Session): void {
+	const presets = ctx.get("permissionPresets") as PermissionPresetsLike | undefined;
+	if (presets === undefined || typeof presets.current !== "function" || typeof presets.set !== "function") return;
+	const child = (ctx.get("sessions") as LiveSessionsLike | undefined)?.get?.(childId);
+	if (child === undefined || child === null) return;
+	try {
+		const preset = presets.current(session);
+		if (preset === CUSTOM_PERMISSION_PRESET) return;
+		presets.set(child, preset);
+	} catch (error: unknown) {
+		ctx.logger.warn("dsh-project-context: handoff could not carry the permission preset: %s", error instanceof Error ? error.message : String(error));
+	}
+}
+
 /**
  * The model selection to carry into the continuation: whatever the parent was last routed to, as
  * recorded in its request header. The selection is Session-local (the browser's model picker writes
@@ -631,9 +677,10 @@ async function performHandoff(
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
 
-	// The child starts on the deployment default: `create` takes no model at all. Carry whatever the
-	// parent was routed to before any work can be admitted, so the continuation does not silently
-	// drop the model or thinking level the user had switched to.
+	// The child starts on the deployment defaults: `create` takes neither a model nor a permission
+	// preset. Carry what the user had switched to before any work can be admitted, so the
+	// continuation does not silently drop the model/thinking level or re-ask for every approval.
+	carryPermissionPreset(ctx, childId, session);
 	await carryModelSelection(ctx, controller, childId, session);
 
 	// Admit the seed prompt before publishing the switch marker. The title prefix
