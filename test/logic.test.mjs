@@ -1386,9 +1386,12 @@ test("the automatic handoff yields to a session that is already on its next turn
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-settle-"));
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 
-	const run = async ({ events, startTurnOnSummary, startTurnOnCreate, emptySummary }) => {
+	const run = async ({ events, startTurnOnSummary, startTurnOnCreate, startTurnOnPrompt, promptThrows, cancelThrows, cancelAbsent, emptySummary }) => {
 		const calls = [];
 		const renames = [];
+		const cancels = [];
+		const archives = [];
+		const logs = [];
 		const own = [...events];
 		const controller = {
 			create: async () => {
@@ -1397,13 +1400,24 @@ test("the automatic handoff yields to a session that is already on its next turn
 				return { sessionId: "child-1" };
 			},
 			rename: async (request) => { renames.push(request.title); },
-			prompt: async () => { calls.push("prompt"); },
+			...(cancelAbsent ? {} : {
+				cancel: async (request) => {
+					cancels.push(request.sessionId);
+					if (cancelThrows) throw new Error("cancel transport down");
+				},
+			}),
+			prompt: async () => {
+				calls.push("prompt");
+				if (startTurnOnPrompt) own.push({ type: "turn/start", seq: 11, time: Date.now() });
+				if (promptThrows) throw new Error("seed rejected");
+			},
 		};
 		let summaryCalls = 0;
 		const ctx = {
 			get: (name) => (name === "sessionController" ? controller
 				: name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) }
-					: undefined),
+					: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async (id) => { archives.push(id); } }
+						: undefined),
 			llm: {
 				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 				stream: () => {
@@ -1415,7 +1429,10 @@ test("the automatic handoff yields to a session that is already on its next turn
 					})();
 				},
 			},
-			logger: { info() {}, warn() {} },
+			logger: {
+				info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); },
+				warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); },
+			},
 		};
 		const session = {
 			id: `session-settle-${Math.random().toString(16).slice(2, 10)}`,
@@ -1431,7 +1448,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		} catch (caught) {
 			error = caught;
 		}
-		return { calls, error, summaryCalls, renames };
+		return { calls, error, summaryCalls, renames, cancels, archives, logs };
 	};
 
 	const turnEnd = { type: "turn/end", seq: 10, time: Date.now() };
@@ -1464,6 +1481,45 @@ test("the automatic handoff yields to a session that is already on its next turn
 	assert.deepEqual(duringCreate.calls, ["create"], "the child is created but never seeded");
 	assert.match(duringCreate.renames[0] ?? "", /^handoff deferred · /, "the switch marker is stripped");
 	assert.ok(!existsSync(path.join(root, ".agents", "memory", "HANDOFF.md")), "the pre-prompt deferral writes no document either");
+	assert.deepEqual(duringCreate.archives, ["child-1"], "the empty child is hidden from the workspace list");
+	assert.deepEqual(duringCreate.cancels, [], "nothing was seeded, so there is no turn to cancel");
+
+	// The turn opens inside the *prompt* RPC — the last window. The seed is already durable, so it is
+	// cancelled, retitled and archived rather than left to run the duplicate continuation.
+	const duringPrompt = await run({ events: [turnEnd], startTurnOnPrompt: true });
+	assert.ok(duringPrompt.error instanceof HandoffDeferred, `expected a deferral, got ${duringPrompt.error}`);
+	assert.deepEqual(duringPrompt.calls, ["create", "prompt"]);
+	assert.deepEqual(duringPrompt.cancels, ["child-1"], "the admitted seed is cancelled");
+	assert.match(duringPrompt.renames[0] ?? "", /^handoff deferred · /);
+	assert.deepEqual(duringPrompt.archives, ["child-1"]);
+	assert.ok(!existsSync(path.join(root, ".agents", "memory", "HANDOFF.md")), "the document is written only after the last check");
+
+	// A child whose seed could not be cancelled may still be running the duplicate continuation, so
+	// it must stay visible instead of being quietly archived.
+	const cancelBroke = await run({ events: [turnEnd], startTurnOnPrompt: true, cancelThrows: true });
+	assert.ok(cancelBroke.error instanceof HandoffDeferred, `expected a deferral, got ${cancelBroke.error}`);
+	assert.deepEqual(cancelBroke.cancels, ["child-1"]);
+	assert.match(cancelBroke.renames[0] ?? "", /^handoff deferred · /);
+	assert.deepEqual(cancelBroke.archives, [], "an uncancelled child stays visible");
+	assert.ok(cancelBroke.logs.some((line) => line.startsWith("warn")), "the failed cancel is reported");
+
+	// A runtime without `cancel` cannot prove the child is idle: same rule, no warning to log.
+	const noCancel = await run({ events: [turnEnd], startTurnOnPrompt: true, cancelAbsent: true });
+	assert.ok(noCancel.error instanceof HandoffDeferred, `expected a deferral, got ${noCancel.error}`);
+	assert.deepEqual(noCancel.cancels, []);
+	assert.deepEqual(noCancel.archives, [], "an uncancelled child stays visible");
+	// …while a child that was never sent a prompt needs no cancel to be safely hidden.
+	const noCancelUnseeded = await run({ events: [turnEnd], startTurnOnCreate: true, cancelAbsent: true });
+	assert.deepEqual(noCancelUnseeded.archives, ["child-1"], "an unseeded child is hidden without a cancel");
+
+	// A genuine failure is not a deferral: the child stays visible under a failed title instead of
+	// being archived, so the user can see that a handoff was attempted and broke.
+	const broken = await run({ events: [turnEnd], promptThrows: true });
+	assert.ok(!(broken.error instanceof HandoffDeferred) && broken.error !== undefined, `expected a failure, got ${broken.error}`);
+	assert.deepEqual(broken.calls, ["create", "prompt"]);
+	assert.match(broken.renames[0] ?? "", /^handoff failed · /);
+	assert.deepEqual(broken.archives, [], "a failure stays visible");
+	assert.deepEqual(broken.cancels, ["child-1"], "a rejected prompt may still have admitted the seed");
 
 	// Control: a settled session still hands off, so the guard cannot pass by disabling the feature.
 	const settled = await run({ events: [turnEnd, { type: "turn/start", seq: 4, time: Date.now() }] });
@@ -1471,6 +1527,8 @@ test("the automatic handoff yields to a session that is already on its next turn
 	assert.deepEqual(settled.calls, ["create", "prompt"]);
 	assert.equal(settled.renames.length, 1, "a successful handoff publishes the switch marker");
 	assert.ok(settled.renames[0].startsWith("↪ handoff · "), `expected the switch marker, got ${settled.renames[0]}`);
+	assert.deepEqual(settled.cancels, [], "a successful handoff cancels nothing");
+	assert.deepEqual(settled.archives, [], "a successful handoff archives nothing");
 
 	// The predicate itself: only a turn that started *after* the trigger defers.
 	const session = { ownEvents: () => [{ type: "turn/start", seq: 4 }, { type: "turn/end", seq: 10 }], snapshotEvents: () => [] };

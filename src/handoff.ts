@@ -15,11 +15,19 @@
  * soon as the current one closes, so the parent can be back at work before the
  * summary call returns. `agent.status` cannot express it (the driver is still
  * `running` when `turn/end` commits), so the check reads the log for a later
- * `turn/start` — before the summary, after it, and once more before the seed
- * prompt, because creating and configuring the child is itself a wide window.
- * A `turn/end` that arrives while an attempt is running is remembered and
- * re-evaluated when that attempt finishes (an attempt that *failed* keeps its
- * backoff, so the retry waits it out), so a settled turn is not passed over.
+ * `turn/start` — before the summary, after it, once before the seed prompt and
+ * once after it, because creating and configuring the child is itself a wide
+ * window and the prompt RPC is another. An abandoned child is undone rather
+ * than deleted (dsh has no delete RPC): a possible seed is cancelled, the
+ * switch marker is stripped, and a child that was never seeded — or whose seed
+ * was provably cancelled — is archived so it does not appear in the workspace
+ * list, while a child that may still be running stays visible. The document is
+ * written last, so an abandoned attempt leaves nothing in the project. The
+ * guard is best-effort down to the final rename RPC, the one window no check
+ * can close. A `turn/end` that arrives while an attempt is running is
+ * remembered and re-evaluated when that attempt finishes (an attempt that
+ * *failed* keeps its backoff, so the retry waits it out), so a settled turn is
+ * not passed over.
  * One auxiliary model call distills the older conversation; the recent tail
  * (`handoffKeepTokens`) is carried into the continuation verbatim. The
  * document is archived to `.agents/memory/HANDOFF.md`, a fresh session is
@@ -97,6 +105,8 @@ interface SessionControllerLike {
 	rename?(request: { sessionId: string; title: string }): Promise<unknown>;
 	/** Session-local model selection; absent in runtimes that predate it. */
 	selectModel?(request: { sessionId: string; provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
+	/** Cancels the child's admitted turn when a seed has to be undone; absent in older runtimes. */
+	cancel?(request: { sessionId: string }): Promise<unknown>;
 	prompt(
 		request: {
 			requestId: string;
@@ -114,6 +124,12 @@ interface SessionControllerLike {
  */
 interface WorkspaceRegistryLike {
 	resolveByPath(path: string): Promise<{ readonly id: string } | undefined>;
+	/**
+	 * Hides a session from every grouping surface without touching its log or its workspace
+	 * accounting. Used to make an abandoned handoff child invisible instead of leaving an empty
+	 * session in the sidebar (there is no delete RPC).
+	 */
+	archiveSession?(sessionId: string): Promise<void>;
 }
 
 /** Structural view of the token meter; the service is optional per profile. */
@@ -675,6 +691,59 @@ export function assertHandoffSummarizable(older: string): void {
 }
 
 /**
+ * Undo a child whose handoff was abandoned. The child is already published and dsh has no delete
+ * RPC, so the visible facts are reversed instead: a possibly admitted seed is cancelled, the switch
+ * marker is replaced by a plain title, and a deferral's session is archived so it does not sit in
+ * the workspace list. Every step is best effort, but the *decision to hide* a child is not: a child
+ * whose seed could not be cancelled keeps running a duplicate continuation, so it stays visible
+ * instead of being quietly archived. Cancelling an unseeded child is a no-op, so it is always tried.
+ * @param ctx - plugin context, for the optional registry and the warning log.
+ * @param controller - the session controller that owns the child.
+ * @param childId - the abandoned child.
+ * @param parentLabel - the parent's short label, for the title.
+ * @param error - the failure that abandoned the handoff.
+ * @param promptAttempted - whether the seed prompt was already sent (it can be admitted before the
+ *   call rejects, so a rejection is not proof that the child is idle).
+ */
+async function abandonChild(
+	ctx: Context,
+	controller: SessionControllerLike,
+	childId: string,
+	parentLabel: string,
+	error: unknown,
+	promptAttempted: boolean,
+): Promise<void> {
+	const deferred = error instanceof HandoffDeferred;
+	// Nothing was sent, so nothing can be running; otherwise the cancel below must prove it.
+	let cancelled = !promptAttempted;
+	if (promptAttempted && controller.cancel) {
+		try {
+			await controller.cancel({ sessionId: childId });
+			cancelled = true;
+		} catch (cancelError: unknown) {
+			ctx.logger.warn("dsh-project-context: handoff could not cancel the abandoned child: %s", cancelError instanceof Error ? cancelError.message : String(cancelError));
+		}
+	}
+	if (controller.rename) {
+		try {
+			await controller.rename({ sessionId: childId, title: deferred ? `handoff deferred · ${parentLabel}` : `handoff failed · ${parentLabel}` });
+		} catch {
+			// The child stays unmarked only in the list; nothing else to do.
+		}
+	}
+	// Only a deferral is unambiguous garbage: nobody asked for it and the parent is still working.
+	// A genuine failure, and a child that may still be running, stay visible so the user can see it.
+	if (!deferred || !cancelled) return;
+	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
+	if (registry?.archiveSession === undefined) return;
+	try {
+		await registry.archiveSession(childId);
+	} catch (archiveError: unknown) {
+		ctx.logger.warn("dsh-project-context: handoff could not archive the abandoned child: %s", archiveError instanceof Error ? archiveError.message : String(archiveError));
+	}
+}
+
+/**
  * Summarize the session, persist the document, and start the seeded child session.
  * @param reason - the path that decided this handoff.
  * @param signal - the caller's cancellation signal, when the profile supplies one.
@@ -736,15 +805,15 @@ async function performHandoff(
 	// otherwise leave the user switched into an empty child while the parent stays
 	// unmarked — and the retry after the failure backoff would create a second one.
 	const promptSignal = signal ?? new AbortController().signal;
+	let promptAttempted = false;
 	try {
 		// Last check: creating the child is an RPC, and configuring it is two more round trips, so a
 		// turn can still open inside that window. The child already exists here, so the catch below
 		// strips its switch marker instead of leaving the browser pointed at a duplicate continuation.
 		assertSessionSettled(session, triggerSeq);
-		// The document is written only once this attempt is certain to be seeded, so an abandoned
-		// handoff leaves nothing behind in the project. The seed prompt carries the summary inline
-		// and points at the archive, so nothing below depends on the file existing yet.
-		await writeAtomic(file, document);
+		// The flag is raised *before* the call: the prompt can be admitted and the turn opened before
+		// the request rejects, so a rejection is not proof that the child stayed idle.
+		promptAttempted = true;
 		await controller.prompt(
 			{
 				requestId: randomUUID(),
@@ -754,17 +823,16 @@ async function performHandoff(
 			},
 			promptSignal,
 		);
+		// The prompt RPC is the last window: its turn can open while the request is in flight, and
+		// then the child runs the duplicate continuation the guard exists to prevent. The seed is
+		// already durable, so this check undoes it (cancel below) rather than skipping it.
+		assertSessionSettled(session, triggerSeq);
+		// The document is written last, once this attempt is certain to be seeded, so an abandoned
+		// handoff leaves nothing behind in the project. Nothing above reads it: the seed prompt
+		// carries the summary inline and points at the archive log and index.
+		await writeAtomic(file, document);
 	} catch (error: unknown) {
-		// Best effort: strip the switch marker from the child we could not seed so
-		// the browser half does not open an empty session.
-		if (controller.rename) {
-			try {
-				const title = error instanceof HandoffDeferred ? `handoff deferred · ${parentLabel}` : `handoff failed · ${parentLabel}`;
-				await controller.rename({ sessionId: childId, title });
-			} catch {
-				// The child stays unmarked only in the list; nothing else to do.
-			}
-		}
+		await abandonChild(ctx, controller, childId, parentLabel, error, promptAttempted);
 		throw error;
 	}
 
