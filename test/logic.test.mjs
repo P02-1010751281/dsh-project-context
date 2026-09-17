@@ -30,11 +30,13 @@ import {
 	adaptiveOutputTokens,
 	clip,
 	clipText,
+	conversationText,
 	fallbackUpdate,
 	fitMemoryInput,
 	parseConsolidation,
 	replyHead,
 	replyTokenRate,
+	textOf,
 	truncateMiddle,
 } from "../lib/shared/learn.js";
 import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } from "../lib/shared/autolearn.js";
@@ -319,7 +321,21 @@ test("archivedConversationText renders dsh JSONL without stream payloads", () =>
 				stream: [{ type: "chunk", chunk: { type: "text", text: "x".repeat(5_000) } }],
 			},
 		}),
-		JSON.stringify({ type: "tool/result", seq: 3, time: 0, data: { content: [{ type: "text", text: "ok" }] } }),
+		JSON.stringify({
+			type: "tool/result",
+			seq: 3,
+			time: 0,
+			data: {
+				turn: 1,
+				step: 1,
+				message: {
+					role: "user",
+					id: "m1",
+					source: { kind: "tool", callId: "c1" },
+					content: [{ type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "ok" }] }],
+				},
+			},
+		}),
 	];
 	const text = archivedConversationText(lines.join("\n"), 50_000);
 	assert.match(text, /## user\nbuild release/);
@@ -1322,4 +1338,25 @@ test("a handoff child inherits the parent's session-local model", async () => {
 	const absent = await run({ selectModel: undefined, requestHeader: routed });
 	assert.equal(absent.reply.kind, "success");
 	assert.deepEqual(absent.calls.map(([kind]) => kind), ["create", "prompt"]);
+});
+
+test("tool results reach the live transcript, not just the tool name", () => {
+	// The live renderer reads `deriveMessages()`, where a tool result is a user-role message whose
+	// single block is a `tool-result` wrapper. `textOf` used to read only `text` blocks, so every
+	// output rendered empty and the section was dropped — the handoff tail carried 355 `[tool: …]`
+	// stubs with zero results, and the consolidation prompt never saw a command's output.
+	const toolResult = { type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "all green" }] };
+	assert.equal(textOf([toolResult]), "all green");
+	assert.equal(textOf([{ type: "image", attachment: {} }, toolResult]), "all green");
+
+	const session = {
+		deriveMessages: () => [
+			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "run the suite" }] },
+			{ role: "assistant", source: { kind: "model" }, content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
+			{ role: "user", source: { kind: "tool", callId: "c1" }, content: [toolResult] },
+		],
+	};
+	const transcript = conversationText(session);
+	assert.match(transcript, /## assistant\n\[tool: bash\]/);
+	assert.match(transcript, /## tool result\nall green/, "the output is in the transcript the summarizer reads");
 });

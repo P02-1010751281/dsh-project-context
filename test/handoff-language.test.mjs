@@ -434,3 +434,19 @@ test("the summary retry grows but never passes the configured growth boundary", 
 	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxOutputTokens: 4_000 }), [8192]);
 	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxTokens: 20_000 }), [20_000, 32_768]);
 });
+
+test("tool output reaches the handoff tail, not just the tool name", () => {
+	// The carried window is what the child reads: before the `textOf` fix every `tool-result` block
+	// rendered empty, so a real tail held hundreds of `[tool: …]` stubs and no output at all.
+	const session = {
+		deriveMessages: () => [
+			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "run the suite" }] },
+			{ role: "assistant", source: { kind: "model" }, content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
+			{ role: "user", source: { kind: "tool", callId: "c1" }, content: [{ type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "134 passing" }] }] },
+		],
+	};
+	const split = handoffSplit(session, 100_000);
+	assert.match(split.tail, /## assistant\n\[tool: bash\]/);
+	assert.match(split.tail, /## tool result\n134 passing/, "the output reaches the child's carried window");
+	assert.match(split.tail, /## user\nrun the suite/, "the carried window starts at the user turn");
+});

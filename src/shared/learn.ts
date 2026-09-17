@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { ContentBlock, GenerateOptions, TextBlock, ToolCallBlock, UserMessage } from "@deepseek-ai/dsh-llm";
+import type { ContentBlock, GenerateOptions, ToolCallBlock, UserMessage } from "@deepseek-ai/dsh-llm";
 import type { Session } from "@deepseek-ai/dsh-session";
 import type { PluginConfig } from "./config.js";
 import {
@@ -295,10 +295,22 @@ export function truncateMiddle(text: string, limit: number): string {
 	return `${text.slice(0, head)}\n\n[...middle of conversation omitted...]\n\n${text.slice(-(limit - head))}`;
 }
 
+/**
+ * The text a content-block list carries. A tool result does not hold text directly: its payload sits
+ * inside a `tool-result` block (`{type: 'tool-result', content: [{type: 'text', …}]}`), so the nested
+ * content is read recursively. Without that every tool output rendered as empty and was dropped from
+ * the transcript, the handoff's carried tail and the summarizer input alike.
+ * @param content - the message's content blocks.
+ * @returns the joined text, or `""` when no block carries any.
+ */
 export function textOf(content: readonly ContentBlock[]): string {
 	return content
-		.filter((block): block is TextBlock => block.type === "text" && typeof block.text === "string")
-		.map((block) => block.text)
+		.map((block) => {
+			if (block.type === "text" && typeof block.text === "string") return block.text;
+			if (block.type === "tool-result") return textOf(block.content);
+			return "";
+		})
+		.filter((part) => part.length > 0)
 		.join("\n")
 		.trim();
 }

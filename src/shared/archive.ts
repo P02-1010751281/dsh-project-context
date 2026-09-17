@@ -63,8 +63,13 @@ function archivedSectionFromLine(line: string): string | undefined {
 	}
 
 	if (entry.type === "tool/result") {
-		const data = entry.data as { content?: unknown } | undefined;
-		const text = Array.isArray(data?.content) ? textOf(data.content as ContentBlock[]) : "";
+		// The event carries a ToolResultMessage: `message.content` is the single `tool-result` block
+		// whose own `content` holds the payload. Reading `data.content` found nothing, so every tool
+		// output used to be dropped from archived transcripts.
+		const data = entry.data as { message?: { content?: unknown } } | undefined;
+		const content = data?.message?.content;
+		if (!Array.isArray(content)) return undefined;
+		const text = textOf(content as ContentBlock[]);
 		return text ? `## tool result\n${clip(text, MAX_TOOL_CHARS)}` : undefined;
 	}
 
