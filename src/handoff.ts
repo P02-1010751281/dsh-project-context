@@ -84,6 +84,8 @@ export { isHandoffContinuationText, REPLAY_MARKER };
 interface SessionControllerLike {
 	create(request: { cwd?: string; workspaceId?: string; agentPreset?: string }): Promise<{ sessionId: string }>;
 	rename?(request: { sessionId: string; title: string }): Promise<unknown>;
+	/** Session-local model selection; absent in runtimes that predate it. */
+	selectModel?(request: { sessionId: string; provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
 	prompt(
 		request: {
 			requestId: string;
@@ -465,6 +467,12 @@ async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promis
  * exact path, and guessing an ancestor would silently move the child's cwd.
  * Resolution stays best-effort so profiles without a workspace registry keep the
  * previous cwd-only behavior.
+ *
+ * The child is an ordinary session in the same workspace: `SessionCreateRequest` is
+ * only `{workspaceId?, cwd?, sessionId?, agentPreset?}`, so a handoff cannot chain a
+ * parent link, and pi's ever-deepening handoff tree (its 8a2e6e4 flattens a chain
+ * that grew one level per handoff in the selector) has no dsh counterpart. The
+ * workstream stays reachable through the handoff prompt, `HANDOFF.md` and the index.
  * @param ctx - plugin context carrying the optional workspace registry service.
  * @param controller - the session controller that creates the child.
  * @param cwd - the parent session's cwd, when it has one.
@@ -493,6 +501,52 @@ export async function createChildSession(
 /** The pending question carried into the continuation when the config opts into `wait`. */
 export function pendingQuestionFor(config: PluginConfig, session: Session): string | undefined {
 	return config.handoffPendingQuestion === "wait" ? pendingQuestion(session) : undefined;
+}
+
+/**
+ * The model selection to carry into the continuation: whatever the parent was last routed to, as
+ * recorded in its request header. The selection is Session-local (the browser's model picker writes
+ * it through `session/selectModel`), and `create` takes no model at all — `SessionCreateRequest` is
+ * only cwd/workspaceId/agentPreset — so without this the child would start on the deployment default
+ * and silently drop the model and thinking level the user had switched to. Returns `undefined` when
+ * the parent has not routed a request yet or the header carries no usable pair.
+ * @param session - the parent session being handed off.
+ * @returns the provider/model/effort triple, or `undefined`.
+ */
+export function parentModelSelection(session: Session): { provider: string; model: string; reasoningEffort?: string } | undefined {
+	const routed = session.requestHeader()?.config as { provider?: unknown; model?: unknown; reasoningEffort?: unknown } | undefined;
+	const provider = routed?.provider;
+	const model = routed?.model;
+	if (typeof provider !== "string" || provider.length === 0 || typeof model !== "string" || model.length === 0) return undefined;
+	// An absent effort must stay absent: the selection API clears any inherited effort when the field
+	// is omitted, which is exactly the parent's state.
+	const reasoningEffort = typeof routed?.reasoningEffort === "string" && routed.reasoningEffort.length > 0 ? routed.reasoningEffort : undefined;
+	return reasoningEffort === undefined ? { provider, model } : { provider, model, reasoningEffort };
+}
+
+/**
+ * Apply {@link parentModelSelection} to the freshly created child. Fail-open in every direction: a
+ * runtime without `selectModel`, a parent that never routed a request, or a rejected selection must
+ * never fail a handoff whose child already exists.
+ * @param ctx - plugin context, for the warning log.
+ * @param controller - the session controller that owns the child.
+ * @param childId - the child session to configure.
+ * @param session - the parent session being handed off.
+ */
+export async function carryModelSelection(
+	ctx: Context,
+	controller: SessionControllerLike,
+	childId: string,
+	session: Session,
+): Promise<void> {
+	if (controller.selectModel === undefined) return;
+	const selection = parentModelSelection(session);
+	if (selection === undefined) return;
+	try {
+		await controller.selectModel({ sessionId: childId, ...selection });
+	} catch (error: unknown) {
+		ctx.logger.warn("dsh-project-context: handoff could not carry the parent's model selection: %s", error instanceof Error ? error.message : String(error));
+	}
 }
 
 /** Resolve the language for one handoff: explicit config wins, otherwise the conversation decides. */
@@ -576,6 +630,11 @@ async function performHandoff(
 
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
+
+	// The child starts on the deployment default: `create` takes no model at all. Carry whatever the
+	// parent was routed to before any work can be admitted, so the continuation does not silently
+	// drop the model or thinking level the user had switched to.
+	await carryModelSelection(ctx, controller, childId, session);
 
 	// Admit the seed prompt before publishing the switch marker. The title prefix
 	// IS the browser half's switch signal, so a handoff that fails here would

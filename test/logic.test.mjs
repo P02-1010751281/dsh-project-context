@@ -1264,3 +1264,62 @@ test("a manual handoff on a conversation that fits the carried window is refused
 	assert.equal(created.length, 0);
 	assert.equal(modelCalls, 0);
 });
+
+test("a handoff child inherits the parent's session-local model", async () => {
+	// `sessionController.create` takes no model, so the child would start on the deployment default
+	// and drop whatever the user had switched to — pi's 8a2e6e4 in dsh terms. The carry must land
+	// before the seed prompt, or the child's first turn would already be routed to the default.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-model-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const summaryStream = () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue the work" }; })();
+
+	const run = async ({ selectModel, requestHeader }) => {
+		const calls = [];
+		const controller = {
+			create: async () => { calls.push(["create"]); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => { calls.push(["prompt"]); },
+			...(selectModel === undefined ? {} : { selectModel: async (request) => { calls.push(["selectModel", request]); if (selectModel === "throw") throw new Error("selection rejected"); } }),
+		};
+		const ctx = {
+			get: (name) => (name === "sessionController" ? controller : undefined),
+			llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }), stream: summaryStream },
+			logger: { info() {}, warn() {} },
+		};
+		const session = {
+			id: `session-model-${calls.length}${Math.random().toString(16).slice(2, 8)}`,
+			header: { cwd: root, createdAt: Date.now() },
+			deriveMessages: () => conversation,
+			requestHeader,
+			snapshotEvents: () => [],
+		};
+		const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+		const reply = await runManual(ctx, session, entry, new AbortController().signal);
+		return { calls, reply };
+	};
+
+	const routed = () => ({ config: { provider: "parent-provider", model: "parent-model", reasoningEffort: "high" } });
+	const carried = await run({ selectModel: true, requestHeader: routed });
+	assert.equal(carried.reply.kind, "success");
+	assert.deepEqual(carried.calls.map(([kind]) => kind), ["create", "selectModel", "prompt"], "the selection lands before the seed prompt");
+	assert.deepEqual(carried.calls[1][1], { sessionId: "child-1", provider: "parent-provider", model: "parent-model", reasoningEffort: "high" });
+
+	// A parent that never routed a request has no selection to carry, and the handoff is unchanged.
+	const unrouted = await run({ selectModel: true, requestHeader: () => undefined });
+	assert.equal(unrouted.reply.kind, "success");
+	assert.deepEqual(unrouted.calls.map(([kind]) => kind), ["create", "prompt"]);
+
+	// An empty pair in the header is not a selection either: installing it would break the route.
+	const blank = await run({ selectModel: true, requestHeader: () => ({ config: { provider: "", model: "" } }) });
+	assert.equal(blank.reply.kind, "success");
+	assert.deepEqual(blank.calls.map(([kind]) => kind), ["create", "prompt"]);
+
+	// Fail-open: a rejected selection, or a runtime without the call, must not fail a handoff whose
+	// child already exists.
+	const rejected = await run({ selectModel: "throw", requestHeader: routed });
+	assert.equal(rejected.reply.kind, "success");
+	assert.deepEqual(rejected.calls.map(([kind]) => kind), ["create", "selectModel", "prompt"]);
+	const absent = await run({ selectModel: undefined, requestHeader: routed });
+	assert.equal(absent.reply.kind, "success");
+	assert.deepEqual(absent.calls.map(([kind]) => kind), ["create", "prompt"]);
+});
