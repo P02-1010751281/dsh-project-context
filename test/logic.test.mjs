@@ -13,16 +13,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+	apply,
 	continuation,
 	createChildSession,
+	HandoffDeferred,
 	parseRatio,
 	maybeAutoHandoff,
 	parseTokenCount,
 	pendingQuestion,
 	resolveThreshold,
 	runManual,
+	setPressureCheckIntervalMs,
 	settingPatch,
 	textAsksQuestion,
+	turnStartedAfter,
 } from "../lib/handoff.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/shared/context-doc.js";
@@ -1371,6 +1375,456 @@ test("a handoff child inherits the parent's session-local model and permission p
 	const refused = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", setThrows: true });
 	assert.equal(refused.reply.kind, "success");
 	assert.deepEqual(refused.calls.map(([kind]) => kind), ["create", "current", "setPreset", "prompt"]);
+});
+
+test("the automatic handoff yields to a session that is already on its next turn", async () => {
+	// `turn/end` is the trigger, but the harness pumps a queued user message into the next turn as
+	// soon as the current one closes. On 2026-09-17 that turned an auto handoff into two sessions
+	// editing this repo at once: the trigger fired at `turn/end` of turn 9, the queued message opened
+	// turn 10 in the same second, and the child was created 8 seconds later — while the parent went on
+	// to do the same fix. Both checks below must abandon the handoff *before* a child exists.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-settle-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+
+	const run = async ({ events, startTurnOnSummary, startTurnOnCreate, emptySummary }) => {
+		const calls = [];
+		const renames = [];
+		const own = [...events];
+		const controller = {
+			create: async () => {
+				calls.push("create");
+				if (startTurnOnCreate) own.push({ type: "turn/start", seq: 11, time: Date.now() });
+				return { sessionId: "child-1" };
+			},
+			rename: async (request) => { renames.push(request.title); },
+			prompt: async () => { calls.push("prompt"); },
+		};
+		let summaryCalls = 0;
+		const ctx = {
+			get: (name) => (name === "sessionController" ? controller
+				: name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) }
+					: undefined),
+			llm: {
+				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+				stream: () => {
+					summaryCalls += 1;
+					return (async function* generate() {
+						if (startTurnOnSummary) own.push({ type: "turn/start", seq: 11, time: Date.now() });
+						if (emptySummary) return;
+						yield { type: "text-delta", text: "## Goal\n\ncontinue the work" };
+					})();
+				},
+			},
+			logger: { info() {}, warn() {} },
+		};
+		const session = {
+			id: `session-settle-${Math.random().toString(16).slice(2, 10)}`,
+			header: { cwd: root, createdAt: Date.now() },
+			deriveMessages: () => conversation,
+			requestHeader: () => undefined,
+			ownEvents: () => own,
+			snapshotEvents: () => own,
+		};
+		let error;
+		try {
+			await maybeAutoHandoff(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), 10);
+		} catch (caught) {
+			error = caught;
+		}
+		return { calls, error, summaryCalls, renames };
+	};
+
+	const turnEnd = { type: "turn/end", seq: 10, time: Date.now() };
+
+	// The session already opened the next turn before the auto path even started: defer without
+	// paying for a summary call.
+	const early = await run({ events: [turnEnd, { type: "turn/start", seq: 11, time: Date.now() }] });
+	assert.ok(early.error instanceof HandoffDeferred, `expected a deferral, got ${early.error}`);
+	assert.equal(early.summaryCalls, 0, "a session that is already working gets no summary call");
+	assert.deepEqual(early.calls, []);
+
+	// The turn opens *while* the summary runs — the race that actually happened. The summary is
+	// already paid for, but the child must not be created and nothing must be left behind.
+	const late = await run({ events: [turnEnd], startTurnOnSummary: true });
+	assert.ok(late.error instanceof HandoffDeferred, `expected a deferral, got ${late.error}`);
+	assert.equal(late.summaryCalls, 1);
+	assert.deepEqual(late.calls, [], "no session is created once the parent moved on");
+	assert.ok(!existsSync(path.join(root, ".agents", "memory", "HANDOFF.md")), "the check precedes the document write");
+
+	// A moved-on session whose summary came back empty is still a *deferral*: the settle check
+	// precedes the empty-summary verdict so the next attempt is not booked as a 5-minute failure.
+	const emptyAndBusy = await run({ events: [turnEnd], startTurnOnSummary: true, emptySummary: true });
+	assert.ok(emptyAndBusy.error instanceof HandoffDeferred, `expected a deferral, got ${emptyAndBusy.error}`);
+
+	// The turn opens after the child was created but before it was seeded (the create RPC plus the
+	// two carries are a wide window): the child must not be seeded, and it must not carry the switch
+	// marker, or the browser half would follow the parent into a duplicate continuation.
+	const duringCreate = await run({ events: [turnEnd], startTurnOnCreate: true });
+	assert.ok(duringCreate.error instanceof HandoffDeferred, `expected a deferral, got ${duringCreate.error}`);
+	assert.deepEqual(duringCreate.calls, ["create"], "the child is created but never seeded");
+	assert.match(duringCreate.renames[0] ?? "", /^handoff deferred · /, "the switch marker is stripped");
+	assert.ok(!existsSync(path.join(root, ".agents", "memory", "HANDOFF.md")), "the pre-prompt deferral writes no document either");
+
+	// Control: a settled session still hands off, so the guard cannot pass by disabling the feature.
+	const settled = await run({ events: [turnEnd, { type: "turn/start", seq: 4, time: Date.now() }] });
+	assert.equal(settled.error, undefined);
+	assert.deepEqual(settled.calls, ["create", "prompt"]);
+	assert.equal(settled.renames.length, 1, "a successful handoff publishes the switch marker");
+	assert.ok(settled.renames[0].startsWith("↪ handoff · "), `expected the switch marker, got ${settled.renames[0]}`);
+
+	// The predicate itself: only a turn that started *after* the trigger defers.
+	const session = { ownEvents: () => [{ type: "turn/start", seq: 4 }, { type: "turn/end", seq: 10 }], snapshotEvents: () => [] };
+	assert.equal(turnStartedAfter(session, 10), false);
+	assert.equal(turnStartedAfter(session, 3), true);
+	assert.equal(turnStartedAfter({ ownEvents: () => [{ type: "turn/end", seq: 10 }], snapshotEvents: () => [] }, 10), false);
+	// The trigger's own offset is not "after" the trigger.
+	assert.equal(turnStartedAfter({ ownEvents: () => [{ type: "turn/start", seq: 10 }], snapshotEvents: () => [] }, 10), false);
+	// A runtime without `ownEvents` falls back to the snapshot (the inherited prefix is older, so it
+	// cannot read as this session's own later turn).
+	assert.equal(turnStartedAfter({ snapshotEvents: () => [{ type: "turn/start", seq: 11 }] }, 10), true);
+	assert.equal(turnStartedAfter({ snapshotEvents: () => [{ type: "turn/start", seq: 4 }] }, 10), false);
+});
+
+test("the auto-handoff listener passes the trigger offset through to the settle guard", async () => {
+	// The listener is the only place that knows *which* `turn/end` fired, so an untested call site
+	// could drop it and silently disable the guard (the mutated `event.seq` is invisible to the
+	// direct `maybeAutoHandoff` tests above).
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-listener-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const own = [
+		{ type: "turn/end", seq: 10, time: Date.now() },
+		{ type: "turn/start", seq: 11, time: Date.now() },
+	];
+	const created = [];
+	const logs = [];
+	const handlers = {};
+	let measures = 0;
+	const session = {
+		id: `session-listener-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => own,
+		snapshotEvents: () => own,
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: () => () => undefined },
+		logger: {
+			info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); },
+			warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); },
+		},
+		get: (name) => (name === "sessionController" ? {
+			create: async () => { created.push(1); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => undefined,
+		} : name === "tokenMeter" ? { measure: () => { measures += 1; return { totalTokens: 150_000, surfaceTokens: 100_000 }; } } : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const listener = handlers["session/event"]?.[0];
+	assert.ok(listener, "apply registers a session/event listener");
+	const waitFor = async (predicate) => {
+		for (let i = 0; i < 400 && !predicate(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	};
+	const deferrals = () => logs.filter((line) => line.includes("automatic handoff deferred")).length;
+
+	// Round 1: the session is already on its next turn — the guard must defer.
+	listener(session, { type: "turn/end", seq: 10, time: Date.now() });
+	await waitFor(() => deferrals() > 0);
+	assert.equal(deferrals(), 1, `expected one deferral log, got ${JSON.stringify(logs)}`);
+	assert.deepEqual(created, [], "a session that is already on its next turn gets no child");
+	assert.ok(!logs.some((line) => line.startsWith("warn")), "a deferral is not a failure");
+
+	// Round 2: still busy. The rate limit keeps this from spamming the log, and the offset must be
+	// the *triggering* one — a constant would make a settled session defer too (round 3). Reaching
+	// the measurement again also proves the deferral released the pressure throttle.
+	own.push({ type: "turn/end", seq: 12, time: Date.now() }, { type: "turn/start", seq: 13, time: Date.now() });
+	listener(session, { type: "turn/end", seq: 12, time: Date.now() });
+	await waitFor(() => measures >= 2);
+	assert.ok(measures >= 2, "the deferral released the pressure throttle");
+	assert.equal(deferrals(), 1, "a second deferral inside the interval is not logged again");
+	assert.deepEqual(created, []);
+
+	// Round 3: the session truly settled (no `turn/start` after the trigger). The deferral must not
+	// have wedged the session — no failure backoff, no stale in-flight marker, no spent throttle.
+	own.push({ type: "turn/end", seq: 14, time: Date.now() });
+	listener(session, { type: "turn/end", seq: 14, time: Date.now() });
+	await waitFor(() => created.length > 0);
+	assert.equal(created.length, 1, "the next settled turn/end hands off normally");
+	assert.ok(!logs.some((line) => line.startsWith("warn")), "no deferral was recorded as a failure");
+	assert.ok(!existsSync(path.join(root, ".agents", "memory", "errors.log")), "a deferral writes no errors.log");
+});
+
+test("a turn/end that lands while an attempt is in flight is re-evaluated, not lost", async () => {
+	// One attempt runs per session. A `turn/end` arriving mid-attempt used to be dropped outright, so
+	// a *settled* turn could pass unevaluated — and if the user then stopped, the session never handed
+	// off at all. The finished attempt must re-run against that trigger.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-pending-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const own = [
+		{ type: "turn/end", seq: 10, time: Date.now() },
+		{ type: "turn/start", seq: 11, time: Date.now() },
+		{ type: "turn/end", seq: 12, time: Date.now() },
+		{ type: "turn/start", seq: 13, time: Date.now() },
+		{ type: "turn/end", seq: 14, time: Date.now() },
+	];
+	const created = [];
+	const logs = [];
+	const handlers = {};
+	const session = {
+		id: `session-pending-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => own,
+		snapshotEvents: () => own,
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: () => () => undefined },
+		logger: { info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); }, warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); } },
+		get: (name) => (name === "sessionController" ? {
+			create: async () => { created.push(1); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => undefined,
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const listener = handlers["session/event"]?.[0];
+	assert.ok(listener, "apply registers a session/event listener");
+
+	// seq 10 is busy (turn/start 11 follows); seq 12 is busy too; seq 14 is the settled turn. All
+	// fire before the first attempt can finish, and the *newest* trigger is the one that matters —
+	// keeping the oldest would stall on a busy turn and never hand off.
+	listener(session, { type: "turn/end", seq: 10, time: Date.now() });
+	listener(session, { type: "turn/end", seq: 12, time: Date.now() });
+	listener(session, { type: "turn/end", seq: 14, time: Date.now() });
+	for (let i = 0; i < 400 && created.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.equal(created.length, 1, "the settled turn/end was evaluated after the in-flight attempt");
+	assert.equal(logs.filter((line) => line.includes("automatic handoff deferred")).length, 1);
+	assert.ok(!logs.some((line) => line.startsWith("warn")), `unexpected failure log: ${JSON.stringify(logs)}`);
+
+	// A session disposed while an attempt is in flight must not be resurrected by the retry: the
+	// dispose handler clears the pending trigger.
+	const disposedOwn = [
+		{ type: "turn/end", seq: 20, time: Date.now() },
+		{ type: "turn/start", seq: 21, time: Date.now() },
+		{ type: "turn/end", seq: 22, time: Date.now() },
+	];
+	const disposedSession = { ...session, id: `session-disposed-${Math.random().toString(16).slice(2, 10)}`, ownEvents: () => disposedOwn, snapshotEvents: () => disposedOwn };
+	const dispose = handlers["session/disposed"]?.[0];
+	assert.ok(dispose, "apply registers a session/disposed handler");
+	listener(disposedSession, { type: "turn/end", seq: 20, time: Date.now() });
+	listener(disposedSession, { type: "turn/end", seq: 22, time: Date.now() });
+	dispose(disposedSession);
+	for (let i = 0; i < 40 && !logs.some((line) => line.includes("deferred")); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(created.length, 1, "the disposed session was not handed off after disposal");
+});
+
+test("the in-flight retry honours the same gates as a fresh attempt", async () => {
+	// The retry runs through `attempt()`, so it must re-check `handedOff`, `handoffEnabled` and the
+	// failure backoff instead of blindly handing off again.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-retry-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const make = (stream) => {
+		const created = [];
+		const prompts = [];
+		const logs = [];
+		const handlers = {};
+		const session = {
+			id: `session-retry-${Math.random().toString(16).slice(2, 10)}`,
+			header: { cwd: root, createdAt: Date.now() },
+			deriveMessages: () => conversation,
+			requestHeader: () => undefined,
+			ownEvents: () => [{ type: "turn/end", seq: 10, time: Date.now() }],
+			snapshotEvents: () => [],
+		};
+		const ctx = {
+			on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+			effect: () => () => undefined,
+			inject: () => () => undefined,
+			commands: { register: () => () => undefined },
+			logger: { info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); }, warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); } },
+			get: (name) => (name === "sessionController" ? {
+				create: async () => { created.push(1); return { sessionId: "child-1" }; },
+				rename: async () => undefined,
+				prompt: async () => { prompts.push(1); },
+			} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+			llm: {
+				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+				stream: stream ?? (() => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })()),
+			},
+		};
+		apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+		return { created, prompts, logs, listener: handlers["session/event"]?.[0], session };
+	};
+	const waitFor = async (predicate) => {
+		for (let i = 0; i < 400 && !predicate(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	};
+
+	// A settled trigger recorded during a *successful* attempt must not hand the same session off
+	// twice, and a *failed* attempt keeps its backoff: both retries go through `attempt()`. The
+	// interval is 0 so the pressure throttle cannot hide a missing re-check (a retry within the
+	// production interval would be dropped by the throttle before either gate could be observed).
+	setPressureCheckIntervalMs(0);
+	try {
+		const twice = make();
+		twice.listener(twice.session, { type: "turn/end", seq: 10, time: Date.now() });
+		twice.listener(twice.session, { type: "turn/end", seq: 12, time: Date.now() });
+		await waitFor(() => twice.created.length > 0);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		assert.equal(twice.created.length, 1, "one handoff per session, even with a pending trigger");
+		assert.equal(twice.prompts.length, 1);
+
+		const failed = make(() => { throw new Error("summary exploded"); });
+		failed.listener(failed.session, { type: "turn/end", seq: 10, time: Date.now() });
+		failed.listener(failed.session, { type: "turn/end", seq: 12, time: Date.now() });
+		await waitFor(() => failed.logs.some((line) => line.startsWith("warn")));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		assert.equal(failed.logs.filter((line) => line.startsWith("warn")).length, 1, "the backoff suppresses the retry");
+		assert.deepEqual(failed.created, []);
+	} finally {
+		setPressureCheckIntervalMs(15_000);
+	}
+});
+
+test("a disabled automatic handoff ignores turn/end entirely", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-off-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const created = [];
+	const handlers = {};
+	let summaryCalls = 0;
+	const session = {
+		id: `session-off-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => [{ type: "turn/end", seq: 10, time: Date.now() }],
+		snapshotEvents: () => [],
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: () => () => undefined },
+		logger: { info() {}, warn() {} },
+		get: (name) => (name === "sessionController" ? {
+			create: async () => { created.push(1); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => undefined,
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => { summaryCalls += 1; return (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(); },
+		},
+	};
+	setPressureCheckIntervalMs(0);
+	try {
+		apply(ctx, { provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
+		handlers["session/event"]?.[0](session, { type: "turn/end", seq: 10, time: Date.now() });
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		assert.deepEqual(created, [], "the switch is off");
+		assert.equal(summaryCalls, 0, "a disabled handoff never reaches the model");
+	} finally {
+		setPressureCheckIntervalMs(15_000);
+	}
+});
+
+test("a nothing-to-summarize skip and a deferral have separate log gates", async () => {
+	// Both logs are rate-limited per session, but they answer different questions: whichever fires
+	// first must not silence the other for the next ten minutes.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-logs-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const own = [{ type: "turn/end", seq: 10, time: Date.now() }, { type: "turn/start", seq: 11, time: Date.now() }];
+	const logs = [];
+	const handlers = {};
+	const session = {
+		id: `session-logs-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => own,
+		snapshotEvents: () => own,
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: () => () => undefined },
+		logger: { info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); }, warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); } },
+		get: (name) => (name === "sessionController" ? {
+			create: async () => ({ sessionId: "child-1" }),
+			rename: async () => undefined,
+			prompt: async () => undefined,
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 1_000 });
+	const listener = handlers["session/event"]?.[0];
+	const waitFor = async (predicate) => {
+		for (let i = 0; i < 400 && !predicate(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	};
+
+	// Round 1: the turn is already running, so the attempt defers (and logs it).
+	listener(session, { type: "turn/end", seq: 10, time: Date.now() });
+	await waitFor(() => logs.some((line) => line.includes("deferred")));
+	assert.equal(logs.filter((line) => line.includes("automatic handoff deferred")).length, 1, `expected a deferral log, got ${JSON.stringify(logs)}`);
+
+	// Round 2: the conversation now fits the carried window, so the attempt reports a skip instead.
+	conversation.length = 0;
+	conversation.push(message("user", "hello"), message("assistant", "hi"));
+	own.push({ type: "turn/end", seq: 12, time: Date.now() });
+	listener(session, { type: "turn/end", seq: 12, time: Date.now() });
+	await waitFor(() => logs.some((line) => line.includes("fits the recent window")));
+	assert.equal(logs.filter((line) => line.includes("fits the recent window")).length, 1, `the deferral must not mute the skip, got ${JSON.stringify(logs)}`);
+});
+
+test("the manual handoff stays exempt from the settle guard", async () => {
+	// `/handoff now` executes *inside* its own turn, so a `turn/start` in the log can never mean the
+	// user moved on; applying the guard there would make the command useless.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-manual-settle-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const calls = [];
+	const session = {
+		id: `session-manual-settle-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => [{ type: "turn/start", seq: 5, time: Date.now() }, { type: "turn/end", seq: 6, time: Date.now() }],
+		snapshotEvents: () => [],
+	};
+	const ctx = {
+		get: (name) => (name === "sessionController" ? {
+			create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => { calls.push("prompt"); },
+		} : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+		logger: { info() {}, warn() {} },
+	};
+	const reply = await runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), new AbortController().signal);
+	assert.equal(reply.kind, "success", `expected a handoff, got ${JSON.stringify(reply)}`);
+	assert.deepEqual(calls, ["create", "prompt"]);
+	assert.equal(turnStartedAfter(session, 0), true, "the fixture really does look busy");
 });
 
 test("tool results reach the live transcript, not just the tool name", () => {

@@ -6,9 +6,20 @@
  *     baseline, the carried-over recent tail, and `handoffTargetTokens`;
  *   - fixed threshold: `handoffThresholdRatio` × window.
  * A handoff is deferred while the last assistant message is an open question
- * (`handoffPendingQuestion: defer`) and while a *continuable* subagent child this
- * session started is still running: that child's settlement notice wakes this
- * session again, so handing off first would leave two sessions on the same project.
+ * (`handoffPendingQuestion: defer`), while a *continuable* subagent child this
+ * session started is still running (that child's settlement notice wakes this
+ * session again, so handing off first would leave two sessions on the same
+ * project), and while the session has started another turn since the
+ * `turn/end` that triggered the attempt. The last one is the same failure from
+ * the other side: the harness pumps a queued user message into the next turn as
+ * soon as the current one closes, so the parent can be back at work before the
+ * summary call returns. `agent.status` cannot express it (the driver is still
+ * `running` when `turn/end` commits), so the check reads the log for a later
+ * `turn/start` — before the summary, after it, and once more before the seed
+ * prompt, because creating and configuring the child is itself a wide window.
+ * A `turn/end` that arrives while an attempt is running is remembered and
+ * re-evaluated when that attempt finishes (an attempt that *failed* keeps its
+ * backoff, so the retry waits it out), so a settled turn is not passed over.
  * One auxiliary model call distills the older conversation; the recent tail
  * (`handoffKeepTokens`) is carried into the continuation verbatim. The
  * document is archived to `.agents/memory/HANDOFF.md`, a fresh session is
@@ -130,6 +141,21 @@ const SUMMARY_TIMEOUT_MS = 180_000;
 const FAILURE_BACKOFF_MS = 5 * 60_000;
 /** Automatic handoffs re-measure context pressure at most this often per session. */
 const PRESSURE_CHECK_INTERVAL_MS = 15_000;
+/**
+ * The live pressure interval. Exported through {@link setPressureCheckIntervalMs} so a test can
+ * drive the time-based gates (a deferral releasing the throttle, a successful attempt that outlives
+ * it and still must not hand off twice) without sleeping for the production interval.
+ */
+let pressureCheckIntervalMs = PRESSURE_CHECK_INTERVAL_MS;
+
+/**
+ * Override the pressure re-check interval. Exported so a test can exercise the gates that only
+ * differ after the interval has elapsed, without sleeping for it in production.
+ * @param ms - the interval every later pressure check compares against.
+ */
+export function setPressureCheckIntervalMs(ms: number): void {
+	pressureCheckIntervalMs = ms;
+}
 /** How often one session may log "nothing to summarize": the skip repeats on every idle. */
 const SKIP_LOG_INTERVAL_MS = 10 * 60_000;
 /** Bound on the live subagent listing, so a slow registry cannot stall the turn end. */
@@ -140,12 +166,21 @@ const CHARS_PER_TOKEN = 3.5;
 /** Sessions this process already handed off, and sessions with a handoff in flight. */
 const handedOff = new Set<string>();
 const inFlight = new Set<string>();
+/**
+ * The newest `turn/end` that arrived while an attempt was in flight. The listener drops it (the
+ * running attempt owns the session), but a turn/end that closed a *settled* turn is the one chance
+ * to hand off, so the attempt re-runs against it when it finishes instead of waiting for a turn
+ * that may never come.
+ */
+const pendingTriggerSeq = new Map<string, number>();
 /** Sessions whose last automatic handoff failed; no retry before this timestamp. */
 const failedUntil = new Map<string, number>();
 /** Last automatic pressure check per session, so measurement is not run every turn. */
 const pressureCheckedAt = new Map<string, number>();
 /** Last logged "nothing older to summarize" per session; the skip repeats on every idle. */
 const skippedLoggedAt = new Map<string, number>();
+/** Last logged deferral per session. Separate from the skip above: one must not mute the other. */
+const deferredLoggedAt = new Map<string, number>();
 
 /** Resolve the handoff route: explicit config, then the session's latest routed request. */
 function resolveTarget(session: Session, config: PluginConfig): { provider: string; model: string } | undefined {
@@ -639,7 +674,15 @@ export function assertHandoffSummarizable(older: string): void {
 	}
 }
 
-/** Summarize the session, persist the document, and start the seeded child session. */
+/**
+ * Summarize the session, persist the document, and start the seeded child session.
+ * @param reason - the path that decided this handoff.
+ * @param signal - the caller's cancellation signal, when the profile supplies one.
+ * @param split - the span decided by the caller, when it already computed one.
+ * @param triggerSeq - the automatic path's triggering `turn/end` offset; the handoff is deferred
+ *   (never performed) once this session has started a turn after it. Absent on the manual path:
+ *   `/handoff now` runs *inside* a turn, so "a turn is open" cannot mean the user moved on.
+ */
 async function performHandoff(
 	ctx: Context,
 	session: Session,
@@ -649,9 +692,11 @@ async function performHandoff(
 	reason: "auto" | "manual",
 	signal: AbortSignal | undefined,
 	split?: HandoffSplit,
+	triggerSeq?: number,
 ): Promise<{ childId: string; file: string }> {
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	if (!controller) throw new Error("the session controller is unavailable in this profile; handoff needs the web/API session runtime");
+	assertSessionSettled(session, triggerSeq);
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
 	const memory = await loadMemory(projectRoot);
@@ -661,6 +706,10 @@ async function performHandoff(
 	const raw = (
 		await summarize(ctx, target, config, handoffPrompt(projectRoot, memory.text, older, fileOperations(session), language), withTimeout(signal), resolveSummaryEffort(config, session, resolved))
 	).trim();
+	// The summary call is the wide window: it takes seconds, and a message the user sends while it
+	// runs opens the next turn immediately. Check before the empty-summary verdict so a session that
+	// moved on is deferred rather than recorded as a failed attempt.
+	assertSessionSettled(session, triggerSeq);
 	if (raw.length === 0) throw new Error("the handoff summary came back empty");
 
 	const logFile = path.join(logsDir(projectRoot), safeSessionId(String(session.id)), "session.md");
@@ -672,7 +721,6 @@ async function performHandoff(
 	const pointers = { log: logFile, index: indexFile };
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
 	const { document, prompt } = handoffArtifacts({ session, config, language, rawSummary: raw, archive, pointers, tail });
-	await writeAtomic(file, document);
 
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
@@ -689,6 +737,14 @@ async function performHandoff(
 	// unmarked — and the retry after the failure backoff would create a second one.
 	const promptSignal = signal ?? new AbortController().signal;
 	try {
+		// Last check: creating the child is an RPC, and configuring it is two more round trips, so a
+		// turn can still open inside that window. The child already exists here, so the catch below
+		// strips its switch marker instead of leaving the browser pointed at a duplicate continuation.
+		assertSessionSettled(session, triggerSeq);
+		// The document is written only once this attempt is certain to be seeded, so an abandoned
+		// handoff leaves nothing behind in the project. The seed prompt carries the summary inline
+		// and points at the archive, so nothing below depends on the file existing yet.
+		await writeAtomic(file, document);
 		await controller.prompt(
 			{
 				requestId: randomUUID(),
@@ -703,7 +759,8 @@ async function performHandoff(
 		// the browser half does not open an empty session.
 		if (controller.rename) {
 			try {
-				await controller.rename({ sessionId: childId, title: `handoff failed · ${parentLabel}` });
+				const title = error instanceof HandoffDeferred ? `handoff deferred · ${parentLabel}` : `handoff failed · ${parentLabel}`;
+				await controller.rename({ sessionId: childId, title });
 			} catch {
 				// The child stays unmarked only in the list; nothing else to do.
 			}
@@ -797,6 +854,51 @@ function ownEventsOf(session: Session): readonly unknown[] {
 	return withOwn.ownEvents?.() ?? session.snapshotEvents();
 }
 
+/**
+ * Raised by the automatic path when the session started a new turn while the handoff was being
+ * prepared. Not a failure: `turn/end` is the trigger, but the harness pumps a queued user message
+ * into the very next turn as soon as the current one closes, so the parent can be back at work
+ * seconds later — before the summary call returns. Creating the child then would leave the parent
+ * and the continuation editing the same project (the 2026-09-17 incident: the auto handoff fired at
+ * `turn/end` of turn 9, the queued message opened turn 10 in the same second, and the child was
+ * created 8 seconds later while the parent went on to do the same fix). The next `turn/end`
+ * re-evaluates, so the handoff only waits for the session to actually settle.
+ */
+export class HandoffDeferred extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "HandoffDeferred";
+	}
+}
+
+/**
+ * Whether this session has started a new turn after `seq`, the offset of the `turn/end` that
+ * triggered the automatic handoff. The check is deliberately log-based rather than
+ * `agent.status`-based: at the trigger instant the driver's phase is still `running` (it settles
+ * only after the turn returns), so a status read there cannot distinguish "this turn just closed"
+ * from "another turn already started", while a `turn/start` after the trigger offset can. A
+ * mid-flight status read *would* work, but one log predicate covers both the trigger-time and the
+ * mid-flight checks.
+ * @param session - the session being handed off.
+ * @param seq - the triggering `turn/end` offset.
+ * @returns `true` when a later `turn/start` exists.
+ */
+export function turnStartedAfter(session: Session, seq: number): boolean {
+	for (const raw of ownEventsOf(session)) {
+		const event = raw as { type?: unknown; seq?: unknown };
+		if (event.type === "turn/start" && typeof event.seq === "number" && event.seq > seq) return true;
+	}
+	return false;
+}
+
+/** Defer the automatic handoff once its trigger's session has started another turn. */
+function assertSessionSettled(session: Session, triggerSeq: number | undefined): void {
+	if (triggerSeq === undefined) return;
+	if (turnStartedAfter(session, triggerSeq)) {
+		throw new HandoffDeferred("the session started a new turn while the handoff was being prepared");
+	}
+}
+
 /** Structural view of the optional `subagents` host service. */
 interface SubagentsLike {
 	listChildren(parentSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
@@ -832,10 +934,10 @@ async function runningContinuableChildren(ctx: Context, session: Session): Promi
 
 /**
  * Measure pressure and hand off when the configured threshold is crossed. Exported so a test can
- * drive the guards (pending question, running subagents, minimum span) without the session/event
- * plumbing of the plugin's own turn-end listener.
+ * drive the guards (pending question, running subagents, minimum span, a session that moved on)
+ * without the session/event plumbing of the plugin's own turn-end listener.
  */
-export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig): Promise<void> {
+export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void> {
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
 	if (!controller || !meter) return;
@@ -846,7 +948,7 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	// most once per interval instead of on every turn end.
 	const key = String(session.id);
 	const now = Date.now();
-	if (now - (pressureCheckedAt.get(key) ?? 0) < PRESSURE_CHECK_INTERVAL_MS) return;
+	if (now - (pressureCheckedAt.get(key) ?? 0) < pressureCheckIntervalMs) return;
 	pressureCheckedAt.set(key, now);
 
 	const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model);
@@ -887,7 +989,7 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 		return;
 	}
 
-	await performHandoff(ctx, session, target, config, resolved, "auto", undefined, split);
+	await performHandoff(ctx, session, target, config, resolved, "auto", undefined, split, triggerSeq);
 }
 
 /** Parse "0.4", "40%", or "40" into a ratio. Exported for tests. */
@@ -1003,6 +1105,9 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 		return { kind: "error" as const, text: `Handoff failed: ${error instanceof Error ? error.message : String(error)}` };
 	} finally {
 		inFlight.delete(key);
+		// A `turn/end` recorded while this manual attempt held the session belongs to the automatic
+		// path, which never got to consume it; drop it rather than leaving it to fire much later.
+		pendingTriggerSeq.delete(key);
 	}
 }
 
@@ -1011,19 +1116,33 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	// The first plugin of the package to load owns the shared settings namespace.
 	installProjectContextSettings(ctx, entry);
 
-	ctx.on("session/event", (session, event) => {
-		if (event.type !== "turn/end") return;
-		if (!isTopLevel(session)) return;
+	// One attempt at a time per session. A `turn/end` that lands while an attempt is running is
+	// remembered rather than dropped: it may be the settled turn this handoff was waiting for.
+	const attempt = (session: Session, triggerSeq: number): void => {
 		const key = String(session.id);
-		if (handedOff.has(key) || inFlight.has(key)) return;
+		if (handedOff.has(key)) return;
+		if (inFlight.has(key)) {
+			pendingTriggerSeq.set(key, triggerSeq);
+			return;
+		}
 		const backoff = failedUntil.get(key);
 		if (backoff !== undefined && Date.now() < backoff) return;
 		const config = effectivePluginConfig(entry);
 		if (!config.handoffEnabled) return;
 
 		inFlight.add(key);
-		void maybeAutoHandoff(ctx, session, config)
+		void maybeAutoHandoff(ctx, session, config, triggerSeq)
 			.catch(async (error: unknown) => {
+				if (error instanceof HandoffDeferred) {
+					// Not a failure: the session is still working. Drop the pressure throttle so a
+					// later `turn/end` re-checks immediately instead of waiting out the interval.
+					pressureCheckedAt.delete(key);
+					if (Date.now() - (deferredLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
+						deferredLoggedAt.set(key, Date.now());
+						ctx.logger.info("dsh-project-context: automatic handoff deferred — %s", error.message);
+					}
+					return;
+				}
 				failedUntil.set(key, Date.now() + FAILURE_BACKOFF_MS);
 				ctx.logger.warn("dsh-project-context: automatic handoff failed: %s", error instanceof Error ? error.message : String(error));
 				try {
@@ -1035,7 +1154,16 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			})
 			.finally(() => {
 				inFlight.delete(key);
+				const pending = pendingTriggerSeq.get(key);
+				pendingTriggerSeq.delete(key);
+				if (pending !== undefined) attempt(session, pending);
 			});
+	};
+
+	ctx.on("session/event", (session, event) => {
+		if (event.type !== "turn/end") return;
+		if (!isTopLevel(session)) return;
+		attempt(session, event.seq);
 	});
 
 	ctx.on("session/disposed", (session) => {
@@ -1046,6 +1174,8 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		pressureCheckedAt.delete(key);
 		failedUntil.delete(key);
 		skippedLoggedAt.delete(key);
+		deferredLoggedAt.delete(key);
+		pendingTriggerSeq.delete(key);
 	});
 
 	ctx.commands.register({
