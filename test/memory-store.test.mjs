@@ -254,6 +254,86 @@ test("a failed pass releases its version claim so the next forced pass retries",
 	assert.notEqual(await consolidateProject(ctx, config, agent, { force: true, silent: true }), "deduped");
 });
 
+test("a malformed model reply cannot leak credentials into the logs", async () => {
+	// `replyHead` embeds the reply the model actually sent, and the consolidation failure is
+	// reported twice from the same thrown error: `errors.log` (redacted on the append path) and
+	// `ctx.logger.warn`, which writes whatever it is handed. Before this test the console copy was
+	// verbatim, so one bad reply printed the credentials it contained.
+	const root = await project();
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signaturepart";
+	const key = "sk-abcdefghijklmnop";
+	const warnings = [];
+	const ctx = {
+		logger: { info() {}, warn: (format, ...args) => { warnings.push(`${format} ${args.join(" ")}`); } },
+		llm: {
+			stream() {
+				return (async function* generate() {
+					// JSON-looking but truncated: `looksLikeJsonReply` is true, the parse fails, and the
+					// reply holds no recoverable `memory_markdown` field, so the pass throws with the raw
+					// reply attached — the credential-bearing path. (A plain non-JSON reply is accepted
+					// as Markdown memory by design, so it never reaches this error.)
+					yield { type: "text-delta", text: `{\n"context": {"apiKey": "${key}"},\n"raw": "authorization: Bearer ${jwt}"` };
+				})();
+			},
+		},
+	};
+	const agent = {
+		options: { provider: "test-provider", model: "test-model" },
+		session: { id: "session-redact", header: { cwd: root, createdAt: Date.now() }, snapshotEvents: () => [], deriveMessages: () => [], requestHeader: () => undefined },
+	};
+	const config = resolvePluginConfig({ maxTokens: 8192 });
+
+	assert.equal(await consolidateProject(ctx, config, agent, { force: true, silent: false }), "failed");
+	assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
+
+	// The console is the unguarded sink: mask and bound there.
+	assert.ok(!warnings[0].includes(jwt), "the JWT must not reach the console");
+	assert.ok(!warnings[0].includes(key), "the key must not reach the console");
+	assert.match(warnings[0], /\[redacted/);
+	assert.ok(warnings[0].length < 1000, `the console line must stay bounded, got ${warnings[0].length} chars`);
+
+	// The file sink keeps the raw head for diagnosis, but never the credential itself.
+	const logged = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8");
+	assert.ok(!logged.includes(jwt), "the JWT must not reach errors.log");
+	assert.ok(!logged.includes(key), "the key must not reach errors.log");
+	assert.match(logged, /--- raw reply ---/, "the raw reply is still attached for diagnosis");
+});
+
+test("the console copy of a failure is redacted even when its source is not", async () => {
+	// The console sink must hold on its own: `ctx.logger.warn` is handed error text from paths whose
+	// source is not redacted (a filesystem path, a lock error), so this drives one of those through
+	// the real pass rather than relying on the redaction `replyHead` already applied upstream.
+	const key = "sk-abcdefghijklmnop";
+	// A credential in the project path reaches the logger verbatim: the failing write reports the
+	// path it could not open ("ENOTDIR: …/.agents/memory/MEMORY.md.lock") and no upstream layer
+	// masks a path.
+	const dir = await mkdtemp(path.join(tmpdir(), `dsh-${key}-`));
+	// `.agents` as a regular file makes every write under it fail with the full path in the message.
+	await writeFile(path.join(dir, ".agents"), "not a directory", "utf8");
+	const warnings = [];
+	const ctx = {
+		logger: { info() {}, warn: (format, ...args) => { warnings.push(`${format} ${args.join(" ")}`); } },
+		llm: {
+			stream() {
+				return (async function* generate() {
+					yield { type: "text-delta", text: JSON.stringify({ memory_markdown: `# Project Memory\n\n${"x".repeat(200)}` }) };
+				})();
+			},
+		},
+	};
+	const agent = {
+		options: { provider: "test-provider", model: "test-model" },
+		session: { id: "session-path-redact", header: { cwd: dir, createdAt: Date.now() }, snapshotEvents: () => [], deriveMessages: () => [], requestHeader: () => undefined },
+	};
+	const config = resolvePluginConfig({ maxTokens: 8192 });
+
+	assert.equal(await consolidateProject(ctx, config, agent, { force: true, silent: false }), "failed");
+	assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
+	assert.ok(warnings[0].includes(".agents/memory"), "the failure is the memory write, not something else");
+	assert.ok(!warnings[0].includes(key), "the console sink must mask a secret it was not given masked");
+	assert.match(warnings[0], /\[redacted-key\]/);
+});
+
 test("the consolidation prompt sends the fitted, clipped artifacts", async () => {
 	// The budget only matters if it reaches the model call. The artifacts are already capped on
 	// read (24k memory / 32k context chars), so the trigger is *dense* content: CJK costs about a

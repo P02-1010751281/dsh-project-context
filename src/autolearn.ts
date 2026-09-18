@@ -19,7 +19,7 @@ import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
 import { approveCandidate, autolearnProjectSkills, listCandidates, rejectCandidate, type AutolearnOutcome } from "./shared/autolearn.js";
-import { getProjectRoot, logError, skillsDir } from "./shared/project-state.js";
+import { diagnosticMessage, getProjectRoot, logError, skillsDir } from "./shared/project-state.js";
 
 export const name = "project-autolearn";
 export const inject = ["llm", "commands"];
@@ -47,7 +47,7 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 			}
 		} catch (error) {
 			await logError(projectRoot, "autolearn", error);
-			if (!options.silent) ctx.logger.warn(`dsh-project-context: autolearn failed: ${error instanceof Error ? error.message : String(error)}`);
+			if (!options.silent) ctx.logger.warn(`dsh-project-context: autolearn failed: ${diagnosticMessage(error)}`);
 		}
 	}).then(() => outcome);
 }

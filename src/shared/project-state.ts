@@ -141,6 +141,8 @@ const MAX_ERROR_LOG_BYTES = 1_000_000;
 const KEEP_ERROR_LOG_CHARS = 64_000;
 /** Cap one appended record so a huge stack cannot dominate the (bounded) log. */
 const MAX_ERROR_DETAIL_CHARS = 8_000;
+/** Cap one console diagnostic: a failure message can embed thousands of chars of raw model reply. */
+const MAX_DIAGNOSTIC_CHARS = 400;
 
 /**
  * Keep the diagnostic file bounded. It is append-only and lives inside the
@@ -194,8 +196,24 @@ export function redactSecrets(text: string): string {
 		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/gi, "Bearer [redacted]")
 		.replace(/\b(sk|pk|rk)-[A-Za-z0-9_-]{8,}\b/g, "[redacted-key]")
 		.replace(/\b(gh[pousr]|github_pat)_[A-Za-z0-9_]{8,}\b/g, "[redacted-token]")
+		.replace(/\b(xox[baprs]|glpat)-[A-Za-z0-9_-]{8,}\b/g, "[redacted-token]")
+		.replace(/\b(?:npm|pypi)_[A-Za-z0-9]{20,}\b/g, "[redacted-token]")
+		.replace(/\bAIza[0-9A-Za-z_-]{30,}\b/g, "[redacted-key]")
 		.replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[redacted-key]")
 		.replace(/(\b(?:api[_-]?key|token|secret|password|passwd|authorization)\b\s*[:=]\s*)["']?[^\s"',}\]]{6,}/gi, "$1[redacted]");
+}
+
+/**
+ * Redact a diagnostic, then flatten and bound it for a console line. `ctx.logger` writes what it
+ * is given verbatim, and one consolidation failure embeds up to 4000 characters of raw model reply
+ * (`replyHead`), so the host log needs the mask as well as a cheaper ceiling. Exported for tests.
+ * @param error - the thrown value.
+ * @returns a single-line redacted diagnostic, never longer than the console cap.
+ */
+export function diagnosticMessage(error: unknown): string {
+	const text = error instanceof Error ? error.message : String(error);
+	const safe = redactSecrets(text).replace(/\s+/g, " ").trim();
+	return safe.length > MAX_DIAGNOSTIC_CHARS ? `${safe.slice(0, MAX_DIAGNOSTIC_CHARS)} […truncated]` : safe;
 }
 
 export async function logError(projectRoot: string, scope: string, error: unknown): Promise<void> {

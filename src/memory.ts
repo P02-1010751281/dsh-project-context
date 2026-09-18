@@ -24,6 +24,7 @@ import {
 	MAX_MEMORY_CHARS,
 	cachedProjectRoot,
 	contextFile,
+	diagnosticMessage,
 	getProjectRoot,
 	logError,
 	memoryDir,
@@ -153,7 +154,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
 			if (!wroteMemory) written.delete(projectRoot);
 			await logError(projectRoot, "memory", error);
-			if (!options.silent) ctx.logger.warn(`dsh-project-context: project memory update failed: ${error instanceof Error ? error.message : String(error)}`);
+			if (!options.silent) ctx.logger.warn(`dsh-project-context: project memory update failed: ${diagnosticMessage(error)}`);
 			return "failed";
 		}
 	});

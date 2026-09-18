@@ -25,6 +25,7 @@ import {
 	getProjectRootSync,
 	logError,
 	readOptional,
+	redactSecrets,
 } from "./project-state.js";
 import { loadMemory } from "./memory-store.js";
 
@@ -65,16 +66,24 @@ export const MAX_ADAPTIVE_OUTPUT_TOKENS = 32_768;
 
 /** Characters of the raw reply kept in a failure record; `errors.log` caps the whole record anyway. */
 const MAX_LOGGED_REPLY_CHARS = 4000;
+/** Characters of that excerpt kept in the *console* copy of the error; the log keeps the full head. */
+const MAX_CONSOLE_REPLY_CHARS = 200;
 
 /**
  * Attach the head of the reply the model actually sent so `errors.log` can be diagnosed later.
+ * The excerpt is redacted here, at the one place the raw reply becomes an error message: this
+ * error also reaches `ctx.logger.warn` (which writes verbatim), so masking only on the file path
+ * would still print the credentials, and capping only for the console would still write them.
  * @param raw - the raw model reply.
+ * @param maxChars - excerpt length; the console passes a shorter budget than the log.
  * @returns a fenced excerpt for an error message.
  */
-export function replyHead(raw: string): string {
-	const head = raw.slice(0, MAX_LOGGED_REPLY_CHARS);
+export function replyHead(raw: string, maxChars: number = MAX_LOGGED_REPLY_CHARS): string {
+	const head = raw.slice(0, maxChars);
+	// The notice reports how much of the reply was *kept*, so it is computed before redaction
+	// (which only ever shortens the excerpt).
 	const notice = raw.length > head.length ? `\n[...reply omitted after ${head.length} of ${raw.length} chars...]` : "";
-	return `--- raw reply ---\n${head}${notice}`;
+	return `--- raw reply ---\n${redactSecrets(head)}${notice}`;
 }
 
 /**
@@ -619,7 +628,7 @@ export function consolidateProjectState(
 		if (!result) {
 			// Back off like any other failed pass, but never store the raw JSON as memory.
 			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
-			throw new Error(`consolidation reply was not a usable JSON object\n${replyHead(raw)}`);
+			throw new Error(`consolidation reply was not a usable JSON object\n${replyHead(raw, MAX_CONSOLE_REPLY_CHARS)}`);
 		}
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });

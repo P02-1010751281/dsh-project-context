@@ -49,6 +49,7 @@ import { watchHandoffSwitch } from "../lib/shared/handoff-watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/shared/archive.js";
 import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
 import {
+	diagnosticMessage,
 	invalidateTextCache,
 	logError,
 	migrateProjectState,
@@ -918,6 +919,18 @@ test("clipText never splits a surrogate pair and replyHead fences the raw reply"
 	assert.match(short, /^--- raw reply ---\n\{\}$/);
 	const long = replyHead("x".repeat(5000));
 	assert.match(long, /\[\.\.\.reply omitted after 4000 of 5000 chars\.\.\.\]/);
+
+	// This excerpt is embedded in an error that reaches `ctx.logger.warn`, which writes verbatim, so
+	// the redaction has to happen here at the source — not only on the `errors.log` append path.
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signaturepart";
+	const key = "sk-abcdefghijklmnop";
+	const leaking = replyHead(`{"memory_markdown": "apiKey = ${key}", "note": "authorization: Bearer ${jwt}"}`);
+	assert.ok(!leaking.includes(jwt), "the raw-reply excerpt must not carry a JWT");
+	assert.ok(!leaking.includes(key), "the raw-reply excerpt must not carry a key");
+	assert.match(leaking, /\[redacted/);
+	// A caller may pass a shorter budget; the cap and its notice still apply.
+	const bounded = replyHead("y".repeat(500), 100);
+	assert.match(bounded, /\[\.\.\.reply omitted after 100 of 500 chars\.\.\.\]/);
 });
 
 test("fallbackUpdate summarizes a session from its first user message alone", () => {
@@ -1136,6 +1149,23 @@ test("credentials are masked before a diagnostic reaches the project log", () =>
 	assert.match(safe, /\[redacted/);
 	// Ordinary prose is left alone.
 	assert.equal(redactSecrets("the token budget is 8192 tokens"), "the token budget is 8192 tokens");
+});
+
+test("a console diagnostic is masked, flattened and bounded", () => {
+	// `ctx.logger.warn` writes verbatim and one consolidation failure can carry thousands of chars of
+	// raw model reply, so the console helper must do both jobs — the mask is useless if the line is
+	// unbounded, and the cap is useless if the secret survives it.
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signaturepart";
+	const long = diagnosticMessage(new Error(`line one\n  apiKey = sk-abcdefghijklmnop\nthen ${"z".repeat(2000)}\nBearer ${jwt}`));
+	assert.ok(!long.includes("sk-abcdefghijklmnop"), "the key must be masked");
+	assert.ok(!long.includes(jwt), "the JWT must be masked");
+	assert.ok(!/\n/.test(long), "the console line must be flattened to one line");
+	assert.ok(long.length <= 420, `the console line must be bounded, got ${long.length} chars`);
+	assert.match(long, /\[…truncated\]$/, "the bound is visible in the line");
+
+	// A short diagnostic is passed through unchanged (after masking), and a non-Error value works.
+	assert.equal(diagnosticMessage("nothing sensitive here"), "nothing sensitive here");
+	assert.equal(diagnosticMessage(new Error("token: abcdefghij")).includes("[redacted]"), true);
 });
 
 test("the automatic handoff waits for background subagents to settle", async () => {
