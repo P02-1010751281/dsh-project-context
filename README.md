@@ -70,7 +70,9 @@ helper（会话身份、串行后台任务、落盘跟踪）。② 的 raw 输�
 journal，读取时以 journal 折叠结果为准；手改 `MEMORY.md`（且比 journal
 新）会被读取优先采信，并在下一次整理时作为一条记录收进 journal 历史。损坏的 journal
 行会被跳过并计数（写 `errors.log`，`/memory` 提示），整份不可读时 fail closed 而不是静默回退。旧版
-`<memory>/session-index.md` 也会在首次写索引时被采纳并改写链接。
+`<memory>/session-index.md` 会在每次写索引时并入新索引（同 id 以新索引的行为准）、链接改写为相对
+形式并按行内日期排序；只有它持有的每一行都已写进新索引时才删除它，因此 200 行上限丢行时旧文件留在
+原处、下次再采。
 
 配置不在项目内：开关与参数在 `~/.dsh/settings.yaml` 的 `project-context` 段（设置卡片编辑）。dsh
 自身仍把会话存在 `~/.dsh/sessions/…`，`session-logs/` 是项目内副本，便于随项目阅读与检索。
