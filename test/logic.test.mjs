@@ -366,19 +366,29 @@ test("two host processes writing one project's index lose no lines", { timeout: 
 		const tags = ["w0", "w1", "w2", "w3"];
 		const barrier = path.join(project, "go");
 		const ready = tags.map((tag) => path.join(project, `ready-${tag}`));
-		const children = tags.map((tag, index) =>
-			promisify(execFile)(process.execPath, [writer, project, tag, String(perWriter), barrier, ready[index]]),
-		);
-		// Wait for every child to be up and past its imports, then release them together: a fixed sleep
-		// is not enough under CPU oversubscription (a child needed 1084 ms with 48 burners running), and
-		// the test must not pass merely because one process finished before the next one started.
-		const readyBy = Date.now() + 30_000;
-		while (ready.some((file) => !existsSync(file))) {
-			if (Date.now() > readyBy) throw new Error("the writer processes did not reach the barrier in time");
-			await new Promise((resolve) => setTimeout(resolve, 10));
+		const children = tags.map((tag, index) => {
+			const child = promisify(execFile)(process.execPath, [writer, project, tag, String(perWriter), barrier, ready[index]]);
+			// The rejection still reaches `Promise.all` below; this handler only marks it as observed,
+			// so a child killed on the failure path cannot surface as an unhandled rejection.
+			void child.catch(() => undefined);
+			return child;
+		});
+		try {
+			// Wait for every child to be up and past its imports, then release them together: a fixed
+			// sleep is not enough under CPU oversubscription (a child needed 1084 ms with 48 burners
+			// running), and the test must not pass merely because one process finished before the next.
+			const readyBy = Date.now() + 30_000;
+			while (ready.some((file) => !existsSync(file))) {
+				if (Date.now() > readyBy) throw new Error("the writer processes did not reach the barrier in time");
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			await writeFile(barrier, "", "utf8");
+			await Promise.all(children);
+		} finally {
+			// A child whose barrier never appears polls until it is killed; without this a readiness
+			// timeout would leave four spinning writers and their handles holding the event loop open.
+			for (const child of children) child.child?.kill();
 		}
-		await writeFile(barrier, "", "utf8");
-		await Promise.all(children);
 
 		const entries = (await readFile(path.join(logs, "INDEX.md"), "utf8")).split("\n").filter((line) => line.startsWith("- ["));
 		assert.equal(entries.length, 4 * perWriter, "no writer's lines are lost to another's read-modify-write");
