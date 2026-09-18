@@ -33,7 +33,8 @@
 		"scripts",
 		"LICENSE",
 		"cordis.patch.yml",
-		"README.md"
+		"README.md",
+		"CHANGELOG.md"
 	],
 	"dsh": {
 		"bundle": {
