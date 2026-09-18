@@ -7,6 +7,7 @@
  */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -171,6 +172,165 @@ test("adoption never removes the legacy index before the new one exists", async 
 	assert.ok(existsSync(index), "the new index exists even when the legacy bytes already match");
 	assert.equal(await readFile(index, "utf8"), canonical);
 	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the source is removed only after the write");
+});
+
+test("a legacy index that appears after the new one exists is still adopted", async () => {
+	// Two hosts can straddle the `<memory>/` → `<memory>/session-logs/` move: an updated build
+	// writes the new index while an older one keeps appending to the legacy file. Adoption ran only
+	// while the new index was still empty, so those entries were stranded — archived on disk,
+	// missing from the one list autolearn navigates by.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-late-legacy-"));
+	const memory = path.join(project, ".agents", "memory");
+	const logs = path.join(memory, "session-logs");
+	await mkdir(logs, { recursive: true });
+	await writeFile(
+		path.join(logs, "INDEX.md"),
+		[
+			"# Session Index",
+			"",
+			"- [11111111-2222-3333-4444-555555555555](11111111-2222-3333-4444-555555555555/session.md) — 2026-09-12 — current title",
+			"- [session-keep](session-keep/session.md) — 2026-09-14 — kept",
+			"",
+		].join("\n"),
+		"utf8",
+	);
+	await writeFile(
+		path.join(memory, "session-index.md"),
+		[
+			"# Session Index",
+			"",
+			"- [11111111-2222-3333-4444-555555555555](session-logs/11111111-2222-3333-4444-555555555555/session.md) — 2026-09-12 — stale title",
+			"- [99999999-8888-7777-6666-555555555555](session-logs/99999999-8888-7777-6666-555555555555/session.md) — 2026-09-13 — late arrival",
+			"",
+		].join("\n"),
+		"utf8",
+	);
+
+	await queueIndexLine(project, "session-keep", "- [session-keep](session-keep/session.md) — 2026-09-14 — kept");
+
+	const index = await readFile(path.join(logs, "INDEX.md"), "utf8");
+	assert.match(
+		index,
+		/- \[99999999-8888-7777-6666-555555555555\]\(99999999-8888-7777-6666-555555555555\/session\.md\) — 2026-09-13 — late arrival/,
+		"the late legacy entry is adopted and its link normalized",
+	);
+	assert.equal(
+		index.split("\n").filter((current) => current.includes("11111111-2222-3333-4444-555555555555")).length,
+		1,
+		"a session the new index already lists is not duplicated",
+	);
+	assert.match(index, /— current title/, "the current index's line wins over the stale legacy one");
+	assert.doesNotMatch(index, /stale title/);
+	assert.doesNotMatch(index, /session-logs\/99999999/);
+	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the adopted legacy file is removed");
+});
+
+test("an adopted legacy entry newer than the current lines lands at the newest end", async () => {
+	// A straddling legacy file holds what an older host archived after the move, so its lines can be
+	// the NEWEST ones. Ordering the merge by source instead of by date would put them at the head,
+	// where a reader taking the newest lines — autolearn, via `slice(-MAX_INDEX_ENTRIES)` — never looks.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-late-newest-"));
+	const memory = path.join(project, ".agents", "memory");
+	const logs = path.join(memory, "session-logs");
+	await mkdir(logs, { recursive: true });
+	await writeFile(
+		path.join(logs, "INDEX.md"),
+		[
+			"# Session Index",
+			"",
+			"- [session-a](session-a/session.md) — 2026-09-01 — a",
+			"- [session-b](session-b/session.md) — 2026-09-02 — b",
+			"",
+		].join("\n"),
+		"utf8",
+	);
+	await writeFile(path.join(memory, "session-index.md"), "# Session Index\n\n- [session-z](session-logs/session-z/session.md) — 2026-09-18 — z\n", "utf8");
+
+	await queueIndexLine(project, "session-a", "- [session-a](session-a/session.md) — 2026-09-01 — a");
+
+	const ids = (await readFile(path.join(logs, "INDEX.md"), "utf8"))
+		.split("\n")
+		.filter((line) => line.startsWith("- ["))
+		.map((line) => /^- \[([^\]]+)\]/.exec(line)[1]);
+	assert.deepEqual(ids, ["session-a", "session-b", "session-z"], "the adopted line takes its date position, not the head");
+	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the adopted legacy file is removed");
+});
+
+test("the cap never deletes a legacy entry it could not keep", async () => {
+	// MAX_INDEX_LINES drops the oldest lines. A legacy entry too old to survive that cap has no other
+	// copy, so the file must stay on disk; once an entry does survive, its source is released. Deleting
+	// the file in the first case would destroy the line outright.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-cap-"));
+	const memory = path.join(project, ".agents", "memory");
+	const logs = path.join(memory, "session-logs");
+	const legacy = path.join(memory, "session-index.md");
+	await mkdir(logs, { recursive: true });
+	const current = Array.from({ length: 200 }, (_, index) => `- [session-${index}](session-${index}/session.md) — 2026-09-20 — t${index}`);
+	await writeFile(path.join(logs, "INDEX.md"), ["# Session Index", "", ...current, ""].join("\n"), "utf8");
+
+	// Older than every current line: 201 entries against a 200-line cap, so this one drops off.
+	await writeFile(legacy, "# Session Index\n\n- [session-old](session-logs/session-old/session.md) — 2026-09-01 — ancient\n", "utf8");
+	await queueIndexLine(project, "session-199", current[199]);
+	let index = await readFile(path.join(logs, "INDEX.md"), "utf8");
+	assert.ok(!index.includes("[session-old]"), "the oldest line is the one the cap drops");
+	assert.equal(index.split("\n").filter((line) => line.startsWith("- [")).length, 200);
+	assert.ok(existsSync(legacy), "the only copy of a dropped legacy entry is not deleted");
+
+	// Newer than every current line: it survives the cap, so the adopted source can go.
+	await writeFile(legacy, "# Session Index\n\n- [session-new](session-logs/session-new/session.md) — 2026-09-21 — brand new\n", "utf8");
+	await queueIndexLine(project, "session-199", current[199]);
+	index = await readFile(path.join(logs, "INDEX.md"), "utf8");
+	assert.ok(index.includes("[session-new]"), "the newest line is kept");
+	assert.equal(index.split("\n").filter((line) => line.startsWith("- [")).length, 200);
+	assert.equal(existsSync(legacy), false, "an entry that survived the cap releases its source");
+});
+
+test("a legacy file holding no index line is left alone", async () => {
+	// The pre-move path could hold a hand-written note. Adopting it would delete the note and index
+	// nothing in its place.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-note-"));
+	const memory = path.join(project, ".agents", "memory");
+	const logs = path.join(memory, "session-logs");
+	await mkdir(logs, { recursive: true });
+	await writeFile(path.join(logs, "INDEX.md"), "# Session Index\n\n- [session-a](session-a/session.md) — 2026-09-01 — a\n", "utf8");
+	const note = "# Session Index\n\nkeep this note: hand-written, no entries\n";
+	await writeFile(path.join(memory, "session-index.md"), note, "utf8");
+
+	await queueIndexLine(project, "session-b", "- [session-b](session-b/session.md) — 2026-09-02 — b");
+
+	assert.equal(await readFile(path.join(memory, "session-index.md"), "utf8"), note, "a file without entries is not consumed");
+	const index = await readFile(path.join(logs, "INDEX.md"), "utf8");
+	assert.match(index, /session-b/);
+	assert.doesNotMatch(index, /keep this note/);
+});
+
+test("a FIFO at the legacy index path cannot stall the index write", { timeout: 15_000 }, async (t) => {
+	// Reading a FIFO with no writer blocks forever, and because index writes are chained per project
+	// every later write would queue behind this one, stalling the archive step for good.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-fifo-"));
+	const memory = path.join(project, ".agents", "memory");
+	await mkdir(memory, { recursive: true });
+	try {
+		execFileSync("mkfifo", [path.join(memory, "session-index.md")]);
+	} catch {
+		t.skip("mkfifo is unavailable on this platform");
+		return;
+	}
+
+	await queueIndexLine(project, "session-a", "- [session-a](session-a/session.md) — 2026-09-01 — a");
+
+	assert.match(await readFile(path.join(memory, "session-logs", "INDEX.md"), "utf8"), /session-a/);
+});
+
+test("a directory at the legacy index path does not break the write", async () => {
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-dir-"));
+	const memory = path.join(project, ".agents", "memory");
+	await mkdir(path.join(memory, "session-index.md"), { recursive: true });
+
+	await queueIndexLine(project, "session-a", "- [session-a](session-a/session.md) — 2026-09-01 — a");
+
+	assert.match(await readFile(path.join(memory, "session-logs", "INDEX.md"), "utf8"), /session-a/);
+	assert.ok(existsSync(path.join(memory, "session-index.md")), "the directory is not removed");
 });
 
 test("session index lines are mechanical and relative to the logs directory", () => {

@@ -113,7 +113,7 @@ export function sessionIndexFile(projectRoot: string): string {
 	return path.join(logsDir(projectRoot), "INDEX.md");
 }
 
-/** Pre-move index location (`<memory>/session-index.md`), adopted once when the new index is empty. */
+/** Pre-move index location (`<memory>/session-index.md`), merged into the new index whenever it holds one. */
 export function legacySessionIndexFile(projectRoot: string): string {
 	return path.join(memoryDir(projectRoot), "session-index.md");
 }

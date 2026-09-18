@@ -7,7 +7,7 @@
  * handoff pointers) read the index to navigate the raw archive.
  */
 
-import { rm } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import { legacySessionIndexFile, logsDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "./project-state.js";
@@ -109,10 +109,11 @@ function indexLineId(line: string): string {
 }
 
 /**
- * Newest line per session id, oldest first, capped. The incoming line replaces any
- * line with the same id, and duplicates left behind by an import collapse to one.
+ * One line per session id: the incoming line replaces any line with the same id, and duplicates
+ * left behind by an import collapse to one. The cap is applied by the caller after
+ * `orderIndexLines`, so what drops off is the oldest session and not the first line written.
  */
-function dedupeIndexLines(lines: readonly string[], line: string, limit: number, replaceId: string): string[] {
+function dedupeIndexLines(lines: readonly string[], line: string, replaceId: string): string[] {
 	const seen = new Set<string>();
 	const result: string[] = [];
 	for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -123,7 +124,60 @@ function dedupeIndexLines(lines: readonly string[], line: string, limit: number,
 		result.unshift(current);
 	}
 	result.push(line);
-	return result.slice(-limit);
+	return result;
+}
+
+/** The `- [id](…)` lines of an index body; a heading, prose or a blank line is not an entry. */
+function entryLines(document: string): string[] {
+	return document.split("\n").map((current) => current.trim()).filter((current) => current.startsWith("- ["));
+}
+
+/**
+ * Oldest first, by the date in each line. The index is a date-ordered list whose cap drops its
+ * head, so this order decides which sessions survive the cap — and which ones a reader taking the
+ * newest lines, as autolearn does, ever sees. Stable for equal dates; a line without a parsable
+ * date is kept at the newest end rather than dropped first.
+ */
+function orderIndexLines(lines: readonly string[]): string[] {
+	return lines
+		.map((current, position) => ({ current, position, date: LINE_PATTERN.exec(current)?.[3] ?? "" }))
+		.sort((left, right) => {
+			if (left.date !== right.date) {
+				if (left.date === "") return 1;
+				if (right.date === "") return -1;
+				return left.date < right.date ? -1 : 1;
+			}
+			return left.position - right.position;
+		})
+		.map((entry) => entry.current);
+}
+
+/**
+ * The pre-move index at `<memory>/session-index.md`, ready for adoption, or `undefined` when there
+ * is nothing to adopt: no regular file there (`stat` also keeps a directory or a FIFO from making
+ * every later write fail or block), or a file holding no index line at all — a hand-written note is
+ * not an index and must not be deleted.
+ */
+async function readLegacyIndexForAdoption(file: string): Promise<{ body: string; ids: string[]; size: number; mtimeMs: number } | undefined> {
+	try {
+		const info = await stat(file);
+		if (!info.isFile()) return undefined;
+		const body = normalizeLegacyIndex(await readOptional(file));
+		const ids = entryLines(body).map((current) => indexLineId(current));
+		return ids.length === 0 ? undefined : { body, ids, size: info.size, mtimeMs: info.mtimeMs };
+	} catch {
+		return undefined;
+	}
+}
+
+/** Whether an adopted file still has the size and mtime it had when it was read. */
+async function untouchedSince(file: string, adopted: { size: number; mtimeMs: number }): Promise<boolean> {
+	try {
+		const info = await stat(file);
+		return info.size === adopted.size && info.mtimeMs === adopted.mtimeMs;
+	} catch {
+		return false;
+	}
 }
 
 /** Read the index with absolute paths so later passes can open the archives directly. */
@@ -140,8 +194,8 @@ export async function readSessionIndex(projectRoot: string): Promise<SessionInde
 const queues = new Map<string, Promise<void>>();
 
 /**
- * Insert or refresh this session's index line. Idempotent: a session keeps its
- * position, and the title is refreshed if dsh assigned a better one later.
+ * Insert or refresh this session's index line. Idempotent: a session keeps its place in the date
+ * order, and the title is refreshed if dsh assigned a better one later.
  */
 export function queueSessionIndexEntry(projectRoot: string, session: Session): Promise<void> {
 	return queueIndexLine(projectRoot, safeSessionId(String(session.id)), sessionIndexLine(session));
@@ -153,27 +207,30 @@ export function queueIndexLine(projectRoot: string, id: string, line: string): P
 	const previous = queues.get(key) ?? Promise.resolve();
 	const next = previous.catch(() => undefined).then(async () => {
 		const file = sessionIndexFile(projectRoot);
-		// Adopt a pre-move `<memory>/session-index.md` once, converting its links, so an existing
-		// index survives the layout change into `session-logs/`.
-		let existing = await readOptional(file);
-		let legacyFile: string | undefined;
-		if (!existing.trim()) {
-			const candidate = legacySessionIndexFile(projectRoot);
-			const legacy = normalizeLegacyIndex(await readOptional(candidate));
-			if (legacy.trim()) {
-				existing = legacy.endsWith("\n") ? legacy : `${legacy}\n`;
-				legacyFile = candidate;
-			}
+		const existing = await readOptional(file);
+		const candidate = legacySessionIndexFile(projectRoot);
+		const adopted = await readLegacyIndexForAdoption(candidate);
+		// Adopt a pre-move `<memory>/session-index.md`, converting its links, so an existing index
+		// survives the layout change into `session-logs/`. It is merged with the current index rather
+		// than adopted only while that index is still empty: two hosts can straddle the move, and a
+		// legacy file written after the new index appeared would otherwise strand its entries —
+		// archived on disk, missing from the list autolearn navigates by, forever. Legacy lines come
+		// first only so that a shared id keeps the current index's line; the document is ordered by
+		// date, because a straddling legacy file can hold the newest sessions, not the oldest.
+		const entries = [...entryLines(adopted?.body ?? ""), ...entryLines(existing)];
+		const document = [HEADING, "", ...orderIndexLines(dedupeIndexLines(entries, line, safeSessionId(id))).slice(-MAX_INDEX_LINES), ""].join("\n");
+		// Write before removing the adopted source, and write even when the bytes are unchanged: an
+		// adoption whose content was already canonical must still create the new file. A crash
+		// between the two leaves both files, never neither.
+		if (document !== existing || adopted !== undefined) await writeAtomic(file, document);
+		// Remove the source only once every line it held is in the document. The cap drops the oldest
+		// lines, so a legacy entry too old to survive it would otherwise have its only copy deleted;
+		// the file is left in place instead and adopted again on the next write. Re-stat first: an
+		// older host can still append to that path, and a line appended into the read→remove window
+		// must not be deleted with the file, unadopted.
+		if (adopted !== undefined && adopted.ids.every((entryId) => document.includes(`[${entryId}](`)) && (await untouchedSince(candidate, adopted))) {
+			await rm(candidate, { force: true }).catch(() => undefined);
 		}
-		const entries = existing.trim()
-			? existing.split("\n").map((current) => current.trim()).filter((current) => current.startsWith("- ["))
-			: [];
-		const document = [HEADING, "", ...dedupeIndexLines(entries, line, MAX_INDEX_LINES, safeSessionId(id)), ""].join("\n");
-		// Write before removing the adopted source, and write even when the legacy bytes were
-		// already canonical: otherwise an adoption whose content needs no change deletes the only
-		// copy of the index. A crash between the two now leaves both files, never neither.
-		if (document !== existing || legacyFile !== undefined) await writeAtomic(file, document);
-		if (legacyFile !== undefined) await rm(legacyFile, { force: true }).catch(() => undefined);
 	});
 	queues.set(key, next);
 	void next.catch(() => undefined).finally(() => {
