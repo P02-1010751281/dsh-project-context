@@ -7,12 +7,13 @@
  */
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import {
 	apply,
 	continuation,
@@ -330,6 +331,59 @@ test("the re-stat guard notices an append, not only a replacement", async () => 
 
 		await rm(file);
 		assert.equal(await untouchedSince(file, adopted), false, "a path that vanished is not untouched either");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("two host processes writing one project's index lose no lines", { timeout: 60_000 }, async () => {
+	// `queues` serializes writes inside one process, so two writers in this test process would share
+	// it and prove nothing. Real children are the only way to exercise the cross-process case, where
+	// the write is a read-modify-write: before the lock, four writers lost most of their lines.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-cross-"));
+	try {
+		const memory = path.join(project, ".agents", "memory");
+		const logs = path.join(memory, "session-logs");
+		await mkdir(logs, { recursive: true });
+		const lib = new URL("../lib/shared/session-index.js", import.meta.url).href;
+		const writer = path.join(project, "writer.mjs");
+		await writeFile(
+			writer,
+			[
+				'import { existsSync, writeFileSync } from "node:fs";',
+				`import { queueIndexLine } from ${JSON.stringify(lib)};`,
+				"const [projectRoot, tag, count, barrier, ready] = process.argv.slice(2);",
+				"writeFileSync(ready, \"\");",
+				"while (!existsSync(barrier)) await new Promise((resolve) => setTimeout(resolve, 5));",
+				"for (let index = 0; index < Number(count); index += 1) {",
+				"	const id = `session-${tag}-${index}`;",
+				"	await queueIndexLine(projectRoot, id, `- [${id}](${id}/session.md) — 2026-09-02 — ${id}`);",
+				"}",
+			].join("\n"),
+			"utf8",
+		);
+		const perWriter = 25;
+		const tags = ["w0", "w1", "w2", "w3"];
+		const barrier = path.join(project, "go");
+		const ready = tags.map((tag) => path.join(project, `ready-${tag}`));
+		const children = tags.map((tag, index) =>
+			promisify(execFile)(process.execPath, [writer, project, tag, String(perWriter), barrier, ready[index]]),
+		);
+		// Wait for every child to be up and past its imports, then release them together: a fixed sleep
+		// is not enough under CPU oversubscription (a child needed 1084 ms with 48 burners running), and
+		// the test must not pass merely because one process finished before the next one started.
+		const readyBy = Date.now() + 30_000;
+		while (ready.some((file) => !existsSync(file))) {
+			if (Date.now() > readyBy) throw new Error("the writer processes did not reach the barrier in time");
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		await writeFile(barrier, "", "utf8");
+		await Promise.all(children);
+
+		const entries = (await readFile(path.join(logs, "INDEX.md"), "utf8")).split("\n").filter((line) => line.startsWith("- ["));
+		assert.equal(entries.length, 4 * perWriter, "no writer's lines are lost to another's read-modify-write");
+		assert.match(entries[0], /^\- \[session-w\d-\d+\]/, "the surviving lines are the writers' own");
+		assert.equal(existsSync(path.join(memory, "session-index.lock")), false, "the cross-process lock is released");
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}

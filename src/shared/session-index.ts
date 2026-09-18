@@ -10,7 +10,8 @@
 import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
-import { legacySessionIndexFile, logsDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "./project-state.js";
+import { legacySessionIndexFile, logsDir, memoryDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "./project-state.js";
+import { withMemoryLock } from "./memory-store.js";
 
 export interface SessionIndexEntry {
 	id: string;
@@ -199,6 +200,16 @@ export async function readSessionIndex(projectRoot: string): Promise<SessionInde
 const queues = new Map<string, Promise<void>>();
 
 /**
+ * Cross-process lock target for one project's index, so the lock file is
+ * `<memory>/session-index.lock`. It lives in the memory directory because that
+ * directory's `.gitignore` already covers `*.lock`, while `session-logs/` owns a
+ * different ignore file (a bare `*`) that the lock helper must not append to.
+ */
+function sessionIndexLockTarget(projectRoot: string): string {
+	return path.join(memoryDir(projectRoot), "session-index");
+}
+
+/**
  * Insert or refresh this session's index line. Idempotent: a session keeps its place in the date
  * order, and the title is refreshed if dsh assigned a better one later.
  */
@@ -211,31 +222,37 @@ export function queueIndexLine(projectRoot: string, id: string, line: string): P
 	const key = projectRoot;
 	const previous = queues.get(key) ?? Promise.resolve();
 	const next = previous.catch(() => undefined).then(async () => {
-		const file = sessionIndexFile(projectRoot);
-		const existing = await readOptional(file);
-		const candidate = legacySessionIndexFile(projectRoot);
-		const adopted = await readLegacyIndexForAdoption(candidate);
-		// Adopt a pre-move `<memory>/session-index.md`, converting its links, so an existing index
-		// survives the layout change into `session-logs/`. It is merged with the current index rather
-		// than adopted only while that index is still empty: two hosts can straddle the move, and a
-		// legacy file written after the new index appeared would otherwise strand its entries —
-		// archived on disk, missing from the list autolearn navigates by, forever. Legacy lines come
-		// first only so that a shared id keeps the current index's line; the document is ordered by
-		// date, because a straddling legacy file can hold the newest sessions, not the oldest.
-		const entries = [...entryLines(adopted?.body ?? ""), ...entryLines(existing)];
-		const document = [HEADING, "", ...orderIndexLines(dedupeIndexLines(entries, line, safeSessionId(id))).slice(-MAX_INDEX_LINES), ""].join("\n");
-		// Write before removing the adopted source, and write even when the bytes are unchanged: an
-		// adoption whose content was already canonical must still create the new file. A crash
-		// between the two leaves both files, never neither.
-		if (document !== existing || adopted !== undefined) await writeAtomic(file, document);
-		// Remove the source only once every line it held is in the document. The cap drops the oldest
-		// lines, so a legacy entry too old to survive it would otherwise have its only copy deleted;
-		// the file is left in place instead and adopted again on the next write. Re-stat first: an
-		// older host can still append to that path, and a line appended into the read→remove window
-		// must not be deleted with the file, unadopted.
-		if (adopted !== undefined && adopted.ids.every((entryId) => document.includes(`[${entryId}](`)) && (await untouchedSince(candidate, adopted))) {
-			await rm(candidate, { force: true }).catch(() => undefined);
-		}
+		// `queues` orders writers inside this process only, and the index write is a read-modify-write:
+		// two hosts doing it at once lose most lines (measured: 58-59 of 120). The same cross-process
+		// lock the memory journal uses (30 s stale / 35 s wait) therefore guards the whole
+		// read → merge → write → remove sequence, not just the final write.
+		await withMemoryLock(sessionIndexLockTarget(projectRoot), async () => {
+			const file = sessionIndexFile(projectRoot);
+			const existing = await readOptional(file);
+			const candidate = legacySessionIndexFile(projectRoot);
+			const adopted = await readLegacyIndexForAdoption(candidate);
+			// Adopt a pre-move `<memory>/session-index.md`, converting its links, so an existing index
+			// survives the layout change into `session-logs/`. It is merged with the current index rather
+			// than adopted only while that index is still empty: two hosts can straddle the move, and a
+			// legacy file written after the new index appeared would otherwise strand its entries —
+			// archived on disk, missing from the list autolearn navigates by, forever. Legacy lines come
+			// first only so that a shared id keeps the current index's line; the document is ordered by
+			// date, because a straddling legacy file can hold the newest sessions, not the oldest.
+			const entries = [...entryLines(adopted?.body ?? ""), ...entryLines(existing)];
+			const document = [HEADING, "", ...orderIndexLines(dedupeIndexLines(entries, line, safeSessionId(id))).slice(-MAX_INDEX_LINES), ""].join("\n");
+			// Write before removing the adopted source, and write even when the bytes are unchanged: an
+			// adoption whose content was already canonical must still create the new file. A crash
+			// between the two leaves both files, never neither.
+			if (document !== existing || adopted !== undefined) await writeAtomic(file, document);
+			// Remove the source only once every line it held is in the document. The cap drops the oldest
+			// lines, so a legacy entry too old to survive it would otherwise have its only copy deleted;
+			// the file is left in place instead and adopted again on the next write. Re-stat first: an
+			// older host can still append to that path, and a line appended into the read→remove window
+			// must not be deleted with the file, unadopted.
+			if (adopted !== undefined && adopted.ids.every((entryId) => document.includes(`[${entryId}](`)) && (await untouchedSince(candidate, adopted))) {
+				await rm(candidate, { force: true }).catch(() => undefined);
+			}
+		});
 	});
 	queues.set(key, next);
 	void next.catch(() => undefined).finally(() => {
