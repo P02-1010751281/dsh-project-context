@@ -52,6 +52,7 @@ helper（会话身份、串行后台任务、落盘跟踪）。② 的 raw 输�
     ├── MEMORY.md                   # ② 由 journal 折叠渲染（人读 / 注入 / 外部手改入口）
     ├── MEMORY.md.memory-backup-*   # 覆写前的字节级备份（保留最新 5 份；1 小时内的不删）
     ├── MEMORY.md.lock / .steal     # 跨进程写锁（30s 陈旧；claim 防双抢）
+    ├── session-index.lock / .steal # ① 索引的跨进程写锁（同一套 30s/35s 参数；与 MEMORY.md 分开）
     ├── memory-log-*.jsonl          # journal 超 512KB 折叠后的归档（保留最新 5 份）
     ├── CONTEXT.md                  # ② 工作态：摘要 / 关键点 / open tasks（每轮注入）
     ├── HANDOFF.md                  # ④ 最近一次交接摘要（含旧存档指针）
@@ -130,7 +131,9 @@ scripts/
   供人阅读与交接导航，不参与自动流程。
 - `INDEX.md`：每会话一行 `- [id](id/session.md) — YYYY-MM-DD — 标题`，标题取
   `session/title`（回退首条用户消息），同一会话原位刷新、按 id 去重后只留最新 200
-  行，每项目一条写链防并发丢行。
+  行；同一进程内的写入走一条写链，跨进程则走 `<memory>/session-index.lock`（与 `MEMORY.md` 同一套
+  30s 陈旧 / 35s 等待参数；仍在运行旧构建的宿主不遵守此锁，重启后才受同一把锁约束）。等不到锁时这次
+  索引写入失败并记进 `errors.log`，该行在下一轮写索引时补上。
 - 项目根 = 会话 cwd 的 git 顶层（`git rev-parse --show-toplevel`），非 git 目录回退
   cwd；首次写日志时自动放一个忽略整个目录的 `session-logs/.gitignore`，不动项目根
   ignore。
