@@ -25,6 +25,7 @@ import {
 	runManual,
 	setPressureCheckIntervalMs,
 	settingPatch,
+	statusText,
 	textAsksQuestion,
 	turnStartedAfter,
 } from "../lib/handoff.js";
@@ -1282,6 +1283,32 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	await maybeAutoHandoff(ctx, session, config);
 	assert.equal(logs.filter((line) => line.includes("automatic handoff skipped")).length, 1);
 	assert.match(logs.join("\n"), /handoffKeepTokens/, "the log names the setting that decides it");
+
+	// The log is not a surface the user can read, so the same skip is reported by `/handoff status`.
+	const signal = new AbortController().signal;
+	const status = await statusText(ctx, session, config, signal);
+	assert.match(status, /auto skipped since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, "status reports when the skip started");
+	assert.match(status, /nothing older than keep ~/, "status names the reason, not just the fact");
+
+	// The skip repeats on every idle; the receipt must keep the first occurrence rather than
+	// reporting a session that looks skipped "just now" at every read.
+	setPressureCheckIntervalMs(0);
+	try {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		await maybeAutoHandoff(ctx, session, config);
+		assert.equal(await statusText(ctx, session, config, signal), status, "a repeated skip keeps the first timestamp");
+
+		// Once an idle finds something to summarize, the marker is cleared: the receipt describes the
+		// session as it is now, not a condition it has left. Every rendered message is clipped to
+		// 4000 chars, so the older span has to clear MIN_SUMMARIZE_TOKENS on its own.
+		const grown = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+		const many = Array.from({ length: 12 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(4_000)));
+		const grownSession = { ...session, deriveMessages: () => many };
+		await assert.rejects(() => maybeAutoHandoff(ctx, grownSession, grown), "the summarizable idle reaches the summary call");
+		assert.doesNotMatch(await statusText(ctx, grownSession, grown, signal), /auto skipped since/, "a summarizable idle clears the skip report");
+	} finally {
+		setPressureCheckIntervalMs(15_000);
+	}
 });
 
 test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {

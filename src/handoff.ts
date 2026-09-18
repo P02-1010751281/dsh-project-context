@@ -196,6 +196,13 @@ const failedUntil = new Map<string, number>();
 const pressureCheckedAt = new Map<string, number>();
 /** Last logged "nothing older to summarize" per session; the skip repeats on every idle. */
 const skippedLoggedAt = new Map<string, number>();
+/**
+ * When this session's automatic handoff first found nothing older to summarize, cleared as soon as
+ * an idle finds the conversation summarizable again. The skip repeats on every idle and dsh has no
+ * notification channel, so `/handoff status` is where the user actually sees it; keeping the first
+ * occurrence stops the timestamp from looking like "just now" on every read.
+ */
+const skippedSince = new Map<string, number>();
 /** Last logged deferral per session. Separate from the skip above: one must not mute the other. */
 const deferredLoggedAt = new Map<string, number>();
 
@@ -1050,14 +1057,17 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	const split = handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
 	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_SUMMARIZE_TOKENS) {
 		// Nothing worth summarizing: the conversation fits the recent window. Not a failure, and
-		// dsh has no host-side notification channel, so this is a rate-limited log line — the user
-		// can see the measured context with `/handoff status` (README documents the limitation).
+		// dsh has no host-side notification channel, so the reason is a rate-limited log line and a
+		// line in the `/handoff status` receipt, which is the surface the user actually reads.
+		if (!skippedSince.has(key)) skippedSince.set(key, now);
 		if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 			skippedLoggedAt.set(key, now);
 			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffKeepTokens), so there is nothing older to summarize");
 		}
 		return;
 	}
+	// This idle found something to summarize, so any earlier skip no longer describes the session.
+	skippedSince.delete(key);
 
 	await performHandoff(ctx, session, target, config, resolved, "auto", undefined, split, triggerSeq);
 }
@@ -1124,7 +1134,11 @@ async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promi
 }
 
 /** Human-readable handoff state for the current session. */
-async function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<string> {
+/**
+ * The `/handoff status` receipt. Exported so a test can read the skip report without going through
+ * the command registration.
+ */
+export async function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<string> {
 	const config = effectivePluginConfig(entry);
 	const parts: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const target = resolveTarget(session, config);
@@ -1146,6 +1160,12 @@ async function statusText(ctx: Context, session: Session, entry: PluginConfig, s
 	parts.push(`pending question ${config.handoffPendingQuestion}`);
 	const language = resolveLanguage(sessionLanguageMessages(session), config.handoffLanguage);
 	parts.push(config.handoffLanguage === "auto" ? `lang auto (${language})` : `lang ${language}`);
+	// The automatic path skips this session while the conversation fits the recent window; without
+	// this line the only trace is a rate-limited server log the user cannot see.
+	const skippedAt = skippedSince.get(String(session.id));
+	if (skippedAt !== undefined) {
+		parts.push(`auto skipped since ${new Date(skippedAt).toISOString()} — nothing older than keep ~${config.handoffKeepTokens} tokens to summarize`);
+	}
 	if (handedOff.has(String(session.id))) parts.push("already handed off in this process");
 	return parts.join(" · ");
 }
@@ -1244,6 +1264,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		pressureCheckedAt.delete(key);
 		failedUntil.delete(key);
 		skippedLoggedAt.delete(key);
+		skippedSince.delete(key);
 		deferredLoggedAt.delete(key);
 		pendingTriggerSeq.delete(key);
 	});
