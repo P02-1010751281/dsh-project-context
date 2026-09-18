@@ -170,8 +170,13 @@ async function readLegacyIndexForAdoption(file: string): Promise<{ body: string;
 	}
 }
 
-/** Whether an adopted file still has the size and mtime it had when it was read. */
-async function untouchedSince(file: string, adopted: { size: number; mtimeMs: number }): Promise<boolean> {
+/**
+ * Whether an adopted file still has the size and mtime it had when it was read. Exported for its
+ * own unit test: the check has to notice an *append* (same inode, new size/mtime), and the
+ * end-to-end adoption test cannot reach that case — there the write replaces the path and so
+ * changes the inode too, which an identity-based (and append-blind) check would also catch.
+ */
+export async function untouchedSince(file: string, adopted: { size: number; mtimeMs: number }): Promise<boolean> {
 	try {
 		const info = await stat(file);
 		return info.size === adopted.size && info.mtimeMs === adopted.mtimeMs;

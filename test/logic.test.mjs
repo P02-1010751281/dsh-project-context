@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -49,7 +49,7 @@ import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } fro
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/shared/handoff-marker.js";
 import { watchHandoffSwitch } from "../lib/shared/handoff-watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/shared/archive.js";
-import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine } from "../lib/shared/session-index.js";
+import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine, untouchedSince } from "../lib/shared/session-index.js";
 import {
 	diagnosticMessage,
 	invalidateTextCache,
@@ -283,6 +283,56 @@ test("the cap never deletes a legacy entry it could not keep", async () => {
 	assert.ok(index.includes("[session-new]"), "the newest line is kept");
 	assert.equal(index.split("\n").filter((line) => line.startsWith("- [")).length, 200);
 	assert.equal(existsSync(legacy), false, "an entry that survived the cap releases its source");
+});
+
+test("a legacy index that changed while it was being adopted is not deleted", async () => {
+	// Removing the adopted source is a check-then-act: the path can change between the read and the
+	// rm, and the file that was adopted must then be left alone rather than deleted. That window is a
+	// couple of milliseconds wide, so a test cannot enter it by timing; the legacy path is instead
+	// made to resolve to the file the write itself replaces, which reaches the same decision —
+	// "the path no longer holds what was adopted" — deterministically. What an append does to that
+	// decision (same inode, new size/mtime) is pinned separately below, because this aliased case
+	// changes the inode as well and so passes an identity-based check too.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-changed-"));
+	const memory = path.join(project, ".agents", "memory");
+	const logs = path.join(memory, "session-logs");
+	const legacy = path.join(memory, "session-index.md");
+	const index = path.join(logs, "INDEX.md");
+	await mkdir(logs, { recursive: true });
+	await writeFile(index, "# Session Index\n\n- [session-a](session-a/session.md) — 2026-09-01 — a\n", "utf8");
+	await symlink(index, legacy);
+
+	await queueIndexLine(project, "session-b", "- [session-b](session-b/session.md) — 2026-09-02 — b");
+
+	const written = await readFile(index, "utf8");
+	assert.match(written, /session-b/, "the index write happened");
+	assert.match(written, /session-a/);
+	assert.equal(await readFile(legacy, "utf8"), written, "the legacy path still resolves to the rewritten index");
+	assert.equal(existsSync(legacy), true, "a legacy path that changed under the write is not deleted");
+});
+
+test("the re-stat guard notices an append, not only a replacement", async () => {
+	// The guard exists because an older host can append to the legacy path during the read→remove
+	// window, and that line must not be deleted with the file. An append keeps the inode and changes
+	// size+mtime; the write that replaces the path changes the inode too. An identity-based check
+	// therefore looks correct in the aliased test above and still destroys an appended line.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-guard-"));
+	try {
+		const file = path.join(project, "session-index.md");
+		await writeFile(file, "# Session Index\n\n- [session-a](session-a/session.md) — 2026-09-01 — a\n", "utf8");
+		const first = await stat(file);
+		const adopted = { size: first.size, mtimeMs: first.mtimeMs };
+		assert.equal(await untouchedSince(file, adopted), true, "a path nobody touched is still removable");
+
+		await appendFile(file, "- [session-late](session-late/session.md) — 2026-09-30 — late\n");
+		assert.equal((await stat(file)).ino, first.ino, "an append keeps the inode, unlike the aliased write");
+		assert.equal(await untouchedSince(file, adopted), false, "an appended line blocks the removal");
+
+		await rm(file);
+		assert.equal(await untouchedSince(file, adopted), false, "a path that vanished is not untouched either");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
 });
 
 test("a legacy file holding no index line is left alone", async () => {
