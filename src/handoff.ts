@@ -127,7 +127,8 @@ interface WorkspaceRegistryLike {
 	/**
 	 * Hides a session from every grouping surface without touching its log or its workspace
 	 * accounting. Used to make an abandoned handoff child invisible instead of leaving an empty
-	 * session in the sidebar (there is no delete RPC).
+	 * session in the sidebar (there is no delete RPC; the archive is undoable through the client's
+	 * `uiWorkspace.unarchiveSession`, which restores the recorded workspace position).
 	 */
 	archiveSession?(sessionId: string): Promise<void>;
 }
@@ -733,6 +734,7 @@ async function abandonChild(
 	}
 	// Only a deferral is unambiguous garbage: nobody asked for it and the parent is still working.
 	// A genuine failure, and a child that may still be running, stay visible so the user can see it.
+	// Archiving only hides (it does not delete), and the client can undo it via unarchiveSession.
 	if (!deferred || !cancelled) return;
 	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
 	if (registry?.archiveSession === undefined) return;
