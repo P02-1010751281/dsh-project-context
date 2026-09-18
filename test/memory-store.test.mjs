@@ -27,6 +27,7 @@ import {
 	normalizeMemoryDocument,
 	readMemoryJournal,
 	recordMemoryDocument,
+	staleLockAge,
 	withMemoryLock,
 } from "../lib/shared/memory-store.js";
 import { legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
@@ -526,7 +527,7 @@ test("an orphaned lock is stolen past the horizon and left alone before it", asy
 	await writeFile(lock, "orphan-token");
 	const young = new Date(Date.now() - 20);
 	await utimes(lock, young, young);
-	await assert.rejects(() => withMemoryLock(target, async () => { ran += 1; }, { staleMs: 5_000, waitMs: 150 }), /timed out waiting for the memory write lock/);
+	await assert.rejects(() => withMemoryLock(target, async () => { ran += 1; }, { staleMs: 5_000, waitMs: 150 }), /timed out waiting for the write lock/);
 	assert.equal(ran, 0, "a lock inside the horizon is never stolen");
 
 	// Older than the horizon: the same orphan is taken over and the write goes through.
@@ -535,4 +536,18 @@ test("an orphaned lock is stolen past the horizon and left alone before it", asy
 	const result = await withMemoryLock(target, async () => { ran += 1; return "written"; }, { staleMs: 50, waitMs: 2_000 });
 	assert.equal(result, "written");
 	assert.equal(ran, 1, "the abandoned lock is stolen instead of failing the pass");
+});
+
+test("a lock that is gone is not a stale lock", () => {
+	// `lockMtimeMs` reports 0 for a lock file that is gone. Reading that 0 as an age makes the steal
+	// test true for any horizon, so a waiter whose `tryLock` failed a moment earlier enters the steal
+	// branch for a lock that no longer exists; the `.steal` claim it creates makes the writer that is
+	// just finishing bail out of `releaseLock` without deleting its own lock, and every later writer
+	// then waits out the whole staleness horizon. Measured before this guard: 5 of 20 runs of the
+	// session-index concurrency test stalled ~30.9 s (two leaks exceed its 60 s timeout).
+	const now = 1_700_000_000_000;
+	assert.equal(staleLockAge(0, now, 30_000), false, "a missing lock is not stealable");
+	assert.equal(staleLockAge(Number.POSITIVE_INFINITY, now, 30_000), false, "an unreadable lock stays");
+	assert.equal(staleLockAge(now - 29_999, now, 30_000), false, "a lock inside the horizon is not");
+	assert.equal(staleLockAge(now - 30_001, now, 30_000), true, "a lock past the horizon is");
 });

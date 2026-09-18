@@ -115,6 +115,19 @@ async function lockMtimeMs(file: string): Promise<number> {
 	}
 }
 
+/**
+ * Whether a lock is old enough to steal. `lockMtimeMs` reports **0** for a lock file that is gone,
+ * and 0 is not an age: reading it as one makes the test true for any horizon, so a waiter whose
+ * `tryLock` failed a moment ago enters the steal branch for a lock that no longer exists. The
+ * `.steal` claim it then creates makes the writer that is just finishing bail out of `releaseLock`
+ * (documented safe branch: only the claim holder may delete) **without deleting its own lock**, and
+ * every later writer then waits out the whole staleness horizon. Exported so that invariant can be
+ * pinned by a test without racing the filesystem.
+ */
+export function staleLockAge(lockAgeMs: number, nowMs: number, staleMs: number): boolean {
+	return lockAgeMs > 0 && nowMs - lockAgeMs > staleMs;
+}
+
 /** Take the short-lived steal claim with `wx`; only one writer wins it. */
 async function acquireClaim(claimPath: string): Promise<string | undefined> {
 	const token = `${process.pid}-${randomUUID()}`;
@@ -245,8 +258,8 @@ export async function withMemoryLock<T>(
 	while (!token) {
 		token = await tryLock(lockPath);
 		if (token) break;
-		if (Date.now() >= deadline) throw new Error(`timed out waiting for the memory write lock at ${lockPath}`);
-		if (Date.now() - (await lockMtimeMs(lockPath)) > staleMs) {
+		if (Date.now() >= deadline) throw new Error(`timed out waiting for the write lock at ${lockPath}`);
+		if (staleLockAge(await lockMtimeMs(lockPath), Date.now(), staleMs)) {
 			const claimPath = `${lockPath}.steal`;
 			const claimToken = await acquireClaim(claimPath);
 			if (claimToken) {
