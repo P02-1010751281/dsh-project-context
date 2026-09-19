@@ -12,6 +12,8 @@ import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import { legacySessionIndexFile, logsDir, memoryDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "./project-state.js";
 import { withMemoryLock } from "./memory-store.js";
+import { piTextOf } from "./archive.js";
+import type { PiBlock } from "./archive.js";
 
 export interface SessionIndexEntry {
 	id: string;
@@ -45,7 +47,11 @@ function textOf(content: readonly { type: string; text?: string }[]): string {
 		.trim();
 }
 
-/** Title from a bare event list: `session/title`, else the first user message, else a fallback. */
+/**
+ * Title from a bare event list: `session/title`, else the first user message, else a fallback.
+ * Both harnesses that write into `.agents/` are read — dsh's named events and pi's bare
+ * `message` event — so a pi archive imported by dsh gets the same title the live path would.
+ */
 export function sessionTitleFromEntries(events: readonly unknown[]): string {
 	let title = "";
 	let firstUser = "";
@@ -61,6 +67,20 @@ export function sessionTitleFromEntries(events: readonly unknown[]): string {
 		}
 		if (!firstUser && event.type === "user/message" && event.data.source.kind === "user") {
 			firstUser = textOf(event.data.content);
+			continue;
+		}
+		// pi writes `{"type":"message","message":{role,content:[…]}}` where dsh writes one named
+		// event per message under `data`; the event name `message` is disjoint from every dsh event
+		// name, so this branch cannot change what a dsh log resolves to. A pi archive imported by
+		// dsh would otherwise index as "Untitled session" — the one label autolearn navigates by.
+		// The body is read as unknown (not `SessionEntry`) because a pi line is not a dsh event.
+		// `piTextOf` (archive.ts) is reused rather than this file's `textOf`: the two join the text
+		// blocks differently, so a multi-block message would title as `"a b"` while the archive
+		// reader renders `"ab"` — the same message, two different strings. One extraction, one text.
+		if (!firstUser && type === "message") {
+			const message = (raw as { message?: unknown }).message;
+			const pi = typeof message === "object" && message !== null ? (message as { role?: unknown; content?: unknown }) : undefined;
+			if (pi?.role === "user" && Array.isArray(pi.content)) firstUser = piTextOf(pi.content as PiBlock[]);
 		}
 	}
 	return clip(title || firstUser || "Untitled session", MAX_TITLE_CHARS);

@@ -123,7 +123,7 @@ test("the canonical JSONL is copied verbatim, unknown header fields included", a
 
 test("parseSessionJsonl rejects non-session and malformed archives", () => {
 	assert.throws(() => parseSessionJsonl(""), /empty/);
-	assert.throws(() => parseSessionJsonl('{"type":"other"}'), /not a dsh session header/);
+	assert.throws(() => parseSessionJsonl('{"type":"other"}'), /not a session header/);
 	assert.throws(() => parseSessionJsonl("not json\n"), /header is not JSON/);
 	assert.throws(() => parseSessionJsonl(`${JSON.stringify(HEADER)}\n{oops}`), /event line 2 is not JSON/);
 });

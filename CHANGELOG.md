@@ -9,6 +9,18 @@
 
 **归档（①）**
 
+- 修复：同一 `session-logs/` 里可能同时存在**两种宿主格式**（dsh 的具名事件，与 pi 的单条 `message`
+  事件），而读取层只认 dsh 的事件名，pi 归档因此被**静默忽略**——`readArchivedConversation` 对它们返回
+  空串，autolearn 的 `if (!text) continue` 便直接跳过，全程无报错。现在按事件形状识别两种格式；pi 的
+  事件名与 dsh 全部事件名不相交，dsh 路径逐字节不变。
+- 修复：索引标题同样只认 dsh 的 `user/message`，于是用 dsh 导入 pi 会话时标题退化成
+  `Untitled session`，而标题正是 autolearn 在索引窗口里识别会话的依据。
+- 修复：导入 pi 会话时起始时间取不到（pi 用 ISO 字符串 `timestamp`，dsh 用毫秒 `createdAt`），
+  会回落到**导入当天**并写进索引——相当于在项目历史里记录一个错误日期。
+- 修复：`Started:` 此前直接 `new Date(createdAt).toISOString()`，头部缺少可用时间戳时抛
+  `RangeError: Invalid time value` 并中断整篇渲染；现在降级为 `unknown time`。
+- 修复：`readSessionIndex` 的返回顺序此前没有测试守护，而它是**契约**——autolearn 取 `slice(-N)`
+  当“最新 N 条”，在这里反转会让送给模型的窗口静默变成最老的 N 条。
 - 修复：旧布局的 `<memory>/session-index.md` 此前只在“新索引为空”时被采纳一次，于是搬迁期间由旧宿主
   写入的条目会永久搁浅（磁盘上有归档、autolearn 唯一能导航的索引里没有）。现在**每次写索引都合并**
   （同 id 以新索引的行为准）、按行内日期排序——200 行上限丢的是头部，跨界旧文件里可能正是最新会话。

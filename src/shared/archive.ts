@@ -1,11 +1,17 @@
 /**
- * dsh session-archive reader.
+ * Session-archive reader.
  *
  * The canonical `session.jsonl` stores one full event per line, including
  * `assistant/message.stream` chunks that dwarf the visible conversation. When a
  * later pass backtracks into the archive it needs message-level text, not the
  * raw event payloads — this module replays the JSONL into the same compact
  * `## user / ## assistant / ## tool result` shape the live passes use.
+ *
+ * Two harnesses write that log into the same `.agents/` layout: dsh (named
+ * events under `data`) and pi (a single `message` event whose body is the
+ * message itself). Both are read here, because a project archive can hold both —
+ * pi's older `session-log.ts` backfilled the same directory — and a log this
+ * reader cannot parse is silently invisible to every pass that backtracks.
  */
 
 import { createReadStream } from "node:fs";
@@ -19,6 +25,73 @@ const MAX_TOOL_CHARS = 1_500;
 interface ArchivedEntry {
 	type?: unknown;
 	data?: unknown;
+	message?: unknown;
+}
+
+/** A block of a pi message: same `text`/`tool-result` shapes under pi's own type names. */
+export interface PiBlock {
+	type?: unknown;
+	text?: unknown;
+	name?: unknown;
+	content?: unknown;
+}
+
+/**
+ * Text of a pi content list. Unlike dsh's `textOf` this joins without a separator (pi's own
+ * renderer). Exported because the index title has to read a pi message exactly the way this
+ * reader does: two joins over one message give different text (`"a b"` vs `"ab"`), and `clip`
+ * cannot reconcile them — it collapses whitespace but never supplies a missing separator. Every
+ * pi text extraction in the plugin therefore goes through this one function.
+ */
+export function piTextOf(blocks: readonly PiBlock[]): string {
+	return blocks
+		.filter((block) => block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text as string)
+		.join("")
+		.trim();
+}
+
+/**
+ * Render one pi `message` event into a transcript section.
+ *
+ * pi writes `{"type":"message","message":{role,content:[…]}}` where dsh writes one
+ * named event per message under `data`, and its tool-call block is `toolCall`
+ * (camelCase, `name`/`arguments`) where dsh uses `tool-call`. The rendered shape is
+ * deliberately identical to the dsh branches so a mixed archive reads as one
+ * conversation. `thinking` blocks are dropped, exactly as on the dsh side: dsh
+ * keeps its reasoning in `assistant/message.stream`, which is never rendered.
+ * @param entry - a parsed JSONL line of a pi session log.
+ * @returns the section, or `undefined` when the line is not a visible message.
+ */
+function piSectionFromEntry(entry: ArchivedEntry): string | undefined {
+	if (entry.type !== "message") return undefined;
+	const message = entry.message;
+	if (typeof message !== "object" || message === null) return undefined;
+	const { role, content } = message as { role?: unknown; content?: unknown };
+	if (!Array.isArray(content)) return undefined;
+	const blocks = content as PiBlock[];
+
+	// pi's tool result carries role `toolResult` and an ordinary text block list;
+	// `tool-result` is accepted too so an older/other-generation log still reads.
+	if (role === "toolResult" || role === "tool-result") {
+		const text = piTextOf(blocks);
+		return text ? `## tool result\n${clip(text, MAX_TOOL_CHARS)}` : undefined;
+	}
+
+	const text = piTextOf(blocks);
+	if (role === "user") {
+		return text ? `## user\n${clip(text, MAX_TEXT_CHARS)}` : undefined;
+	}
+	if (role === "assistant") {
+		const tools = blocks
+			.filter((block) => block.type === "toolCall")
+			.map((block) => (typeof block.name === "string" ? `[tool: ${block.name}]` : ""))
+			.filter(Boolean)
+			.join(" ");
+		const parts = [text ? clip(text, MAX_TEXT_CHARS) : "", tools].filter(Boolean);
+		return parts.length > 0 ? `## assistant\n${parts.join("\n")}` : undefined;
+	}
+	return undefined;
 }
 
 /**
@@ -39,6 +112,11 @@ function archivedSectionFromLine(line: string): string | undefined {
 	// carries a `type`, and one bad line must not fail the whole backtrack.
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
 	const entry = parsed as ArchivedEntry;
+
+	// pi first: its event name `message` is disjoint from every dsh event name, so
+	// this branch cannot change what a dsh log renders.
+	const piSection = piSectionFromEntry(entry);
+	if (piSection !== undefined) return piSection;
 
 	if (entry.type === "user/message") {
 		const data = entry.data as { source?: { kind?: unknown }; content?: unknown } | undefined;

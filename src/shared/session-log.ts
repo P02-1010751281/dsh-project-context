@@ -56,11 +56,16 @@ function fileHeader(session: Session): SessionFileHeader {
 type SessionEntry = ReturnType<Session["snapshotEvents"]>[number];
 
 /**
- * Render one entry's `time` for display. The value is cosmetic, so an unusable
- * timestamp (absent, zero, or outside the `Date` range — e.g. a corrupt archive
- * line) must degrade to a label instead of aborting the whole render with
+ * Render a stored timestamp for display. The value is cosmetic, so an unusable
+ * one (absent, zero, or outside the `Date` range — e.g. a corrupt archive line)
+ * must degrade to a label instead of aborting the whole render with
  * `RangeError: Invalid time value`.
- * @param time - the entry's timestamp as stored.
+ *
+ * Both the per-entry sections and the header's `Started` line go through this:
+ * the header used to call `new Date(header.createdAt).toISOString()` directly, so
+ * the one value that can legitimately be missing (an archive whose header
+ * predates the field) aborted the render of the whole session.
+ * @param time - the timestamp as stored.
  * @returns an ISO string, or `unknown time`.
  */
 function displayTime(time: number | undefined): string {
@@ -91,7 +96,7 @@ function markdownHeader(header: SessionFileHeader): string {
 	return [
 		`# DSH Session ${header.id}`,
 		"",
-		`- Started: ${new Date(header.createdAt).toISOString()}`,
+		`- Started: ${displayTime(header.createdAt)}`,
 		`- Project: ${header.cwd ?? "unknown"}`,
 		"- Raw log: [session.jsonl](./session.jsonl)",
 		"",
