@@ -31,7 +31,7 @@ const HEADING = "# Session Index";
 const MAX_TITLE_CHARS = 160;
 /** Newest sessions kept when the index is rewritten; older lines drop off the top. */
 const MAX_INDEX_LINES = 200;
-/** `- [id](<id>/session.md) — YYYY-MM-DD — title` (the link target is ignored on parse). */
+/** `- [id](<id>/session.jsonl) — YYYY-MM-DD — title` (the link target is ignored on parse). */
 const LINE_PATTERN = /^- \[([^\]]+)\]\(([^)]+)\) — (\d{4}-\d{2}-\d{2}) — (.*)$/;
 
 function clip(value: string, limit: number): string {
@@ -91,11 +91,19 @@ export function sessionTitle(session: Session): string {
 	return sessionTitleFromEntries(session.snapshotEvents());
 }
 
-/** One Markdown index line from its parts. Links are relative to `session-logs/`. */
+/**
+ * One Markdown index line from its parts. Links are relative to `session-logs/`.
+ *
+ * The link points at `session.jsonl`, the canonical log, rather than the rendered
+ * `session.md`: the JSONL is what every reader actually opens (autolearn's backtrack,
+ * the import completeness check) and it is never pruned, while the rendering is
+ * reproducible from it and may be deleted to reclaim disk. Parsing ignores the target,
+ * so both forms read identically.
+ */
 export function sessionIndexLineFrom(id: string, createdAt: number, title: string): string {
 	const safe = safeSessionId(id);
 	const date = new Date(createdAt).toISOString().slice(0, 10);
-	return `- [${safe}](${safe}/session.md) — ${date} — ${clip(title, MAX_TITLE_CHARS)}`;
+	return `- [${safe}](${safe}/session.jsonl) — ${date} — ${clip(title, MAX_TITLE_CHARS)}`;
 }
 
 /** One Markdown index line. Links are relative to `session-logs/`. */

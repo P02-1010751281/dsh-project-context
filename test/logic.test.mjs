@@ -449,21 +449,25 @@ test("a directory at the legacy index path does not break the write", async () =
 
 test("session index lines are mechanical and relative to the logs directory", () => {
 	const line = sessionIndexLine(INDEX_SESSION, "audit");
-	assert.equal(line, "- [session-abcdef](session-abcdef/session.md) — 2026-09-12 — audit");
+	// The link targets the canonical JSONL: it is what every reader opens and it is
+	// never pruned, whereas the rendering is reproducible from it and may be deleted.
+	assert.equal(line, "- [session-abcdef](session-abcdef/session.jsonl) — 2026-09-12 — audit");
 });
 
-test("parseSessionIndex reads new and legacy link forms", () => {
+test("parseSessionIndex reads the current, the pre-JSONL and the legacy link forms", () => {
 	const text = [
 		"# Session Index",
 		"",
-		"- [session-abcdef](session-abcdef/session.md) — 2026-09-12 — audit",
+		"- [session-abcdef](session-abcdef/session.jsonl) — 2026-09-12 — audit",
+		"- [session-aaa](session-aaa/session.md) — 2026-09-12 — rendered target still parses",
 		"- [session-123](session-logs/session-123/session.md) — 2026-09-11 — old layout",
 		"garbage",
 	].join("\n");
 	const entries = parseSessionIndex(text);
-	assert.equal(entries.length, 2);
+	assert.equal(entries.length, 3);
 	assert.deepEqual(entries[0], { id: "session-abcdef", date: "2026-09-12", title: "audit" });
-	assert.equal(entries[1].id, "session-123");
+	assert.equal(entries[1].id, "session-aaa");
+	assert.equal(entries[2].id, "session-123");
 });
 
 test("queueSessionIndexEntry upserts one line per session and refreshes the title", async () => {

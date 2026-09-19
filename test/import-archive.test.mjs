@@ -189,7 +189,7 @@ test("importSessionJsonl writes JSONL, Markdown and one index line, then skips a
 	assert.match(markdown, /# DSH Session 11111111-2222-3333-4444-555555555555/);
 	assert.match(markdown, /整理 log 并适配 DSH 0\.1\.5/);
 	const index = await readFile(path.join(logs, "INDEX.md"), "utf8");
-	assert.match(index, new RegExp(`^- \\[${HEADER.id}\\]\\(${HEADER.id}/session\\.md\\) — 2026-09-09 — 整理 log 并适配 DSH 0\\.1\\.5$`, "m"));
+	assert.match(index, new RegExp(`^- \\[${HEADER.id}\\]\\(${HEADER.id}/session\\.jsonl\\) — 2026-09-09 — 整理 log 并适配 DSH 0\\.1\\.5$`, "m"));
 	// The archive directory stays out of version control (plugin-owned ignore file).
 	assert.equal((await readdir(logs)).includes(".gitignore"), true);
 
