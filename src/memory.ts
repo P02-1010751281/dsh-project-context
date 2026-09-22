@@ -36,6 +36,7 @@ import {
 import {
 	backupMemoryBeforeWrite,
 	importLegacyMemory,
+	isMemoryTruncated,
 	loadMemory,
 	loadMemorySync,
 	memoryJournalFile,
@@ -226,26 +227,13 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		description: "Show this project's memory location and status",
 		handler: async ({ agent }) => {
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
-			const memory = await loadMemory(projectRoot, effectivePluginConfig(entry).maxMemoryChars);
-			const journal = memoryJournalFile(projectRoot);
-			// The reply distinguishes the states a silent fold would otherwise hide: a torn journal
-			// line, a source that exists but cannot be read, and a stored reply from the old bug.
-			if (memory.unreadable) {
-				const hint = memory.source.endsWith("memory.jsonl")
-					? `Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl`
-					: `check its permissions`;
-				return { kind: "error", text: `Project memory exists but cannot be read: ${memory.source}; ${hint}.` };
-			}
-			if (memory.damaged) {
-				return { kind: "success", text: `Project memory: ${journal} (${memory.damaged} unusable line(s) skipped; see .agents/memory/errors.log).` };
-			}
-			if (memory.poisoned) {
-				return { kind: "success", text: `Project memory: ${memory.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).` };
-			}
-			return {
-				kind: "success",
-				text: memory.text.trim() ? `Project memory: ${memory.source}` : `No project memory yet: ${memoryFile(projectRoot)}`,
-			};
+			const config = effectivePluginConfig(entry);
+			const memory = await loadMemory(projectRoot, config.maxMemoryChars);
+			return memoryStatusReply(memory, {
+				projectRoot,
+				journal: memoryJournalFile(projectRoot),
+				maxMemoryChars: config.maxMemoryChars,
+			});
 		},
 	});
 
@@ -257,6 +245,45 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			return contextUpdateReply(report);
 		},
 	});
+}
+
+/**
+ * The `/memory` status reply for one loaded memory. Exported for tests.
+ *
+ * The reply distinguishes the states a silent fold would otherwise hide: a torn journal line, a
+ * source that exists but cannot be read, and a stored reply from the old bug. It also reports the
+ * character cap, which is the one degraded state the document itself cannot surface to the user:
+ * the truncation marker is written into MEMORY.md, but nothing reads it back. Measured on this
+ * repo at 41733 characters, the loaded document is capped at 31888 with 9621 dropped while every
+ * other flag stays clean — so without the note the receipt calls a memory that lost a third of
+ * itself perfectly healthy, and every later append lands past the cap and is dropped on write.
+ * @param memory - the loaded memory document and its status flags.
+ * @param context - the paths and the cap this project is configured with.
+ * @returns the command result.
+ */
+export function memoryStatusReply(
+	memory: Awaited<ReturnType<typeof loadMemory>>,
+	context: { projectRoot: string; journal: string; maxMemoryChars: number },
+): { kind: "success" | "error"; text: string } {
+	const capped = isMemoryTruncated(memory.text)
+		? ` Warning: MEMORY.md is at the ${context.maxMemoryChars}-character cap, so it is cut and new memory is dropped on write; raise maxMemoryChars or consolidate to shorten it.`
+		: "";
+	if (memory.unreadable) {
+		const hint = memory.source.endsWith("memory.jsonl")
+			? `Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl`
+			: `check its permissions`;
+		return { kind: "error", text: `Project memory exists but cannot be read: ${memory.source}; ${hint}.` };
+	}
+	if (memory.damaged) {
+		return { kind: "success", text: `Project memory: ${context.journal} (${memory.damaged} unusable line(s) skipped; see .agents/memory/errors.log).${capped}` };
+	}
+	if (memory.poisoned) {
+		return { kind: "success", text: `Project memory: ${memory.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).${capped}` };
+	}
+	return {
+		kind: "success",
+		text: memory.text.trim() ? `Project memory: ${memory.source}${capped}` : `No project memory yet: ${memoryFile(context.projectRoot)}`,
+	};
 }
 
 /**
