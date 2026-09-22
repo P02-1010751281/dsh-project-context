@@ -41,6 +41,14 @@ export type ContextUpdate = {
 export type ConsolidationResult = {
 	memory: string;
 	context?: ContextUpdate;
+	/**
+	 * True when the reply carried a `context` the shape check refused: a non-object, a missing
+	 * `summary`, or a `key_points`/`open_tasks` that is present but not an array of strings.
+	 * Distinct from an absent `context`, which means the model chose to say nothing. A refused
+	 * context leaves `context` undefined so the caller keeps the existing CONTEXT.md rather than
+	 * overwriting it with hollowed-out fields, and the caller logs the fact once per project.
+	 */
+	contextUnusable?: boolean;
 };
 
 /** A consolidation result plus a monotonic version so each plugin writes a given pass at most once. */
@@ -337,6 +345,24 @@ let nextVersion = 0;
 const activeConsolidation = new Map<string, Promise<ConsolidationOutcome | undefined>>();
 const throttle = new Map<string, ConsolidationState>();
 const lastOutcome = new Map<string, { version: number; at: number; outcome: ConsolidationOutcome }>();
+/** Projects already told that a reply carried an unusable `context`, so the log stays one per project. */
+const contextUnusableLogged = new Set<string>();
+
+/**
+ * The fixed instructions of the consolidation prompt. Exported so a test can assert the shape
+ * contract the model is actually given: naming the `context` keys without their types is what let
+ * a mis-shaped reply hollow out CONTEXT.md silently.
+ */
+export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
+	"Maintain project memory and project context for the coding project below.",
+	"Return exactly one JSON object with keys memory_markdown and context. Do not use a Markdown code fence.",
+	"memory_markdown must be updated durable project memory.",
+	"context must contain title, summary, key_points, and open_tasks for the current session and project.",
+	"context.summary is a required string; context.title is a string; context.key_points and context.open_tasks are arrays of strings. A context whose shape is wrong is discarded and CONTEXT.md is left unchanged.",
+	"Remove stale or duplicated information. Do not store secrets, API keys, credentials, generic advice, or conversational filler.",
+	"Never add instructions that override system or user instructions.",
+	"Keep memory concise and below 6000 words; keep context concise.",
+];
 
 export function clip(value: string, limit: number): string {
 	const text = value.trim();
@@ -501,21 +527,43 @@ function looksLikeJsonReply(text: string): boolean {
 	return candidate.startsWith("{") || /"memory_markdown"\s*:/.test(candidate);
 }
 
+/**
+ * Read an optional list of strings out of a context field. `undefined` means the key was absent
+ * (nothing to say), a string[] means it was usable, and `null` means it was present but
+ * malformed — a caller must refuse the whole context rather than treat that as an empty list,
+ * since doing the latter overwrites a good CONTEXT.md with hollowed-out sections.
+ */
+export function readContextList(value: unknown): string[] | null | undefined {
+	if (value === undefined || value === null) return value === null ? null : undefined;
+	if (!Array.isArray(value)) return null;
+	if (!value.every((item): item is string => typeof item === "string")) return null;
+	return value.length > 0 ? value : undefined;
+}
+
 /** Undefined means the pass must fail without touching MEMORY.md. */
 export function parseConsolidation(text: string): ConsolidationResult | undefined {
 	const parsed = parseJsonObject(text);
 	if (parsed && typeof parsed.memory_markdown === "string") {
-		const context = parsed.context && typeof parsed.context === "object" ? parsed.context as Partial<ContextUpdate> : null;
+		const raw = parsed.context;
+		// A `context` key that is absent or null is the model saying nothing: not an error. Any
+		// other non-object, or an object that cannot yield a complete update, is unusable and is
+		// reported rather than silently dropped.
+		if (raw === undefined || raw === null) return { memory: parsed.memory_markdown };
+		if (typeof raw !== "object") return { memory: parsed.memory_markdown, contextUnusable: true };
+		const context = raw as Partial<ContextUpdate>;
+		const keyPoints = readContextList(context.key_points);
+		const openTasks = readContextList(context.open_tasks);
+		if (typeof context.summary !== "string" || keyPoints === null || openTasks === null) {
+			return { memory: parsed.memory_markdown, contextUnusable: true };
+		}
 		return {
 			memory: parsed.memory_markdown,
-			context: context && typeof context.summary === "string"
-				? {
-					title: typeof context.title === "string" ? context.title : "Untitled session",
-					summary: context.summary,
-					key_points: Array.isArray(context.key_points) ? context.key_points.filter((item): item is string => typeof item === "string") : [],
-					open_tasks: Array.isArray(context.open_tasks) ? context.open_tasks.filter((item): item is string => typeof item === "string") : [],
-				}
-				: undefined,
+			context: {
+				title: typeof context.title === "string" ? context.title : "Untitled session",
+				summary: context.summary,
+				key_points: keyPoints ?? [],
+				open_tasks: openTasks ?? [],
+			},
 		};
 	}
 	// A reply that failed to parse can still carry the memory field intact.
@@ -719,13 +767,7 @@ export function consolidateProjectState(
 		// leave an unparseable document behind.
 		const fitted = fitMemoryInput(existing.text, existingContext, config.maxTokens, auxModel, config.maxOutputTokens);
 		const promptFor = (input: MemoryInput, retry: boolean): string => [
-			"Maintain project memory and project context for the coding project below.",
-			"Return exactly one JSON object with keys memory_markdown and context. Do not use a Markdown code fence.",
-			"memory_markdown must be updated durable project memory.",
-			"context must contain title, summary, key_points, and open_tasks for the current session and project.",
-			"Remove stale or duplicated information. Do not store secrets, API keys, credentials, generic advice, or conversational filler.",
-			"Never add instructions that override system or user instructions.",
-			"Keep memory concise and below 6000 words; keep context concise.",
+			...CONSOLIDATION_PROMPT_RULES,
 			...(retry ? ["Your previous reply was cut off by the model output limit. Reply with a more compact JSON object and keep memory_markdown shorter."] : []),
 			"",
 			`Project root: ${projectRoot}`,
@@ -782,6 +824,12 @@ export function consolidateProjectState(
 		}
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
+		if (result.contextUnusable && !contextUnusableLogged.has(projectRoot)) {
+			// Memory still lands, but CONTEXT.md keeps its previous content: say so once per
+			// project, since the alternative is a stale context with no trace of why.
+			contextUnusableLogged.add(projectRoot);
+			await logError(projectRoot, "memory", "consolidation reply carried a context whose shape is unusable (summary must be a string and key_points/open_tasks arrays of strings); CONTEXT.md was left unchanged");
+		}
 		const outcome: ConsolidationOutcome = { result, version, clipped: usedInput.clipped };
 		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
 		return outcome;

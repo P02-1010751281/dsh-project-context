@@ -38,6 +38,7 @@ import {
 	clip,
 	clipText,
 	consolidateProjectState,
+	CONSOLIDATION_PROMPT_RULES,
 	conversationText,
 	fallbackUpdate,
 	fitMemoryInput,
@@ -519,8 +520,60 @@ test("parseConsolidation recovers memory from a malformed reply and fails closed
 	assert.equal(parseConsolidation('{"memory_markdown": 17, "context": {'), undefined);
 });
 
-test("parseAutolearn separates a skill from a backtrack request", () => {
-	const direct = parseAutolearn(JSON.stringify({ skill: { name: "n", description: "d", body: "b" }, need_sessions: [] }));
+test("a context with the wrong shape is refused instead of hollowed out", () => {
+	// The defect: `key_points: "a, b, c"` (a string, not an array) was silently coerced to []
+	// while `summary` stayed a string, so the context was ACCEPTED and CONTEXT.md was rewritten
+	// with empty sections — destroying the previous content with nothing logged. A present but
+	// malformed list must now refuse the whole context.
+	const base = { memory_markdown: "# Project Memory\n\nfact" };
+	const unusable = [
+		{ ...base, context: { title: "t", summary: "s", key_points: "a, b, c", open_tasks: ["o"] } },
+		{ ...base, context: { title: "t", summary: "s", key_points: [1, 2], open_tasks: ["o"] } },
+		{ ...base, context: { title: "t", summary: "s", key_points: null, open_tasks: ["o"] } },
+		{ ...base, context: { title: "t", summary: "s", open_tasks: "o" } },
+		{ ...base, context: { title: "t", key_points: ["k"], open_tasks: ["o"] } },
+		{ ...base, context: "not an object" },
+	];
+	for (const reply of unusable) {
+		const result = parseConsolidation(JSON.stringify(reply));
+		assert.equal(result.context, undefined, `refused: ${JSON.stringify(reply.context)}`);
+		assert.equal(result.contextUnusable, true, `reported unusable: ${JSON.stringify(reply.context)}`);
+		// The memory half must still land: refusing the context must not cost the memory.
+		assert.match(result.memory, /fact/);
+	}
+
+	// Absent and null are the model saying nothing, which is not an error and must not be logged
+	// as one — otherwise a healthy pass reads as a failure.
+	for (const reply of [
+		{ ...base },
+		{ ...base, context: null },
+	]) {
+		const result = parseConsolidation(JSON.stringify(reply));
+		assert.equal(result.context, undefined);
+		assert.equal(result.contextUnusable, undefined, "absent/null context is not unusable");
+	}
+
+	// A well-shaped context still works, including genuinely empty lists.
+	const good = parseConsolidation(JSON.stringify({ ...base, context: { title: "t", summary: "s", key_points: ["k"], open_tasks: ["o"] } }));
+	assert.deepEqual(good.context.key_points, ["k"]);
+	assert.equal(good.contextUnusable, undefined);
+	const empty = parseConsolidation(JSON.stringify({ ...base, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }));
+	assert.deepEqual(empty.context.key_points, []);
+	assert.equal(empty.contextUnusable, undefined);
+});
+
+test("the consolidation prompt states the context field types, not just their names", () => {
+	// Naming the keys without their types is the root cause of the drift the shape check catches:
+	// the model is never told that a string where an array belongs costs the whole context.
+	const prompt = CONSOLIDATION_PROMPT_RULES.join("\n");
+	assert.match(prompt, /key_points and context\.open_tasks are arrays of strings/);
+	assert.match(prompt, /context\.summary is a required string/);
+	assert.match(prompt, /discarded and CONTEXT\.md is left unchanged/);
+	// The consequence must be stated too, or the model cannot know a wrong shape is costly.
+	assert.match(prompt, /discarded/);
+});
+
+test("parseAutolearn separates a skill from a backtrack request", () => {	const direct = parseAutolearn(JSON.stringify({ skill: { name: "n", description: "d", body: "b" }, need_sessions: [] }));
 	assert.equal(direct.skill.name, "n");
 	assert.deepEqual(direct.needSessions, []);
 
