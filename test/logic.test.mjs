@@ -37,12 +37,22 @@ import {
 	adaptiveOutputTokens,
 	clip,
 	clipText,
+	consolidateProjectState,
 	conversationText,
 	fallbackUpdate,
 	fitMemoryInput,
+	MAX_ADAPTIVE_OUTPUT_TOKENS,
+	MAX_REASONING_RESERVE_TOKENS,
+	MIN_REASONING_RESERVE_TOKENS,
 	parseConsolidation,
+	REASONING_RESERVE_RATIO,
+	REPLY_OUTPUT_MARGIN_TOKENS,
+	RETRY_OUTPUT_HEADROOM_TOKENS,
+	reasoningReserveTokens,
 	replyHead,
 	replyTokenRate,
+	requestPluginText,
+	requestPluginTextWithMeta,
 	textOf,
 	truncateMiddle,
 } from "../lib/shared/learn.js";
@@ -65,7 +75,7 @@ import {
 import { releaseSessionQueue, writeSessionArtifacts } from "../lib/shared/session-log.js";
 import { installProjectContextSettings } from "../lib/shared/settings.js";
 import { contextUpdateReply, memoryStatusReply } from "../lib/memory.js";
-import { isMemoryTruncated, normalizeMemoryDocument } from "../lib/shared/memory-store.js";
+import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/shared/memory-store.js";
 
 function message(role, text) {
 	return { role, source: { kind: role }, content: [{ type: "text", text }] };
@@ -2291,4 +2301,314 @@ test("tool results reach the live transcript, not just the tool name", () => {
 	const transcript = conversationText(session);
 	assert.match(transcript, /## assistant\n\[tool: bash\]/);
 	assert.match(transcript, /## tool result\nall green/, "the output is in the transcript the summarizer reads");
+});
+
+// ---------------------------------------------------------------------------
+// Output budget for reasoning routes, and the visible/retryable truncation path.
+// Hidden reasoning is a *subset of the same output cap* as the visible reply, so a
+// reasoning route that is not given a reserve spends the budget thinking and gets its
+// JSON cut off mid-string. dsh reports that as `max-tokens` — never pi's `length`.
+// ---------------------------------------------------------------------------
+
+test("reasoningReserveTokens reserves only for a reasoning route", () => {
+	// A non-reasoning route reserves nothing, whatever the content size.
+	assert.equal(reasoningReserveTokens(100_000, {}), 0, "an unknown route is not a reasoning route");
+	assert.equal(reasoningReserveTokens(100_000, { reasoning: false }), 0);
+	// No content means nothing to reserve for — the floor is not unconditional.
+	assert.equal(reasoningReserveTokens(0, { reasoning: true }), 0);
+	assert.equal(reasoningReserveTokens(-5, { reasoning: true }), 0);
+
+	// Proportional in between the two clamps, computed from the bare constants.
+	const mid = 10_000;
+	assert.equal(reasoningReserveTokens(mid, { reasoning: true }), Math.round(mid * REASONING_RESERVE_RATIO));
+	assert.ok(mid * REASONING_RESERVE_RATIO > MIN_REASONING_RESERVE_TOKENS && mid * REASONING_RESERVE_RATIO < MAX_REASONING_RESERVE_TOKENS);
+
+	// Floor: a tiny content estimate still gets the minimum reserve.
+	assert.equal(reasoningReserveTokens(1, { reasoning: true }), MIN_REASONING_RESERVE_TOKENS);
+	assert.equal(reasoningReserveTokens(100, { reasoning: true }), MIN_REASONING_RESERVE_TOKENS);
+	// Ceiling: a huge one is clamped, not proportional.
+	assert.equal(reasoningReserveTokens(1_000_000, { reasoning: true }), MAX_REASONING_RESERVE_TOKENS);
+});
+
+test("the non-reasoning budget is unchanged value for value", () => {
+	// The invariant pi demands: with no reasoning flag and no retry headroom, `fitMemoryInput`
+	// must behave exactly as it did before the reserve existed. The expectation is computed from
+	// the OLD formula transcribed here, never by calling the helper under test.
+	const oldBudget = (memory, context, configuredMaxTokens, model, ceilingTokens) => {
+		const memoryRate = replyTokenRate(memory);
+		const contextRate = replyTokenRate(context);
+		const needed = Math.ceil(memory.length * memoryRate + context.length * contextRate) + REPLY_OUTPUT_MARGIN_TOKENS;
+		const maxTokens = adaptiveOutputTokens(configuredMaxTokens, needed, model, ceilingTokens);
+		const reserved = Math.min(REPLY_OUTPUT_MARGIN_TOKENS, maxTokens, Math.max(64, maxTokens - 400));
+		return { maxTokens, budget: Math.max(0, maxTokens - reserved) };
+	};
+
+	// Dense, ASCII, and empty inputs, over caps that exercise the floor and the ceiling.
+	const cases = [
+		["", ""],
+		["# Project Memory\n\nsmall", "## Summary\nsmall"],
+		["m".repeat(400_000), "c".repeat(400_000)],
+		["记".repeat(60_000), "录".repeat(60_000)],
+		["a\"\\".repeat(9_000), "plain prose"],
+	];
+	for (const [memory, context] of cases) {
+		for (const configured of [256, 1024, 8192, 32_768]) {
+			for (const ceiling of [256, 4096, 32_768, 100_000]) {
+				for (const modelCap of [undefined, 0, 12_000, 1_000_000]) {
+					const model = { maxTokens: modelCap };
+					const expected = oldBudget(memory, context, configured, model, ceiling);
+					const actual = fitMemoryInput(memory, context, configured, model, ceiling);
+					const label = `mem=${memory.length} ctx=${context.length} configured=${configured} ceiling=${ceiling} modelCap=${modelCap}`;
+					assert.equal(actual.maxTokens, expected.maxTokens, `maxTokens drifted for ${label}`);
+					// The clipping decision must match too: agreement of `clipped` with the old
+					// "content fits the old budget" test is what proves the same text is sent.
+					const contentTokens = memory.length * replyTokenRate(memory) + context.length * replyTokenRate(context);
+					assert.equal(actual.clipped, !(contentTokens <= expected.budget), `clipped drifted for ${label}`);
+					if (!actual.clipped) {
+						assert.equal(actual.text, memory, `text drifted for ${label}`);
+						assert.equal(actual.contextText, context, `contextText drifted for ${label}`);
+					}
+				}
+			}
+		}
+	}
+
+	// Passing the headroom explicitly as 0 is the same as omitting it.
+	const base = fitMemoryInput("abc", "def", 8192, {});
+	const explicit = fitMemoryInput("abc", "def", 8192, {}, MAX_ADAPTIVE_OUTPUT_TOKENS, 0);
+	assert.deepEqual(explicit, base);
+});
+
+test("a reasoning route gets a strictly larger budget than the same non-reasoning input", () => {
+	// The reserve feeds `needed`, so it raises the requested cap while the cap is still below the
+	// ceiling. (Once the ceiling binds, the same reserve instead shows up as less content sent —
+	// the next test pins that half.) Both are the reserve being really charged to the request.
+	const memory = "m".repeat(200_000);
+	const context = "c".repeat(200_000);
+	const ceiling = 2_000_000;
+	const plain = fitMemoryInput(memory, context, 8192, {}, ceiling);
+	const reasoning = fitMemoryInput(memory, context, 8192, { reasoning: true }, ceiling);
+	assert.ok(reasoning.maxTokens > plain.maxTokens, `reasoning cap ${reasoning.maxTokens} must exceed ${plain.maxTokens}`);
+	// The reserve is taken out of what the visible input may use, so under a binding ceiling the
+	// reasoning route must send strictly *less* stored content than the non-reasoning one.
+	const tightCeiling = 32_768;
+	const plainTight = fitMemoryInput(memory, context, 8192, {}, tightCeiling);
+	const reasoningTight = fitMemoryInput(memory, context, 8192, { reasoning: true }, tightCeiling);
+	assert.ok(plainTight.clipped && reasoningTight.clipped, "fixture: both fits are budget-bound here");
+	assert.ok(reasoningTight.text.length < plainTight.text.length, `reasoning sent ${reasoningTight.text.length} chars, plain ${plainTight.text.length}`);
+});
+
+test("extra headroom is held back from the input the pass sends", () => {
+	// The headroom is spent on the request, so it can show up either as a larger `maxTokens`
+	// (when the ceiling is what binds) or as less stored content sent inside the same cap
+	// (when the model's own limit binds). Both are the reserve being really taken out.
+	const memory = "m".repeat(400_000);
+	const context = "c".repeat(400_000);
+
+	const base = fitMemoryInput(memory, context, 8192, {}, 32_768);
+	const retried = fitMemoryInput(memory, context, 8192, {}, 32_768, RETRY_OUTPUT_HEADROOM_TOKENS);
+	assert.ok(retried.maxTokens >= base.maxTokens, "the retry never asks for less room than the first attempt");
+	assert.ok(retried.text.length < base.text.length, `the retry must send less content (${retried.text.length} vs ${base.text.length})`);
+
+	// With a model cap in range, the same reserve visibly raises the requested cap instead.
+	const capped = fitMemoryInput("m".repeat(20_000), "c".repeat(20_000), 8192, {}, 32_768);
+	const cappedRetry = fitMemoryInput("m".repeat(20_000), "c".repeat(20_000), 8192, {}, 32_768, RETRY_OUTPUT_HEADROOM_TOKENS);
+	assert.ok(cappedRetry.maxTokens > capped.maxTokens, `headroom cap ${cappedRetry.maxTokens} must exceed ${capped.maxTokens}`);
+});
+
+/** A consolidation pass over a temp project with a scripted `ctx.llm.stream`. */
+async function consolidationFixture({ root, replies, modelInfo }) {
+	const calls = [];
+	const warnings = [];
+	const ctx = {
+		logger: { info() {}, warn: (format, ...args) => { warnings.push(`${format} ${args.join(" ")}`); } },
+		llm: {
+			resolveModelInfo: async () => modelInfo ?? { context: { contextWindow: 200_000 } },
+			stream(options) {
+				calls.push(options);
+				const reply = replies[Math.min(calls.length - 1, replies.length - 1)];
+				return (async function* generate() {
+					if (reply.usage) yield { type: "usage", usage: reply.usage };
+					yield { type: "text-delta", index: 0, text: reply.text };
+					yield { type: "finish", reason: reply.reason ?? { kind: "stop" } };
+				})();
+			},
+		},
+	};
+	const agent = {
+		options: { provider: "test-provider", model: "test-model" },
+		session: {
+			id: "session-truncation",
+			header: { cwd: root, createdAt: Date.now() },
+			snapshotEvents: () => [],
+			deriveMessages: () => [],
+			requestHeader: () => undefined,
+		},
+	};
+	return { calls, warnings, ctx, agent };
+}
+
+const COMPLETE_REPLY = '{"memory_markdown":"# Project Memory\\n\\nkept\\n","context":{"title":"t","summary":"s","key_points":[],"open_tasks":[]}}';
+const CUT_REPLY = '{"memory_markdown":"# Project Memory\\n\\nwas cut off here';
+
+test("a reply cut off by the output limit is retried once with more headroom", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-retry-"));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+	// Dense content, sized to fit the read cap, so the first fit really is budget-bound and the
+	// retry (which reserves RETRY_OUTPUT_HEADROOM_TOKENS more) is distinguishable from it.
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${"记".repeat(30_000)}\n`, "utf8");
+	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	assert.equal((await loadMemory(root, 40_000)).text.length, stored.trimEnd().length, "the fixture memory survives the read cap");
+
+	const { calls, warnings, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ text: CUT_REPLY, reason: { kind: "max-tokens" }, usage: { inputTokens: 10, outputTokens: 8192, reasoningTokens: 5000 } },
+			{ text: COMPLETE_REPLY, reason: { kind: "stop" }, usage: { inputTokens: 10, outputTokens: 200 } },
+		],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000 });
+
+	// Capture rather than await: if the retry never happens the pass *rejects*, and an assertion
+	// about the call count is a far better failure signal than a propagated "not a usable JSON
+	// object" error. The count is asserted before anything touches the reply text.
+	let outcome;
+	let failure;
+	try {
+		outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	} catch (error) {
+		failure = error;
+	}
+	assert.equal(calls.length, 2, `one retry after the truncation, and no more (failure: ${failure?.message ?? "none"})`);
+	assert.equal(failure, undefined, `the retried pass must succeed, got: ${failure?.message}`);
+	// The retry reserves RETRY_OUTPUT_HEADROOM_TOKENS more out of the same cap, which shows up as
+	// a larger requested cap or as less stored content sent — the retry never sends more.
+	const sentMemory = (call) => /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(call.messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
+	assert.ok(
+		calls[1].maxTokens > calls[0].maxTokens || sentMemory(calls[1]).length < sentMemory(calls[0]).length,
+		`the retry must reserve more room: caps ${calls[0].maxTokens} -> ${calls[1].maxTokens}, memory ${sentMemory(calls[0]).length} -> ${sentMemory(calls[1]).length}`,
+	);
+	const retryPrompt = calls[1].messages[0].content.map((block) => block.text ?? "").join("\n");
+	assert.match(retryPrompt, /cut off by the model output limit/i, "the retry says why it is being asked again");
+	assert.match(retryPrompt, /compact|shorter/i, "the retry asks for a shorter reply");
+	// The first prompt must NOT carry the retry instruction.
+	const firstPrompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
+	assert.doesNotMatch(firstPrompt, /cut off by the model output limit/i);
+	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n", "the successful retry is accepted");
+	assert.deepEqual(warnings, [], `a recovered truncation is not a failure: ${JSON.stringify(warnings)}`);
+});
+
+test("a reply cut off twice is reported as an output-limit failure and writes nothing", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-double-"));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), "# Project Memory\n\noriginal\n", "utf8");
+
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: CUT_REPLY, reason: { kind: "max-tokens" }, usage: { inputTokens: 10, outputTokens: 8192, reasoningTokens: 4096 } }],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
+
+	await assert.rejects(
+		() => consolidateProjectState(ctx, agent, config, { force: true }),
+		(error) => {
+			assert.match(error.message, /cut off by the model output limit/, "the failure names the output limit");
+			assert.match(error.message, /\d+ tokens requested/, "it reports the cap it asked for");
+			assert.match(error.message, /4096 spent on hidden reasoning/, "and the hidden reasoning it paid for");
+			assert.doesNotMatch(error.message, /not a usable JSON object/, "not the generic parse wording");
+			return true;
+		},
+	);
+	assert.equal(calls.length, 2, "it retried once before giving up");
+	// Fail-closed: the truncated fragment must never reach MEMORY.md.
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), "# Project Memory\n\noriginal\n");
+});
+
+test("a complete JSON reply is accepted even when the model stopped on max-tokens", async () => {
+	// The converse guard: truncation alone must not trigger a retry. If the object parsed, the
+	// reply is usable and spending a second model call on it is waste.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-complete-"));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+
+	const { calls, warnings, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: COMPLETE_REPLY, reason: { kind: "max-tokens" }, usage: { inputTokens: 10, outputTokens: 8192 } }],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
+
+	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+
+	assert.equal(calls.length, 1, "a parseable reply is never retried");
+	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n");
+	assert.deepEqual(warnings, []);
+});
+
+test("clipped follows the input that was actually sent last", async () => {
+	// The retry fits with extra headroom, so it may send *less* stored content than the first
+	// attempt. The reported `clipped` must describe that last call, not the first fit — and the
+	// input size here is chosen so the two differ: the first fit sends everything, the retry clips.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-clipped-"));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+	const content = "字".repeat(27_673);
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${content}\n`, "utf8");
+
+	// Guard the fixture itself: this test only proves anything while the two fits disagree.
+	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	assert.equal(fitMemoryInput(stored, "", 8192, {}, 32_768).clipped, false, "the first fit must not clip");
+	assert.equal(fitMemoryInput(stored, "", 8192, {}, 32_768, RETRY_OUTPUT_HEADROOM_TOKENS).clipped, true, "the retry fit must clip");
+
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ text: CUT_REPLY, reason: { kind: "max-tokens" } },
+			{ text: COMPLETE_REPLY, reason: { kind: "stop" } },
+		],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000 });
+
+	const outcome = await consolidateProjectState(ctx, agent, config, { force: true }).catch((error) => error);
+
+	assert.equal(calls.length, 2, `the retry must run (got: ${outcome?.message ?? "a success"})`);
+	const sentMemory = (call) => /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(call.messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
+	assert.ok(sentMemory(calls[1]).length < sentMemory(calls[0]).length, "the retry really did send less");
+	assert.equal(outcome.clipped, true, "clipped mirrors the last input sent, not the first fit");
+});
+
+test("requestPluginText and its meta variant keep the error and abort semantics", async () => {
+	// Regression: `max-tokens` must NOT throw — it is "content, but cut off", which the caller
+	// retries. `error` and `aborted` must still throw exactly the message they always did.
+	const streamOf = (chunks) => ({ llm: { stream: () => (async function* generate() { for (const chunk of chunks) yield chunk; })() } });
+	const target = { provider: "p", model: "m" };
+
+	const ok = await requestPluginTextWithMeta(streamOf([
+		{ type: "text-delta", index: 0, text: "  hello  " },
+		{ type: "usage", usage: { inputTokens: 1, outputTokens: 9, reasoningTokens: 4 } },
+		{ type: "finish", reason: { kind: "max-tokens" } },
+	]), target, 16, "prompt", undefined);
+	assert.deepEqual(ok, { text: "hello", stopReason: "max-tokens", reasoningTokens: 4 }, "the meta variant reports the reason and the hidden thinking");
+
+	// The thin wrapper keeps its old signature and returns just the text.
+	const text = await requestPluginText(streamOf([{ type: "text-delta", index: 0, text: "  hi  " }, { type: "finish", reason: { kind: "stop" } }]), target, 16, "prompt", undefined);
+	assert.equal(text, "hi");
+
+	// An adapter that reports no usage leaves the reasoning count at 0 rather than NaN.
+	const noUsage = await requestPluginTextWithMeta(streamOf([{ type: "text-delta", index: 0, text: "x" }, { type: "finish", reason: { kind: "stop" } }]), target, 16, "prompt", undefined);
+	assert.deepEqual(noUsage, { text: "x", stopReason: "stop", reasoningTokens: 0 });
+
+	for (const kind of ["error", "aborted"]) {
+		const failure = { message: "upstream exploded", code: "boom" };
+		await assert.rejects(
+			() => requestPluginText(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined),
+			(error) => {
+				assert.equal(error.message, "plugin model call failed (boom): upstream exploded");
+				return true;
+			},
+			`${kind} must still throw`,
+		);
+		await assert.rejects(
+			() => requestPluginTextWithMeta(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined),
+			/plugin model call failed \(boom\): upstream exploded/,
+			`the meta variant must throw for ${kind} too`,
+		);
+	}
 });

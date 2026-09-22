@@ -16,7 +16,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import type { PluginConfig } from "./config.js";
 import { readArchivedConversation } from "./archive.js";
-import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, parseJsonObject, requestPluginText, resolveTarget, userTurnCount } from "./learn.js";
+import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, parseJsonObject, reasoningReserveTokens, requestPluginText, resolveModelMetadata, resolveTarget, userTurnCount } from "./learn.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import {
 	MAX_CONTEXT_CHARS,
@@ -360,19 +360,6 @@ function backtrackPrompt(projectRoot: string, memoryText: string, skillsText: st
 }
 
 /**
- * The routed model's own output cap, when its adapter publishes one. Model
- * catalog metadata is advisory, so an unknown provider simply yields no cap.
- */
-async function modelOutputLimit(ctx: Context, target: { provider: string; model: string }, signal: AbortSignal | undefined): Promise<number | undefined> {
-	try {
-		const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
-		return info.defaultMaxTokens;
-	} catch {
-		return undefined;
-	}
-}
-
-/**
  * Run one autolearn pass. Automatic runs require new material (MEMORY.md or
  * CONTEXT.md touched since the last pass) plus one open cadence gate (turn
  * count across sessions or wall-clock interval). Commands force the pass.
@@ -440,12 +427,16 @@ export function autolearnProjectSkills(
 			if (!target) throw new Error("no provider/model available for the autolearn pass: route one request, set AgentOptions, or configure provider+model");
 			const skillsText = inventoryText(await collectSkillInventory(projectRoot));
 			// A skill body can be as large as MAX_SKILL_BODY_CHARS; ask for enough output room
-			// (1 token per char worst case), bounded by the model's own limit and the configured
-			// ceiling, so a larger body is not silently truncated by the default cap.
+			// (1 token per char worst case), plus a reserve for hidden reasoning on a reasoning
+			// route, where thinking shares the same output cap as the body and would otherwise cut
+			// the JSON off mid-string. Bounded by the model's own limit and the configured ceiling.
+			// The ceiling stays a *growth* boundary (`Math.max` inside `adaptiveOutputTokens`), not a
+			// hard cap: the configured maxTokens remains the base budget.
+			const info = await resolveModelMetadata(ctx, target, options.signal);
 			const maxTokens = adaptiveOutputTokens(
 				config.maxTokens,
-				MAX_SKILL_BODY_CHARS + REPLY_OUTPUT_MARGIN_TOKENS,
-				{ maxTokens: await modelOutputLimit(ctx, target, options.signal) },
+				MAX_SKILL_BODY_CHARS + REPLY_OUTPUT_MARGIN_TOKENS + reasoningReserveTokens(MAX_SKILL_BODY_CHARS, { reasoning: info?.reasoning !== undefined }),
+				{ maxTokens: info?.defaultMaxTokens },
 				config.maxOutputTokens,
 			);
 			// Evidence is a file on disk, not a line in the index: an indexed session whose log
