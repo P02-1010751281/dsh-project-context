@@ -21,16 +21,18 @@ import {
 	backupMemoryBeforeWrite,
 	foldMemoryJournal,
 	importLegacyMemory,
+	isMemoryTruncated,
 	loadMemory,
 	loadMemorySync,
 	memoryJournalFile,
+	memoryTruncationMarker,
 	normalizeMemoryDocument,
 	readMemoryJournal,
 	recordMemoryDocument,
 	staleLockAge,
 	withMemoryLock,
 } from "../lib/shared/memory-store.js";
-import { legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
+import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
 import { consolidateProject } from "../lib/memory.js";
 import { consolidateProjectState } from "../lib/shared/learn.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
@@ -337,7 +339,7 @@ test("the console copy of a failure is redacted even when its source is not", as
 
 test("the consolidation prompt sends the fitted, clipped artifacts", async () => {
 	// The budget only matters if it reaches the model call. The artifacts are already capped on
-	// read (24k memory / 32k context chars), so the trigger is *dense* content: CJK costs about a
+	// read (32k memory / 32k context chars), so the trigger is *dense* content: CJK costs about a
 	// token per character and 56k characters cannot fit a 32,768-token reply.
 	const root = await project();
 	const memory = `# Project Memory\n\n${"记".repeat(60_000)}\n`;
@@ -374,7 +376,7 @@ test("the consolidation prompt sends the fitted, clipped artifacts", async () =>
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	assert.equal(outcome.clipped, true, "the oversized input is reported as clipped");
 	const sent = /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(prompt)[1];
-	assert.ok(sent.length < 24_000, `the prompt carries ${sent.length} of the 24000-char memory budget`);
+	assert.ok(sent.length < MAX_MEMORY_CHARS, `the prompt carries ${sent.length} of the ${MAX_MEMORY_CHARS}-char memory budget`);
 	assert.ok(calls[0].maxTokens > config.maxTokens, "the adaptive cap was raised to fit the reply");
 	assert.ok(calls[0].maxTokens <= config.maxOutputTokens, "and stayed inside the configured ceiling");
 });
@@ -505,9 +507,158 @@ test("normalizeMemoryDocument rebuilds one canonical document", () => {
 	assert.equal(normalizeMemoryDocument("```markdown\n# Project Memory\n\nbody\n```"), "# Project Memory\n\nbody\n");
 	assert.equal(normalizeMemoryDocument("body only"), "# Project Memory\n\nbody only\n");
 	assert.equal(normalizeMemoryDocument(""), "# Project Memory\n");
-	// The cap keeps the document inside the injection budget.
-	const huge = normalizeMemoryDocument("y".repeat(100_000));
-	assert.ok(huge.length <= 24_000 + "# Project Memory\n\n".length);
+	// The default cap keeps a document that fits exactly as it is.
+	assert.equal(normalizeMemoryDocument("tiny"), "# Project Memory\n\ntiny\n");
+	assert.equal(MAX_MEMORY_CHARS, 32_000, "the default cap is the documented 32000");
+});
+
+/** A memory document of `count` complete lines, each well under any line-length cap. */
+function lines(count) {
+	return Array.from({ length: count }, (_, index) => `- fact ${index} ${"x".repeat(40)}`).join("\n");
+}
+
+test("a capped memory keeps whole lines and reports the cut", () => {
+	// The cap used to be a bare `.slice(0, MAX_MEMORY_CHARS)`: the last line was cut mid-sentence,
+	// so a fact lost its tail with nothing to show for it, and the document looked complete.
+	const source = lines(200);
+	const limit = 4_000;
+	const out = normalizeMemoryDocument(source, limit);
+	const bodyLines = out.trimEnd().split("\n").slice(2, -2);
+
+	// Every kept line is a complete line of the source (the marker line is not a source line).
+	assert.ok(bodyLines.length > 0, "something is kept");
+	for (const line of bodyLines) assert.equal(source.split("\n").includes(line), true, `line is complete: ${line}`);
+	// And the body is the source's prefix, unbroken: no line was silently cut or reordered.
+	assert.equal(bodyLines.join("\n"), source.split("\n").slice(0, bodyLines.length).join("\n"));
+	assert.equal(bodyLines[0].startsWith("- fact 0 "), true, "the body starts at the first source line");
+
+	// The marker is the last line and names the limit; `isMemoryTruncated` sees it.
+	const marker = out.trimEnd().split("\n").pop();
+	assert.match(marker, /^_\[memory truncated at 4000 characters: \d+ dropped\]_$/);
+	assert.equal(isMemoryTruncated(out), true, "a capped memory is visibly capped");
+	assert.equal(isMemoryTruncated("# Project Memory\n\n- fact\n"), false);
+
+	// The character budget is honoured, marker included.
+	assert.ok(out.trimEnd().length <= limit, `document is ${out.trimEnd().length} chars, over the ${limit} cap`);
+	// Nothing was thrown away silently: the marker accounts for the whole loss.
+	const document = `# Project Memory\n\n${source.trim()}`;
+	const dropped = Number(/: (\d+) dropped\]_$/.exec(marker)[1]);
+	assert.equal(document.length - out.trimEnd().split("\n").slice(0, -2).join("\n").length, dropped, "the marker accounts for exactly the loss");
+});
+
+test("the truncation marker names the limit and the dropped characters", () => {
+	const source = lines(200);
+	const limit = 4_000;
+	const out = normalizeMemoryDocument(source, limit);
+	const marker = out.trimEnd().split("\n").pop();
+	const named = /^_\[memory truncated at (\d+) characters: (\d+) dropped\]_$/.exec(marker);
+	assert.ok(named, `marker shape: ${marker}`);
+	assert.equal(Number(named[1]), limit, "the limit is named");
+	// The dropped count is the number of source characters that did not make it: the whole
+	// document minus what was kept, exactly as the marker promises.
+	const document = `# Project Memory\n\n${source.trim()}`;
+	const keptLength = out.trimEnd().split("\n").slice(0, -2).join("\n").length;
+	assert.equal(Number(named[2]), document.length - keptLength, "the dropped count is the real loss");
+	assert.equal(memoryTruncationMarker(7, 100), "_[memory truncated at 100 characters: 7 dropped]_");
+});
+
+test("a capped document that is written back unchanged stays capped the same way", () => {
+	// The store re-normalizes on every write (journal append and render). A document that is
+	// already capped must come back byte-identical, or every pass would shave another line off
+	// the memory — the compounding loss in its other form.
+	const limit = 6_000;
+	const first = normalizeMemoryDocument(lines(300), limit);
+	assert.equal(isMemoryTruncated(first), true);
+	assert.equal(normalizeMemoryDocument(first, limit), first);
+	// Rendering it back through the normalizer sees the same bytes a read would.
+	assert.equal(normalizeMemoryDocument(first.trim(), limit), first);
+	// And the marker's count does not drift as the document is re-emitted repeatedly.
+	for (let pass = 0; pass < 5; pass += 1) assert.equal(normalizeMemoryDocument(first, limit), first, `pass ${pass}`);
+});
+
+test("normalizing a capped document twice is idempotent", () => {
+	const limit = 4_000;
+	const once = normalizeMemoryDocument(lines(200), limit);
+	assert.equal(isMemoryTruncated(once), true);
+	const twice = normalizeMemoryDocument(once, limit);
+	assert.equal(twice, once, "the marker is stripped and recomputed, not appended again");
+	assert.equal(normalizeMemoryDocument(twice, limit), once, "and it stays stable");
+	// A document that fits keeps a marker an earlier cap left behind as its last line, so a memory
+	// that shrank (a smaller cap was configured) still reports why it is short instead of silently
+	// dropping the notice.
+	const shrunk = normalizeMemoryDocument(once, 200_000);
+	assert.equal(isMemoryTruncated(shrunk), true, "the notice survives a raise of the cap");
+	assert.match(shrunk, /- fact 0 /);
+});
+
+test("a memory line beginning with the marker words is not a marker", () => {
+	// Only the exact shape is a marker. A real memory line that happens to start the same way must
+	// neither be read as a cap (a fitted document that carries one is not truncated) nor be moved
+	// to the end of the document when a real marker is appended.
+	const lookalike = "_[memory truncated at some point in the past]_";
+	assert.equal(isMemoryTruncated(`# Project Memory\n\n${lookalike}\n`), false, "the lookalike alone is not a marker");
+
+	// Kept verbatim and in place when the document fits.
+	const fits = `${lookalike}\n\ntiny tail`;
+	const kept = normalizeMemoryDocument(fits);
+	assert.equal(isMemoryTruncated(kept), false, "a fitted document is not reported as capped");
+	assert.equal(kept.indexOf(lookalike) < kept.indexOf("tiny tail"), true, "the lookalike stays where it was written");
+
+	// Over the cap: a real marker is added, and the lookalike is still an ordinary line that was
+	// neither stripped nor hoisted to the end.
+	const limit = 4_000;
+	const out = normalizeMemoryDocument(`${lookalike}\n${lines(200)}`, limit);
+	assert.equal(out.split(lookalike).length - 1, 1, "the lookalike appears exactly once, not duplicated to the end");
+	assert.equal(out.indexOf(lookalike) < out.indexOf("- fact 0 "), true, "and it precedes the source body");
+	assert.match(out.trimEnd().split("\n").pop(), /^_\[memory truncated at 4000 characters: \d+ dropped\]_$/, "a real marker is still added");
+	// Idempotent afterwards: the real marker is stripped and recomputed, the lookalike is untouched.
+	assert.equal(normalizeMemoryDocument(out, limit), out);
+});
+
+test("an explicit limit is honoured, and the default cap is the documented one", () => {
+	// Each fixture genuinely exceeds its limit, so every case really exercises the cap.
+	for (const [limit, count] of [[MIN_MEMORY_CHARS, 90], [6_000, 200], [20_000, 500]]) {
+		const source = lines(count);
+		assert.ok(source.length > limit, `fixture ${count} lines exceeds ${limit}`);
+		const out = normalizeMemoryDocument(source, limit);
+		const marker = out.trimEnd().split("\n").pop();
+		assert.match(marker, new RegExp(`^_\\[memory truncated at ${limit} characters: \\d+ dropped\\]_$`));
+		assert.equal(isMemoryTruncated(out), true);
+		// The whole document, marker included, fits the configured limit.
+		assert.ok(out.trimEnd().length <= limit, `document is ${out.trimEnd().length} chars, over the ${limit} cap`);
+		// A larger limit keeps strictly more body than a smaller one.
+		const body = out.trimEnd().split("\n").slice(0, -2).join("\n").length;
+		assert.ok(body > 0 && body < source.length, `body ${body} is a real prefix of ${source.length}`);
+	}
+	// The default cap is the documented one, and what it keeps is far more than the old 24000 did.
+	const large = normalizeMemoryDocument(lines(700), MAX_MEMORY_CHARS);
+	assert.match(large.trimEnd().split("\n").pop(), /^_\[memory truncated at 32000 characters: \d+ dropped\]_$/);
+	assert.ok(large.trimEnd().length > 24_000, `the default keeps ${large.trimEnd().length} chars, more than the old cap`);
+	assert.equal(normalizeMemoryDocument("tiny", MIN_MEMORY_CHARS), "# Project Memory\n\ntiny\n", "a short document is untouched");
+});
+
+test("new memory appended to a capped document survives the next write", async () => {
+	// The defect this whole change is about: new memory is appended at the end, which is exactly
+	// what the cap dropped, so every consolidation pass silently discarded the learning it had
+	// just produced. Against a memory already over the cap, appending must keep the new line.
+	const limit = 4_000;
+	let document = normalizeMemoryDocument(lines(200), limit);
+	assert.equal(isMemoryTruncated(document), true, "the fixture starts capped");
+	for (let pass = 1; pass <= 3; pass += 1) {
+		const before = document.length;
+		document = normalizeMemoryDocument(`${document}\n\nNEW fact ${pass}`, limit);
+		assert.ok(document.includes(`NEW fact ${pass}`), `pass ${pass}: the new line survived`);
+		assert.equal(isMemoryTruncated(document), true, "and the cap is still reported");
+		assert.match(document.trimEnd().split("\n").pop(), /^_\[memory truncated at 4000 characters: \d+ dropped\]_$/);
+		assert.ok(document.length <= limit + 200, `pass ${pass}: the document stays near the cap (${before} -> ${document.length})`);
+	}
+	// The line is durable through the store too, not only through the pure normalizer.
+	const root = await project();
+	await writeFile(memoryFile(root), normalizeMemoryDocument(lines(200), limit), "utf8");
+	await recordMemoryDocument(root, `${await readFile(memoryFile(root), "utf8")}\n\nNEW durable fact`, limit);
+	const loaded = await loadMemory(root, limit);
+	assert.match(loaded.text, /NEW durable fact/, "the store keeps the appended fact");
+	assert.equal(isMemoryTruncated(loaded.text), true, "and reports the cap it applied");
 });
 
 test("the lock waiter outlives the staleness horizon", () => {

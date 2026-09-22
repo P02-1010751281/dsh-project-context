@@ -11,6 +11,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import type {} from "@deepseek-ai/dsh-settings";
 import { DEFAULT_CONFIG, type PluginConfig } from "./config.js";
+import { MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 
 /** Settings namespace shared by `project-context` and `project-memory`. */
 export const SETTINGS_NAMESPACE = "project-context" as const;
@@ -24,6 +25,7 @@ export const PluginSettingsSchema = z.object({
 	forceDedupeMs: z.natural().default(DEFAULT_CONFIG.forceDedupeMs),
 	maxTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxTokens),
 	maxOutputTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxOutputTokens),
+	maxMemoryChars: z.natural().min(MIN_MEMORY_CHARS).max(MAX_MEMORY_CHARS_LIMIT).default(DEFAULT_CONFIG.maxMemoryChars),
 	provider: z.string().default(DEFAULT_CONFIG.provider),
 	model: z.string().default(DEFAULT_CONFIG.model),
 	autoLearn: z.boolean().default(DEFAULT_CONFIG.autoLearn),

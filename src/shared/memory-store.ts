@@ -386,9 +386,10 @@ function jsonObjectEnd(text: string, start: number): number {
  * back into markdown for readers (injection, consolidation, autolearn); the stored file is only
  * replaced by the normal consolidation write path, so a mis-detection can never destroy it.
  * @param current - the document as stored.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
  * @returns the decoded document, or `undefined` when the bytes are not a stored reply.
  */
-function decodePoisonedMemory(current: string): string | undefined {
+function decodePoisonedMemory(current: string, limit: number = MAX_MEMORY_CHARS): string | undefined {
 	const body = current.replace(/^#\s*Project Memory\s*/i, "").trim();
 	const objectAt = body.indexOf("{");
 	if (objectAt < 0) return undefined;
@@ -417,22 +418,81 @@ function decodePoisonedMemory(current: string): string | undefined {
 	// A header-less value is accepted only for the canonical wrappers and only when it clearly is
 	// a document; an introducer line carries more false-positive risk, so it needs the header.
 	if (!hasHeader && (prosePrefix || decoded.length < MIN_DECODED_MEMORY_CHARS || !decoded.includes("\n"))) return undefined;
-	return normalizeMemoryDocument(field.value);
+	return normalizeMemoryDocument(field.value, limit);
 }
 
 // ---------------------------------------------------------------------------
 // Rendered document + backups
 // ---------------------------------------------------------------------------
 
-/** Rebuild the `# Project Memory` document from a model or recovered value, keeping every line. */
-export function normalizeMemoryDocument(value: string): string {
-	const body = value
+/** Leading text of the marker line a capped memory carries; the full shape is matched below. */
+const MEMORY_TRUNCATION_PREFIX = "_[memory truncated";
+/** The marker line in full: `_[memory truncated at <limit> characters: <dropped> dropped]_`. */
+const MEMORY_TRUNCATION_LINE = /^_\[memory truncated at \d+ characters: \d+ dropped\]_$/;
+
+/** The line a capped document ends with: a cut memory must never look like a complete one. */
+export function memoryTruncationMarker(dropped: number, limit: number): string {
+	return `${MEMORY_TRUNCATION_PREFIX} at ${limit} characters: ${dropped} dropped]_`;
+}
+
+/** True when a memory document reports that the cap dropped part of it. */
+export function isMemoryTruncated(text: string): boolean {
+	return text.split("\n").some((line) => MEMORY_TRUNCATION_LINE.test(line.trim()));
+}
+
+/** Largest whole-line prefix of `text` within `limit`; only a single over-long line is cut inside. */
+function clipToLineBoundary(text: string, limit: number): string {
+	if (text.length <= limit) return text;
+	const head = text.slice(0, Math.max(0, limit));
+	const cut = head.lastIndexOf("\n");
+	return cut > 0 ? head.slice(0, cut) : head;
+}
+
+/**
+ * Rebuild the `# Project Memory` document from a model or recovered value.
+ *
+ * Over the cap the document is cut on a line boundary and gets an explicit marker: a plain
+ * `.slice()` cut the last line in half, so a fact lost its tail with nothing to show for it, and
+ * — because new memory is always appended at the end — every later pass re-emitted a document
+ * whose tail past the cap was discarded on write, so new learning was silently lost.
+ * The marker's own length is reserved before cutting, so the result honours `limit`; its
+ * dropped-count digits are fit by re-cutting with the count the cut actually produced, which
+ * settles after one extra pass because the count only grows. A marker an earlier cap left behind
+ * is stripped and recomputed, so normalizing twice is idempotent.
+ * @param value - the document as a model or a legacy source produced it.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
+ * @returns one canonical `# Project Memory` document, at most `limit` characters.
+ */
+export function normalizeMemoryDocument(value: string, limit: number = MAX_MEMORY_CHARS): string {
+	const cleaned = value
 		.replace(/^```(?:markdown)?\s*/i, "")
 		.replace(/\s*```$/, "")
 		.trim()
 		.replace(/^#\s*Project Memory\s*/i, "")
 		.trim();
-	return `# Project Memory\n\n${body}`.slice(0, MAX_MEMORY_CHARS).trimEnd() + "\n";
+	const lines = cleaned.split("\n");
+	// Only the exact marker shape is stripped; a regular memory line that merely starts with the
+	// same words must not be moved to the end (and reported as a cap that never happened).
+	const previous = lines.find((line) => MEMORY_TRUNCATION_LINE.test(line.trim()))?.trim();
+	const body = lines.filter((line) => !MEMORY_TRUNCATION_LINE.test(line.trim())).join("\n").trim();
+	const document = `# Project Memory\n\n${body}`;
+	if (document.length <= limit) return `${document}${previous ? `\n\n${previous}` : ""}`.trimEnd() + "\n";
+	// Reserve the marker's room, then re-cut with the count that cut produced: one correction is
+	// enough, because a larger dropped count can only make the marker longer and the budget is
+	// recomputed from the marker actually emitted.
+	let kept = clipToLineBoundary(document, Math.max(0, limit - markerRoom(document.length, limit))).trimEnd();
+	kept = clipToLineBoundary(document, Math.max(0, limit - memoMarkerLength(document.length, kept.length, limit))).trimEnd();
+	return `${kept}\n\n${memoryTruncationMarker(document.length - kept.length, limit)}\n`;
+}
+
+/** Worst-case marker length for a still-unknown count: every digit of the document's own length. */
+function markerRoom(documentLength: number, limit: number): number {
+	return memoryTruncationMarker(documentLength, limit).length + 2;
+}
+
+/** Exact marker length once the kept prefix is known. */
+function memoMarkerLength(documentLength: number, keptLength: number, limit: number): number {
+	return memoryTruncationMarker(documentLength - keptLength, limit).length + 2;
 }
 
 const MEMORY_BACKUPS_KEPT = 5;
@@ -518,8 +578,8 @@ export async function backupMemoryBeforeWrite(target: string): Promise<{ path?: 
 export type MemoryJournalEntry = { op: "replace" | "append"; text: string };
 
 /** Comparison key for "does this render still equal what the journal folds to?" — both normalized. */
-function memoryComparisonKey(render: string): string {
-	return normalizeMemoryDocument(decodePoisonedMemory(render.trim()) ?? render);
+function memoryComparisonKey(render: string, limit: number = MAX_MEMORY_CHARS): string {
+	return normalizeMemoryDocument(decodePoisonedMemory(render.trim(), limit) ?? render, limit);
 }
 
 /** Append one record with a single `write` call; the file is append-only by construction. */
@@ -590,18 +650,18 @@ export async function readMemoryJournal(file: string): Promise<{ entries: Memory
 }
 
 /** Apply journal records in order: a replacement supersedes the document, an append extends it. */
-export function foldMemoryJournal(entries: readonly MemoryJournalEntry[]): string {
+export function foldMemoryJournal(entries: readonly MemoryJournalEntry[], limit: number = MAX_MEMORY_CHARS): string {
 	let document = "";
 	for (const entry of entries) {
 		const text = entry.text.trim();
 		if (!text) continue;
 		document = entry.op === "replace" ? text : document ? `${document}\n\n${text}` : text;
 	}
-	return document ? normalizeMemoryDocument(document) : "";
+	return document ? normalizeMemoryDocument(document, limit) : "";
 }
 
 /** Collapse an oversized journal into one replacement, archiving the previous bytes first. */
-async function rotateMemoryJournalIfNeeded(projectRoot: string): Promise<void> {
+async function rotateMemoryJournalIfNeeded(projectRoot: string, limit: number = MAX_MEMORY_CHARS): Promise<void> {
 	const file = memoryJournalFile(projectRoot);
 	let size: number;
 	try {
@@ -612,7 +672,7 @@ async function rotateMemoryJournalIfNeeded(projectRoot: string): Promise<void> {
 	if (size <= MEMORY_JOURNAL_ROTATE_BYTES) return;
 	const state = await readMemoryJournal(file);
 	if (state.unreadable || state.entries.length === 0) return;
-	const folded = foldMemoryJournal(state.entries);
+	const folded = foldMemoryJournal(state.entries, limit);
 	if (!folded) return;
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 	const archive = path.join(memoryDir(projectRoot), `memory-log-${stamp}-${randomUUID().slice(0, 8)}.jsonl`);
@@ -677,26 +737,27 @@ async function pruneMemoryJournalArchives(projectRoot: string): Promise<void> {
  * `MEMORY.md`. Callers hold the memory lock and have already backed up the current render.
  * @param projectRoot - the project root.
  * @param text - the new memory document.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
  */
-export async function recordMemoryDocument(projectRoot: string, text: string): Promise<void> {
+export async function recordMemoryDocument(projectRoot: string, text: string, limit: number = MAX_MEMORY_CHARS): Promise<void> {
 	const file = memoryJournalFile(projectRoot);
 	const base = await readMemoryJournal(file);
 	if (base.unreadable) throw new Error(`memory journal exists but cannot be read: ${file}`);
 	if (base.entries.length === 0) {
 		// First journal write for this project: start history from the memory it has today. The
 		// legacy read path also decodes a stored reply, so the journal never stores raw JSON.
-		const existing = await loadMemory(projectRoot);
+		const existing = await loadMemory(projectRoot, limit);
 		if (existing.unreadable) throw new Error(`memory exists but cannot be read: ${existing.source}`);
-		if (existing.text.trim()) await appendMemoryOp(file, "replace", normalizeMemoryDocument(existing.text));
+		if (existing.text.trim()) await appendMemoryOp(file, "replace", normalizeMemoryDocument(existing.text, limit));
 	} else {
 		// Adopt an external edit (hand edit or an older build) before appending this pass: its bytes
 		// enter the journal's history instead of being silently overwritten. A render that merely
 		// equals the fold is our own output, and one that is older and differs is a torn write
 		// window (journal already ahead), so neither is adopted.
-		const foldedView = foldMemoryJournal(base.entries);
+		const foldedView = foldMemoryJournal(base.entries, limit);
 		const renderRaw = await readOptional(memoryFile(projectRoot));
 		if (renderRaw.trim()) {
-			const external = memoryComparisonKey(renderRaw);
+			const external = memoryComparisonKey(renderRaw, limit);
 			const renderInfo = await stat(memoryFile(projectRoot)).catch(() => undefined);
 			const journalInfo = await stat(file).catch(() => undefined);
 			if (external && external !== foldedView && renderInfo && journalInfo && renderInfo.mtimeMs > journalInfo.mtimeMs) {
@@ -706,10 +767,10 @@ export async function recordMemoryDocument(projectRoot: string, text: string): P
 			}
 		}
 	}
-	await appendMemoryOp(file, "replace", normalizeMemoryDocument(text));
-	await rotateMemoryJournalIfNeeded(projectRoot);
+	await appendMemoryOp(file, "replace", normalizeMemoryDocument(text, limit));
+	await rotateMemoryJournalIfNeeded(projectRoot, limit);
 	await ensureMemoryGitignore(memoryDir(projectRoot));
-	await writeAtomic(memoryFile(projectRoot), normalizeMemoryDocument(text));
+	await writeAtomic(memoryFile(projectRoot), normalizeMemoryDocument(text, limit));
 }
 
 /**
@@ -720,9 +781,10 @@ export async function recordMemoryDocument(projectRoot: string, text: string): P
  * existing journal, be read as an "external edit" (the render is missing or older) and then be
  * adopted over the consolidated memory. Poison is decoded before it is stored, like the read path.
  * @param projectRoot - the project root.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
  * @returns true when a legacy document was imported.
  */
-export async function importLegacyMemory(projectRoot: string): Promise<boolean> {
+export async function importLegacyMemory(projectRoot: string, limit: number = MAX_MEMORY_CHARS): Promise<boolean> {
 	if (await pathExists(memoryFile(projectRoot))) return false;
 	for (const name of ["MEMORY.md", "memory_summary.md", "learned.md"]) {
 		const source = path.join(legacyOmpDir(projectRoot), name);
@@ -742,8 +804,8 @@ export async function importLegacyMemory(projectRoot: string): Promise<boolean> 
 			// A journal that exists in any form owns the memory: records, a torn tail, or bytes that
 			// no longer parse. Importing beside it would either throw or be adopted as an edit.
 			if (journal.entries.length > 0 || journal.damaged > 0 || journal.unreadable) return false;
-			const decoded = decodePoisonedMemory(raw);
-			await recordMemoryDocument(projectRoot, decoded ? decoded.trim() : raw);
+			const decoded = decodePoisonedMemory(raw, limit);
+			await recordMemoryDocument(projectRoot, decoded ? decoded.trim() : raw, limit);
 			return true;
 		});
 	}
@@ -775,19 +837,21 @@ async function readMemorySource(file: string): Promise<{ text: string; unreadabl
 }
 
 /** Decode a stored reply found outside the `.agents/` layout (legacy `.pi`, OMP import). */
-function legacyMemory(text: string, source: string): LoadedMemory {
-	const decoded = decodePoisonedMemory(text);
-	if (decoded) return { text: decoded.trim().slice(0, MAX_MEMORY_CHARS), source, poisoned: true };
-	return { text: text.slice(0, MAX_MEMORY_CHARS), source, poisoned: false };
+function legacyMemory(text: string, source: string, limit: number): LoadedMemory {
+	const decoded = decodePoisonedMemory(text, limit);
+	if (decoded) return { text: clipToLineBoundary(decoded.trim(), limit), source, poisoned: true };
+	return { text: clipToLineBoundary(text, limit), source, poisoned: false };
 }
 
 /**
  * Read this project's memory. The journal is the source of truth once it exists; `MEMORY.md` is
  * the old layout and stays readable for projects that never wrote a journal.
  * @param projectRoot - the project root.
+ * @param limit - the character cap; the project's `maxMemoryChars`. Every normalization on this
+ * side uses it, so the fold and the render are compared under the same cap.
  * @returns the document, where it came from, and any damage worth reporting.
  */
-export async function loadMemory(projectRoot: string): Promise<LoadedMemory> {
+export async function loadMemory(projectRoot: string, limit: number = MAX_MEMORY_CHARS): Promise<LoadedMemory> {
 	const target = memoryFile(projectRoot);
 	const journal = memoryJournalFile(projectRoot);
 	const journalState = await readMemoryJournal(journal);
@@ -796,7 +860,7 @@ export async function loadMemory(projectRoot: string): Promise<LoadedMemory> {
 	// instead of silently showing a render that the journal has already superseded.
 	if (journalState.entries.length === 0 && journalState.damaged > 0) return { text: "", source: journal, poisoned: false, unreadable: true };
 	if (journalState.entries.length > 0) {
-		const folded = foldMemoryJournal(journalState.entries);
+		const folded = foldMemoryJournal(journalState.entries, limit);
 		if (!folded) return { text: "", source: journal, poisoned: false, unreadable: true };
 		// Our own writes append to the journal and render afterwards, so a newer render proves
 		// nothing by itself. The render only wins when its content differs from the fold *and* it is
@@ -807,12 +871,12 @@ export async function loadMemory(projectRoot: string): Promise<LoadedMemory> {
 			// Both sides are compared in normalized form: `foldMemoryJournal` returns a normalized
 			// document, so a raw trimmed render would never compare equal and the mtime would
 			// silently become the only rule (adopting our own output as if it were an edit).
-			const external = memoryComparisonKey(renderRaw);
+			const external = memoryComparisonKey(renderRaw, limit);
 			const renderInfo = await stat(target).catch(() => undefined);
 			const journalInfo = await stat(journal).catch(() => undefined);
 			// An empty key means the render was cleared by hand; the journal stays authoritative.
 			if (external && external !== folded && renderInfo && journalInfo && renderInfo.mtimeMs > journalInfo.mtimeMs) {
-				return { text: external, source: target, poisoned: Boolean(decodePoisonedMemory(renderRaw.trim())), damaged: journalState.damaged };
+				return { text: external, source: target, poisoned: Boolean(decodePoisonedMemory(renderRaw.trim(), limit)), damaged: journalState.damaged };
 			}
 		}
 		return { text: folded, source: journal, poisoned: false, damaged: journalState.damaged };
@@ -828,23 +892,23 @@ export async function loadMemory(projectRoot: string): Promise<LoadedMemory> {
 	}
 	const current = raw.trim();
 	if (current) {
-		const decoded = decodePoisonedMemory(current);
-		if (decoded) return { text: decoded.trim().slice(0, MAX_MEMORY_CHARS), source: target, poisoned: true };
-		return { text: current.slice(0, MAX_MEMORY_CHARS), source: target, poisoned: false };
+		const decoded = decodePoisonedMemory(current, limit);
+		if (decoded) return { text: clipToLineBoundary(decoded.trim(), limit), source: target, poisoned: true };
+		return { text: clipToLineBoundary(current, limit), source: target, poisoned: false };
 	}
 
 	const legacyPi = path.join(legacyPiDir(projectRoot), "MEMORY.md");
 	const fromPi = await readMemorySource(legacyPi);
 	if (fromPi.unreadable) return { text: "", source: legacyPi, poisoned: false, unreadable: true };
 	const piText = fromPi.text.trim();
-	if (piText) return legacyMemory(piText, legacyPi);
+	if (piText) return legacyMemory(piText, legacyPi, limit);
 
 	for (const name of ["MEMORY.md", "memory_summary.md", "learned.md"]) {
 		const fallback = path.join(legacyOmpDir(projectRoot), name);
 		const source = await readMemorySource(fallback);
 		if (source.unreadable) return { text: "", source: fallback, poisoned: false, unreadable: true };
 		const text = source.text.trim();
-		if (text) return legacyMemory(text, fallback);
+		if (text) return legacyMemory(text, fallback, limit);
 	}
 
 	return { text: "", source: target, poisoned: false };
@@ -862,9 +926,11 @@ export async function readMemoryDamage(projectRoot: string): Promise<{ damaged: 
  * and the render — and otherwise reads the rendered document, decoding a stored reply if the
  * bytes are one. Returns an empty string when nothing readable exists, never throwing.
  * @param projectRoot - the project root.
+ * @param limit - the character cap; the project's `maxMemoryChars`. Every normalization on this
+ * side uses it, so this reader and the async one agree.
  * @returns the memory document, or `""`.
  */
-export function loadMemorySync(projectRoot: string): string {
+export function loadMemorySync(projectRoot: string, limit: number = MAX_MEMORY_CHARS): string {
 	const journal = memoryJournalFile(projectRoot);
 	const target = memoryFile(projectRoot);
 	try {
@@ -875,13 +941,13 @@ export function loadMemorySync(projectRoot: string): string {
 			// input: a crash between the journal append and the render leaves it missing or stale,
 			// and dropping the fold for that would lose memory the journal already holds. Mirrors
 			// the async reader, which folds whenever there is at least one record.
-			const folded = foldMemoryJournal(entries);
+			const folded = foldMemoryJournal(entries, limit);
 			if (!folded) return "";
 			// The render wins only when it differs from the fold *and* is newer: that is an
 			// external edit, exactly as in the async reader.
 			const renderRaw = readMemorySync(target).text.trim();
 			if (renderRaw) {
-				const external = memoryComparisonKey(renderRaw);
+				const external = memoryComparisonKey(renderRaw, limit);
 				if (external && external !== folded && mtimeMs(target) > mtimeMs(journal)) return external;
 			}
 			return folded;
@@ -897,16 +963,16 @@ export function loadMemorySync(projectRoot: string): string {
 	// through to a legacy file would silently serve a memory the project already superseded.
 	const current = readMemorySync(target);
 	if (current.unreadable) return "";
-	if (current.text.trim()) return (decodePoisonedMemory(current.text.trim()) ?? current.text.trim()).trim().slice(0, MAX_MEMORY_CHARS);
+	if (current.text.trim()) return clipToLineBoundary((decodePoisonedMemory(current.text.trim(), limit) ?? current.text.trim()).trim(), limit);
 	// The same legacy fallbacks the async reader has, so a project that never had a `.agents`
 	// memory document still injects what `.pi` or `.omp` holds.
 	const fromPi = readMemorySync(path.join(legacyPiDir(projectRoot), "MEMORY.md"));
 	if (fromPi.unreadable) return "";
-	if (fromPi.text.trim()) return (decodePoisonedMemory(fromPi.text.trim()) ?? fromPi.text.trim()).trim().slice(0, MAX_MEMORY_CHARS);
+	if (fromPi.text.trim()) return clipToLineBoundary((decodePoisonedMemory(fromPi.text.trim(), limit) ?? fromPi.text.trim()).trim(), limit);
 	for (const name of ["MEMORY.md", "memory_summary.md", "learned.md"]) {
 		const legacy = readMemorySync(path.join(legacyOmpDir(projectRoot), name));
 		if (legacy.unreadable) return "";
-		if (legacy.text.trim()) return (decodePoisonedMemory(legacy.text.trim()) ?? legacy.text.trim()).trim().slice(0, MAX_MEMORY_CHARS);
+		if (legacy.text.trim()) return clipToLineBoundary((decodePoisonedMemory(legacy.text.trim(), limit) ?? legacy.text.trim()).trim(), limit);
 	}
 	return "";
 }

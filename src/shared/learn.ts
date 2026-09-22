@@ -579,7 +579,7 @@ export function consolidateProjectState(
 		if (throttled) return cached?.outcome;
 		if (force && cached && Date.now() - cached.at < config.forceDedupeMs) return cached.outcome;
 
-		const existing = await loadMemory(projectRoot);
+		const existing = await loadMemory(projectRoot, config.maxMemoryChars);
 		// The pass continues with whatever is readable, but a broken source must stay diagnosable:
 		// the prompt would otherwise look as if the project had no memory at all.
 		if (existing.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${existing.source}`);

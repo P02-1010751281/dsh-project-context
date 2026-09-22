@@ -1,5 +1,7 @@
 /** Shared plugin configuration for the context pair. */
 
+import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
+
 export interface PluginConfig {
 	/** Write the per-session archive (session.jsonl / session.md / INDEX.md) on turns and settles. Explicit commands still work when false. */
 	archiveEnabled: boolean;
@@ -15,6 +17,8 @@ export interface PluginConfig {
 	maxTokens: number;
 	/** Output cap for auxiliary passes whose answer can need more room than `maxTokens`. */
 	maxOutputTokens: number;
+	/** Cap on the rendered memory document, in characters; an over-cap memory is cut on a line boundary and marked. */
+	maxMemoryChars: number;
 	/** Optional auxiliary-call route override; must be set together with `model`. */
 	provider: string;
 	/** Optional auxiliary-call route override; must be set together with `provider`. */
@@ -51,6 +55,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	forceDedupeMs: 15 * 1000,
 	maxTokens: 8192,
 	maxOutputTokens: 32_768,
+	maxMemoryChars: MAX_MEMORY_CHARS,
 	provider: "",
 	model: "",
 	autoLearn: true,
@@ -148,6 +153,7 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		forceDedupeMs: positive("forceDedupeMs", DEFAULT_CONFIG.forceDedupeMs, 0),
 		maxTokens: positive("maxTokens", DEFAULT_CONFIG.maxTokens, 256),
 		maxOutputTokens: positive("maxOutputTokens", DEFAULT_CONFIG.maxOutputTokens, 256),
+		maxMemoryChars: bounded("maxMemoryChars", DEFAULT_CONFIG.maxMemoryChars, MIN_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT),
 		provider,
 		model,
 		autoLearn: boolean("autoLearn", DEFAULT_CONFIG.autoLearn),

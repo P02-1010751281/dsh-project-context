@@ -34,6 +34,7 @@ export interface ProjectContextSettings {
 	forceDedupeMs: number;
 	maxTokens: number;
 	maxOutputTokens: number;
+	maxMemoryChars: number;
 	provider: string;
 	model: string;
 	autoLearn: boolean;
@@ -58,6 +59,7 @@ export interface ProjectContextSettingsCardState extends CardShell {
 	forceDedupeMs: CardFieldState;
 	maxTokens: CardFieldState;
 	maxOutputTokens: CardFieldState;
+	maxMemoryChars: CardFieldState;
 	provider: CardFieldState;
 	model: CardFieldState;
 	autoLearn: CardFieldState;
@@ -99,6 +101,7 @@ export class ProjectContextSettingsCardController {
 			numberField("forceDedupeMs", 0),
 			numberField("maxTokens", 256),
 			numberField("maxOutputTokens", 256),
+			numberField("maxMemoryChars", 4000),
 			textField("provider"),
 			textField("model"),
 			booleanField("autoLearn"),
@@ -126,6 +129,7 @@ export class ProjectContextSettingsCardController {
 			forceDedupeMs: this.form.field("forceDedupeMs"),
 			maxTokens: this.form.field("maxTokens"),
 			maxOutputTokens: this.form.field("maxOutputTokens"),
+			maxMemoryChars: this.form.field("maxMemoryChars"),
 			provider: this.form.field("provider"),
 			model: this.form.field("model"),
 			autoLearn: this.form.field("autoLearn"),
@@ -305,6 +309,7 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 						{/* Shared auxiliary route: consolidation, autolearn and the handoff summary all use it. */}
 						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
 						{field("pc-max-output-tokens", "field.maxOutputTokens", "field.maxOutputTokensHint", "number", state.maxOutputTokens, "maxOutputTokens")}
+						{field("pc-max-memory-chars", "field.maxMemoryChars", "field.maxMemoryCharsHint", "number", state.maxMemoryChars, "maxMemoryChars")}
 						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
 						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
 					</Section>

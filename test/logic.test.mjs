@@ -1124,6 +1124,12 @@ test("resolvePluginConfig validates every documented bound", () => {
 	assert.equal(resolvePluginConfig({ handoffPendingQuestion: "wait" }).handoffPendingQuestion, "wait");
 	assert.throws(() => resolvePluginConfig("nope"), /config must be an object/);
 	assert.throws(() => resolvePluginConfig({ provider: "p" }), /provider and model must be set together/);
+	// The memory cap is configurable inside the bounds the normalizer can actually serve.
+	assert.throws(() => resolvePluginConfig({ maxMemoryChars: 3_999 }), /maxMemoryChars must be a number between 4000 and 200000/);
+	assert.throws(() => resolvePluginConfig({ maxMemoryChars: 200_001 }), /maxMemoryChars must be a number between 4000 and 200000/);
+	assert.throws(() => resolvePluginConfig({ maxMemoryChars: "big" }), /maxMemoryChars must be a number between/);
+	assert.equal(resolvePluginConfig({ maxMemoryChars: 5_000 }).maxMemoryChars, 5_000);
+	assert.equal(DEFAULT_CONFIG.maxMemoryChars, 32_000, "the default cap is the documented 32000");
 
 	const parsed = resolvePluginConfig({ consolidateTurns: 9.6, provider: "p", model: "m", handoffSummaryThinking: "session" });
 	assert.equal(parsed.consolidateTurns, 10, "whole-number fields round");

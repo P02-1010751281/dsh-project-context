@@ -424,7 +424,7 @@ export function autolearnProjectSkills(
 			}
 		}
 
-		const memory = await loadMemory(projectRoot);
+		const memory = await loadMemory(projectRoot, config.maxMemoryChars);
 		// Report an unreadable source instead of silently distilling from an empty memory.
 		if (memory.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${memory.source}`);
 		else if (memory.damaged) await logError(projectRoot, "memory", `memory journal has ${memory.damaged} unusable line(s); they were skipped`);

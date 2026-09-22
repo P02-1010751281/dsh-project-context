@@ -21,7 +21,6 @@ import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./share
 import { consolidateProjectState, fallbackUpdate } from "./shared/learn.js";
 import {
 	MAX_CONTEXT_CHARS,
-	MAX_MEMORY_CHARS,
 	cachedProjectRoot,
 	contextFile,
 	diagnosticMessage,
@@ -56,7 +55,7 @@ const migrated = new Set<string>();
 const updates = new SerialQueue();
 
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
-function projectMemoryInjection(cwd: string | undefined): string {
+function projectMemoryInjection(cwd: string | undefined, limit: number): string {
 	if (!cwd) return "";
 	const projectRoot = cachedProjectRoot(cwd);
 	if (projectRoot === undefined) {
@@ -66,9 +65,9 @@ function projectMemoryInjection(cwd: string | undefined): string {
 	}
 	// Folds the append-only journal synchronously: the render can lag a crash between the
 	// journal append and the render, and dsh's prompt assembly cannot await.
-	const text = loadMemorySync(projectRoot).trim();
+	const text = loadMemorySync(projectRoot, limit).trim();
 	if (!text) return "";
-	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${text.slice(0, MAX_MEMORY_CHARS)}`;
+	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${text}`;
 }
 
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
@@ -101,8 +100,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 		const projectRoot = await getProjectRoot(projectCwd(session));
 		let wroteMemory = false;
 		try {
-			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
-			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return "deduped";
+			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return "deduped";
 
 			const memoryText = outcome.result.memory.trim();
 			const memoryChanged = memoryText.length >= 40;
@@ -116,7 +114,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// source of truth (this pass appends its document, then MEMORY.md is rendered).
 				const kept = await withMemoryLock(memoryFile(projectRoot), async () => {
 					const backup = await backupMemoryBeforeWrite(memoryFile(projectRoot));
-					await recordMemoryDocument(projectRoot, memoryText);
+					await recordMemoryDocument(projectRoot, memoryText, config.maxMemoryChars);
 					return backup;
 				});
 				wroteMemory = true;
@@ -170,7 +168,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.systemPrompt.context({
 		name: "project-memory",
 		order: 190,
-		text: (assembleContext) => projectMemoryInjection(assembleContext.agent?.session.header.cwd),
+		text: (assembleContext) => projectMemoryInjection(assembleContext.agent?.session.header.cwd, effectivePluginConfig(entry).maxMemoryChars),
 	});
 	ctx.systemPrompt.context({
 		name: "project-context",
@@ -193,7 +191,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				if (result.importedSkills > 0) details.push(`imported ${result.importedSkills} skill${result.importedSkills === 1 ? "" : "s"}`);
 				// The legacy `.omp` import holds the memory lock and refuses to run beside an
 				// existing journal, so it is its own step rather than part of the layout migration.
-				if (await importLegacyMemory(projectRoot)) details.push("imported legacy OMP memory");
+				if (await importLegacyMemory(projectRoot, effectivePluginConfig(entry).maxMemoryChars)) details.push("imported legacy OMP memory");
 				if (details.length > 0) ctx.logger.info(`dsh-project-context: project memory in ${memoryDir(projectRoot)}: ${details.join("; ")}`);
 				if (result.conflicts.length > 0) {
 					ctx.logger.warn(`dsh-project-context: legacy layout left in place (file/directory type conflict, merge it by hand): ${result.conflicts.join(", ")}`);
@@ -228,7 +226,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		description: "Show this project's memory location and status",
 		handler: async ({ agent }) => {
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
-			const memory = await loadMemory(projectRoot);
+			const memory = await loadMemory(projectRoot, effectivePluginConfig(entry).maxMemoryChars);
 			const journal = memoryJournalFile(projectRoot);
 			// The reply distinguishes the states a silent fold would otherwise hide: a torn journal
 			// line, a source that exists but cannot be read, and a stored reply from the old bug.

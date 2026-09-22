@@ -777,7 +777,7 @@ async function performHandoff(
 	assertSessionSettled(session, triggerSeq);
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
-	const memory = await loadMemory(projectRoot);
+	const memory = await loadMemory(projectRoot, config.maxMemoryChars);
 	const { older, tail, languageMessages } = split ?? handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
 	assertHandoffSummarizable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
