@@ -32,7 +32,7 @@ import {
 	staleLockAge,
 	withMemoryLock,
 } from "../lib/shared/memory-store.js";
-import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
+import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
 import { consolidateProject } from "../lib/memory.js";
 import { consolidateProjectState } from "../lib/shared/learn.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
@@ -701,4 +701,73 @@ test("a lock that is gone is not a stale lock", () => {
 	assert.equal(staleLockAge(Number.POSITIVE_INFINITY, now, 30_000), false, "an unreadable lock stays");
 	assert.equal(staleLockAge(now - 29_999, now, 30_000), false, "a lock inside the horizon is not");
 	assert.equal(staleLockAge(now - 30_001, now, 30_000), true, "a lock past the horizon is");
+});
+
+/** The ignore-file header the plugin owns; the tests below count occurrences of it. */
+const GITIGNORE_HEADER = "# project-context: local artifacts, do not commit";
+
+/** Count exact header lines in an ignore file's text. */
+function headerCount(text) {
+	return text.split(/\r?\n/).filter((line) => line.trim() === GITIGNORE_HEADER).length;
+}
+
+test("adding a line to an ignore file that already has the header does not repeat the header", async () => {
+	// `MEMORY_GITIGNORE_LINES` grows as the plugin gains artifacts, and the header used to be emitted
+	// with every batch that added a line. A project whose file was written before the list grew then
+	// got a second copy of the comment in the middle of the file. `ensureMemoryGitignore` is cached
+	// per process, so this and the sibling tests each use their own directory.
+	const root = await project();
+	const file = path.join(root, ".agents", "memory", ".gitignore");
+	// The state a project is in just before the list grows: header present, one owned line missing.
+	await writeFile(file, `${GITIGNORE_HEADER}\n*.memory-backup-*\nmy-own-note\n`);
+	await ensureMemoryGitignore(path.join(root, ".agents", "memory"));
+	const text = await readFile(file, "utf8");
+	assert.equal(headerCount(text), 1, "exactly one header survives the batch");
+	assert.match(text, /^# project-context: local artifacts, do not commit$/m, "the original header stays first");
+	assert.match(text, /my-own-note/, "a hand-written line is preserved");
+	assert.match(text, /errors\.log/, "the missing owned line is added");
+	assert.match(text, /autolearn-state\.json/, "every missing owned line is added, not just the first");
+});
+
+test("an ignore file without the header gains it once and keeps the user's lines", async () => {
+	const root = await project();
+	const file = path.join(root, ".agents", "memory", ".gitignore");
+	await writeFile(file, "user-line-a\nuser-line-b\n");
+	await ensureMemoryGitignore(path.join(root, ".agents", "memory"));
+	const text = await readFile(file, "utf8");
+	assert.equal(headerCount(text), 1, "the header is emitted exactly once");
+	assert.match(text, /user-line-a/);
+	assert.match(text, /user-line-b/);
+	assert.match(text, /errors\.log/);
+});
+
+test("a differently-cased header does not earn a second standard header", async () => {
+	// Case-folded presence check: a file carrying the comment in another capitalisation is treated as
+	// already headed. The accepted residual is that the file keeps its variant spelling and gains no
+	// second copy of the canonical one.
+	const root = await project();
+	const file = path.join(root, ".agents", "memory", ".gitignore");
+	await writeFile(file, `${GITIGNORE_HEADER.toUpperCase()}\n`);
+	await ensureMemoryGitignore(path.join(root, ".agents", "memory"));
+	const text = await readFile(file, "utf8");
+	assert.equal(headerCount(text), 0, "no canonical header is appended");
+	assert.equal(text.split(/\r?\n/).filter((line) => line.trim().toLowerCase() === GITIGNORE_HEADER.toLowerCase()).length, 1);
+	assert.match(text, /errors\.log/, "the missing owned lines are still added");
+});
+
+test("a second call over a complete ignore file leaves it byte-identical", async () => {
+	// The early return is not enough on its own: the first call must produce a file the second call
+	// finds complete, or every pass would append another batch.
+	const root = await project();
+	const memory = path.join(root, ".agents", "memory");
+	await ensureMemoryGitignore(memory);
+	const file = path.join(memory, ".gitignore");
+	const first = await readFile(file, "utf8");
+	assert.equal(headerCount(first), 1, "the first write emits one header");
+	// The early return is what makes a repeated pass a no-op, and it keys off the same list the writer
+	// uses. Assert the file really is complete by that list, so a batch that forgot a line would fail
+	// here instead of silently re-adding it on every pass.
+	for (const owned of ["*.memory-backup-*", "errors.log", "*.lock", "*.steal", "*.broken-*", "memory.jsonl", "memory-log-*.jsonl", "memory.jsonl.*.tmp", "autolearn-state.json"]) {
+		assert.ok(first.split(/\r?\n/).includes(owned), `the completed file lists ${owned}`);
+	}
 });
