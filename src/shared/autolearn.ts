@@ -65,6 +65,26 @@ export interface AutolearnOutcome {
 	backtracked: string[];
 	/** True when `skill` was stored as a candidate awaiting `/autolearn approve`. */
 	candidate: boolean;
+	/**
+	 * Why the model's proposal was not written, when there was one and the admission rules refused
+	 * it (e.g. `body too short`). `undefined` means the model proposed nothing at all.
+	 *
+	 * The two used to be indistinguishable — `{skill: null, backtracked: [], candidate: false}` for
+	 * both — so `/autolearn` told the user "No new skill was warranted." after a paid model call
+	 * that had in fact *returned a skill* the plugin rejected on a size/evidence rule. That sends
+	 * the user to re-prompt a model that already answered.
+	 */
+	rejected?: string | undefined;
+	/**
+	 * Why no model call was made, when the pass declined to run one (a pass ran moments ago, there is
+	 * no memory/context to learn from, or no archived session grounds a skill).
+	 *
+	 * Without this, those paths returned the same `{skill: null, backtracked: [], candidate: false}`
+	 * as "the model answered and proposed nothing", so a reply that talks about what the model did
+	 * would be *false* here — the model was never asked. Kept separate from `rejected`, which means
+	 * the model *did* answer and an admission rule refused its proposal.
+	 */
+	skipped?: string | undefined;
 }
 
 /** At most three archives, 16 KB each: enough for concrete steps without a huge prompt. */
@@ -218,11 +238,15 @@ function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: 
 	return undefined;
 }
 
-/** Save a proposed skill; returns the outcome, or `undefined` when it was rejected. */
-async function saveProposedSkill(projectRoot: string, skill: ProposedSkill, archived: Set<string>): Promise<"live" | "candidate" | undefined> {
+/**
+ * Save a proposed skill. Returns `"live"`/`"candidate"` when written, or the rejection reason so
+ * the caller can report *why* instead of claiming the model proposed nothing.
+ */
+async function saveProposedSkill(projectRoot: string, skill: ProposedSkill, archived: Set<string>): Promise<"live" | "candidate" | { rejected: string }> {
 	const existing = await existingSkillNames(projectRoot);
 	const candidateExists = !!(await readOptional(candidateFile(projectRoot, skill.name)));
-	if (rejectionReason(skill, archived, existing, candidateExists) !== undefined) return undefined;
+	const reason = rejectionReason(skill, archived, existing, candidateExists);
+	if (reason !== undefined) return { rejected: reason };
 	if (skill.candidate) {
 		await writeAtomic(candidateFile(projectRoot, skill.name), skillDocument(skill));
 		return "candidate";
@@ -396,7 +420,7 @@ export function autolearnProjectSkills(
 		// context write landing *during* the pass stays newer than the recorded gate and re-opens it.
 		const stamp = Math.max(await fileMtimeMs(memoryFile(projectRoot)), await fileMtimeMs(contextFile(projectRoot)));
 
-		if (force && Date.now() - attemptAt < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false };
+		if (force && Date.now() - attemptAt < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false, skipped: "a pass ran moments ago; no model call was made" };
 
 		if (!force) {
 			// New material is required; otherwise only remember the turn counter. The material check
@@ -416,7 +440,7 @@ export function autolearnProjectSkills(
 		if (memory.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${memory.source}`);
 		else if (memory.damaged) await logError(projectRoot, "memory", `memory journal has ${memory.damaged} unusable line(s); they were skipped`);
 		const contextText = (await readOptional(contextFile(projectRoot))).slice(0, MAX_CONTEXT_CHARS);
-		if (!memory.text.trim() && !contextText.trim()) return { skill: null, backtracked: [], candidate: false };
+		if (!memory.text.trim() && !contextText.trim()) return { skill: null, backtracked: [], candidate: false, skipped: "the project has no memory or context to learn from; no model call was made" };
 
 		/** Set once the pass is recorded, so a later failure does not resurrect the turn counter. */
 		let recorded = false;
@@ -446,7 +470,7 @@ export function autolearnProjectSkills(
 			// pass in a project with no archive at all can never produce either: skip before
 			// spending a model call on it. A forced pass (`/autolearn`) still runs, because the
 			// command is the user asking for the call.
-			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false };
+			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false, skipped: "no archived session grounds a new skill; no model call was made" };
 
 			const first = parseAutolearn(await requestPluginText(ctx, target, maxTokens, basePrompt(projectRoot, memory.text, contextText, indexText, skillsText), options.signal));
 			// Record the gate at the material stamp this pass actually distilled: a newer write is
@@ -483,14 +507,25 @@ export function autolearnProjectSkills(
 
 			let learned: LearnedSkill | null = null;
 			let candidate = false;
+			let rejected: string | undefined;
 			if (skill) {
 				const saved = await saveProposedSkill(projectRoot, skill, archived);
-				if (saved) {
+				if (typeof saved === "string") {
 					learned = { name: skill.name, description: skill.description, body: skill.body };
 					candidate = saved === "candidate";
+				} else {
+					// The model *did* propose this skill; an admission rule refused it. Carrying the
+					// reason out is the difference between "nothing was warranted" and "your proposal
+					// was rejected because its body was too short".
+					rejected = saved.rejected;
 				}
 			}
-			return { skill: learned, backtracked, candidate };
+			// `rejected` is only attached when there is one, so an outcome that carries no refusal
+			// keeps the historical `{skill, backtracked, candidate}` shape (and its `deepEqual`
+			// assertions) byte for byte.
+			return rejected === undefined
+				? { skill: learned, backtracked, candidate }
+				: { skill: learned, backtracked, candidate, rejected };
 		} catch (error: unknown) {
 			// Record the attempt so a persistent failure backs off instead of retrying on every
 			// idle. The persisted gate stays untouched, so a crash before the first model call

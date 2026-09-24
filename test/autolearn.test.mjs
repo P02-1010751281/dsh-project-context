@@ -195,7 +195,9 @@ test("the prompt carries the project skill inventory and a reuse is rejected", a
 
 	const outcome = await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
 	assert.match(promptOf(ctx.calls[0]), /<existing-skills>\n- release-checklist: How to cut a release\n<\/existing-skills>/);
-	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false });
+	// The proposal was refused by an admission rule, so the outcome now names which one instead of
+	// reading exactly like "the model proposed nothing".
+	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false, rejected: 'skill "release-checklist" already exists' });
 	// The existing skill was left untouched instead of being overwritten.
 	assert.match(await readFile(path.join(skillsDir(root), "release-checklist", "SKILL.md"), "utf8"), /description: "How to cut a release"/);
 });
@@ -215,8 +217,8 @@ test("evidence ids without an archive on disk are dropped", async () => {
 	assert.match(backtrackPrompt, /untrusted data/);
 	assert.doesNotMatch(backtrackPrompt, /hallucinated-id/);
 	// The one surviving log cannot ground a normal skill, and the invented citation is
-	// not evidence, so nothing is written.
-	assert.deepEqual(outcome, { skill: null, backtracked: ["session-a"], candidate: false });
+	// not evidence, so nothing is written — and the outcome now says which rule refused it.
+	assert.deepEqual(outcome, { skill: null, backtracked: ["session-a"], candidate: false, rejected: "needs evidence from at least two different sessions" });
 	assert.equal(await readOptional(path.join(skillsDir(root), "ghost-steps", "SKILL.md")), "");
 });
 
@@ -244,7 +246,7 @@ test("an indexed id whose log is gone does not count as verified evidence", asyn
 
 	const outcome = await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
 	assert.equal(ctx.calls.length, 1);
-	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false });
+	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false, rejected: "needs evidence from at least two different sessions" });
 	assert.equal(await readOptional(path.join(skillsDir(root), "ghost-steps", "SKILL.md")), "");
 });
 
@@ -357,13 +359,54 @@ test("a failed pass backs off until new material appears", async () => {
 	assert.equal(ctx.calls.length, 1);
 });
 
+test("a project with no memory or context reports the skip, not a claim about the model", async () => {
+	// The second skip path: nothing to learn from, so no model call is made. It must carry its own
+	// reason — otherwise the reply falls through to "the model's answer contained no usable skill",
+	// which asserts something about a model that was never asked. Only this and the dedupe/archive
+	// reasons make `skipped` exhaustive for `/autolearn`; the archive path has its own test above.
+	const root = await project({ sessions: ["session-a"] });
+	await writeFile(memoryFile(root), "");
+	await writeFile(contextFile(root), "");
+	const config = resolvePluginConfig({ autolearnTurns: 1, provider: "test-provider", model: "test-model" });
+	const ctx = fakeContext(['{"skill": {"name": "x", "description": "y", "body": "z".repeat(200)}}']);
+	const outcome = await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2, id: "session-empty-material" }), config);
+	assert.equal(ctx.calls.length, 0, "no model call is spent on a project with nothing to learn from");
+	assert.deepEqual(outcome, {
+		skill: null, backtracked: [], candidate: false,
+		skipped: "the project has no memory or context to learn from; no model call was made",
+	});
+
+	const handlers = new Map();
+	const commandCtx = {
+		effect: (callback) => callback(),
+		inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
+		on: (type, handler) => { handlers.set(type, handler); },
+		commands: { register: (command) => handlers.set("command", command) },
+		logger: { info() {}, warn() {} },
+		llm: {
+			resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "{}" }; })(),
+		},
+	};
+	applyAutolearn(commandCtx, config);
+	const commandRoot = await project({ sessions: ["session-a"] });
+	await writeFile(memoryFile(commandRoot), "");
+	await writeFile(contextFile(commandRoot), "");
+	const reply = await handlers.get("command").handler({ agent: fakeAgent(commandRoot, { turns: 2, id: "session-empty-cmd" }), rawInput: "", signal: new AbortController().signal });
+	assert.match(reply.text, /No skill was considered: the project has no memory or context/, `reply hid the skip: ${reply.text}`);
+	assert.doesNotMatch(reply.text, /the model/, "a skipped pass must not make a claim about the model");
+});
+
 test("a project with no archive spends no model call", async () => {
 	// A live skill needs two verified sessions and a candidate needs one, so with an empty archive
 	// the pass cannot produce anything: it must not pay for a model call to find that out.
 	const root = await project();
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
 	const ctx = fakeContext(['{"skill": {"name": "x", "description": "y", "body": "z"}}']);
-	assert.deepEqual(await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 3 }), config), { skill: null, backtracked: [], candidate: false });
+	assert.deepEqual(await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 3 }), config), {
+		skill: null, backtracked: [], candidate: false,
+		skipped: "no archived session grounds a new skill; no model call was made",
+	});
 	assert.equal(ctx.calls.length, 0);
 });
 
@@ -450,4 +493,128 @@ test("the autoLearn switch alone suppresses the automatic pass", async () => {
 	await handlers.get("agent/status")({ agent: on, status: "idle" });
 	await handlers.get("session/flush")(on.session);
 	assert.equal(modelCalls.length, 1, "the same event runs a pass once the switch is on");
+});
+
+test("a proposed skill the admission rules refuse is not reported as \"no skill was warranted\"", async () => {
+	// The model returned a full, well-formed skill citing two verified archived sessions; the only
+	// failing rule is the body-size minimum. `autolearnProjectSkills` used to collapse that into the
+	// exact same `{skill: null, backtracked: [], candidate: false}` as "the model proposed nothing",
+	// so `/autolearn` answered "No new skill was warranted." after a *paid* call that had in fact
+	// produced a skill — sending the user to re-prompt a model that already answered.
+	const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1, provider: "test-provider", model: "test-model" });
+	// Long enough to be a real skill rather than a placeholder, but under MIN_SKILL_BODY_CHARS (160).
+	const shortBody = "## Steps\n\n1. Run `pnpm build`.\n2. Run `pnpm test`.\n";
+	assert.ok(shortBody.length < 160 && shortBody.length > 16, `fixture body is ${shortBody.length} chars`);
+	const proposal = JSON.stringify({
+		skill: { name: "too-slim-steps", description: "a workflow", body: shortBody, evidence: ["session-a", "session-b"] },
+	});
+	const ctx = fakeContext([proposal]);
+
+	const outcome = await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
+	assert.equal(ctx.calls.length, 1, "the model really was called and really did answer");
+	// The three fields alone no longer carry the distinction, which is exactly how the bug hid.
+	assert.equal(outcome?.skill, null);
+	assert.deepEqual(outcome?.backtracked, []);
+	assert.equal(outcome?.candidate, false);
+	assert.equal(outcome?.rejected, "body too short", "the refusal reason survives the outcome");
+	assert.equal(await readOptional(path.join(skillsDir(root), "too-slim-steps", "SKILL.md")), "", "nothing was written");
+
+	// The user-visible surface: the `/autolearn` command reply, driven through the real handler.
+	const handlers = new Map();
+	const commandCtx = {
+		effect: (callback) => callback(),
+		inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
+		on: (type, handler) => { handlers.set(type, handler); },
+		commands: { register: (command) => handlers.set("command", command) },
+		logger: { info() {}, warn() {} },
+		llm: {
+			resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: proposal }; })(),
+		},
+	};
+	applyAutolearn(commandCtx, config);
+	const commandRoot = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const reply = await handlers.get("command").handler({ agent: fakeAgent(commandRoot, { turns: 2, id: "session-reject-cmd" }), rawInput: "", signal: new AbortController().signal });
+	assert.equal(reply.kind, "success");
+	assert.match(reply.text, /Skill rejected: body too short/, `reply named the wrong cause: ${reply.text}`);
+	assert.doesNotMatch(reply.text, /No new skill was warranted/, "a refusal must not be reported as the model proposing nothing");
+
+	// The other half of the distinction: when the model genuinely proposes nothing, `rejected`
+	// stays absent — otherwise the fix would just move the misattribution to the other branch.
+	const silentRoot = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const silentCtx = fakeContext(['{"skill": null}']);
+	const silentOutcome = await autolearnProjectSkills(silentCtx, fakeAgent(silentRoot, { turns: 2, id: "session-silent-direct" }), config);
+	assert.equal(silentOutcome?.skill, null);
+	assert.equal("rejected" in silentOutcome, false, "no proposal means no rejection reason, and no extra field");
+	assert.deepEqual(silentOutcome, { skill: null, backtracked: [], candidate: false }, "a silent model keeps the historical shape");
+});
+
+test("a second /autolearn inside the dedupe window does not claim the model proposed nothing", async () => {
+	// Pressing `/autolearn` twice inside `forceDedupeMs` (15 s by default) returns from the dedupe
+	// branch *before* any model call. Reporting that as "the model proposed no skill" asserts
+	// something false about a model that was never asked — the same class of misattribution this
+	// change exists to remove, so the reply must name the skip instead.
+	const config = resolvePluginConfig({ autolearnTurns: 1, provider: "test-provider", model: "test-model" });
+	const handlers = new Map();
+	let streams = 0;
+	const commandCtx = {
+		effect: (callback) => callback(),
+		inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
+		on: (type, handler) => { handlers.set(type, handler); },
+		commands: { register: (command) => handlers.set("command", command) },
+		logger: { info() {}, warn() {} },
+		llm: {
+			resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }),
+			stream: () => { streams += 1; return (async function* generate() { yield { type: "text-delta", text: '{"skill": null}' }; })(); },
+		},
+	};
+	applyAutolearn(commandCtx, config);
+	const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const command = handlers.get("command");
+	const agent = fakeAgent(root, { turns: 2, id: "session-dedupe" });
+	const first = await command.handler({ agent, rawInput: "", signal: new AbortController().signal });
+	const before = streams;
+	const second = await command.handler({ agent, rawInput: "", signal: new AbortController().signal });
+
+	assert.equal(before, 1, "the first press ran the model once");
+	assert.equal(streams, 1, "the second press inside the dedupe window spends no model call");
+	assert.match(first.text, /the model's answer contained no usable skill/, `first reply was dishonest: ${first.text}`);
+	assert.equal(second.kind, "success");
+	assert.match(second.text, /No skill was considered: a pass ran moments ago/, `reply hid the skip: ${second.text}`);
+	assert.doesNotMatch(second.text, /the model/, "a skipped pass must not make a claim about the model");
+	assert.doesNotMatch(second.text, /No new skill was warranted/);
+});
+
+test("a model answer with no usable skill says only what is verifiable", async () => {
+	// The model *was* called and returned a payload the parser could not use (no string
+	// `description`), so `skill` is null. That is not "the model proposed nothing" — the reply must
+	// not assert what the model intended, only what came back.
+	const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1, provider: "test-provider", model: "test-model" });
+	const ctx = fakeContext(['{"skill": {"name": "broken", "body": "' + "x".repeat(300) + '"}}']);
+	const outcome = await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2, id: "session-unusable" }), config);
+	assert.equal(ctx.calls.length, 1, "the model really was called");
+	assert.equal(outcome?.skill, null);
+	assert.equal("rejected" in outcome, false, "nothing was proposed to the admission rules, so there is no refusal reason");
+	assert.equal("skipped" in outcome, false, "the pass did not skip the model either");
+
+	const handlers = new Map();
+	const commandCtx = {
+		effect: (callback) => callback(),
+		inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
+		on: (type, handler) => { handlers.set(type, handler); },
+		commands: { register: (command) => handlers.set("command", command) },
+		logger: { info() {}, warn() {} },
+		llm: {
+			resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: '{"skill": {"name": "broken", "body": "' + "x".repeat(300) + '"}}' }; })(),
+		},
+	};
+	applyAutolearn(commandCtx, config);
+	const reply = await handlers.get("command").handler({ agent: fakeAgent(await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] }), { turns: 2, id: "session-unusable-cmd" }), rawInput: "", signal: new AbortController().signal });
+	assert.equal(reply.kind, "success");
+	assert.match(reply.text, /the model's answer contained no usable skill/, `reply was dishonest: ${reply.text}`);
+	assert.doesNotMatch(reply.text, /proposed no skill/);
+	assert.doesNotMatch(reply.text, /No new skill was warranted/);
 });

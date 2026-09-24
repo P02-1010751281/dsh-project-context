@@ -105,7 +105,16 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			}
 			return outcome.skill
 				? { kind: "success", text: `Skill created: ${outcome.skill.name}` }
-				: { kind: "success", text: "No new skill was warranted." };
+				// Report the actual cause instead of "No new skill was warranted", which asserted the
+				// model proposed nothing. That claim is false on three reachable paths: an admission
+				// rule refused a real proposal, the pass skipped the model call entirely, or the
+				// model answered with an unusable payload. Each gets its own sentence; only the last
+				// one talks about the model, and it says only what is verifiable.
+				: outcome.rejected !== undefined
+					? { kind: "success", text: `Skill rejected: ${outcome.rejected}. Nothing was written; adjust the project material or the skill shape and run /autolearn again.` }
+					: outcome.skipped !== undefined
+						? { kind: "success", text: `No skill was considered: ${outcome.skipped}.` }
+						: { kind: "success", text: "No new skill was created: the model's answer contained no usable skill." };
 		},
 	});
 }

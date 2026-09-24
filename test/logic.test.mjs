@@ -19,6 +19,7 @@ import {
 	continuation,
 	createChildSession,
 	HandoffDeferred,
+	handoffFailureIsTransient,
 	parseRatio,
 	maybeAutoHandoff,
 	parseTokenCount,
@@ -29,6 +30,8 @@ import {
 	settingPatch,
 	statusText,
 	textAsksQuestion,
+	thresholdRefusal,
+	thresholdRefusalText,
 	turnStartedAfter,
 } from "../lib/handoff.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
@@ -1704,6 +1707,86 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	}
 });
 
+test("the status receipt names the term that refused the threshold, not always the window", async () => {
+	// `resolveThreshold` returns `undefined` from three different comparisons. The receipt used to
+	// render all of them as "threshold unavailable at this window", which is a *false* claim in two
+	// of the three: the window can be roomy and the threshold still refuses on the summarize
+	// minimum, on the assembled baseline + keep, or on the 4K safety margin applied a second time.
+	// A user told "at this window" swaps models or raises `/handoff target` and nothing changes.
+	const signal = new AbortController().signal;
+	const session = {
+		id: "session-refusal-000000000000",
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => [],
+		requestHeader: () => undefined,
+		snapshotEvents: () => [],
+	};
+	// One baseline, three windows. `handoffKeepTokens: 0` makes the floor
+	// `baseline + 0 + MIN_SUMMARIZE_TOKENS` exactly.
+	const statusAt = async (contextWindow, config) => {
+		const ctx = {
+			get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 11_800, surfaceTokens: 0 }) } : undefined),
+			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
+		};
+		return statusText(ctx, session, config, signal);
+	};
+	const adaptive = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	// usable = 40_000 − 16_384 = 23_616 > floor = 11_800 + 8_000 = 19_800: the window is roomy and
+	// the binding term is `usable − SAFETY_MARGIN_TOKENS`, so blaming the window here is the bug.
+	assert.equal(resolveThreshold(adaptive, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined, "the fixture really is a refusal");
+	const marginSqueezed = await statusAt(40_000, adaptive);
+	assert.equal(thresholdRefusal(adaptive, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), "summarizer-floor");
+	assert.match(marginSqueezed, /threshold unavailable: the window is not the limit/);
+	assert.match(marginSqueezed, /23616 usable tokens clear the 19800-token floor/, "the receipt quotes the comparison that failed");
+	assert.match(marginSqueezed, /4000-token safety margin/);
+	assert.doesNotMatch(marginSqueezed, /window too small/, "a roomy window must not be blamed");
+
+	// usable = 13_616 <= floor: the window really is the binding term.
+	assert.equal(thresholdRefusal(adaptive, { totalTokens: 11_800, surfaceTokens: 0 }, 30_000), "window-headroom");
+	const tooSmall = await statusAt(30_000, adaptive);
+	assert.match(tooSmall, /threshold unavailable: window too small/);
+	assert.match(tooSmall, /leaves 13616 usable tokens/);
+	assert.doesNotMatch(tooSmall, /the window is not the limit/);
+
+	// A window wide enough to resolve must still print the resolved label, not a refusal.
+	const resolved = await statusAt(200_000, adaptive);
+	assert.match(resolved, /threshold auto \d+ \(\d+%\)/);
+	assert.doesNotMatch(resolved, /threshold unavailable/);
+
+	// The three receipts are pairwise different: this is the property that was missing.
+	assert.notEqual(marginSqueezed, tooSmall);
+
+	// Fixed mode refuses exactly when the window does not clear the safety margin, because the ratio
+	// is validated into [0.1, 0.95] and the margin term binds first. Naming the ratio as a lever
+	// would send the user to a control that cannot change the outcome.
+	const fixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffAdaptive: false });
+	assert.equal(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), undefined, "W = SAFETY_MARGIN is the boundary");
+	assert.notEqual(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_001), undefined, "one token past the margin resolves");
+	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000), "no-positive-threshold");
+	const fixedText = thresholdRefusalText("no-positive-threshold", fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000);
+	assert.match(fixedText, /a larger window is the only lever/, "the receipt names the lever that works");
+	assert.match(fixedText, /the ratio cannot help/, "and says outright that the ratio does not");
+	assert.doesNotMatch(fixedText, /raise the ratio or the window/, "the dead lever is gone");
+
+	// A window below the request reserve makes `usable` negative; printing "-8192 usable tokens"
+	// reads as nonsense, so the text must describe that case instead of quoting the negative number.
+	const tiny = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 8_192);
+	assert.doesNotMatch(tiny, /-\d+ usable tokens/, `a negative token count was printed: ${tiny}`);
+	assert.match(tiny, /no usable tokens at all/);
+	assert.match(tiny, /exceeds the 8192-token window by 8192/);
+
+	// `usable === 0` is the boundary between the two phrasings: "exceeds … by 0" would contradict
+	// itself, so it needs its own wording.
+	const exact = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_384);
+	assert.doesNotMatch(exact, /exceeds .* by 0\b/, `self-contradictory wording: ${exact}`);
+	assert.match(exact, /consumes the entire 16384-token window/);
+
+	// One token past the boundary is the singular case, and "1 usable tokens" is not English.
+	const one = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_385);
+	assert.match(one, /\b1 usable token after\b/, `plural used for one: ${one}`);
+	assert.doesNotMatch(one, /1 usable tokens/);
+});
+
 test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {
 	const cwd = await mkdtemp(path.join(tmpdir(), "dsh-handoff-empty-"));
 	const created = [];
@@ -2301,6 +2384,292 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 	listener(session, { type: "turn/end", seq: 12, time: Date.now() });
 	await waitFor(() => logs.some((line) => line.includes("fits the recent window")));
 	assert.equal(logs.filter((line) => line.includes("fits the recent window")).length, 1, `the deferral must not mute the skip, got ${JSON.stringify(logs)}`);
+});
+
+test("a retryable manual handoff failure is not reported with the terminal wording", async () => {
+	// `/handoff now` renders its `catch` verbatim. Every failure used to come back as
+	// "Handoff failed: <message>", which tells the user the operation is over — even when the cause
+	// is a transient the automatic path already treats as non-terminal (a turn still open on the
+	// child, a rate-limited summary route, a dropped connection). The fix must discriminate in
+	// *both* directions: a genuine bug must still say "failed", so the retry advice is trustworthy.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-transient-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const replyFor = async (promptImpl) => {
+		const session = {
+			id: `session-transient-${Math.random().toString(16).slice(2, 10)}`,
+			header: { cwd: root, createdAt: Date.now() },
+			deriveMessages: () => conversation,
+			requestHeader: () => undefined,
+			ownEvents: () => [],
+			snapshotEvents: () => [],
+		};
+		const ctx = {
+			get: (name) => (name === "sessionController" ? {
+				create: async () => ({ sessionId: "child-1" }),
+				rename: async () => undefined,
+				prompt: promptImpl,
+			} : undefined),
+			llm: {
+				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+				stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+			},
+			logger: { info() {}, warn() {} },
+		};
+		return runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), new AbortController().signal);
+	};
+
+	// Retryable: a turn is still open on the child, which is exactly the condition the automatic
+	// path defers on rather than failing.
+	const busy = await replyFor(async () => { throw new Error("a turn is already running for this session"); });
+	assert.equal(busy.kind, "error");
+	assert.match(busy.text, /Handoff deferred \(temporarily failed, safe to retry\)/);
+	assert.match(busy.text, /a turn is already running for this session/, "the true cause is still quoted");
+	assert.match(busy.text, /run \/handoff now again/, "the receipt names the recovery");
+	assert.doesNotMatch(busy.text, /Handoff failed/, "a retryable cause must not claim the handoff failed");
+
+	// Retryable by error code, with no hint in the prose.
+	const reset = await replyFor(async () => { const error = new Error("socket hang up"); error.code = "ECONNRESET"; throw error; });
+	assert.match(reset.text, /Handoff deferred \(temporarily failed, safe to retry\)/);
+	assert.doesNotMatch(reset.text, /Handoff failed/);
+
+	// Terminal: a genuine programming error, so the retry advice must NOT appear — otherwise the
+	// user retries a handoff that can never succeed.
+	const broken = await replyFor(async () => { throw new Error("controller.prompt is not a function"); });
+	assert.equal(broken.kind, "error");
+	assert.match(broken.text, /^Handoff failed: controller\.prompt is not a function$/);
+	assert.doesNotMatch(broken.text, /safe to retry/);
+	assert.doesNotMatch(broken.text, /deferred/);
+
+	// The classifier itself, asserted directly on the user-visible verdict.
+	assert.equal(handoffFailureIsTransient(new Error("429 Too Many Requests")), true);
+	assert.equal(handoffFailureIsTransient(new Error("503 Service Unavailable")), true);
+	assert.equal(handoffFailureIsTransient(new Error("model not found: gpt-nope")), false);
+	assert.equal(handoffFailureIsTransient(new Error("controller.prompt is not a function")), false);
+	assert.equal(handoffFailureIsTransient("a bare string"), false, "an unknown shape is terminal, never a promised retry");
+
+	// Upstream spells these as identifiers, not as standalone words. A single outer `\b…\b` around
+	// the alternation silently demoted every one of them to "terminal", so the user was told a
+	// retryable overload had failed for good.
+	for (const identifier of [
+		"overloaded_error",
+		"rate_limit_exceeded",
+		"rate_limit_error",
+		"service temporarily unavailable",
+		"temporary failure in name resolution",
+		"ETIMEDOUT",
+	]) {
+		assert.equal(handoffFailureIsTransient(new Error(identifier)), true, `${identifier} is a transient, not a terminal failure`);
+	}
+
+	// A `fetch` rejection puts the real reason on `.cause` and leaves `.code` unset at the top level.
+	// Ignoring `.cause` called a dropped connection terminal — the opposite of the truth.
+	const dropped = new Error("fetch failed");
+	dropped.cause = Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" });
+	assert.equal(handoffFailureIsTransient(dropped), true, "the cause's code decides, not only the top level");
+	const refused = new Error("fetch failed");
+	refused.cause = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+	assert.equal(handoffFailureIsTransient(refused), true);
+	const nested = new Error("fetch failed");
+	nested.cause = new Error("wrapped", { cause: Object.assign(new Error("deep"), { code: "ECONNRESET" }) });
+	assert.equal(handoffFailureIsTransient(nested), true, "the cause chain is walked, not just one level");
+
+	// The converse must hold, or the retry advice becomes noise: a status code inside a token count
+	// or a model name is not an HTTP status, and a policy denial is not a transient.
+	for (const notTransient of [
+		"request is 429 tokens over the context limit",
+		"model gpt-502-mini is not available",
+		"network access is disabled by policy",
+		"the workspace is offline by configuration",
+		"response is 503 tokens",
+		"error: 503 tokens over the limit",
+		// A bare count has the *same shape* as a bare status ("429 requests" vs "429 Too Many
+		// Requests"). The separator is structural — a count's unit follows the number, so the number
+		// is not final — not a unit list. They were unpinned before: the whole class left the suite
+		// green when the rule was neutered.
+		"429 tokens",
+		"429 tokens used",
+		"429 requests",
+		"503 chars",
+		"429 ms",
+		"502 bytes",
+		"504 seconds",
+		// `rate limit` and `overload` are also config nouns; only a *leading* boundary separates
+		// `max_rate_limit`/`overload_factor` from `rate_limit_exceeded`/`overloaded_error`.
+		"invalid max_rate_limit: must be positive",
+		"invalid overload_factor: must be > 0",
+		"deliberate limitation",
+		"separate limits apply",
+		"overload protection enabled",
+		// `timeout`/`temporar` are ordinary identifiers in a config key and a path; matching them
+		// inside a word was the cost of removing the boundaries, so both directions are pinned.
+		"invalid requestTimeout: must be a positive number",
+		"temporary directory is read-only",
+		"could not create the temporary file",
+		// A negated retry advice is the opposite instruction, and the negation may be a few words
+		// away. `unsafe to retry` also proves the advice needs a *leading* boundary: it must not
+		// match on its `safe to retry` tail.
+		"do not try again",
+		"not safe to retry",
+		"unsafe to retry",
+		"no need to try again",
+		"it will never be safe to retry",
+		// A code the message *ends* on is a status unless a configured value is being quoted — no HTTP
+		// context is needed for that (see the transient list's bare `429`). The CJK case pins the
+		// boundary class: `\w` is ASCII, so an ASCII lookbehind would let the code match inside `数量429`.
+		"the limit is 429",
+		"the offset is 429",
+		"the max is 502",
+		"the quota is 429",
+		"数量429",
+		// A unit after the code makes it a count even when an HTTP context word precedes it. The list
+		// is a best effort; these pin that the guard is live at all.
+		"error 429 users",
+		"code 429 errors",
+		"status 429 attempts",
+		"HTTP 429 users affected",
+		"status 503 retries",
+		"response 503 records",
+		"error 429 quota",
+		// The value noun that explains a trailing code has to be recognized inside the project's own
+		// config keys — `max_tokens`, `maxTokens`, `token_limit`, `handoffTargetTokens`. Requiring a
+		// *trailing* word boundary rejected every one of them, which is the over-promise direction:
+		// a configured limit was reported as a retryable server status. The suite was green for the
+		// whole class until these were named.
+		"limits: 503",
+		"max_tokens=429",
+		"maxTokens=429",
+		"maxTokens: 429",
+		"token_limit=429",
+		"window_size=503",
+		"handoffTargetTokens=429",
+		// `timeout` must not match a config key being validated, and `overload` only counts next to a
+		// status or an actor — both were over-promises from a bare stem.
+		"timeout_ms must be positive",
+		"overload protection enabled",
+		"invalid overload_factor: must be > 0",
+		// The actor branch must not read a config statement as a transient overload — these are the
+		// rows that a bare actor prefix got wrong, and the whole set was green until they were named.
+		"service overload protection enabled",
+		"invalid service overload_factor: must be > 0",
+		"server overload threshold 0.8",
+		"error overload protection is disabled",
+		"api overload control enabled",
+	]) {
+		assert.equal(handoffFailureIsTransient(new Error(notTransient)), false, `${notTransient} must stay terminal`);
+	}
+
+	// The wording a runtime actually produces, including the passive forms and bare statuses. These
+	// regressed when the pattern was narrowed, so each is named.
+	for (const transient of [
+		"network is unreachable",
+		"connection was reset",
+		"connection reset by peer",
+		"429",
+		"503",
+		"HTTP 503",
+		"HTTP 503 Service Unavailable",
+		"429 Too Many Requests",
+		"502 Bad Gateway",
+		"504 Gateway Timeout",
+		"Error: 429",
+		"ERR_HTTP_503",
+		"request_timeout",
+		"the request timed out",
+		// Plural and gerund are the forms a runtime reports timeouts with; the trailing boundary that
+		// fixed `requestTimeout` also dropped these.
+		"timeouts",
+		"repeated timeouts",
+		"socket timeouts",
+		"timing out",
+		// The inflections are what Cloudflare and the providers actually send. A trailing boundary
+		// placed after the stem (rather than after the inflected alternative) drops every one of
+		// these, and nothing pinned it.
+		"429 rate limited",
+		"429 rate-limited",
+		"rate limiting",
+		"rate limits exceeded",
+		"provider rate limited the request",
+		// `overload` is an actor noun as well as a config noun; next to a status or an actor it counts.
+		"429 overload",
+		"service overload, try later",
+		// A status code with more text after it cannot use the end rule, so it needs an HTTP context
+		// word before it and no unit after it.
+		"HTTP 503: upstream unavailable",
+		"HTTP/1.1 503",
+		"status 503 backend unhealthy",
+		"status_code 503",
+		"err 503",
+		"error 502 from upstream",
+		"HTTP 503: upstream connect error or disconnect/reset before headers",
+		// A code the message *ends* on is a status when no configured value is being quoted. Dropping
+		// the end rule to fix that case cost this whole class, which nothing pinned.
+		"server returned 503",
+		"request failed with 503",
+		"got 429",
+		"backend responded 502",
+		"upstream 503",
+		"gateway 502",
+		"provider returned 429",
+		"the server said 503",
+		"retrying after 503",
+		"429, 503",
+		"[503]",
+		"(429)",
+		// The distinguishing feature of a prohibition is grammatical, not lexical: the negation has to
+		// be in the same *clause* as a retry verb. Each of these contains a negation word and a retry
+		// verb separated by a comma or a unrelated verb, so none forbids retrying. They are the rows
+		// that a proximity-only guard got wrong, and the whole class was green until they were named.
+		"not a fatal error, please retry",
+		"the failure is not permanent, please retry",
+		"this is not fatal, please retry",
+		"don't worry, please retry",
+		"cannot fail, please retry",
+		"won't hurt, please retry",
+		"no, please retry",
+		"never mind, please retry",
+		// The clause break is what makes this group transient, and *only* a comma or a sentence end
+		// breaks the match. These three are the minimal forms that exercise it; without them the comma
+		// in the prohibition pattern was unpinned — removing it left the suite green.
+		"not x, please retry",
+		"cannot x, please retry",
+		"never x, please retry",
+	]) {
+		assert.equal(handoffFailureIsTransient(new Error(transient)), true, `${transient} is a transient`);
+	}
+
+	// The converse: a negation *in the same clause* as a retry verb is a prohibition, so the advice
+	// must not fire. `don't retry` and `avoid retrying` have no advice phrase of their own, so they
+	// stay terminal because nothing matches — which is the correct answer for a different reason.
+	for (const prohibited of [
+		"do not retry",
+		"never retry",
+		"don't retry",
+		"cannot retry",
+		"avoid retrying",
+	]) {
+		assert.equal(handoffFailureIsTransient(new Error(prohibited)), false, `${prohibited} forbids retrying`);
+	}
+
+	// `ENETUNREACH` has no matching message wording, so it must be in the code set — the narrowing
+	// that dropped it made "network is unreachable" terminal even though the code is unambiguous.
+	const unreachable = new Error("connect failed");
+	unreachable.code = "ENETUNREACH";
+	assert.equal(handoffFailureIsTransient(unreachable), true, "the code set covers codes with no wording");
+
+	// Any transient code on the cause chain wins: an outer wrapper code must not mask a nested one.
+	const masked = new Error("model not found");
+	masked.code = "ERR_MODEL_NOT_FOUND";
+	masked.cause = Object.assign(new Error("socket closed"), { code: "ECONNRESET" });
+	assert.equal(handoffFailureIsTransient(masked), true, "a nested transient code is not hidden by the outer code");
+	const allTerminal = new Error("boom");
+	allTerminal.code = "ERR_BAD_STATE";
+	allTerminal.cause = Object.assign(new Error("also boom"), { code: "ERR_OTHER" });
+	assert.equal(handoffFailureIsTransient(allTerminal), false, "a fully terminal chain stays terminal");
+
+	// A cyclic `.cause` must terminate rather than overflow the stack.
+	const cyclic = new Error("cyclic");
+	cyclic.cause = cyclic;
+	assert.equal(handoffFailureIsTransient(cyclic), false, "a cyclic cause chain is walked safely");
 });
 
 test("the manual handoff stays exempt from the settle guard", async () => {
