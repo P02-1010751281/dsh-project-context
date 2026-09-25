@@ -15,6 +15,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { apply } from "../lib/project-handoff/index.js";
+import { pendingRetire } from "../lib/project-handoff/state.js";
 import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
 import { createChildSession } from "../lib/project-handoff/child.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "../lib/project-handoff/classify.js";
@@ -2084,6 +2085,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		const renames = [];
 		const cancels = [];
 		const archives = [];
+		const retired = [];
 		const logs = [];
 		const own = [...events];
 		const controller = {
@@ -2109,7 +2111,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		const ctx = {
 			get: (name) => (name === "sessionController" ? controller
 				: name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
-					: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async (id) => { archives.push(id); } }
+					: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async (id, options) => { archives.push(id); if (options?.stopActivity === true) retired.push(id); } }
 						: undefined),
 			llm: {
 				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
@@ -2141,7 +2143,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		} catch (caught) {
 			error = caught;
 		}
-		return { calls, error, summaryCalls, renames, cancels, archives, logs };
+		return { calls, error, summaryCalls, renames, cancels, archives, retired, logs, sessionId: session.id };
 	};
 
 	const turnEnd = { type: "turn/end", seq: 10, time: Date.now() };
@@ -2221,7 +2223,11 @@ test("the automatic handoff yields to a session that is already on its next turn
 	assert.equal(settled.renames.length, 1, "a successful handoff publishes the switch marker");
 	assert.ok(settled.renames[0].startsWith("↪ handoff · "), `expected the switch marker, got ${settled.renames[0]}`);
 	assert.deepEqual(settled.cancels, [], "a successful handoff cancels nothing");
-	assert.deepEqual(settled.archives, [], "a successful handoff archives nothing");
+	// The fork's parent is retired so the continuation is not one of two live sessions: the host
+	// refuses to archive a session that still reports activity, so the stop has to be requested too.
+	// The abandoned *child* is what must never be archived here.
+	assert.deepEqual(settled.archives, [settled.sessionId], "a successful handoff archives the session it replaced");
+	assert.deepEqual(settled.retired, [settled.sessionId], "and asks the host to stop its running work");
 
 	// The predicate itself: only a turn that started *after* the trigger defers.
 	const session = { ownEvents: () => [{ type: "turn/start", seq: 4 }, { type: "turn/end", seq: 10 }], snapshotEvents: () => [] };
@@ -3221,4 +3227,63 @@ test("requestPluginText and its meta variant keep the error and abort semantics"
 			`the meta variant must throw for ${kind} too`,
 		);
 	}
+});
+
+test("a handoff retires the session it replaced, and never mid-turn", async () => {
+	// A handoff *forks*: the child is a separate session, so the session that was handed off stayed live
+	// and — being active — sat above its own continuation in the workspace list. The host has no "end
+	// session" RPC; retiring it means archiving it with `stopActivity` (without that flag the host
+	// *refuses* a session with running work instead of stopping it). The archive only hides, so the log
+	// survives and the client can undo it.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-retire-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const archived = [];
+	const handlers = {};
+	const commands = new Map();
+	const session = {
+		id: `session-retire-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => [],
+		snapshotEvents: () => [],
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		get: (name) => (name === "sessionController" ? {
+			create: async () => ({ sessionId: "child-1" }),
+			rename: async () => undefined,
+			prompt: async () => undefined,
+		} : name === "workspaceRegistry" ? {
+			resolveByPath: async () => undefined,
+			archiveSession: async (id, options) => { archived.push([id, options?.stopActivity === true]); },
+		} : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue the work" }; })(),
+		},
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const listener = handlers["session/event"]?.[0];
+	assert.ok(listener, "apply registers a session/event listener");
+
+	const reply = await commands.get("handoff").handler({ agent: { session }, rawInput: "now", signal: new AbortController().signal });
+	assert.equal(reply.kind, "success", `expected the manual handoff to run: ${JSON.stringify(reply)}`);
+	// The command runs inside its own turn: archiving with `stopActivity` here would stop the very turn
+	// rendering this reply, so the retirement waits for that turn's end.
+	assert.deepEqual(archived, [], "nothing is archived while the parent's own turn is still open");
+	assert.ok(pendingRetire.has(String(session.id)), "the retirement is scheduled for that turn's end");
+
+	// The turn ends: the session it replaced is stopped and archived, and the child never is.
+	listener(session, { type: "turn/end", seq: 7, time: Date.now() });
+	assert.deepEqual(archived, [[String(session.id), true]], "the handed-off session is stopped and archived once its turn ends");
+	assert.ok(!pendingRetire.has(String(session.id)), "the retirement is consumed rather than retried");
+
+	// One-shot: a later turn/end must not archive it again.
+	listener(session, { type: "turn/end", seq: 8, time: Date.now() });
+	assert.equal(archived.length, 1, "retiring is one-shot");
 });

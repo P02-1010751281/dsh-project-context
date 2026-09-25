@@ -36,8 +36,14 @@ export interface WorkspaceRegistryLike {
 	 * accounting. Used to make an abandoned handoff child invisible instead of leaving an empty
 	 * session in the sidebar (there is no delete RPC; the archive is undoable through the client's
 	 * `uiWorkspace.unarchiveSession`, which restores the recorded workspace position).
+	 *
+	 * `stopActivity` asks the host to **stop** whatever still runs for the session instead of
+	 * refusing the archive because of it: without it a session with running work is rejected with
+	 * `WorkspaceActiveSessionError`, with it the archive is written and the stops are requested
+	 * afterwards. A handed-off session is retired with it (the host has no "end session" RPC); an
+	 * abandoned child is archived without it, so a child that may still be running is left alone.
 	 */
-	archiveSession?(sessionId: string): Promise<void>;
+	archiveSession?(sessionId: string, options?: { readonly stopActivity?: boolean }): Promise<void>;
 }
 
 /** Structural view of the token meter; the service is optional per profile. */

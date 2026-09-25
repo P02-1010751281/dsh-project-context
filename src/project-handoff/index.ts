@@ -65,9 +65,10 @@ import { getProjectRoot, logError } from "../shared/project-state.js";
 import { REPLAY_MARKER, isHandoffContinuationText } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { maybeAutoHandoff } from "./auto.js";
+import { retireIfPending } from "./child.js";
 import { HandoffDeferred } from "./classify.js";
 import { USAGE, runManual, settingPatch, statusText, writeSetting } from "./command.js";
-import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil, handedOff, inFlight, pendingTriggerSeq, skippedLoggedAt, skippedSince } from "./state.js";
+import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil, handedOff, inFlight, pendingRetire, pendingTriggerSeq, skippedLoggedAt, skippedSince } from "./state.js";
 
 export const name = "project-handoff";
 
@@ -128,6 +129,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.on("session/event", (session, event) => {
 		if (event.type !== "turn/end") return;
+		// A handoff that ran inside its own turn retires that session once the turn ends — never
+		// mid-turn, where archiving would stop the turn rendering the command's reply.
+		retireIfPending(ctx, session);
 		if (!isTopLevel(session)) return;
 		attempt(session, event.seq);
 	});
@@ -142,6 +146,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		skippedSince.delete(key);
 		deferredLoggedAt.delete(key);
 		pendingTriggerSeq.delete(key);
+		pendingRetire.delete(key);
 	});
 
 	ctx.commands.register({

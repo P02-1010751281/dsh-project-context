@@ -14,7 +14,7 @@ import { getProjectRoot, logsDir, memoryDir, safeSessionId, sessionIndexFile, wr
 import { loadMemory } from "../project-memory/memory-store.js";
 import { type HandoffLanguage, localizeSummaryHeadings } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
-import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession } from "./child.js";
+import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement } from "./child.js";
 import { transientIfRetryable } from "./classify.js";
 import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffSplit, pendingQuestionFor, resolveHandoffLanguage } from "./conversation.js";
 import { assertSessionSettled } from "./guard.js";
@@ -177,5 +177,10 @@ export async function performHandoff(
 	// handoff is durable in HANDOFF.md, the session archive and the index.
 	ctx.logger.info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
 	handedOff.add(String(session.id));
+	// The continuation is seeded and marked, so retire the session it replaced: a handoff forks, so
+	// without this the old session stays live and, being active, sits above its own continuation in the
+	// workspace list. The manual path is inside the command's own turn, where archiving with
+	// `stopActivity` would stop the turn rendering the reply, so that one waits for its `turn/end`.
+	scheduleRetirement(ctx, session, reason === "manual");
 	return { childId, file };
 }

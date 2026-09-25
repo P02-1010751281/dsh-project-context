@@ -9,6 +9,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { HandoffDeferred } from "./classify.js";
 import { type SessionControllerLike, type WorkspaceRegistryLike } from "./runtime.js";
+import { pendingRetire } from "./state.js";
 
 /**
  * Resolve the workspace owning `cwd`, or undefined when no registry/none matches.
@@ -219,4 +220,49 @@ export async function abandonChild(
 	} catch (archiveError: unknown) {
 		ctx.logger.warn("dsh-project-context: handoff could not archive the abandoned child: %s", archiveError instanceof Error ? archiveError.message : String(archiveError));
 	}
+}
+
+/**
+ * Retire the session a handoff replaced: stop whatever still runs for it, then archive it.
+ *
+ * dsh's handoff *forks* — the child is a separate session — so the session that was handed off stays
+ * live, and because the workspace list groups by activity the still-running old session sits above its
+ * own continuation. The host has no "end session" RPC; its archive is the closest thing, and
+ * `stopActivity` is what makes it apply to a session with running work (without it the host *refuses*
+ * rather than stopping anything). The archive only hides: the log, the archive artifacts and the
+ * workspace position all survive, and the client can undo it.
+ *
+ * Failures are logged, never thrown: the handoff itself already succeeded.
+ * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param session - the session that was handed off.
+ */
+export async function retireSession(ctx: Context, session: Session): Promise<void> {
+	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
+	if (registry?.archiveSession === undefined) return;
+	try {
+		await registry.archiveSession(String(session.id), { stopActivity: true });
+		ctx.logger.info("dsh-project-context: retired the handed-off session %s (archived; unarchive it in the client to bring it back)", String(session.id));
+	} catch (error: unknown) {
+		ctx.logger.warn("dsh-project-context: could not retire the handed-off session %s: %s", String(session.id), error instanceof Error ? error.message : String(error));
+	}
+}
+
+/**
+ * Retire the handed-off session now, or — when its own turn is still open — when that turn ends.
+ * @param ctx - plugin context.
+ * @param session - the session that was handed off.
+ * @param turnOpen - whether the handoff ran inside that session's own open turn (the manual path).
+ */
+export function scheduleRetirement(ctx: Context, session: Session, turnOpen: boolean): void {
+	if (!turnOpen) {
+		void retireSession(ctx, session);
+		return;
+	}
+	pendingRetire.add(String(session.id));
+}
+
+/** Consume a scheduled retirement; called on every `turn/end` so a deferred one is not forgotten. */
+export function retireIfPending(ctx: Context, session: Session): void {
+	if (!pendingRetire.delete(String(session.id))) return;
+	void retireSession(ctx, session);
 }

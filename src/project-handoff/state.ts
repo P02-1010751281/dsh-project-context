@@ -38,3 +38,13 @@ export const skippedSince = new Map<string, number>();
 
 /** Last logged deferral per session. Separate from the skip above: one must not mute the other. */
 export const deferredLoggedAt = new Map<string, number>();
+
+/**
+ * Sessions whose handoff succeeded while their own turn was still open.
+ *
+ * A handoff *forks*, so the session it replaced has to be retired (stopped and archived) or it stays
+ * live above its own continuation. The manual path runs inside the command's turn, and archiving with
+ * `stopActivity` there would stop the very turn rendering the reply, so the retirement waits for that
+ * turn's `turn/end` instead. The automatic path is settled and retires immediately.
+ */
+export const pendingRetire = new Set<string>();
