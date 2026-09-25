@@ -101,9 +101,9 @@ test("adaptive threshold reserves room for the summary and the carried tail", ()
 	const threshold = resolveThreshold(config, { totalTokens: 20_000, surfaceTokens: 18_000 }, 32_000);
 	assert.ok(threshold);
 	// The quality layer is the base and `capacityLimit` has the last word, so a small window triggers
-	// at `usable − SAFETY_MARGIN` (32_000 − 16_384 − 4_000). The configured 8_000 target still raises a
-	// lower quality base, which is what keeps `/handoff target` meaningful; here the capacity cap is
-	// what decides. The old value was 11_000 = baseline + keep + target, with no quality layer at all.
+	// at `usable − SAFETY_MARGIN` (32_000 − 16_384 − 4_000 = 11_616): the curve allows the whole window
+	// here, so capacity decides. The old value was 11_000 = baseline + keep + target, with no quality
+	// layer at all. The configured 8_000 target takes no part in the trigger, high or low.
 	assert.equal(threshold.tokens, 11_616);
 	assert.match(threshold.label, /^auto /);
 
@@ -1792,6 +1792,51 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.doesNotMatch(one, /1 usable tokens/);
 });
 
+test("a guardrail override of the manual threshold is warned about, not silent", async () => {
+	// The threshold has two sources: the guardrail (the quality layer, then the usable window) and the
+	// manual setting (`/handoff target`, or a fixed `/handoff 0.95` ratio). The guardrail owns the
+	// trigger, so a manual setting it cannot honour must be **named**: otherwise `/handoff target 200k`
+	// on a 1M window renders "adaptive target 200000" beside a threshold of 157000 with no explanation,
+	// and the user keeps turning a control that cannot move the number.
+	const signal = new AbortController().signal;
+	const session = {
+		id: `session-override-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => [],
+		requestHeader: () => undefined,
+		snapshotEvents: () => [],
+	};
+	// baseline 6000 (26_000 − 20_000), keep 20_000 by default.
+	const statusAt = async (contextWindow, over) => {
+		const ctx = {
+			get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) } : undefined),
+			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
+		};
+		return statusText(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over }), signal);
+	};
+
+	// Quality guardrail wins: at 1M the knee allows 157_000 while a 200_000 target needs 226_000.
+	const quality = await statusAt(1_000_000, { handoffTargetTokens: 200_000 });
+	assert.match(quality, /not applied in full/, `expected a warning, got ${quality}`);
+	assert.match(quality, /needs a 226000-token threshold/);
+	assert.match(quality, /quality knee allows 157000/);
+	// The default target fits under the guardrail, so there is nothing to warn about.
+	const honoured = await statusAt(1_000_000, {});
+	assert.doesNotMatch(honoured, /not applied in full/, `unexpected warning: ${honoured}`);
+	// Capacity guardrail wins: at 65_536 the default target needs 90_000 and only 45_152 fit.
+	const capacity = await statusAt(65_536, {});
+	assert.match(capacity, /not applied in full/);
+	assert.match(capacity, /only 45152 tokens fit this 65536-token window/);
+	// Fixed mode: the ratio *is* the trigger, so a 95% ratio clamped by the safety margin on a small
+	// window is the same silent-override class (62_259 asked → 61_536 resolved).
+	const fixed = await statusAt(65_536, { handoffAdaptive: false, handoffThresholdRatio: 0.95 });
+	assert.match(fixed, /fixed ratio 95% is not applied in full/);
+	assert.match(fixed, /asks for 62259 of this 65536-token window and the 4000-token safety margin leaves 61536/);
+	assert.match(fixed, /threshold 95% of window \(capped to 61536\)/, "the label stops claiming the full ratio");
+	const fixedFits = await statusAt(131_072, { handoffAdaptive: false, handoffThresholdRatio: 0.95 });
+	assert.doesNotMatch(fixedFits, /not applied in full/, `unexpected warning: ${fixedFits}`);
+});
+
 test("the quality layer is a fallback chain, and capacity has the last word", () => {
 	// The quality layer is `upstreamUsableInput ?? knee(window)` — a **fallback**, not a sum and not a
 	// cap. dsh's harness exposes only a combined `contextWindow` (`LlmModelContext`), so the chain
@@ -1806,9 +1851,8 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 	assert.equal(qualityLimit(1_000_000), 157_000);
 	assert.equal(qualityLimit(2_000_000), 157_000);
 
-	// Composition, with baseline 6000 and keep 20000 (measurement below). `asked` is the configured
-	// target's request and the curve is the base; the capacity cap is applied last, so neither the
-	// curve nor the target can push the trigger past the safe use of the window.
+	// Composition: `min(quality(window), capacity(room))`, exactly two terms, with baseline 6000 and
+	// keep 20000 (measurement below). No configured key appears on that line.
 	const measurement = { totalTokens: 26_000, surfaceTokens: 20_000 };
 	const config = (over) => resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over });
 	const at = (window, over) => resolveThreshold(config(over), measurement, window).tokens;
@@ -1820,12 +1864,14 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 	// Large windows: the curve saturates at 157K and becomes the binding term (983_616 of capacity).
 	assert.equal(at(1_000_000), 157_000);
 	assert.equal(at(2_000_000), 157_000);
-	// The configured target raises the curve where the curve is lower, so `/handoff target` stays
-	// meaningful: at 1M the curve allows 157_000 and a 200_000 target asks for 226_000, which the
-	// 979_616 of capacity does not constrain.
-	assert.equal(at(1_000_000, { handoffTargetTokens: 200_000 }), 226_000);
-	// Capacity still has the last word over both: at 400K the target asks for 204_808 and the curve
-	// allows 387_852, yet the window caps them at 379_616.
+	// `handoffTargetTokens` must **not** lift the trigger above the curve: a local preference cannot
+	// reopen the hole the knee exists to close. pi's `max(boundary, targetValue)` lifts it (226_000
+	// here), which is the same defect as the earlier `min(configured, knee)` cap wearing the opposite
+	// sign; this port takes neither. Raising the key leaves the trigger identical.
+	assert.equal(at(1_000_000, { handoffTargetTokens: 200_000 }), 157_000, "the target cannot lift the trigger above the curve");
+	assert.equal(at(1_000_000, { handoffTargetTokens: 8_000 }), 157_000, "nor can lowering it move the trigger");
+	// Capacity still has the last word over the curve: at 400K the curve allows 387_852 and the window
+	// caps it at 379_616, whatever the target says.
 	assert.equal(at(400_000, { handoffTargetTokens: 200_000 }), 379_616);
 	// Fixed ratio mode returns before the curve entirely, so an explicit user ratio is never touched.
 	const fixed = resolveThreshold(config({ handoffAdaptive: false, handoffThresholdRatio: 0.5 }), measurement, 1_000_000);
@@ -1866,6 +1912,45 @@ test("a manual handoff on a conversation that fits the carried window is refused
 	assert.match(reply.text, /keep 0/, "the reply names the escape hatch");
 	assert.equal(created.length, 0);
 	assert.equal(modelCalls, 0);
+});
+
+test("the manual path is gated by neither the auto switch nor the auto threshold", async () => {
+	// 自动档 is the `turn/end` listener: gated by `handoffEnabled` and by `resolveThreshold`. 手动档 is
+	// `/handoff`, which the README documents as "始终执行". A one-shot command is temporary and must
+	// beat the persisted switch: a user who turned automatic handoff off, or whose model window is too
+	// narrow for the auto threshold, can still hand off on demand. `runManual` must consult neither
+	// gate — share the quality/capacity *formula* with auto by all means, but never its gates.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-manual-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const calls = [];
+	const ctx = {
+		get: (name) => (name === "sessionController" ? {
+			create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => { calls.push("prompt"); },
+		} : name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async () => undefined } : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 40_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+		logger: { info() {}, warn() {} },
+	};
+	const session = {
+		id: `session-manual-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => [],
+		snapshotEvents: () => [],
+	};
+	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
+	// Both auto gates are closed: the switch is off, and at 40K the capacity cap (19_616) falls below
+	// the floor (19_800), so the automatic path refuses.
+	assert.equal(resolveThreshold(entry, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined, "the auto threshold refuses here");
+
+	const reply = await runManual(ctx, session, entry, new AbortController().signal);
+	assert.equal(reply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(reply)}`);
+	assert.deepEqual(calls, ["create", "prompt"], "the one-shot command creates and seeds the child");
 });
 
 test("a handoff child inherits the parent's session-local model and permission preset", async () => {

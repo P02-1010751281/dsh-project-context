@@ -90,16 +90,26 @@
   `contextWindow`（`LlmModelContext`），所以今天恒走 knee 分支，`qualityLimit(contextWindow, upstream?)`
   的第二个参数就是宿主将来把「声明容量 / 可用输入」拆开后的接入点。曲线为 pi 原文：
   `round(W − (W − 157K) / (1 + e^(−ln(W/450K)/0.04)))`，拟合自 MRCR 8-needle 的 46 个 ≥1M 模型，
-  用途是**不轻信声明的窗口**。组合顺序照 pi：质量层作基、`handoffTargetTokens` 在其上抬升
-  （所以配置项仍然有效）、**容量封顶有最终发言权**。
+  用途是**不轻信声明的窗口**。组合是**两项**：`threshold = min(quality(window), capacity(room))` ——
+  质量层作基、**容量封顶有最终发言权**，`handoffTargetTokens` **不在这条线上**（见下条）。
   **这是一次行为变更**：默认配置下触发点从小窗口的「装配开销 + 保留尾巴 + target」抬到接近容量上限，
   大窗口则由曲线封在 157K。实测（baseline 6000 / keep 20000）：65K 37576→**45152**、128K 68808→
   **107616**、200K 90000→**179616**、400K 90000→**379616**、1M/2M 90000→**157000**。
-  这些数字与 pi 文档中 `boundary` 的 84% / 90% / 95% / 16% / 8% 逐点一致。固定比例模式在曲线之前返回，
-  完全不受影响。变异校验：回退链反向掉 1 项、容量封顶失效掉 11 项、target 失效掉 1 项。
+  这些数字与 pi 文档中 `boundary` 的 84% / 90% / 95% / 16% / 8% 逐点一致。默认配置下与本项上一版
+  （`min(max(baseline+keep+target, quality), capacity)`）**逐值相同**，唯一差别是把 `handoffTargetTokens`
+  抬到曲线之上时不再抬升触发点（1M 窗口 target 200000：226000 → **157000**）。固定比例模式在曲线之前返回。
+  变异校验：回退链反向掉 1 项、容量封顶失效掉 11 项、把 pi 的 `max(targetValue, …)` 加回来掉 1 项。
+- 修复：**手动设定的阈值被护栏压掉时没有任何提示**。阈值有两个来源——护栏（质量层，再是可用窗口）和
+  用户手动设的值（`/handoff target`，或固定模式 `/handoff 0.95`）——而护栏决定触发点。此前手动值一旦
+  被压就**完全看不见**：1M 窗口上 `/handoff target 200000` 的回执同时显示 `adaptive target 200000` 与
+  `threshold auto 157000`，没有任何一句说前者没有生效；`/handoff 0.95` 在小窗口被 4K 安全边际压到
+  61536，标签却仍写着「95% of window」。现在 `resolveThreshold` 返回 `override`（`setting` / `asked` /
+  `tokens` / `by`），`/handoff status` 据此**点名**被覆盖的手动值与压住它的那条护栏（质量膝 or 容量），
+  并给出可用的杆杆；固定模式被压时标签改为 `95% of window (capped to 61536)`，不再自相矛盾。
+  变异校验：分别让两个分支不再上报覆盖，各掉 1 项（都是 `tsc` 0、marker 已进 `lib/` 的有效变异）。
 - 变更：`resolveThreshold` **拆开**为单一职责的纯函数——`handoffRoom`（① 只判可行性）、
-  `qualityLimit`（② 只算质量层，回退链所在）、`capacityLimit`（③ 只算容量上界）、
-  `summarizeAmount`（④ 只算要折叠的旧内容量），`resolveThreshold` 只做模式选择与 ①–④ 的组合。
+  `qualityLimit`（② 只算质量层，回退链所在）、`capacityLimit`（③ 只算容量上界），`resolveThreshold`
+  只做模式选择与 ①–③ 的组合（原 ④ `summarizeAmount` 随 target 退出触发点而删除）。
   原来一个函数里混着六件事（模式、可行性、基线、target 推导、容量、质量），这也是「拒绝原因」与
   「阈值公式」各写一遍、容易互相漂移的根源；现在 `thresholdRefusal` 直接复用 `handoffRoom`，
   两者只能因**组合**而分歧。

@@ -188,9 +188,9 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
 | `maxOutputTokens` | `32768` | 自适应上调的边界（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准。交接摘要的失败重试同样被该边界压住（`min(2×maxTokens 或 32768 的较大者, max(maxTokens, maxOutputTokens))`；边界低于起始上限时重试被取消，只发一次原请求） |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接，`/handoff` 仍可用 |
-| `handoffAdaptive` | `true` | 自适应阈值（按窗口/基线/保留量推导）；false 时用固定比例 |
-| `handoffThresholdRatio` | `0.4` | `handoffAdaptive: false` 时的固定比例（0.1–0.95） |
-| `handoffTargetTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000） |
+| `handoffAdaptive` | `true` | 自适应阈值 = **护栏**取小：质量层（膝曲线，将来可换成宿主的可用输入字段）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
+| `handoffThresholdRatio` | `0.4` | `handoffAdaptive: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值 |
+| `handoffTargetTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000）。这是**手动设定**的阈值请求，触发点由护栏决定；一旦被护栏压掉，`/handoff status` 点名被覆盖的值与压住它的那条护栏，不静默 |
 | `handoffKeepTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符） |
 | `handoffSummaryThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
 | `handoffLanguage` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
@@ -207,10 +207,10 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
 | `/memory` | 显示项目记忆路径与状态 |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
 | `/handoff` | 立即交接：摘要当前会话并另开新会话继续 |
-| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除） |
+| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除） |
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff auto` / `0.4` / `60%` | 切自适应；给比例则切固定比例 |
-| `/handoff target 64k` / `keep 20k` | 自适应移交量 / 保留量（`keep 0` = 只带摘要） |
+| `/handoff target 64k` / `keep 20k` | 自适应移交量 / 保留量（`keep 0` = 只带摘要）；target 是被护栏约束的**请求**，被压掉时 `/handoff status` 点名 |
 | `/handoff thinking off\|session` | 切换摘要 thinking |
 | `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
 | `/handoff lang auto\|zh\|en` | 交接语言：自动判定或固定中文 / 英文 |

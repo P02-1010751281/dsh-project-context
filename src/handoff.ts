@@ -2,8 +2,10 @@
  * project-handoff — port of pi's `auto-handoff` extension.
  *
  * Trigger (per top-level session, on `turn/end`):
- *   - adaptive threshold (default): derived from the routed window, the measured
- *     baseline, the carried-over recent tail, and `handoffTargetTokens`;
+ *   - adaptive threshold (default): `min(quality(window), capacity(room))` — the quality
+ *     layer (the upstream usable-input field when the harness exposes one, else the fitted
+ *     knee) as the base, and the usable window as the only ban. `handoffTargetTokens` does
+ *     not take part (see `resolveThreshold`);
  *   - fixed threshold: `handoffThresholdRatio` × window.
  * A handoff is deferred while the last assistant message is an open question
  * (`handoffPendingQuestion: defer`), while a *continuable* subagent child this
@@ -282,8 +284,6 @@ export function thresholdRefusalText(
 	return `threshold unavailable: the ${contextWindow}-token window does not exceed the ${SAFETY_MARGIN_TOKENS}-token safety margin, so a fixed ${config.handoffThresholdRatio} ratio resolves to no positive threshold; a larger window is the only lever here (the ratio cannot help)`;
 }
 
-/** Adaptive or fixed trigger point for one measured session. Exported for tests. */
-
 /** Where pi's fitted quality curve flattens out: the population-median reliable length. */
 const KNEE_ASYMPTOTE_TOKENS = 157_000;
 /** Window size at which the curve is half way between its asymptote and the declared window. */
@@ -351,40 +351,97 @@ export function qualityLimit(contextWindow: number, upstreamUsableInput?: number
 
 /**
  * ③ Capacity only: the last word. A trigger may not sit past the safe use of the window, whatever the
- * quality layer or the configured target asked for.
+ * quality layer asked for.
  */
 function capacityLimit(room: HandoffRoom): number {
 	return room.usable - SAFETY_MARGIN_TOKENS;
 }
 
 /**
- * ④ How much older context this configuration asks a handoff to fold into the summary, bounded by the
- * room actually available (never more than half the conversation, so a handoff always leaves a tail).
+ * A manually-set threshold that a guardrail overrode, and which one. The threshold has two sources —
+ * what the model actually supports (the quality layer, then the usable window) and what the user set by
+ * hand (`/handoff target`, or a fixed `/handoff 0.4` ratio) — and the guardrail owns the trigger. A
+ * manual setting the guardrail cannot honour must therefore be **named**, not silently ignored: a user
+ * who raises `/handoff target` and sees nothing change has been sent to a control that does nothing.
  */
-function summarizeAmount(config: PluginConfig, room: HandoffRoom): number {
-	const conversationRoom = room.usable - room.baseline - room.keep;
-	return Math.max(MIN_SUMMARIZE_TOKENS, Math.min(config.handoffTargetTokens, Math.floor(conversationRoom / 2)));
+export interface ThresholdOverride {
+	/** Which manual setting was overridden, as the receipt names it. */
+	setting: "target" | "ratio";
+	/** The threshold that setting asked for. */
+	asked: number;
+	/** What the guardrail resolved instead. */
+	tokens: number;
+	/** The guardrail that bound the trigger below `asked`. */
+	by: "quality" | "capacity";
 }
 
-/** ⑤ Orchestrator: mode selection and the composition of ①–④. */
+/**
+ * ④ Orchestrator: mode selection and the composition of ①–③.
+ *
+ * The trigger is the **two-term** rule `min(quality(window), capacity(room))`: the quality layer is the
+ * base and the capacity cap has the last word. The manually-set `handoffTargetTokens` deliberately does
+ * not appear — a local preference must not lift the trigger above the honest quality knee, because
+ * distrusting a declared window is the entire purpose of the curve. pi's `max(boundary, targetValue)`
+ * does lift it (`handoff.ts:785` upstream), and dsh's earlier `min(configured, knee)` was the same
+ * defect wearing the opposite sign: both let the local key decide a term that the quality layer owns.
+ *
+ * Not appearing is not the same as being ignored: the target is the user's statement of how much older
+ * context is worth folding, so when the guardrail lands below the threshold that would need, the
+ * returned {@link ThresholdOverride} says so and `/handoff status` warns. The physical "worthwhile
+ * summary" floor stays enforced by ①: a threshold below it refuses, it does not clamp.
+ */
 export function resolveThreshold(
 	config: PluginConfig,
 	measurement: { totalTokens: number; surfaceTokens: number },
 	contextWindow: number,
-): { tokens: number; label: string } | undefined {
+): { tokens: number; label: string; override?: ThresholdOverride } | undefined {
 	if (!config.handoffAdaptive) {
-		const tokens = Math.min(Math.round(contextWindow * config.handoffThresholdRatio), contextWindow - SAFETY_MARGIN_TOKENS);
-		return tokens > 0 ? { tokens, label: `${Math.round(config.handoffThresholdRatio * 100)}% of window` } : undefined;
+		// Fixed mode: the manual setting *is* the trigger, so the safety margin is the only guardrail
+		// above it. Clamping `0.95` on a small window is real (65_536 → 61_536) and the label alone
+		// would keep claiming the full ratio.
+		const asked = Math.round(contextWindow * config.handoffThresholdRatio);
+		const tokens = Math.min(asked, contextWindow - SAFETY_MARGIN_TOKENS);
+		if (tokens <= 0) return undefined;
+		const percent = Math.round(config.handoffThresholdRatio * 100);
+		const clamped = tokens < asked;
+		return {
+			tokens,
+			// The label must not keep claiming the full ratio once the margin has taken part of it.
+			label: clamped ? `${percent}% of window (capped to ${tokens})` : `${percent}% of window`,
+			override: clamped ? { setting: "ratio", asked, tokens, by: "capacity" } : undefined,
+		};
 	}
 	const room = handoffRoom(config, measurement, contextWindow);
 	if (room === undefined) return undefined;
-	// The quality layer is the base and the configured target raises it (pi's order): `handoffTargetTokens`
-	// is the user's own statement of how much older context is worth summarizing, so it must be able to
-	// lift the trigger above what quality alone allows — but never past `capacityLimit`.
-	const asked = room.baseline + room.keep + summarizeAmount(config, room);
-	const tokens = Math.min(Math.max(asked, qualityLimit(contextWindow)), capacityLimit(room));
+	// Two terms only: the quality base, then the capacity ban. No configured key on this line.
+	const quality = qualityLimit(contextWindow);
+	const capacity = capacityLimit(room);
+	const tokens = Math.min(quality, capacity);
 	if (tokens < room.floor) return undefined;
-	return { tokens, label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)` };
+	// The threshold the configured target needs for its fold to fit under the trigger. Above the
+	// guardrail's value the setting cannot be honoured, and the guardrail that bound it is named.
+	const asked = room.baseline + room.keep + config.handoffTargetTokens;
+	return {
+		tokens,
+		label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)`,
+		override: asked > tokens
+			? { setting: "target", asked, tokens, by: quality <= capacity ? "quality" : "capacity" }
+			: undefined,
+	};
+}
+
+/**
+ * The `/handoff status` warning for a manual threshold the guardrail overrode. Both numbers and the
+ * lever are named, so the receipt cannot send the user back to the same ineffective control.
+ */
+export function thresholdOverrideText(override: ThresholdOverride, config: PluginConfig, contextWindow: number): string {
+	if (override.setting === "ratio") {
+		return `fixed ratio ${Math.round(config.handoffThresholdRatio * 100)}% is not applied in full: it asks for ${override.asked} of this ${contextWindow}-token window and the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves ${override.tokens}; a larger window is the lever`;
+	}
+	const guardrail = override.by === "quality"
+		? `the model's quality knee allows ${override.tokens} at this window`
+		: `only ${override.tokens} tokens fit this ${contextWindow}-token window after the ${WINDOW_RESERVE_TOKENS}-token request reserve and the ${SAFETY_MARGIN_TOKENS}-token safety margin`;
+	return `handoff target ${config.handoffTargetTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff target, or use /handoff 0.4 for a fixed ratio`;
 }
 
 /** Phrasings that mark the assistant's last message as awaiting a user decision. */
@@ -1587,6 +1644,10 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 					// Unreachable: `thresholdRefusal` is total over `resolveThreshold`'s refusals. Say the
 					// honest minimum rather than inventing a cause if the two ever diverge.
 					: "threshold unavailable");
+			// The threshold has two sources — the guardrail and the manual setting — and when the
+			// guardrail overrides the manual one the receipt must say so, or the user keeps turning a
+			// knob that cannot move the number above.
+			if (threshold?.override !== undefined) parts.push(thresholdOverrideText(threshold.override, config, contextWindow));
 		}
 	}
 	parts.push(config.handoffAdaptive ? `adaptive target ${config.handoffTargetTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);
