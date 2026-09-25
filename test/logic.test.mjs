@@ -1515,12 +1515,12 @@ test("migration keeps a divergent legacy skill directory instead of deleting it"
 	await writeFile(path.join(legacy, "reference.md"), "# Reference\n\nonly in the legacy copy\n");
 
 	const result = await migrateProjectState(project);
-	assert.equal(await readFile(path.join(legacy, "SKILL.md"), "utf8"), legacyDocument, "the divergent legacy body survives");
+	assert.equal(await readFile(path.join(legacy, "SKILL.md"), "utf8").catch(() => ""), legacyDocument, "the divergent legacy body survives");
 	assert.ok(existsSync(path.join(legacy, "reference.md")), "the legacy-only sibling asset survives");
 	// Conflicts are labelled by destination, like the file/directory type conflicts above: the label
 	// names the artifact in conflict, and the legacy copy is what stays on disk.
 	assert.deepEqual(result.conflicts, [path.join(".agents", "skills", "release-checklist")], "the kept legacy directory is reported");
-	assert.equal(await readFile(path.join(project, ".agents", "skills", "release-checklist", "SKILL.md"), "utf8"), liveDocument, "the live skill is untouched");
+	assert.equal(await readFile(path.join(project, ".agents", "skills", "release-checklist", "SKILL.md"), "utf8").catch(() => ""), liveDocument, "the live skill is untouched");
 
 	// An exact duplicate is still consumed: keeping it would strand a stale copy in the legacy layout.
 	const clean = await mkdtemp(path.join(tmpdir(), "dsh-migrate-skills-dup-"));
