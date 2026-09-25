@@ -21,8 +21,10 @@ const SUBAGENT_LIST_TIMEOUT_MS = 5_000;
  * One-shot children are deliberately ignored: dsh catalogues them the same way, but only the
  * continuable activation reports a settlement, so counting them would defer every handoff for an
  * hour after a one-shot delegation (the default `subagent` mode, and all of `workflow`) had already
- * returned its result. A continuable child that is later *resumed* by a parent-side message is also
- * invisible here (resuming appends no new catalogue entry), which is the one known gap of this guard.
+ * returned its result. A continuable child that is later *resumed* by a parent-side message is
+ * invisible to this reconstruction (resuming appends no new catalogue entry); the live registry
+ * below does see it, because a resumed child is running again, so that gap belongs to the fallback
+ * alone.
  */
 const SUBAGENT_WORK_HORIZON_MS = 60 * 60_000;
 
