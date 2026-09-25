@@ -3,7 +3,7 @@
 为 **DeepSeek Harness (dsh)** 提供项目级持久上下文：把 dsh 的事件流会话在项目内留档，
 再依次蒸馏成记忆、上下文与技能，最后在上下文将满时交接给新会话。
 
-当前版本 **`v0.1.0`**；逐版本变更见 [CHANGELOG.md](./CHANGELOG.md)。
+当前版本 **`v0.2.0`**；逐版本变更见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 安装
 
