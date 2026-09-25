@@ -102,52 +102,64 @@ export function assertSessionSettled(session: Session, triggerSeq: number | unde
 	}
 }
 
-/** Structural view of the optional `subagents` host service. */
+/** Structural view of the optional `subagents` host service: this session's direct children. */
 interface SubagentsLike {
 	/**
-	 * The classified listing: one row per subagent in the root's tree, each carrying `kind`
-	 * (`child`/`diagnostic`), `mode` and `activity`. It is the only listing that reports `activity`:
-	 * dsh 0.1.6's `listChildren` returned this row, and 0.1.7-alpha.1 moved it here and left
-	 * `listChildren` with the bare catalog row.
+	 * Direct-child read from the parent-owned `subagent/catalog` projection. Every row carries `id`
+	 * and `mode` (dsh 0.1.6's classified `{kind, id, mode, activity, hasChildren}` row and
+	 * 0.1.7-alpha.1's bare `{id, createdAt, mode, label}` catalog row both do), so one read covers
+	 * both versions; a `kind: "diagnostic"` row means the host could not classify that child at all.
 	 */
-	listDescendants?(rootSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
-	/** Direct-child catalog read: `{id, createdAt, mode, label}` — no `kind`, so no `activity`. */
 	listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
 }
 
+/** Structural view of the host's live Agent registry, the only place turn activity is readable. */
+interface AgentsLike {
+	get(sessionId: string): { readonly status?: unknown } | undefined;
+}
+
 /**
- * Continuable children the live registry still reports as running, or `undefined` when the service
- * is absent, failed, or answered in a shape this plugin cannot classify — the caller then falls back
- * to the event log. The registry is authoritative where it can be read: it knows `mode` (a one-shot
- * child never reports a settlement), reports `activity` directly instead of inferring it from a
- * one-hour horizon, and lists what the session store holds rather than what a fork inherited.
+ * This session's direct continuable children that are executing a turn *right now*, or `undefined`
+ * when that cannot be read — the caller then falls back to the event log.
  *
- * The shape check is not defensive padding. dsh 0.1.7-alpha.1 changed `listChildren` from the
- * classified row to the bare catalog row, and a guard that filtered on `kind`/`activity` then
- * matched nothing and answered `[]` — an answer, so the caller's `??` never consulted the log
- * either, and the whole live-registry branch went silent for two releases. An empty listing is a
- * real answer ("no subagent below this session"); a listing this plugin cannot read is not.
- * @param ctx - plugin context, for the optional `subagents` lookup.
+ * Activity comes from the live Agent registry (`agents.get(id)?.status === "running"`), never from
+ * the listing's own `activity` field. That field means "the Session store still holds this child":
+ * `list-children.ts` answers `running` for every candidate with a live Session and `inactive` only
+ * for the ones it had to read cold, so a teammate that finished its turn but stays resident — which
+ * is what makes `send_message` able to resume it — reads as running there. dsh's own `list_agents`
+ * re-derives status the same way and documents why ("Report turn activity without exposing whether
+ * the child is loaded"); the Team roster (`availability`) and `archive-admission` read `agent.status`
+ * too, and `AgentStatus` is `'idle' | 'running'`, flipped at every turn boundary. Residency would
+ * instead hold every handoff until the child is evicted, and a handoff that never runs is worse than
+ * the deferral it exists to express.
+ *
+ * Enumeration is still the listing, and its shape is checked rather than trusted: a `diagnostic`
+ * row, or a row without a `mode`, means the host could not classify that child, and `[]` would then
+ * be an answer this plugin cannot support — so control returns to the log. (dsh 0.1.7-alpha.1
+ * replaced `listChildren`'s classified row with the bare catalog row; the bare row keeps `mode`, but
+ * a guard that insisted on `kind` answered `[]` — an answer the caller's `??` accepts — and the
+ * live-registry half of this guard went silent for two releases.)
+ * @param ctx - plugin context, for the optional `subagents` and `agents` lookups.
  * @param session - the session about to be handed off.
  * @returns the running continuable child ids, or `undefined` when the log must be consulted.
  */
 export async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
 	const service = ctx.get("subagents") as SubagentsLike | undefined;
-	if (service === undefined) return undefined;
-	// Prefer the classified listing; a harness that only classifies in `listChildren` (0.1.6) still works.
-	const listing = service.listDescendants?.bind(service) ?? service.listChildren?.bind(service);
-	if (listing === undefined) return undefined;
+	const agents = ctx.get("agents") as AgentsLike | undefined;
+	// Without the live registry there is no way to tell a working child from a resident one, and the
+	// residency proxy must not stand in for it: read the log instead.
+	if (service === undefined || typeof service.listChildren !== "function") return undefined;
+	if (agents === undefined || typeof agents.get !== "function") return undefined;
 	try {
-		const entries = await listing(String(session.id), AbortSignal.timeout(SUBAGENT_LIST_TIMEOUT_MS));
+		const entries = await service.listChildren(String(session.id), AbortSignal.timeout(SUBAGENT_LIST_TIMEOUT_MS));
 		const ids: string[] = [];
-		let classified = false;
 		for (const raw of entries) {
-			const entry = raw as { kind?: unknown; id?: unknown; mode?: unknown; activity?: unknown };
-			if (entry.kind !== "child") continue;
-			classified = true;
-			if (entry.mode === "continuable" && entry.activity === "running" && typeof entry.id === "string") ids.push(entry.id);
+			const entry = raw as { kind?: unknown; id?: unknown; mode?: unknown };
+			if (entry.kind === "diagnostic") return undefined;
+			if (typeof entry.mode !== "string") return undefined;
+			if (entry.mode !== "continuable" || typeof entry.id !== "string") continue;
+			if (agents.get(entry.id)?.status === "running") ids.push(entry.id);
 		}
-		if (!classified && entries.length > 0) return undefined;
 		return ids;
 	} catch {
 		// Projections unavailable, the listing timed out, or a shape from another version: the

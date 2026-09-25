@@ -1650,10 +1650,10 @@ test("the automatic handoff waits for background subagents to settle", async () 
 	assert.equal(created.length, 0);
 });
 
-test("the live subagent registry is preferred over the event log, but only where it can be read", async () => {
+test("subagent work is read as turn activity, not as residency", async () => {
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
-	// Each case needs its own session id: the pressure check is throttled per session for 15 s
-	// process-wide, so a second call on the same id would return before reaching any guard.
+	// Each case needs its own session id: the automatic path keeps per-session state, so a second
+	// call on the same id could return before reaching any guard.
 	let caseId = 0;
 	const session = (events) => ({
 		id: `session-registry-${caseId}`,
@@ -1664,84 +1664,87 @@ test("the live subagent registry is preferred over the event log, but only where
 	});
 	const created = [];
 	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
-	const ctxWith = (subagents) => ({
-		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : name === "subagents" ? subagents : undefined),
+	// The live Agent registry. `AgentStatus` is `'idle' | 'running'` and flips at every turn
+	// boundary; dsh's own `list_agents` maps `idle` to `inactive` for the model.
+	const agentsWith = (status) => ({ get: () => (status === undefined ? undefined : { status }) });
+	// `agents` is passed explicitly in every case: the absent-service case must not silently become
+	// a service that answers "no live child".
+	const ctxWith = (subagents, agents) => ({
+		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : name === "subagents" ? subagents : name === "agents" ? agents : undefined),
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
 		logger: { info() {}, warn() {} },
 	});
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
-	const runningChild = (mode) => ({ listDescendants: async () => [{ kind: "child", id: "child-live", mode, activity: "running", hasChildren: false }] });
+	// dsh 0.1.6's classified row, and dsh 0.1.7-alpha.1's bare catalog row. Both carry `mode`.
+	const classified = (mode, activity = "running") => ({ listChildren: async () => [{ kind: "child", id: "child-live", mode, activity, hasChildren: false }] });
+	const catalog = (mode) => ({ listChildren: async () => [{ id: "child-live", createdAt: Date.now(), mode, label: "child-live" }] });
+	const looksContinuable = [{ type: "subagent/catalog", time: Date.now() - 1_000, data: { childId: "child-live", mode: "continuable" } }];
 
-	// The registry knows about work the log cannot show at all (here: no events).
+	// The registry sees work the log cannot show at all (here: no events).
 	caseId += 1;
-	await maybeAutoHandoff(ctxWith(runningChild("continuable")), session([]), config);
-	assert.equal(created.length, 0, "a running continuable child defers before any child session is created");
+	await maybeAutoHandoff(ctxWith(classified("continuable"), agentsWith("running")), session([]), config);
+	assert.equal(created.length, 0, "a child executing a turn defers before any child session is created");
 
 	// It also outlives the log fallback's one-hour horizon: that entry alone would have proceeded.
 	caseId += 1;
 	const ancient = [{ type: "subagent/catalog", time: Date.now() - 3 * 60 * 60_000, data: { childId: "child-live", mode: "continuable" } }];
-	await maybeAutoHandoff(ctxWith(runningChild("continuable")), session(ancient), config);
+	await maybeAutoHandoff(ctxWith(classified("continuable"), agentsWith("running")), session(ancient), config);
 	assert.equal(created.length, 0);
 
-	// And its `mode` wins over a contradicting log: a one-shot child never settles, so the log
-	// fallback would defer forever, while the run must reach the summary call and reject here.
+	// A loaded child with no turn running is NOT work in flight — which is the normal state of a
+	// teammate between messages. The listing's `activity` reads `running` for it (it only means the
+	// Session store still holds the child), so reading that field instead of the registry would hold
+	// this handoff until the child is evicted, i.e. possibly forever.
 	caseId += 1;
-	const looksContinuable = [{ type: "subagent/catalog", time: Date.now() - 1_000, data: { childId: "child-live", mode: "continuable" } }];
-	await assert.rejects(() => maybeAutoHandoff(ctxWith(runningChild("one-shot")), session(looksContinuable), config), /async iterable/);
+	await assert.rejects(
+		() => maybeAutoHandoff(ctxWith(classified("continuable", "running"), agentsWith("idle")), session([]), config),
+		/async iterable/,
+		"a resident child with no turn running does not hold the handoff",
+	);
 
-	// A registry that cannot answer falls back to the log, which still sees the running child.
+	// `mode` wins over a contradicting log: a one-shot child never settles, so the log fallback would
+	// defer forever, while the run must reach the summary call and reject here.
+	caseId += 1;
+	await assert.rejects(() => maybeAutoHandoff(ctxWith(classified("one-shot"), agentsWith("running")), session(looksContinuable), config), /async iterable/);
+
+	// The bare catalog row of dsh 0.1.7-alpha.1+ carries `mode`, so one read serves both shapes.
+	caseId += 1;
+	await maybeAutoHandoff(ctxWith(catalog("continuable"), agentsWith("running")), session([]), config);
+	assert.equal(created.length, 0, "the bare catalog row is read, not discarded");
+
+	// A live registry with no entry for the child (never resumed, evicted) is idle, not running.
+	caseId += 1;
+	await assert.rejects(() => maybeAutoHandoff(ctxWith(catalog("continuable"), agentsWith(undefined)), session([]), config), /async iterable/);
+
+	// Without the live registry nothing distinguishes a working child from a resident one, and the
+	// residency proxy must not stand in for it: the log answers instead.
+	caseId += 1;
+	await maybeAutoHandoff(ctxWith(catalog("continuable"), undefined), session(looksContinuable), config);
+	assert.equal(created.length, 0, "no live registry falls back to the log");
+
+	// A listing that throws is not an answer either.
 	caseId += 1;
 	await maybeAutoHandoff(
-		ctxWith({ listDescendants: async () => { throw new Error("projections unavailable"); } }),
+		ctxWith({ listChildren: async () => { throw new Error("projections unavailable"); } }, agentsWith("running")),
 		session(looksContinuable),
 		config,
 	);
 	assert.equal(created.length, 0);
 
-	// An inactive continuable child cannot wake this session, so it must not hold the handoff.
+	// A diagnostic row names a child the host could not classify: it could be a running continuable
+	// one, so `[]` is not an answer this plugin can give.
 	caseId += 1;
-	await assert.rejects(
-		() => maybeAutoHandoff(ctxWith({ listDescendants: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "inactive", hasChildren: false }] }), session([]), config),
-		/async iterable/,
-	);
-
-	// dsh 0.1.7-alpha.1 moved the classified row out of `listChildren`, which now returns the bare
-	// catalog row `{id, createdAt, mode, label}`. Filtering that on `kind`/`activity` matches nothing
-	// and used to answer `[]` — an answer, so the caller's `??` never consulted the log either, and
-	// the live-registry half of the guard was silently dead for two releases. Rows the guard cannot
-	// classify must hand control back to the log, which still sees the running child.
-	caseId += 1;
-	const catalogRows = { listDescendants: async () => [{ id: "child-live", createdAt: Date.now(), mode: "continuable", label: "child-live" }] };
-	await maybeAutoHandoff(ctxWith(catalogRows), session(looksContinuable), config);
-	assert.equal(created.length, 0, "an unclassifiable listing is not read as 'nothing is running'");
-
-	// A listing of diagnostics names children the guard cannot classify either: same rule.
-	caseId += 1;
-	await maybeAutoHandoff(ctxWith({ listDescendants: async () => [{ kind: "diagnostic", id: "child-live", reason: "unavailable" }] }), session(looksContinuable), config);
+	await maybeAutoHandoff(ctxWith({ listChildren: async () => [{ kind: "diagnostic", id: "child-live", reason: "unavailable" }] }, agentsWith("running")), session(looksContinuable), config);
 	assert.equal(created.length, 0, "a diagnostic listing falls back to the log");
 
-	// An empty listing *is* an answer: no subagent below this session, so nothing holds the handoff.
+	// Same rule for a row shape this version does not know.
 	caseId += 1;
-	await assert.rejects(
-		() => maybeAutoHandoff(ctxWith({ listDescendants: async () => [] }), session([]), config),
-		/async iterable/,
-	);
+	await maybeAutoHandoff(ctxWith({ listChildren: async () => [{ id: "child-live" }] }, agentsWith("running")), session(looksContinuable), config);
+	assert.equal(created.length, 0, "an unreadable row shape falls back to the log");
 
-	// A harness where `listChildren` itself still carries the classified row (dsh 0.1.6) is read too.
+	// An empty listing *is* an answer: no child below this session, so nothing holds the handoff.
 	caseId += 1;
-	const legacyClassified = { listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] };
-	await maybeAutoHandoff(ctxWith(legacyClassified), session([]), config);
-	assert.equal(created.length, 0, "a harness that classifies in listChildren still defers");
-
-	// The real dsh 0.1.7 shape: both methods exist, `listChildren` answers the bare catalog row, and
-	// only `listDescendants` classifies. The classified answer must win.
-	caseId += 1;
-	const modernHarness = {
-		listChildren: async () => [{ id: "child-live", createdAt: Date.now(), mode: "continuable", label: "child-live" }],
-		listDescendants: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }],
-	};
-	await maybeAutoHandoff(ctxWith(modernHarness), session([]), config);
-	assert.equal(created.length, 0, "the classified listing wins over the bare catalog row");
+	await assert.rejects(() => maybeAutoHandoff(ctxWith({ listChildren: async () => [] }, agentsWith("running")), session([]), config), /async iterable/);
 });
 
 test("a skipped automatic handoff says why in the server log", async () => {
@@ -2061,8 +2064,9 @@ test("a manual handoff refuses while a background subagent is still running", as
 		rename: async () => undefined,
 		prompt: async () => { calls.push("prompt"); },
 	};
-	const ctxFor = (subagents) => ({
-		get: (name) => (name === "sessionController" ? controller : name === "subagents" ? subagents : undefined),
+	const agents = { get: (id) => (id === "child-live" ? { status: "running" } : undefined) };
+	const ctxFor = (subagents, live = agents) => ({
+		get: (name) => (name === "sessionController" ? controller : name === "subagents" ? subagents : name === "agents" ? live : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2080,7 +2084,7 @@ test("a manual handoff refuses while a background subagent is still running", as
 
 	// A registry reporting a running continuable child refuses before any child session exists.
 	const listed = await runManual(
-		ctxFor({ listDescendants: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] }),
+		ctxFor({ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] }),
 		sessionFor([]),
 		entry,
 		new AbortController().signal,
@@ -2091,9 +2095,25 @@ test("a manual handoff refuses while a background subagent is still running", as
 	assert.match(listed.text, /interrupt_agent/, "and names the lever");
 	assert.deepEqual(calls, [], "a refused handoff creates no child session");
 
+	// A resident child with no turn running is the normal state of a teammate between messages: the
+	// listing's `activity` says `running` for it, but only the live registry knows that nothing is
+	// executing, so the handoff proceeds.
+	const resident = await runManual(
+		ctxFor(
+			{ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] },
+			{ get: () => ({ status: "idle" }) },
+		),
+		sessionFor([]),
+		entry,
+		new AbortController().signal,
+	);
+	assert.equal(resident.kind, "success", `expected a resident-only child to allow the handoff, got ${JSON.stringify(resident)}`);
+	assert.deepEqual(calls, ["create", "prompt"]);
+	calls.length = 0;
+
 	// A listing that cannot be read is not an answer: the log's unsettled continuable child refuses too.
 	const logged = await runManual(
-		ctxFor({ listDescendants: async () => { throw new Error("projections unavailable"); } }),
+		ctxFor({ listChildren: async () => { throw new Error("projections unavailable"); } }),
 		sessionFor([{ type: "subagent/catalog", time: Date.now() - 60_000, data: { childId: "child-logged", mode: "continuable" } }]),
 		entry,
 		new AbortController().signal,
@@ -2103,7 +2123,7 @@ test("a manual handoff refuses while a background subagent is still running", as
 	assert.deepEqual(calls, []);
 
 	// The same fixture with nothing running hands off, so the refusals above are caused by the child.
-	const allowed = await runManual(ctxFor({ listDescendants: async () => [] }), sessionFor([]), entry, new AbortController().signal);
+	const allowed = await runManual(ctxFor({ listChildren: async () => [] }), sessionFor([]), entry, new AbortController().signal);
 	assert.equal(allowed.kind, "success", `expected the idle session to hand off, got ${JSON.stringify(allowed)}`);
 	assert.deepEqual(calls, ["create", "prompt"]);
 });

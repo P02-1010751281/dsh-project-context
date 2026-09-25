@@ -157,17 +157,23 @@
 
 **交接（④）**
 
-- 修复：**后台子代理守卫在 dsh 0.1.7-alpha.1 之后静默失效**（也就是 2026-09-17「父子两个会话同时改同一个
-  项目」那条防线）。守卫读 `subagents` 服务时用 `kind === "child" && activity === "running"` 过滤
-  `listChildren()`；0.1.6 的 `listChildren` 确实返回带 `kind`/`activity` 的分类行（`db701fc` 写的时候是
-  对的），但 alpha.1 把分类行搬到 `listDescendants()`，`listChildren` 只剩裸目录行
-  `{id, createdAt, mode, label}`。于是过滤条件永远不成立、守卫返回 `[]`——而 `[]` 不是 nullish，调用点的
-  `??` 连**会话日志回退**都不会走，整条「实时注册表」分支连续两个版本失明：有子代理在跑时自动交接照常触发。
-  现在优先读 `listDescendants()`（0.1.6 那种只把分类行放在 `listChildren()` 的形态仍可读），并且**读不懂的
-  清单不再算「没有在跑」**：只要返回了行却一行都无法分类（裸目录行、或全是 `diagnostic` 行），就交回日志
-  回退；空清单才是「确实没有」。teammate 是同一注册表里的 continuable 子会话（`subagents.startContinuable`
-  建的），因此这条守卫也覆盖「有 teammate 在跑就不要交接」。
-  变异校验：去掉形态判断 → 掉 1；放宽 `activity` 过滤 → 掉 1；不再优先 `listDescendants` → 掉 1。
+- 修复：**后台子代理守卫有两处独立缺陷，2026-09-16/17「父子两个会话同时改同一个项目」那条防线其实一直没生效**。
+  其一（形态漂移）：守卫用 `kind === "child" && activity === "running"` 过滤 `listChildren()`；0.1.6 的
+  `listChildren` 确实返回带 `kind`/`activity` 的分类行，但 0.1.7-alpha.1 把分类行搬到 `listDescendants()`，
+  `listChildren` 只剩裸目录行 `{id, createdAt, mode, label}`。过滤条件永远不成立、守卫返回 `[]`——而 `[]`
+  不是 nullish，调用点的 `??` 连**会话日志回退**都不会走，整条「实时注册表」分支连续两个版本静默失明：有子代理
+  在跑时自动交接照常触发。其二（字段语义，更根本）：即便形态对上了，`activity` 也**不是**「正在跑」，而是
+  「Session store 还持有这个子会话」——`list-children.ts` 对每个有 live Session 的候选一律报 `running`，只有
+  冷读的才报 `inactive`。所以 `db701fc` 从写下的那天起读的就是**驻留**：一个落定后仍驻留的 teammate（正是
+  `send_message` 能唤醒它的原因）会被算成在跑，交接于是被无限期挡住。上游自己在同一位置重新判状态并写明理由
+  （`list_agents` 的 "Report turn activity without exposing whether the child is loaded"），Team roster 与
+  `archive-admission` 也都读 `agent.status`，而 `AgentStatus` 只有 `'idle' | 'running'`、在每个轮次边界翻转。
+  现在：**枚举仍用 `listChildren()`**（0.1.6 的分类行与 0.1.7 的裸目录行都带 `mode`，一次读取同时覆盖两个
+  版本），**活动改读活体注册表** `agents.get(id)?.status === "running"`；**读不懂的清单不再算「没有在跑」**
+  （`diagnostic` 行、或没有 `mode` 的行 → 交回日志回退；只有空清单才是「确实没有」）；拿不到 `agents` 服务时
+  同样交回日志，绝不拿驻留顶替活动。teammate 是 `subagents.startContinuable` 建的 continuable **直接**子会话
+  （`continuation.ts` 会写 `subagent/catalog`），因此这条守卫覆盖「有 teammate 在跑就不要交接」。
+  变异校验：退回读 `activity` → 掉 2 项；去掉「读不懂」的判断 → 掉 1 项；没有注册表时答「没有在跑」→ 掉 1 项。
 - 修复：**手动 `/handoff now` 不再静默取消运行中的子代理/teammate**。交接先分叉、再退休旧会话，而退休的
   `stopActivity` 会取消旧会话**所有**仍在运行的子代理后代（`workspace/session-stop`）；此前只有自动档查那条
   守卫，手动档照常执行，于是敲一次 `/handoff now` 就会把 teammate 手上的活静默清掉，用户没有任何提示。现在手动

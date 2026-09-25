@@ -276,14 +276,18 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
   分钟；未答问题按 `handoffPendingQuestion` 处理——`wait`
   会把问题原文作为独立段落带进新会话（此前只跳过延后、问题实际会丢），
   并以该段落**取代**常规的“先做下一步”结尾。
-  自动交接在**本会话还有未结束的后台子代理时延后**（优先读 `subagents.listDescendants()` 的分类清单，
-  取 `kind: child`、`mode: continuable` 且 `activity: running` 的；dsh 0.1.7-alpha.1 起
-  `listChildren()` 只剩裸目录行 `{id, createdAt, mode, label}`，没有 `kind`/`activity`，所以**读不懂的
-  清单必须交回**会话日志扫描，而不是当成「没有在跑」；服务缺失、查询失败或清单无法分类都走日志。teammate
-  是同一个注册表里的 **continuable 子会话**（`subagents.startContinuable` 建的），所以正在跑的 teammate
-  同样让自动交接延后。**手动 `/handoff now` 也受这条守卫约束**：交接会退休旧会话并取消其中在跑的子代理，
-  所以有在跑的直接**拒绝并点名**——回执给出数量、子会话 id 与杠杆（先 `interrupt_agent`，或等它们落定后
-  重试），且不创建任何子会话）：
+  自动交接在**本会话还有未结束的后台子代理时延后**（枚举读 `subagents.listChildren()` 并取其中
+  `mode: continuable` 的直接子会话：0.1.6 的分类行与 0.1.7-alpha.1 的裸目录行
+  `{id, createdAt, mode, label}` 都带 `mode`，一次读取同时覆盖两个版本；**是否在跑读活体注册表**
+  `agents.get(id)?.status === "running"`，**不能**读清单里的 `activity`——那个字段的含义是「Session store
+  还持有这个子会话」，落定后仍驻留的 teammate 也会报 `running`，会把交接无限期挡住；上游 `list_agents`
+  在同样位置重新判状态，并写明 “Report turn activity without exposing whether the child is loaded”。
+  **读不懂的清单必须交回**会话日志扫描，而不是当成「没有在跑」：`diagnostic` 行、没有 `mode` 的行、查询失败、
+  或拿不到 `agents` 服务都走日志，只有空清单才是「确实没有」。teammate 是同一个注册表里的
+  **continuable 直接子会话**（`subagents.startContinuable` 建的，会写 `subagent/catalog`），所以正在跑的
+  teammate 同样让自动交接延后。**手动 `/handoff now` 也受这条守卫约束**：交接会退休旧会话并取消其中在跑的
+  子代理，所以有在跑的直接**拒绝并点名**——回执给出数量、子会话 id 与杠杆（先 `interrupt_agent`，或等它们
+  落定后重试），且不创建任何子会话）：
   子代理落定会唤醒父会话并开启新一轮，此时交接会变成父子两个会话同时改同一个项目（本仓库 2026-09-16
   实际踩到过），所以等到没有在跑的子代理再交；**同一个失败还会从另一侧发生**——触发点是
   `turn/end`，但 harness 会在当前轮一关就立刻把队列里的用户消息开成下一轮，
