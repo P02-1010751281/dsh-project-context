@@ -29,7 +29,7 @@ import {
 	recordMemoryDocument,
 } from "../lib/project-memory/memory-store.js";
 import { MEMORY_LOCK_STALE_MS, MEMORY_LOCK_WAIT_MS, staleLockAge, withMemoryLock } from "../lib/shared/lock.js";
-import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
+import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryDir, memoryFile } from "../lib/shared/project-state.js";
 import { consolidateProject } from "../lib/project-memory/index.js";
 import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
@@ -498,6 +498,26 @@ test("an oversized journal collapses into one record and archives the previous b
 	const archives = (await readdir(path.dirname(journal))).filter((name) => /^memory-log-.*\.jsonl$/.test(name));
 	assert.equal(archives.length, 1, "the previous bytes are archived, not deleted");
 	assert.ok((await readFile(path.join(path.dirname(journal), archives[0]), "utf8")).length > 0);
+});
+
+test("a missing journal is recovered from its rotation archive, not from the stale render", async () => {
+	// Rotation copies the previous bytes to `memory-log-*.jsonl` before replacing the journal, so when
+	// `memory.jsonl` is gone the archive is the surviving copy of the document the pass wrote. The read
+	// path used to fall straight through to `MEMORY.md`, which can predate the pass entirely — a
+	// healthy-looking, stale document while the real content sat unread beside it.
+	const root = await project();
+	const passDocument = "# Project Memory\n\n- the pass's document\n";
+	await writeFile(memoryFile(root), "# Project Memory\n\n- a stale pre-pass render\n");
+	await writeFile(
+		path.join(memoryDir(root), "memory-log-2026-01-01T00-00-00-000Z-00000000.jsonl"),
+		`${JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", op: "replace", text: passDocument })}\n`,
+	);
+
+	const loaded = await loadMemory(root, MAX_MEMORY_CHARS);
+	assert.match(loaded.text, /the pass's document/, "the archive decides, not the render");
+	assert.doesNotMatch(loaded.text, /stale pre-pass render/);
+	assert.match(loaded.source, /memory-log-2026-01-01/, "the read names the archive it recovered from");
+	assert.match(loadMemorySync(root, MAX_MEMORY_CHARS), /the pass's document/, "the sync reader recovers too");
 });
 
 test("normalizeMemoryDocument rebuilds one canonical document", () => {

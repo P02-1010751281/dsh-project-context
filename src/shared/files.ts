@@ -90,6 +90,15 @@ async function movePath(source: string, destination: string): Promise<void> {
 }
 
 /**
+ * What {@link mergePath} did with the source.
+ *
+ * `merged` means the source's bytes survived (moved, copied over an older destination, or removed as
+ * an identical duplicate). `superseded` means the destination was at least as new, so the source was
+ * deleted **without** being copied.
+ */
+export type MergeOutcome = "merged" | "superseded" | "absent" | "conflict";
+
+/**
  * Merge one legacy artifact into the new location; newest content wins, then the
  * legacy path is removed.
  *
@@ -101,9 +110,11 @@ async function movePath(source: string, destination: string): Promise<void> {
  * @param source - the legacy path to consume.
  * @param destination - the new location.
  * @returns `absent` when there is nothing to move, `conflict` when the two paths
- *   have incompatible types, `merged` when the source was consumed.
+ *   have incompatible types, `merged` when the source's bytes survived, and
+ *   `superseded` when the destination was at least as new so the source was
+ *   deleted without being copied.
  */
-export async function mergePath(source: string, destination: string): Promise<"merged" | "absent" | "conflict"> {
+export async function mergePath(source: string, destination: string): Promise<MergeOutcome> {
 	if (!await pathExists(source)) return "absent";
 	if (!await pathExists(destination)) {
 		await movePath(source, destination);
@@ -114,22 +125,30 @@ export async function mergePath(source: string, destination: string): Promise<"m
 	const destinationStat = await stat(destination);
 	if (sourceStat.isDirectory() && destinationStat.isDirectory()) {
 		let conflicted = false;
+		let superseded = false;
 		for (const entry of await readdir(source, { withFileTypes: true })) {
-			if (await mergePath(path.join(source, entry.name), path.join(destination, entry.name)) === "conflict") conflicted = true;
+			const outcome = await mergePath(path.join(source, entry.name), path.join(destination, entry.name));
+			if (outcome === "conflict") conflicted = true;
+			if (outcome === "superseded") superseded = true;
 		}
 		// Keep the source directory when it still holds an unmergeable child.
 		if (conflicted) return "conflict";
 		await rm(source, { recursive: true, force: true });
-		return "merged";
+		return superseded ? "superseded" : "merged";
 	}
 
 	if (sourceStat.isDirectory() || destinationStat.isDirectory()) return "conflict";
 
 	if (sourceStat.mtimeMs > destinationStat.mtimeMs) {
 		await cp(source, destination, { force: true });
+		await rm(source, { force: true });
+		return "merged";
 	}
+	// The destination is at least as new, so it stays and the source's bytes are dropped. Reporting
+	// this as `merged` is how a migration told the user a legacy file had been moved when it had
+	// been discarded.
 	await rm(source, { force: true });
-	return "merged";
+	return "superseded";
 }
 
 /** Remove leftover `<name>.<pid>.tmp` files from interrupted atomic writes. */

@@ -185,8 +185,13 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				// existing journal, so it is its own step rather than part of the layout migration.
 				if (await importLegacyMemory(projectRoot, effectivePluginConfig(entry).maxMemoryChars)) details.push("imported legacy OMP memory");
 				if (details.length > 0) ctx.logger.info(`dsh-project-context: project memory in ${memoryDir(projectRoot)}: ${details.join("; ")}`);
+				// The legacy counterpart was older, so the current file won and the legacy bytes are
+				// gone. Say so: the migration used to report these as "moved", which is false.
+				if (result.superseded.length > 0) {
+					ctx.logger.info(`dsh-project-context: legacy files superseded and discarded (the current file was newer): ${result.superseded.join(", ")}`);
+				}
 				if (result.conflicts.length > 0) {
-					ctx.logger.warn(`dsh-project-context: legacy layout left in place (file/directory type conflict, merge it by hand): ${result.conflicts.join(", ")}`);
+					ctx.logger.warn(`dsh-project-context: legacy layout left in place (a newer legacy copy or a file/directory type conflict; merge it by hand): ${result.conflicts.join(", ")}`);
 				}
 			} catch (error: unknown) {
 				// The project root is where diagnostics belong; the cwd is only the

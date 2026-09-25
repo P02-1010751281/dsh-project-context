@@ -1476,7 +1476,7 @@ test("the streaming reader matches the string reader line for line", async () =>
 	}
 });
 
-test("migration keeps the newer of two colliding files", async () => {
+test("migration keeps the newer of two colliding files, and reports the legacy one as discarded", async () => {
 	const project = await mkdtemp(path.join(tmpdir(), "dsh-migrate-newest-"));
 	const memory = path.join(project, ".agents", "memory");
 	await mkdir(memory, { recursive: true });
@@ -1490,7 +1490,48 @@ test("migration keeps the newer of two colliding files", async () => {
 	const result = await migrateProjectState(project);
 	assert.equal(await readFile(path.join(memory, "MEMORY.md"), "utf8"), "# new\n", "the newer destination wins");
 	assert.equal(existsSync(path.join(project, ".pi", "MEMORY.md")), false, "the consumed legacy file is gone");
+	// `merged` used to cover this case too, so the migration said the legacy file had been moved when
+	// its bytes had in fact been dropped. The outcome now names what happened.
+	assert.deepEqual(result.moved, [], "nothing was adopted from the legacy side");
+	assert.deepEqual(result.superseded, [path.join(".agents", "memory", "MEMORY.md")], "the discarded legacy path is named");
 	assert.deepEqual(result.conflicts, []);
+});
+
+test("migration keeps a divergent legacy skill directory instead of deleting it", async () => {
+	// The import used to delete `<legacy>/skills/<name>/` as soon as `.agents/skills/<name>/SKILL.md`
+	// existed: a newer hand-edited body and every sibling asset went with it, silently and without a
+	// conflict. A legacy directory is now consumed only when it is an exact duplicate after
+	// normalization; otherwise it stays and is reported.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-migrate-skills-"));
+	const liveDocument = "---\nname: release-checklist\ndescription: \"live\"\n---\n\nlive body\n";
+	await mkdir(path.join(project, ".agents", "memory"), { recursive: true });
+	await mkdir(path.join(project, ".agents", "skills", "release-checklist"), { recursive: true });
+	await writeFile(path.join(project, ".agents", "skills", "release-checklist", "SKILL.md"), liveDocument);
+
+	const legacy = path.join(project, ".pi", "skills", "release-checklist");
+	const legacyDocument = "---\nname: release-checklist\ndescription: \"hand edited\"\n---\n\nhand-edited body\n";
+	await mkdir(legacy, { recursive: true });
+	await writeFile(path.join(legacy, "SKILL.md"), legacyDocument);
+	await writeFile(path.join(legacy, "reference.md"), "# Reference\n\nonly in the legacy copy\n");
+
+	const result = await migrateProjectState(project);
+	assert.equal(await readFile(path.join(legacy, "SKILL.md"), "utf8"), legacyDocument, "the divergent legacy body survives");
+	assert.ok(existsSync(path.join(legacy, "reference.md")), "the legacy-only sibling asset survives");
+	// Conflicts are labelled by destination, like the file/directory type conflicts above: the label
+	// names the artifact in conflict, and the legacy copy is what stays on disk.
+	assert.deepEqual(result.conflicts, [path.join(".agents", "skills", "release-checklist")], "the kept legacy directory is reported");
+	assert.equal(await readFile(path.join(project, ".agents", "skills", "release-checklist", "SKILL.md"), "utf8"), liveDocument, "the live skill is untouched");
+
+	// An exact duplicate is still consumed: keeping it would strand a stale copy in the legacy layout.
+	const clean = await mkdtemp(path.join(tmpdir(), "dsh-migrate-skills-dup-"));
+	await mkdir(path.join(clean, ".agents", "memory"), { recursive: true });
+	await mkdir(path.join(clean, ".agents", "skills", "release-checklist"), { recursive: true });
+	await writeFile(path.join(clean, ".agents", "skills", "release-checklist", "SKILL.md"), liveDocument);
+	await mkdir(path.join(clean, ".pi", "skills", "release-checklist"), { recursive: true });
+	await writeFile(path.join(clean, ".pi", "skills", "release-checklist", "SKILL.md"), liveDocument);
+	const duplicate = await migrateProjectState(clean);
+	assert.equal(existsSync(path.join(clean, ".pi", "skills", "release-checklist")), false, "an identical legacy copy is consumed");
+	assert.deepEqual(duplicate.conflicts, [], "an identical copy is not a conflict");
 });
 
 test("maxOutputTokens bounds adaptive growth without capping the starting budget", () => {

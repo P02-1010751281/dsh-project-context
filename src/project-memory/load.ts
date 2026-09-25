@@ -9,7 +9,7 @@ import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { MAX_MEMORY_CHARS, legacyOmpDir, legacyPiDir, memoryFile, readOptional } from "../shared/project-state.js";
 import { clipToLineBoundary } from "./document.js";
-import { foldMemoryJournal, memoryJournalFile, parseJournalEntries, readMemoryJournal } from "./journal.js";
+import { foldMemoryJournal, memoryJournalFile, newestMemoryArchive, newestMemoryArchiveSync, parseJournalEntries, readMemoryJournal } from "./journal.js";
 import { decodePoisonedMemory, memoryComparisonKey } from "./poison.js";
 
 /** What one memory read produced, and how trustworthy it is. */
@@ -86,6 +86,15 @@ export async function loadMemory(projectRoot: string, limit: number = MAX_MEMORY
 			return { text: "", source: target, poisoned: false, unreadable: true };
 		}
 	}
+	// No journal at all. A rotation archive is still evidence of what the document was — the previous
+	// bytes are copied there — so prefer it over a render the journal had already superseded. This is
+	// the recovery path for a journal deleted by hand, and the second net under the rotation window.
+	const archive = await newestMemoryArchive(projectRoot);
+	if (archive) {
+		const archived = await readMemoryJournal(archive);
+		const recovered = foldMemoryJournal(archived.entries, limit);
+		if (recovered) return { text: recovered, source: archive, poisoned: false, damaged: archived.damaged };
+	}
 	const current = raw.trim();
 	if (current) {
 		const decoded = decodePoisonedMemory(current, limit);
@@ -154,6 +163,15 @@ export function loadMemorySync(projectRoot: string, limit: number = MAX_MEMORY_C
 	} catch (error) {
 		// An existing but unreadable journal is not "no journal": fail closed like the async reader.
 		if ((error as { code?: string }).code !== "ENOENT") return "";
+	}
+	// Same recovery as the async reader, and it matters more here: with no journal, a rotation archive
+	// is the surviving copy of the pass's document, while the render may predate the pass entirely.
+	const archive = newestMemoryArchiveSync(projectRoot);
+	if (archive) {
+		const archived = readMemorySync(archive);
+		if (archived.unreadable) return "";
+		const recovered = foldMemoryJournal(parseJournalEntries(archived.text).entries, limit);
+		if (recovered) return recovered;
 	}
 	// An existing but unreadable source fails closed, exactly like the async reader: falling
 	// through to a legacy file would silently serve a memory the project already superseded.

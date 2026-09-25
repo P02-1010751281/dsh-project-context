@@ -4,7 +4,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { readdirSync, statSync } from "node:fs";
+import { mkdir, copyFile, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { MAX_MEMORY_CHARS, memoryDir, writeAtomic } from "../shared/project-state.js";
 import { MEMORY_BACKUP_MIN_AGE_MS } from "./backup.js";
@@ -132,7 +133,13 @@ export async function rotateMemoryJournalIfNeeded(projectRoot: string, limit: nu
 		return;
 	}
 	try {
-		await rename(file, archive);
+		// **Copy, do not rename.** The journal has to be valid at every instant: renaming it away first
+		// opened a window in which `memory.jsonl` did not exist, and a crash inside it left the pass's
+		// document only in the archive while the read path fell back to the *pre-pass* `MEMORY.md`
+		// render and reported a healthy document. The rename below is atomic, so a crash before it
+		// leaves the full journal in place. A duplicate archive (crash after the copy) is pruned; a
+		// missing journal is not recoverable on its own.
+		await copyFile(file, archive);
 	} catch {
 		await rm(collapsed, { force: true }).catch(() => undefined);
 		return;
@@ -140,39 +147,82 @@ export async function rotateMemoryJournalIfNeeded(projectRoot: string, limit: nu
 	try {
 		await rename(collapsed, file);
 	} catch {
-		// Put the original back rather than leaving the journal path empty.
-		await rename(archive, file).catch(() => undefined);
+		// `rename` is atomic: on failure the original journal is untouched.
 		await rm(collapsed, { force: true }).catch(() => undefined);
 		return;
 	}
 	await pruneMemoryJournalArchives(projectRoot);
 }
 
-/** Keep the newest archived journals; anything younger than an hour is never pruned. */
-async function pruneMemoryJournalArchives(projectRoot: string): Promise<void> {
-	const generated = /^memory-log-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}\.jsonl$/;
+/** Archived journals are generated names only; anything else in the directory is none of our business. */
+const JOURNAL_ARCHIVE_NAME = /^memory-log-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}\.jsonl$/;
+
+/** Archived journals, newest first. Unreadable entries are skipped, never guessed about. */
+async function listMemoryArchives(projectRoot: string): Promise<Array<{ file: string; mtime: number }>> {
+	const found: Array<{ file: string; mtime: number }> = [];
 	try {
 		const directory = memoryDir(projectRoot);
-		const candidates: Array<{ name: string; mtime: number }> = [];
 		for (const entry of await readdir(directory, { withFileTypes: true })) {
-			if (!entry.isFile() || !generated.test(entry.name)) continue;
+			if (!entry.isFile() || !JOURNAL_ARCHIVE_NAME.test(entry.name)) continue;
+			const file = path.join(directory, entry.name);
 			try {
-				candidates.push({ name: entry.name, mtime: (await stat(path.join(directory, entry.name))).mtimeMs });
+				found.push({ file, mtime: (await stat(file)).mtimeMs });
 			} catch {
 				// An unreadable archive must never be deleted on a guess.
 			}
 		}
-		candidates.sort((left, right) => (right.mtime - left.mtime) || right.name.localeCompare(left.name));
-		const pruneBefore = Date.now() - MEMORY_BACKUP_MIN_AGE_MS;
-		for (const stale of candidates.slice(MEMORY_JOURNAL_ARCHIVES_KEPT)) {
-			if (stale.mtime > pruneBefore) continue;
+	} catch {
+		return [];
+	}
+	found.sort((left, right) => (right.mtime - left.mtime) || right.file.localeCompare(left.file));
+	return found;
+}
+
+/**
+ * The newest archived journal, or `undefined` when the project never rotated.
+ *
+ * Rotation archives the previous bytes, so when `memory.jsonl` is gone this is the only surviving
+ * copy of the document the pass wrote — better evidence than the render the journal had already
+ * superseded. Used by the read path as a recovery source.
+ */
+export async function newestMemoryArchive(projectRoot: string): Promise<string | undefined> {
+	return (await listMemoryArchives(projectRoot))[0]?.file;
+}
+
+/**
+ * Synchronous counterpart of {@link newestMemoryArchive}, for prompt assembly (`loadMemorySync`),
+ * which dsh calls synchronously and therefore cannot await. Same name rule, same "newest first".
+ */
+export function newestMemoryArchiveSync(projectRoot: string): string | undefined {
+	let best: { file: string; mtime: number } | undefined;
+	try {
+		const directory = memoryDir(projectRoot);
+		for (const entry of readdirSync(directory, { withFileTypes: true })) {
+			if (!entry.isFile() || !JOURNAL_ARCHIVE_NAME.test(entry.name)) continue;
+			const file = path.join(directory, entry.name);
+			let mtime: number;
 			try {
-				await rm(path.join(directory, stale.name), { force: true });
+				mtime = statSync(file).mtimeMs;
 			} catch {
-				// One unremovable archive must not stop the others.
+				continue;
 			}
+			if (!best || mtime > best.mtime || (mtime === best.mtime && file > best.file)) best = { file, mtime };
 		}
 	} catch {
-		// Pruning is best effort; an extra archive is harmless.
+		return undefined;
+	}
+	return best?.file;
+}
+
+/** Keep the newest archived journals; anything younger than an hour is never pruned. */
+async function pruneMemoryJournalArchives(projectRoot: string): Promise<void> {
+	const pruneBefore = Date.now() - MEMORY_BACKUP_MIN_AGE_MS;
+	for (const stale of (await listMemoryArchives(projectRoot)).slice(MEMORY_JOURNAL_ARCHIVES_KEPT)) {
+		if (stale.mtime > pruneBefore) continue;
+		try {
+			await rm(stale.file, { force: true });
+		} catch {
+			// One unremovable archive must not stop the others.
+		}
 	}
 }
