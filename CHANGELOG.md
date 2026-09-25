@@ -194,6 +194,14 @@
 
 **自动沉淀（③）**
 
+- 变更：技能的**准入规则合并为唯一一条纯谓词** `shapeRejection(description, body)`，被提案路径
+  （`saveProposedSkill` → `rejectionReason`）与手动路径（`/autolearn approve` → `approveCandidate`）
+  共用。此前 `approveCandidate` 自己重写了其中四条：同一份文档由两处规则各判一次，谁漏一条，手动
+  批准就会静默跳过它（pi 侧的同名副本已经漏掉 body 上限与注入检测，2.5 万字符的注入正文可原样
+  激活）。现在两个入口对同一份文档给出同一个原因，拒绝文案也从笼统的「incomplete or unsafe」变成
+  点名规则（`body too long` / `body looks like an instruction injection` / …）。
+  新增回归测试从三个角度钉住同一原因：纯谓词、pass 路径、approve 路径；变异校验：让 approve 不再
+  调用共享谓词 → 只掉新测试。
 - 修复：`/autolearn` 此前用一句 `No new skill was warranted.` 覆盖**三种互不相同**的结局：模型
   根本没被调用（去重窗口内、没有素材、没有可归档的会话）、模型答了但准入规则拒了它的提案、
   以及模型的回答里没有可用技能。第三种说法在另两种下是**假**的——尤其第二种：一次**已付费**的

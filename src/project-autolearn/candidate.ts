@@ -35,13 +35,28 @@ async function existingSkillNames(projectRoot: string): Promise<Set<string>> {
 	return new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
 }
 
+/**
+ * The shape rules every skill must pass, whichever path read it. A proposal from the model and a
+ * candidate file on disk are the *same document*, so judging them with two copies of the rules is
+ * how `approveCandidate` ended up re-deriving four of them — and a candidate approved by hand could
+ * have skipped any rule the copy forgot. One pure predicate, shared by both callers.
+ *
+ * The name is checked by the caller: the pass validates the model's name, the approve path validates
+ * the CLI argument before it reads anything.
+ */
+export function shapeRejection(description: string, body: string): string | undefined {
+	if (!description) return "missing description";
+	if (description.length > MAX_SKILL_DESCRIPTION_CHARS) return "description too long";
+	if (body.length < MIN_SKILL_BODY_CHARS) return "body too short";
+	if (body.length > MAX_SKILL_BODY_CHARS) return "body too long";
+	if (skillBodyUnsafe(body)) return "body looks like an instruction injection";
+	return undefined;
+}
+
 function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: Set<string>, candidateExists: boolean): string | undefined {
 	if (!validSkillName(skill.name)) return "invalid kebab-case name";
-	if (!skill.description) return "missing description";
-	if (skill.description.length > MAX_SKILL_DESCRIPTION_CHARS) return "description too long";
-	if (skill.body.length < MIN_SKILL_BODY_CHARS) return "body too short";
-	if (skill.body.length > MAX_SKILL_BODY_CHARS) return "body too long";
-	if (skillBodyUnsafe(skill.body)) return "body looks like an instruction injection";
+	const shape = shapeRejection(skill.description, skill.body);
+	if (shape !== undefined) return shape;
 	const cited = [...new Set(skill.evidence)].filter((id) => archived.has(id));
 	const required = skill.candidate ? MIN_CANDIDATE_SESSIONS : MIN_SKILL_SESSIONS;
 	if (cited.length < required) {
@@ -86,9 +101,11 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	if (!raw) return { ok: false, message: `No candidate named "${name}".` };
 	const description = skillDescription(raw);
 	const body = candidateBody(raw);
-	if (!description || body.length < MIN_SKILL_BODY_CHARS || body.length > MAX_SKILL_BODY_CHARS || skillBodyUnsafe(body)) {
-		return { ok: false, message: `Candidate "${name}" is incomplete or unsafe; not activating.` };
-	}
+	// The same rules the pass applied when it stored this candidate, minus the evidence rules (a
+	// stored candidate already passed those, and its file carries no parsed evidence). Naming the rule
+	// makes "incomplete or unsafe" actionable instead of a dead end.
+	const shape = shapeRejection(description, body);
+	if (shape !== undefined) return { ok: false, message: `Candidate "${name}" is not activatable (${shape}); not activating.` };
 	if (await readOptional(path.join(skillsDir(projectRoot), name, "SKILL.md"))) {
 		return { ok: false, message: `Skill "${name}" already exists; remove the candidate manually.` };
 	}
