@@ -155,3 +155,16 @@ export async function runningContinuableChildren(ctx: Context, session: Session)
 		return undefined;
 	}
 }
+
+/**
+ * The running continuable children that must hold a handoff: the live registry when it can be read,
+ * the event log otherwise. One function owns that fallback because two callers act on it — the
+ * automatic path defers, the manual path refuses — and a private copy in either would let one of
+ * them read a different answer than the other.
+ * @param ctx - plugin context, for the optional `subagents` lookup.
+ * @param session - the session about to be handed off.
+ * @returns the outstanding child session ids.
+ */
+export async function pendingSubagentWork(ctx: Context, session: Session): Promise<string[]> {
+	return await runningContinuableChildren(ctx, session) ?? outstandingSubagents(ownEventsOf(session), Date.now());
+}

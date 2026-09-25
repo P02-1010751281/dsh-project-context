@@ -7,6 +7,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
+import { pendingSubagentWork } from "./guard.js";
 import { resolveLanguage } from "./language.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
 import { sessionLanguageMessages } from "./conversation.js";
@@ -141,6 +142,21 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	if (!controller) {
 		return { kind: "error" as const, text: "The session controller is unavailable in this profile; handoff needs the web/API session runtime." };
+	}
+
+	// A handoff forks and then retires the session it replaced, and that retirement cancels every
+	// running subagent descendant of it (`workspace/session-stop`): a teammate mid-task would lose its
+	// work with nothing to show for it. The automatic path defers for the same reason. The manual path
+	// is the user's explicit request, so it **refuses by name** and names the lever instead of quietly
+	// destroying the work — the one reply that cannot be undone is the one that must not be silent.
+	const pending = await pendingSubagentWork(ctx, session);
+	if (pending.length > 0) {
+		const named = pending.slice(0, 3).join(", ");
+		const more = pending.length > 3 ? `, +${pending.length - 3} more` : "";
+		return {
+			kind: "error" as const,
+			text: `Handoff refused: ${pending.length} background subagent(s) still running (${named}${more}). Handing off would retire this session and cancel them, losing their work — stop them first (\`interrupt_agent\` for a teammate) or run /handoff again once they settle.`,
+		};
 	}
 
 	inFlight.add(key);

@@ -7,7 +7,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { CHARS_PER_TOKEN, handoffSplit, pendingQuestion } from "./conversation.js";
-import { outstandingSubagents, ownEventsOf, runningContinuableChildren } from "./guard.js";
+import { pendingSubagentWork } from "./guard.js";
 import { performHandoff } from "./perform.js";
 import { type SessionControllerLike, type TokenMeterLike, resolveTarget } from "./runtime.js";
 import { SKIP_LOG_INTERVAL_MS, skippedLoggedAt, skippedSince } from "./state.js";
@@ -51,7 +51,7 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 
 	// A running continuable subagent will wake this session again when it settles, so handing off
 	// now would leave two sessions working the same project.
-	const pending = await runningContinuableChildren(ctx, session) ?? outstandingSubagents(ownEventsOf(session), now);
+	const pending = await pendingSubagentWork(ctx, session);
 	if (pending.length > 0) {
 		ctx.logger.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", pending.length);
 		return;

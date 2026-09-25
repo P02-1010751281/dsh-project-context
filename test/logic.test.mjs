@@ -2048,6 +2048,66 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 	assert.deepEqual(calls, ["create", "prompt"], "the one-shot command creates and seeds the child");
 });
 
+test("a manual handoff refuses while a background subagent is still running", async () => {
+	// The manual path used to skip the subagent guard entirely, and a successful handoff now retires
+	// the session it replaced — which cancels every running subagent descendant of it. A teammate
+	// mid-task would lose its work with nothing to show for it, so the refusal must name what is
+	// running and the lever, and must not create a child first.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-subagent-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const calls = [];
+	const controller = {
+		create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
+		rename: async () => undefined,
+		prompt: async () => { calls.push("prompt"); },
+	};
+	const ctxFor = (subagents) => ({
+		get: (name) => (name === "sessionController" ? controller : name === "subagents" ? subagents : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+		logger: { info() {}, warn() {} },
+	});
+	const sessionFor = (events) => ({
+		id: `session-subagent-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		snapshotEvents: () => events,
+	});
+	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+
+	// A registry reporting a running continuable child refuses before any child session exists.
+	const listed = await runManual(
+		ctxFor({ listDescendants: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] }),
+		sessionFor([]),
+		entry,
+		new AbortController().signal,
+	);
+	assert.equal(listed.kind, "error");
+	assert.match(listed.text, /Handoff refused/);
+	assert.match(listed.text, /child-live/, "the refusal names the running child");
+	assert.match(listed.text, /interrupt_agent/, "and names the lever");
+	assert.deepEqual(calls, [], "a refused handoff creates no child session");
+
+	// A listing that cannot be read is not an answer: the log's unsettled continuable child refuses too.
+	const logged = await runManual(
+		ctxFor({ listDescendants: async () => { throw new Error("projections unavailable"); } }),
+		sessionFor([{ type: "subagent/catalog", time: Date.now() - 60_000, data: { childId: "child-logged", mode: "continuable" } }]),
+		entry,
+		new AbortController().signal,
+	);
+	assert.equal(logged.kind, "error");
+	assert.match(logged.text, /child-logged/);
+	assert.deepEqual(calls, []);
+
+	// The same fixture with nothing running hands off, so the refusals above are caused by the child.
+	const allowed = await runManual(ctxFor({ listDescendants: async () => [] }), sessionFor([]), entry, new AbortController().signal);
+	assert.equal(allowed.kind, "success", `expected the idle session to hand off, got ${JSON.stringify(allowed)}`);
+	assert.deepEqual(calls, ["create", "prompt"]);
+});
+
 test("a handoff child inherits the parent's session-local model and permission preset", async () => {
 	// `sessionController.create` takes neither a model nor a permission preset, so the child would
 	// start on the deployment defaults and drop whatever the user had switched to — pi's 8a2e6e4 in
