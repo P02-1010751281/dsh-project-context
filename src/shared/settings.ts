@@ -1,22 +1,26 @@
 /**
- * Shared settings namespace for the context pair.
+ * Shared settings for the four plugins.
  *
- * The namespace is owned by whichever plugin of this package loads first;
- * both plugins read the same live value. While a settings provider is mounted,
- * the user layer resolves over the plugin's composition entry config; without
- * one, the entry config stays authoritative.
+ * dsh 0.1.7-rc.2 removed the runtime `settings.installSection()` registration: a settings form is now
+ * **projected from the owning module's exported `Config` schema** and keyed by the Loader entry id
+ * (`SettingsForms.schema(entry) = entry.fiber.runtime.Config`, `describe()` reports `ns = entry.id`).
+ * The archive plugin therefore exports {@link PluginSettingsSchema} as its `Config`, which makes the
+ * `project-context` entry the one editable namespace the web card reads and writes.
+ *
+ * All four plugins still share that one namespace: the archive plugin publishes the config its entry
+ * was applied with, and the other three read it, so one card edit reaches every feature. Without the
+ * archive plugin (or before it applies) each plugin falls back to its own entry config.
  */
 
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import type {} from "@deepseek-ai/dsh-settings";
 import { DEFAULT_CONFIG, type PluginConfig } from "./config.js";
 import { MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 
-/** Settings namespace shared by `project-context` and `project-memory`. */
+/** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */
 export const SETTINGS_NAMESPACE = "project-context" as const;
 
-/** Wire schema shown by the web settings card and validated by the host. */
+/** Wire schema shown by the web settings card and validated by the host; exported as the owner's `Config`. */
 export const PluginSettingsSchema = z.object({
 	archiveEnabled: z.boolean().default(DEFAULT_CONFIG.archiveEnabled),
 	autoConsolidate: z.boolean().default(DEFAULT_CONFIG.autoConsolidate),
@@ -41,44 +45,34 @@ export const PluginSettingsSchema = z.object({
 	handoffLanguage: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLanguage),
 });
 
-let installed = false;
-let source: (() => PluginConfig) | undefined;
-/** Identifies the installation that owns the guard, so a stale fiber cannot release it. */
-let generation = 0;
+let live: PluginConfig | undefined;
+/** Identifies the publication that owns the shared value, so a stale fiber cannot release it. */
+let owner = 0;
 
-/** Attach the shared namespace once per loaded plugin, with the entry config as the base layer. */
-export function installProjectContextSettings(ctx: Context, entry: PluginConfig): void {
-	if (installed) return;
-	installed = true;
-	// The guard is released with the owning fiber. Were it process-global, a reload
-	// would find `installed` already true, never re-register the namespace, and the
-	// settings card plus the user layer would stay gone for the rest of the process.
-	const token = ++generation;
+/**
+ * Publish the namespace owner's live config for the other three plugins.
+ *
+ * dsh keys one projected form by the Loader entry id (`describe()` reports `ns = entry.id`) and reads
+ * the schema off the owning module (`entry.fiber.runtime.Config`), so the archive plugin — whose entry
+ * id is `project-context` — owns the namespace the web card edits. This function only republishes the
+ * value that entry was applied with; the form itself comes from the `Config` export.
+ *
+ * The publication is released with the owning fiber. A config edit makes the Loader build the new
+ * fiber before disposing the old one, so only the newest publication may clear it, and the reload
+ * republishes on apply.
+ * @param ctx - plugin context owning the effect.
+ * @param entry - the resolved config this owner entry was applied with.
+ */
+export function publishProjectContextSettings(ctx: Context, entry: PluginConfig): void {
+	const token = ++owner;
+	live = entry;
 	ctx.effect(() => () => {
-		// An update can build the new fiber before the old one is disposed; only the
-		// installation that still owns the guard may release it.
-		if (generation !== token) return;
-		installed = false;
-		source = undefined;
+		if (owner !== token) return;
+		live = undefined;
 	}, "project-context: settings namespace");
-	ctx.inject(["settings"], (settingsCtx) => {
-		settingsCtx.settings.installSection(ctx, SETTINGS_NAMESPACE, PluginSettingsSchema, entry, {
-			setSource: (current) => {
-				source = current;
-			},
-			onChange: () => {
-				// Reads go through the thunk; nothing derived needs re-judging.
-			},
-		});
-	});
 }
 
-/** Live effective config: settings source when attached, else the plugin entry config. */
+/** Live effective config: the owner's published value, else the caller's own entry config. */
 export function effectivePluginConfig(fallback: PluginConfig): PluginConfig {
-	if (!source) return fallback;
-	try {
-		return source();
-	} catch {
-		return fallback;
-	}
+	return live ?? fallback;
 }

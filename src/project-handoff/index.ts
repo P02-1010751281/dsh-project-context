@@ -59,7 +59,7 @@ import type {} from "@deepseek-ai/dsh-commands";
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { resolvePluginConfig } from "../shared/config.js";
-import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
+import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel } from "../shared/lifecycle.js";
 import { getProjectRoot, logError } from "../shared/project-state.js";
 import { REPLAY_MARKER, isHandoffContinuationText } from "./language.js";
@@ -82,8 +82,6 @@ export { isHandoffContinuationText, REPLAY_MARKER };
 
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
-	// The first plugin of the package to load owns the shared settings namespace.
-	installProjectContextSettings(ctx, entry);
 
 	// One attempt at a time per session. A `turn/end` that lands while an attempt is running is
 	// remembered rather than dropped: it may be the settled turn this handoff was waiting for.

@@ -52,7 +52,7 @@ import {
 	writeAtomic,
 } from "../lib/shared/project-state.js";
 import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-context/session-log.js";
-import { installProjectContextSettings } from "../lib/shared/settings.js";
+import { effectivePluginConfig, publishProjectContextSettings } from "../lib/shared/settings.js";
 import { contextUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
 
@@ -659,10 +659,11 @@ test("archivedConversationText renders dsh JSONL without stream payloads", () =>
 				turn: 1,
 				step: 1,
 				message: {
-					role: "user",
+					role: "tool",
 					id: "m1",
 					source: { kind: "tool", callId: "c1" },
-					content: [{ type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "ok" }] }],
+					toolCallId: "c1",
+					content: [{ type: "text", text: "ok" }],
 				},
 			},
 		}),
@@ -828,27 +829,27 @@ test("a legacy path whose type conflicts with the new layout is left in place", 
 	assert.equal(await readFile(path.join(project, ".pi", "session-logs"), "utf8"), "legacy file\n");
 });
 
-test("the shared settings namespace is installable again after a plugin reload", () => {
-	let installs = 0;
+test("the shared settings value is republished on reload and survives a stale fiber's cleanup", () => {
 	const cleanups = [];
 	const fakeContext = () => ({
-		inject: (_deps, callback) => callback({ settings: { installSection: () => { installs += 1; } } }),
 		effect: (callback) => { cleanups.push(callback()); },
 	});
+	const first = { ...DEFAULT_CONFIG, archiveEnabled: true };
+	const second = { ...DEFAULT_CONFIG, archiveEnabled: false };
+	const own = { ...DEFAULT_CONFIG, maxTokens: 1 };
 
-	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
-	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
-	assert.equal(installs, 1, "one loaded plugin installs the shared namespace once");
+	publishProjectContextSettings(fakeContext(), first);
+	assert.equal(effectivePluginConfig(own), first, "the published entry config is the live shared value");
+	publishProjectContextSettings(fakeContext(), second);
+	assert.equal(effectivePluginConfig(own), second, "a reload republishes the namespace owner's config");
 
-	cleanups[0](); // the owning fiber unloads
-	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
-	assert.equal(installs, 2, "a reload re-registers the namespace instead of silently skipping it");
-
-	// An update can dispose the old fiber after the new one installed: that stale
-	// cleanup must not release the live installation's guard.
+	// An update can dispose the old fiber after the new one published: that stale
+	// cleanup must not release the live publication.
 	cleanups[0]();
-	installProjectContextSettings(fakeContext(), DEFAULT_CONFIG);
-	assert.equal(installs, 2, "a stale fiber must not release a newer installation");
+	assert.equal(effectivePluginConfig(own), second, "a stale fiber must not release a newer publication");
+
+	cleanups[1]();
+	assert.equal(effectivePluginConfig(own), own, "the owner's cleanup restores each plugin's own entry config");
 });
 
 test("a dirty or in-flight composer defers the auto handoff switch", () => {
@@ -3048,19 +3049,19 @@ test("the manual handoff stays exempt from the settle guard", async () => {
 });
 
 test("tool results reach the live transcript, not just the tool name", () => {
-	// The live renderer reads `deriveMessages()`, where a tool result is a user-role message whose
-	// single block is a `tool-result` wrapper. `textOf` used to read only `text` blocks, so every
-	// output rendered empty and the section was dropped — the handoff tail carried 355 `[tool: …]`
-	// stubs with zero results, and the consolidation prompt never saw a command's output.
-	const toolResult = { type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "all green" }] };
-	assert.equal(textOf([toolResult]), "all green");
-	assert.equal(textOf([{ type: "image", attachment: {} }, toolResult]), "all green");
+	// dsh 0.1.7-rc.2 removed the `tool-result` content block: a tool result is now a first-class
+	// `role: 'tool'` message whose own `text` blocks hold the output. A walk that only understood the
+	// old nested wrapper rendered every output empty and dropped the section — the handoff tail
+	// carried hundreds of `[tool: …]` stubs with zero results, and the consolidation prompt never saw
+	// a command's output.
+	assert.equal(textOf([{ type: "text", text: "all green" }]), "all green");
+	assert.equal(textOf([{ type: "image", attachment: {} }, { type: "text", text: "all green" }]), "all green");
 
 	const session = {
 		deriveMessages: () => [
 			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "run the suite" }] },
 			{ role: "assistant", source: { kind: "model" }, content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
-			{ role: "user", source: { kind: "tool", callId: "c1" }, content: [toolResult] },
+			{ role: "tool", source: { kind: "tool", callId: "c1" }, toolCallId: "c1", content: [{ type: "text", text: "all green" }] },
 		],
 	};
 	const transcript = conversationText(session);

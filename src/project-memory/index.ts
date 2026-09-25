@@ -15,7 +15,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
-import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
+import { effectivePluginConfig } from "../shared/settings.js";
 import { renderContextDocument } from "./context-doc.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
 import { consolidateProjectState, fallbackUpdate } from "./consolidate.js";
@@ -152,8 +152,6 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
-	// The first plugin of the package to load owns the shared settings namespace.
-	installProjectContextSettings(ctx, entry);
 	/** In-flight consolidation work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 
@@ -168,7 +166,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		text: (assembleContext) => projectContextInjection(assembleContext.agent?.session.header.cwd),
 	});
 
-	ctx.on("agent/session-start", ({ agent }) => {
+	ctx.on("agent/created", ({ agent }) => {
 		void (async () => {
 			let projectRoot: string | undefined;
 			try {
@@ -199,6 +197,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				await logError(projectRoot ?? projectCwd(agent.session), "migration", error);
 			}
 		})();
+		return undefined;
 	});
 
 	ctx.on("agent/status", ({ agent, status }) => {

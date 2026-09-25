@@ -428,13 +428,15 @@ test("the summary retry grows but never passes the configured growth boundary", 
 });
 
 test("tool output reaches the handoff tail, not just the tool name", () => {
-	// The carried window is what the child reads: before the `textOf` fix every `tool-result` block
-	// rendered empty, so a real tail held hundreds of `[tool: …]` stubs and no output at all.
+	// The carried window is what the child reads: while the transcript walk only understood the
+	// pre-rc.2 nested `tool-result` wrapper, every output rendered empty, so a real tail held
+	// hundreds of `[tool: …]` stubs and no output at all. rc.2 carries the result as a first-class
+	// `role: 'tool'` message whose `text` blocks hold it.
 	const session = {
 		deriveMessages: () => [
 			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "run the suite" }] },
 			{ role: "assistant", source: { kind: "model" }, content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
-			{ role: "user", source: { kind: "tool", callId: "c1" }, content: [{ type: "tool-result", toolCallId: "c1", content: [{ type: "text", text: "134 passing" }] }] },
+			{ role: "tool", source: { kind: "tool", callId: "c1" }, toolCallId: "c1", content: [{ type: "text", text: "134 passing" }] },
 		],
 	};
 	const split = handoffSplit(session, 100_000);

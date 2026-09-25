@@ -16,7 +16,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
-import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
+import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
 import { approveCandidate, listCandidates, rejectCandidate } from "./candidate.js";
 import { autolearnProjectSkills, type AutolearnOutcome } from "./pass.js";
@@ -55,8 +55,6 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
-	// The first plugin of the package to load owns the shared settings namespace.
-	installProjectContextSettings(ctx, entry);
 	/** In-flight autolearn work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 

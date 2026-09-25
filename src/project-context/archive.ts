@@ -141,9 +141,9 @@ function archivedSectionFromLine(line: string): string | undefined {
 	}
 
 	if (entry.type === "tool/result") {
-		// The event carries a ToolResultMessage: `message.content` is the single `tool-result` block
-		// whose own `content` holds the payload. Reading `data.content` found nothing, so every tool
-		// output used to be dropped from archived transcripts.
+		// The event carries a ToolResultMessage: since dsh 0.1.7-rc.2 its own `text` blocks hold the
+		// payload (before rc.2 that payload was nested in a `tool-result` block). Reading `data.content`
+		// — one level up — found nothing, so every tool output used to be dropped from the transcript.
 		const data = entry.data as { message?: { content?: unknown } } | undefined;
 		const content = data?.message?.content;
 		if (!Array.isArray(content)) return undefined;

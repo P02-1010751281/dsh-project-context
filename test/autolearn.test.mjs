@@ -145,7 +145,7 @@ test("the gate timestamp survives a restart and new material re-opens it", async
 
 	// A restart forgets the in-process throttle, but not the project-persisted gate:
 	// an empty throttle takes a fresh module instance, exactly like a new process.
-	const restarted = await import("../lib/project-autolearn/autolearn.js?restart=1");
+	const restarted = await import("../lib/project-autolearn/pass.js?restart=1");
 	const second = fakeContext(['{"skill": null}']);
 	assert.equal(await restarted.autolearnProjectSkills(second, agent, config), undefined);
 	assert.equal(second.calls.length, 0);
@@ -453,7 +453,7 @@ test("the interval gate survives a restart instead of measuring from the materia
 	await utimes(contextFile(root), written, written);
 	await updateLearnState(root, { autolearnAt: Date.now() - 2 * 60 * 60 * 1000, lastAttemptAt: Date.now() });
 
-	const restarted = await import("../lib/project-autolearn/autolearn.js?interval=1");
+	const restarted = await import("../lib/project-autolearn/pass.js?interval=1");
 	const ctx = fakeContext(['{"skill": null}']);
 	assert.equal(await restarted.autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config), undefined);
 	assert.equal(ctx.calls.length, 0, "the recorded attempt time keeps the interval gate closed");

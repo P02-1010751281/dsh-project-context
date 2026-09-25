@@ -7,6 +7,45 @@
 
 ### 未发布（`v0.1.0` 之后）
 
+**dsh 0.1.7-rc.2 宿主 API 适配（host）**
+
+- 变更：**适配 dsh 0.1.7-rc.2**。此前宿主半边的类型依赖一直钉在 `0.1.5-rc.2`（客户端那几个已抬到
+  alpha.2），旧类型里这些 API 都还在，所以 `tsc` 全绿而实际跑不起来——与客户端那次漂移同源，只有
+  类型对齐能让编译器说话。对齐到 `0.1.7-rc.2` 后一次性报出五处硬不兼容，逐条修掉：
+  - **设置表单不再由运行时注册产生**：`settings.installSection()` 已被删除。rc.2 的
+    `SettingsForms.schema(entry)` 读的是**归属模块导出的 `Config`**（cordis 侧 `Config: plugin.Config`），
+    `describe()` 再按 **Loader 条目 id** 取命名空间。故 `project-context` 入口导出
+    `Config = PluginSettingsSchema`（`toJSON` 是投影前提），`installProjectContextSettings` 换成
+    `publishProjectContextSettings`：归属条目发布自己 apply 到的 live config，其余三个插件读取它，
+    四个插件仍共享一个命名空间。
+  - **事件改名**：`agent/session-start` 已不存在（`project-memory` 漏改，记忆迁移在 rc.2 上永不触发），
+    改挂 `agent/created`；该事件是**异步串行**的，监听器返回类型必须是
+    `undefined | Promise<undefined>`，两处 fire-and-forget 监听器改为显式 `return undefined`
+    （工作仍在后台跑，不阻塞事件）。
+  - **`tool-result` 内容块被删除**：工具结果现在是独立的 `role: 'tool'` 消息，其自身 `text` 块即输出。
+    `textOf` 去掉递归分支改为直接取 `text` 块，归档与实时两条 transcript 路径因此继续拿得到工具输出
+    （否则交接摘要 / 携带尾部 / autolearn 输入会退回成只有 `[tool: …]` 占位）。
+  - **`MessageSource.kind` 的 catch-all `plugin` 被删除**：`MessageSourceMap` 改为 merge-extensible，
+    各生产者在自己模块里声明 kind。本包在 `model-call.ts` 声明 `"dsh-project-context"` 并使用；
+    **刻意不用 `user`**——`userTurnCount` 以 `source.kind === "user"` 统计人类轮次，用 `user` 会把
+    插件注入算进自动整理 / autolearn 的触发轮数。
+  - `dsh.client.inject` 里退役的 `@deepseek-ai/dsh-client-ui-settings-plugins` 换成真正声明
+    `plugins.item` 的 `@deepseek-ai/dsh-client-ui-plugin-manager`。
+- 变更：peer 下限 `>=0.1.5-rc.2` → `>=0.1.7-rc.2`（上述 API 属 rc.2，旧范围是虚的）。
+- 回归测试：新增「入口导出 Host 投影表单所需的 `Config`，且卡片命名空间 == 该条目 id」的静态断言
+  ——`Config` 一旦丢失，卡片会**无错误、无日志地消失**，正是这次踩到的坑。变异校验：删掉 `Config` 导出
+  → 掉 1；把客户端 `NS` 改成别的名字 → 掉 1（两处 `tsc` 均通过，属有效变异）。
+- 修复：`test/autolearn.test.mjs` 的两处「模块重启」动态 import 仍指向**已改名的旧产物**
+  `lib/project-autolearn/autolearn.js`（源文件早已拆成 `pass.ts`）。它一直"绿"只是因为工作树里留着
+  被 gitignore 的陈旧 `lib/autolearn.js`；`rm -rf lib` 后干净构建才暴露 ⇒ **全新克隆跑 `pnpm test`
+  必失败**。改指持有进程内节流的 `pass.js`，并核对 8 个测试文件里全部 **65 处** `lib/` 导入在干净
+  构建下均可解析。
+- 验证：`tsc` / `pnpm build` 干净，**208/208**；隔离 `DSH_HOME` + rc.2 store 二进制冷启动：0 条未激活、
+  0 条 FATAL/error、74 条 client entry 含 `dsh-project-context`、`[dsh-cost-meter] 已加载`；另用
+  `dsh --profile web --dump-config-schema` 在服务端确认 `project-context` 条目确实带出了本包的
+  Config schema（`archiveEnabled` / `handoffTargetTokens` / `autolearnTurns` / `maxMemoryChars` /
+  `handoffLanguage` 均在），即卡片绑定的命名空间可被 Host 投影。
+
 **设置卡片（client）**
 
 - 修复：**设置卡片在 dsh 0.1.7-alpha.1 之后不再渲染**（当时只修掉了启动崩溃，卡片本身静默消失）。

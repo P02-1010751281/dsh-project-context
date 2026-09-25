@@ -151,3 +151,22 @@ test("every settings key has a card spec, a projection and a rendered row", asyn
 		assert.match(source, row, `${key} must have a rendered row bound to its own state and locale key`);
 	}
 });
+
+test("the archive entry exports the Config schema the Host projects a settings form from", async () => {
+	// dsh 0.1.7-rc.2 dropped runtime section registration (`settings.installSection`): the Host reads
+	// the schema off the owning module (`SettingsForms.schema(entry) = entry.fiber.runtime.Config`)
+	// and keys the form by the Loader entry id. So the `project-context` entry only gets a form while
+	// its module exports `Config` — without it the card disappears with no error and no log, which is
+	// the drift that made it invisible on alpha.1/alpha.2 and that this assertion pins.
+	const entry = await import("../lib/project-context/index.js");
+	assert.ok(entry.Config !== undefined, "the archive entry must export the settings schema as Config");
+	assert.equal(typeof entry.Config.toJSON, "function", "Config must be a schemastery schema");
+	const { PluginSettingsSchema, SETTINGS_NAMESPACE } = await import("../lib/shared/settings.js");
+	assert.deepEqual(entry.Config({}), PluginSettingsSchema({}), "the exported schema is the shared settings schema");
+	assert.equal(SETTINGS_NAMESPACE, "project-context", "the form's namespace is the archive entry's Loader id");
+
+	// The browser card binds that same namespace; a private copy drifting from the entry id would
+	// leave the card watching a namespace the Host never serves.
+	const client = await readFile(fileURLToPath(new URL("../client/index.ts", import.meta.url)), "utf8");
+	assert.ok(client.includes(`const NS = "${SETTINGS_NAMESPACE}"`), "the card must bind the namespace the Host serves");
+});

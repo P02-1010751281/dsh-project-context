@@ -75,7 +75,9 @@ journal，读取时以 journal 折叠结果为准；手改 `MEMORY.md`（且比 
 形式并按行内日期排序；只有它持有的每一行都已写进新索引时才删除它，因此 200 行上限丢行时旧文件留在
 原处、下次再采。
 
-配置不在项目内：开关与参数在 `~/.dsh/settings.yaml` 的 `project-context` 段（设置卡片编辑）。dsh
+配置不在项目内：开关与参数写在**当前 profile 的设置 patch 文档**里（`project-context` 条目，
+设置卡片编辑；dsh 0.1.7-rc.2 会把旧的 `~/.dsh/settings.yaml` 段一次性导入该文档，文件改名为
+`settings.yaml.imported`）。dsh
 自身仍把会话存在 `~/.dsh/sessions/…`，`session-logs/` 是项目内副本，便于随项目阅读与检索。
 更早版本的目录布局在 session 启动时自动迁移（旧记忆 / 上下文 / 日志 /
 技能各归其位；文件/目录类型冲突时两侧都保留并在日志点名；`.omp` 旧记忆存在但读不了会记进
@@ -209,14 +211,20 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
 ## 配置
 
 Settings → Plugins → **项目上下文** 卡片（记忆整理 / 技能沉淀 /
-自动交接三区，共享的辅助模型路由在记忆整理区末尾），写入 `~/.dsh/settings.yaml` 的
-`project-context` 段，host 侧实时生效。卡片挂在插件页的 `plugins.item` 槽位上，经宿主的
-`configForms` 服务读写本命名空间，并由 `whileServed` 门控——profile 没装 host 半时页面上不会留下痕迹；
-`configForms` 是 dsh 0.1.7-alpha.1 起才有的服务（此前叫 `settingsScope`），更早的 core 上卡片**不显示**，
-host 侧功能不受影响。也可在 profile 的 `cordis.patch.yml`
-用户层覆盖：四个插件共享同一个设置命名空间，base 层取**先加载的 `project-context` 行**的
-`config:`（四行里的第一行），改其余三行不生效；面板未覆盖的字段回落到 profile
-配置，再回落到默认值。
+自动交接三区，共享的辅助模型路由在记忆整理区末尾），host 侧实时生效。卡片挂在插件页的 `plugins.item`
+槽位上，经宿主的 `configForms` 服务读写本命名空间，并由 `whileServed` 门控——profile 没装 host 半时
+页面上不会留下痕迹。
+
+命名空间就是 **Loader 条目 id** `project-context`：dsh 0.1.7-rc.2 起，设置表单由**归属插件模块导出的
+`Config` schema 投影**而来（`SettingsForms.schema(entry)` 读 `entry.fiber.runtime.Config`），
+不再有 `settings.register` / `installSection` 这类运行时注册 API。所以 host 半边把
+`PluginSettingsSchema` 作为 `Config` 从 `project-context` 入口导出；四个插件共享同一个命名空间
+（该入口发布自己 apply 到的 live config，其余三个读取它），base 层因此恒为
+`cordis.patch.yml` 里 `project-context` 那一行的 `config:`，改其余三行不生效。
+
+设置值写在**当前 profile 的 patch 文档**里（`SettingsForms.documentPath`），不再是
+`~/.dsh/settings.yaml`：rc.2 在 Loader 安定后把该文件里的旧段一次性导入 profile（文件改名为
+`settings.yaml.imported`），既有配置因此自动接续。面板未覆盖的字段回落到 profile 配置，再回落到默认值。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
@@ -366,6 +374,11 @@ pnpm test             # 先编译再跑 node:test 纯逻辑回归（test/）
 host 侧对 `@deepseek-ai/*` 仅 type-only import（唯一的运行时值依赖是 `schemastery`，已声明在
 `peerDependencies`）；客户端 bundle 的 esbuild 外部化只有 `react` / `react/jsx-runtime`，另有运行时
 `require("@deepseek-ai/dsh-client-store")` 由 web shell 的平台种子提供。
+
+宿主半边按 **dsh 0.1.7-rc.2** 的 API 写，`peerDependencies` 的下限即该版本。rc.2 的这几处都是
+**破坏性**变更、本包不再兼容 0.1.5–0.1.7-alpha 线：设置表单来自模块导出的 `Config`（`installSection`
+已删）、`agent/session-start` 改为 `agent/created`、工具结果是独立的 `role: 'tool'` 消息（`tool-result`
+内容块已删）、消息 `source.kind` 的 catch-all `plugin` 已删。
 
 客户端改动**只有 `pnpm build`（或 `pnpm build:client`）才会进 `lib/client.js`**：`pnpm test` 只编译
 host，漏跑会让服务端继续分发旧 bundle；重建后运行中的 `dsh web` 经 client HMR 自动换版（boot graph

@@ -14,7 +14,7 @@ import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
 import { resolvePluginConfig } from "../shared/config.js";
-import { installProjectContextSettings, effectivePluginConfig } from "../shared/settings.js";
+import { PluginSettingsSchema, effectivePluginConfig, publishProjectContextSettings } from "../shared/settings.js";
 import { projectCwd, SessionWorkTracker } from "../shared/lifecycle.js";
 import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "../shared/project-state.js";
 import { importArchiveFiles } from "./import.js";
@@ -50,14 +50,22 @@ async function resolveImportTargets(args: string, cwd: string): Promise<string[]
 export const name = "project-context";
 export const inject = ["commands"];
 
+/**
+ * The settings schema the Host projects into the Plugins page, and the one namespace all four
+ * plugins share: the entry id below (`project-context`) is what the web card edits, and
+ * {@link publishProjectContextSettings} republishes the value this entry was applied with.
+ */
+export const Config = PluginSettingsSchema;
+
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
-	installProjectContextSettings(ctx, entry);
+	publishProjectContextSettings(ctx, entry);
 	/** In-flight archive work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 
 	ctx.on("agent/created", ({ agent }) => {
 		void getProjectRoot(projectCwd(agent.session)).catch(() => undefined);
+		return undefined;
 	});
 
 	ctx.on("session/event", (session, event) => {

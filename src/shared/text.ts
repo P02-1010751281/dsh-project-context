@@ -116,20 +116,21 @@ export function truncateMiddle(text: string, limit: number): string {
 }
 
 /**
- * The text a content-block list carries. A tool result does not hold text directly: its payload sits
- * inside a `tool-result` block (`{type: 'tool-result', content: [{type: 'text', …}]}`), so the nested
- * content is read recursively. Without that every tool output rendered as empty and was dropped from
- * the transcript, the handoff's carried tail and the summarizer input alike.
+ * The text a content-block list carries.
+ *
+ * dsh 0.1.7-rc.2 removed the `tool-result` content block: a tool result is now a first-class
+ * `role: 'tool'` message whose own `text` blocks hold the output, so joining this message's text
+ * blocks covers tool output too. Before rc.2 the payload was nested inside a `tool-result` block and
+ * had to be read recursively; without that every tool output rendered as empty and was dropped from
+ * the transcript, the handoff's carried tail and the summarizer input alike. That regression is why
+ * this walk has to cover whatever block actually carries text — see `conversationMessageSections`,
+ * which renders the tool-role message through this same function.
  * @param content - the message's content blocks.
  * @returns the joined text, or `""` when no block carries any.
  */
 export function textOf(content: readonly ContentBlock[]): string {
 	return content
-		.map((block) => {
-			if (block.type === "text" && typeof block.text === "string") return block.text;
-			if (block.type === "tool-result") return textOf(block.content);
-			return "";
-		})
+		.map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
 		.filter((part) => part.length > 0)
 		.join("\n")
 		.trim();
