@@ -2436,6 +2436,58 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 	assert.equal(logs.filter((line) => line.includes("fits the recent window")).length, 1, `the deferral must not mute the skip, got ${JSON.stringify(logs)}`);
 });
 
+test("a pending-question deferral releases the pressure throttle so the answer is not dropped", async () => {
+	// The throttle bounds `resolveModelInfo` + `tokenMeter.measure`, and every *deferral* releases
+	// it — `HandoffDeferred` in the listener, the running-subagent branch in `maybeAutoHandoff` —
+	// because the condition that deferred is exactly what the next idle resolves. The
+	// pending-question branch was the one deferral that consumed the stamp instead, so under the
+	// production interval the first `turn/end` after the user answered was dropped and the handoff
+	// waited out the interval while the session kept growing. `handoffPendingQuestion` defaults to
+	// "defer", so that was the default path. Not every early return is a deferral: an unresolved
+	// context window and a session under the threshold are "nothing to do" outcomes, and consuming
+	// the interval on those is the throttle working as designed.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-pending-throttle-"));
+	let conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	conversation.push(message("assistant", "Should I delete the stale branches?"));
+	const calls = [];
+	const ctx = {
+		get: (name) => (name === "sessionController" ? {
+			create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
+			rename: async () => undefined,
+			prompt: async () => { calls.push("prompt"); },
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
+			: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async () => undefined } : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+		},
+		logger: { info: () => undefined, warn: () => undefined },
+	};
+	const session = {
+		id: `session-pending-throttle-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => [],
+		snapshotEvents: () => [],
+	};
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+
+	setPressureCheckIntervalMs(15_000);
+	try {
+		await maybeAutoHandoff(ctx, session, config);
+		assert.deepEqual(calls, [], "an open question defers before any child exists");
+
+		// The user answers; the next turn ends immediately, well inside the interval. That idle is
+		// the one that may hand off, so it must not be swallowed by the stamp the deferral left.
+		conversation = [...conversation, message("user", "yes, go ahead")];
+		await maybeAutoHandoff(ctx, session, config);
+		assert.deepEqual(calls, ["create", "prompt"], "the answer's first idle re-checks and completes the handoff");
+	} finally {
+		setPressureCheckIntervalMs(15_000);
+	}
+});
+
 test("a retryable manual handoff failure is not reported with the terminal wording", async () => {
 	// `/handoff now` renders its `catch` verbatim. Every failure used to come back as
 	// "Handoff failed: <message>", which tells the user the operation is over — even when the cause

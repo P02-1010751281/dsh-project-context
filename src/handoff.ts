@@ -1459,6 +1459,11 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	// instead of being answered by the continuation (pi's wait). `handoffPendingQuestion`
 	// = "wait" opts into carrying the question into the new session.
 	if (config.handoffPendingQuestion === "defer" && pendingQuestion(session) !== undefined) {
+		// The user answering is exactly what starts this session's next turn, so re-check on that
+		// idle rather than after the measurement interval — the same reason the running-subagent
+		// branch below releases the stamp. Consuming it here dropped the first `turn/end` after the
+		// answer, so the handoff waited out the whole interval while the session kept growing.
+		pressureCheckedAt.delete(key);
 		ctx.logger.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
 		return;
 	}
