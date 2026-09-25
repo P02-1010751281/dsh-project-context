@@ -140,17 +140,18 @@ function handoffRoom(
 /**
  * ② Quality only: how much of the window the model still uses well.
  *
- * A **fallback chain**, not a sum and not a cap: prefer the upstream usable-input declaration when the
- * harness exposes one, and fall back to the fitted knee when it does not —
- * `quality = upstreamUsableInput ?? knee(window)`.
+ * A **fallback chain**, not a sum and not a cap: prefer the harness's upstream usable-input
+ * declaration — Codex (and the gateways that copy it) names the field `auto_compact_token_limit` —
+ * and fall back to the fitted knee when the harness exposes none:
+ * `quality = autoCompactTokenLimit ?? knee(window)`.
  *
- * dsh exposes only a combined `contextWindow` (`LlmModelContext`), so `upstreamUsableInput` is always
- * absent today and the chain takes its fallback branch. The parameter is the seam for the harness
- * change that would split declared capacity from usable input; until then callers pass nothing.
- * Exported so the chain's two branches are testable without a live session.
+ * dsh exposes only a combined `contextWindow` (`LlmModelContext`), so `autoCompactTokenLimit` is
+ * always absent today and the chain takes its fallback branch. The parameter is the seam for the
+ * harness change that would split declared capacity from usable input; until then callers pass
+ * nothing. Exported so the chain's two branches are testable without a live session.
  */
-export function qualityLimit(contextWindow: number, upstreamUsableInput?: number): number {
-	return upstreamUsableInput ?? kneeTokens(contextWindow);
+export function qualityLimit(contextWindow: number, autoCompactTokenLimit?: number): number {
+	return autoCompactTokenLimit ?? kneeTokens(contextWindow);
 }
 
 /**

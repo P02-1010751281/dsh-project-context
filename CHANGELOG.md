@@ -128,9 +128,10 @@
 **交接（④）**
 
 - 变更：自适应（`auto`）交接阈值改为 **pi 的两层机制**，并**改变了触发点**。质量层是一条**回退链**——
-  `quality = 上游可用输入字段 ?? knee(contextWindow)`，不是相加、也不是封顶；dsh 宿主只暴露合并后的
-  `contextWindow`（`LlmModelContext`），所以今天恒走 knee 分支，`qualityLimit(contextWindow, upstream?)`
-  的第二个参数就是宿主将来把「声明容量 / 可用输入」拆开后的接入点。曲线为 pi 原文：
+  `quality = autoCompactTokenLimit ?? knee(contextWindow)`，不是相加、也不是封顶；dsh 宿主只暴露合并后的
+  `contextWindow`（`LlmModelContext`），所以今天恒走 knee 分支，`qualityLimit(contextWindow,
+  autoCompactTokenLimit?)` 的第二个参数就是宿主将来把「声明容量 / 可用输入」拆开后的接入点（字段名取自
+  Codex 的 `auto_compact_token_limit`）。曲线为 pi 原文：
   `round(W − (W − 157K) / (1 + e^(−ln(W/450K)/0.04)))`，拟合自 MRCR 8-needle 的 46 个 ≥1M 模型，
   用途是**不轻信声明的窗口**。组合是**两项**：`threshold = min(quality(window), capacity(room))` ——
   质量层作基、**容量封顶有最终发言权**，`handoffTargetTokens` **不在这条线上**（见下条）。
@@ -149,6 +150,9 @@
   `tokens` / `by`），`/handoff status` 据此**点名**被覆盖的手动值与压住它的那条护栏（质量膝 or 容量），
   并给出可用的杆杆；固定模式被压时标签改为 `95% of window (capped to 61536)`，不再自相矛盾。
   变异校验：分别让两个分支不再上报覆盖，各掉 1 项（都是 `tsc` 0、marker 已进 `lib/` 的有效变异）。
+- 变更：质量层的回退链参数由 `upstreamUsableInput` 更名为 **`autoCompactTokenLimit`**，改用上游字段自己
+  的名字（Codex `auto_compact_token_limit`）。语义不变，仍是 `??`：声明值优先，声明的 `0` 同样保留、
+  不外溢到膝曲线。纯改名，`qualityLimit` 的两个分支与那三条断言原样保留。
 - 变更：`resolveThreshold` **拆开**为单一职责的纯函数——`handoffRoom`（① 只判可行性）、
   `qualityLimit`（② 只算质量层，回退链所在）、`capacityLimit`（③ 只算容量上界），`resolveThreshold`
   只做模式选择与 ①–③ 的组合（原 ④ `summarizeAmount` 随 target 退出触发点而删除）。

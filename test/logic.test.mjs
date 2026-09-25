@@ -1804,11 +1804,11 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 });
 
 test("the quality layer is a fallback chain, and capacity has the last word", () => {
-	// The quality layer is `upstreamUsableInput ?? knee(window)` — a **fallback**, not a sum and not a
+	// The quality layer is `autoCompactTokenLimit ?? knee(window)` — a **fallback**, not a sum and not a
 	// cap. dsh's harness exposes only a combined `contextWindow` (`LlmModelContext`), so the chain
-	// always takes its knee branch today; the upstream argument is the seam for a harness that
-	// separates declared capacity from usable input.
-	assert.equal(qualityLimit(1_000_000, 250_000), 250_000, "an upstream declaration wins outright");
+	// always takes its knee branch today; the upstream argument (Codex's `auto_compact_token_limit`)
+	// is the seam for a harness that separates declared capacity from usable input.
+	assert.equal(qualityLimit(1_000_000, 250_000), 250_000, "an upstream autoCompactTokenLimit wins outright");
 	assert.equal(qualityLimit(1_000_000, undefined), 157_000, "with no upstream field the knee decides");
 	assert.equal(qualityLimit(1_000_000, 0), 0, "`??` keeps a declared zero rather than falling through");
 	// pi's fitted curve, at the points its own docs use. ≈`window` below ~250K (so capacity, not the
