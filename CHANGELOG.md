@@ -85,16 +85,6 @@
 
 **交接（④）**
 
-- 变更：自适应交接阈值加入**上游 pi 的拟合质量曲线**（knee）作为**回退保底**。曲线拟合自 MRCR
-  8-needle 的 46 个 ≥1M 模型（p25 127K / p50 157K / p75 190K），用途是**不轻信声明的窗口**——
-  声明 1M 的模型实测只有 130–170K。dsh 的用法与 pi **相反**：pi 取 `max(knee, target)`，配置的
-  target 会把阈值**抬到曲线之上**；dsh 保持**配置值优先**，曲线**只下压、绝不上抬**。因此
-  **默认配置下逐值不变**（`handoffTargetTokens` 为 64000 时，曲线在每个窗口都高于配置值），
-  它不是行为变更，而是给「把 `/handoff target` 抬到超过模型实际可用长度」的用户兜底。
-  曲线生效时 `/handoff status` 会**点名它**（覆盖一个显式设置必须可见），固定比例模式在曲线之前
-  返回、完全不受影响；`knee-below-floor` 是随之新增的拒绝原因，因为曲线是唯一可能落到 floor
-  之下的项。变异校验：把下压改成上抬掉 11 项、渐近线 157K→300K 掉 1 项、去掉回执点名掉 1 项。
-
 - 修复：`/handoff status` 此前把**每一个**「阈值不可用」都渲染成
   `threshold unavailable at this window`——一句关于**窗口**的断言，而窗口往往不是原因。
   `resolveThreshold` 有三个 `undefined` 出口：窗口确实太小、被 `usable − SAFETY_MARGIN_TOKENS`
