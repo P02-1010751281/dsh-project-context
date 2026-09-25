@@ -665,3 +665,17 @@ test("the admission rules are one predicate, shared by the pass and the approve 
 	assert.equal(ok.ok, true, `a clean candidate was refused: ${ok.message}`);
 	assert.notEqual(await readOptional(path.join(skillsDir(root), "clean-workflow", "SKILL.md")), "", "the clean skill was written");
 });
+
+test("the learn-state write takes the cross-process lock", async () => {
+	// The gate file is a read-modify-write: two hosts (or a host and the archive backfill) can read the
+	// same state and each publish its own patch, losing the other's timestamp. The same lock the memory
+	// journal uses serializes the pair — a stale lock left by a dead host must be stolen and released.
+	const root = await project();
+	const file = learnStateFile(root);
+	await writeFile(`${file}.lock`, "stale");
+	const past = new Date(Date.now() - 60_000);
+	await utimes(`${file}.lock`, past, past);
+	await updateLearnState(root, { autolearnAt: 4_242 });
+	assert.equal((await readLearnState(root)).autolearnAt, 4_242, "the write still lands");
+	assert.equal(await readOptional(`${file}.lock`), "", "the writer consumed the stale lock");
+});

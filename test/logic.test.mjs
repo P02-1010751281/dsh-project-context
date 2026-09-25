@@ -43,9 +43,11 @@ import {
 	invalidateTextCache,
 	logError,
 	migrateProjectState,
+	readOptional,
 	readTextCachedSync,
 	redactSecrets,
 	safeSessionId,
+	sessionIndexFile,
 	validSkillName,
 	writeAtomic,
 } from "../lib/shared/project-state.js";
@@ -685,7 +687,21 @@ test("the handoff continuation points at the archive and index", () => {
 });
 
 test("session ids and skill names stay filesystem-safe", () => {
-	assert.equal(safeSessionId("session-../../etc"), "session-..-..-etc");
+	const traversing = safeSessionId("session-../../etc");
+	// Still filesystem-safe: no separator survives the sanitization.
+	assert.ok(!traversing.includes("/") && !traversing.includes("\\"), traversing);
+	assert.ok(traversing.startsWith("session-..-..-etc"), traversing);
+	// …and now injective: `a/b` and `a-b` used to sanitize to the same directory, so the second
+	// session's archive overwrote the first one's. A sanitized (or truncated) id carries a digest of
+	// the original instead.
+	assert.notEqual(traversing, "session-..-..-etc");
+	assert.notEqual(safeSessionId("a/b"), safeSessionId("a-b"));
+	assert.notEqual(safeSessionId(`x${"y".repeat(200)}`), safeSessionId(`x${"y".repeat(199)}z`));
+	assert.equal(
+		safeSessionId("session-9f2c1b7e-0000-4000-8000-000000000000"),
+		"session-9f2c1b7e-0000-4000-8000-000000000000",
+		"a normal id is passed through unchanged, so existing archives keep their directory",
+	);
 	assert.equal(safeSessionId(""), "ephemeral");
 	assert.equal(validSkillName("my-skill"), true);
 	assert.equal(validSkillName("../evil"), false);
@@ -1420,6 +1436,21 @@ test("the session log appends incrementally and rebuilds after an external rewri
 	const again = (await readFile(raw, "utf8")).trimEnd().split("\n");
 	assert.equal(again.length, 3, "a same-length external rewrite is rebuilt too");
 	assert.match(again[0], /"session-log-1"/);
+
+	// A *longer* foreign file is a different case: those extra records belong to somebody else (a
+	// backfill with `--replace`, another host, a hand edit) and the rebuild would drop them with no
+	// trace. They are preserved as a `.broken-*` sibling and named in the project log before the
+	// rebuild overwrites the file.
+	const foreign = [JSON.stringify({ type: "session", id: "foreign" }), ...Array.from({ length: 5 }, (_, index) => JSON.stringify({ type: "user/message", seq: index, data: { text: `foreign ${index}` } }))].join("\n");
+	await writeFile(raw, `${foreign}\n`);
+	await writeSessionArtifacts(session, { markdown: false });
+	const kept = (await readdir(path.dirname(raw))).filter((name) => name.startsWith("session.jsonl.broken-"));
+	assert.equal(kept.length, 1, "one recovery copy of the foreign bytes is kept");
+	const preserved = await readFile(path.join(path.dirname(raw), kept[0]), "utf8");
+	assert.ok(preserved.includes("foreign 4"), `the foreign records survive: ${preserved.slice(0, 80)}`);
+	const log = await readOptional(path.join(project, ".agents", "memory", "errors.log"));
+	assert.match(log, /rebuilt .*session\.jsonl over a longer file/, "the project log names the rebuild");
+	assert.equal((await readFile(raw, "utf8")).trimEnd().split("\n").length, 3, "the canonical log is still this session's");
 
 	releaseSessionQueue(session);
 });
@@ -3286,4 +3317,34 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 	// One-shot: a later turn/end must not archive it again.
 	listener(session, { type: "turn/end", seq: 8, time: Date.now() });
 	assert.equal(archived.length, 1, "retiring is one-shot");
+});
+
+test("the session index names the lines its cap drops", async () => {
+	// The index is capped at 200 lines. The dropped archives stay on disk, but the index is the only
+	// navigation autolearn and the handoff pointers have, so a silent drop reads as "that session never
+	// existed" — the document has to say so, in a form the parser cannot mistake for an entry.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-cap-"));
+	const total = 205;
+	for (let index = 0; index < total; index += 1) {
+		const id = `capped-${String(index).padStart(3, "0")}`;
+		const day = String((index % 27) + 1).padStart(2, "0");
+		await queueIndexLine(project, id, `- [${id}](session-logs/${id}/session.md) — 2026-08-${day} — Capped ${index}`);
+	}
+	const document = await readFile(sessionIndexFile(project), "utf8");
+	const entries = parseSessionIndex(document);
+	assert.equal(entries.length, 200, `the cap keeps 200 entries, got ${entries.length}`);
+	assert.match(document, /<!-- 5 older sessions dropped from this index by the 200-line cap; their archives remain in session-logs\/ -->/);
+	// The marker is a comment, not an entry: the parser must not see it as a session.
+	assert.ok(!entries.some((entry) => String(entry.id ?? "").includes("older sessions")), "the comment is not parsed as an entry");
+	// And the newest session survived the cap.
+	assert.ok(entries.some((entry) => String(entry.id ?? "").includes("capped-204")), "the newest entry is kept");
+
+	// The count is cumulative, not "one per write": every write re-reads an already-capped document, so
+	// without carrying the previous number forward the marker would always claim a single drop.
+	await queueIndexLine(project, "capped-205", "- [capped-205](session-logs/capped-205/session.md) — 2026-08-28 — Capped 205");
+	await queueIndexLine(project, "capped-206", "- [capped-206](session-logs/capped-206/session.md) — 2026-08-29 — Capped 206");
+	const carried = await readFile(sessionIndexFile(project), "utf8");
+	assert.match(carried, /<!-- 7 older sessions dropped/, "the dropped count is carried forward");
+	assert.equal((carried.match(/older session/g) ?? []).length, 1, "the marker is replaced, not accumulated");
+	assert.equal(parseSessionIndex(carried).length, 200, "the marker never becomes an entry");
 });

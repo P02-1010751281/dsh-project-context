@@ -54,6 +54,11 @@ export async function appendMemoryOp(file: string, op: MemoryJournalEntry["op"],
 	const handle = await open(file, "a", 0o600);
 	try {
 		await handle.write(torn ? `\n${entry}` : entry);
+		// Flush before reporting the append as durable. A torn tail is repaired by the next append, but
+		// a record lost in the page cache simply disappears — and the read path cannot tell "never
+		// written" from "not yet flushed", so it reports `damaged: 0` over a document that lost a write.
+		// Appends happen once per consolidation, not once per turn, so this is not a hot path.
+		await handle.sync();
 	} finally {
 		await handle.close();
 	}

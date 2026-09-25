@@ -5,6 +5,7 @@
 
 import { execFile, execFileSync } from "node:child_process";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -106,7 +107,14 @@ export function legacyOmpDir(projectRoot: string): string {
 }
 
 export function safeSessionId(sessionId: string): string {
-	return sessionId.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 128) || "ephemeral";
+	const cleaned = sessionId.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 128);
+	if (!cleaned) return "ephemeral";
+	// Only an id that is already its own safe name is unambiguous: a sanitized or truncated one can
+	// collide with a *different* session, and the two would then share one archive directory (the
+	// second write overwriting the first). Suffix a short digest of the full id so the mapping stays
+	// injective; a normal `session-<uuid>` is untouched.
+	if (cleaned === sessionId) return cleaned;
+	return `${cleaned.slice(0, 119)}-${createHash("sha256").update(sessionId).digest("hex").slice(0, 8)}`;
 }
 
 export function validSkillName(name: string): boolean {

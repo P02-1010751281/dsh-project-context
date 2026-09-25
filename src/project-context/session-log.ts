@@ -8,6 +8,7 @@
  * log, so a long session does not rewrite itself on every turn.
  */
 
+import { randomUUID } from "node:crypto";
 import { appendFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
@@ -18,6 +19,7 @@ import {
 	logError,
 	logsDir,
 	pathExists,
+	readOptional,
 	safeSessionId,
 	writeAtomic,
 } from "../shared/project-state.js";
@@ -196,6 +198,21 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 	} else {
 		// No cursor, a shorter event list, or a file this process no longer owns
 		// (deleted, truncated, or rewritten by an external tool): rebuild it.
+		//
+		// A file holding **more** records than this session is about to write means somebody else's
+		// events are in there — a backfill with `--replace`, another host, a hand edit — and rebuilding
+		// would drop them with no trace. Keep a byte-for-byte recovery copy first (a `.broken-*`
+		// sibling, which the session-logs ignore file already covers) and say so in the project log.
+		// A compaction is not this case: the session really did shrink, which `persisted > events.length`
+		// distinguishes.
+		const onDisk = await readOptional(rawPath);
+		const onDiskLines = onDisk.trim() ? onDisk.trimEnd().split("\n").length : 0;
+		const ownLines = events.length + 1;
+		if (onDiskLines > ownLines && !(persisted !== undefined && persisted > events.length)) {
+			const recovery = `${rawPath}.broken-${randomUUID().slice(0, 8)}`;
+			await writeAtomic(recovery, onDisk).catch(() => undefined);
+			await logError(projectRoot, "session-log", `rebuilt ${rawPath} over a longer file: ${onDiskLines - ownLines} line(s) this session does not have were kept at ${recovery}`);
+		}
 		const text = `${[JSON.stringify(header), ...events.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
 		await writeAtomic(rawPath, text);
 		const stamp = await stampOf(rawPath);

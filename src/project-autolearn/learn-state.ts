@@ -11,6 +11,7 @@
  */
 
 import path from "node:path";
+import { withMemoryLock } from "../shared/lock.js";
 import { ensureMemoryGitignore, memoryDir, readOptional, writeAtomic } from "../shared/project-state.js";
 
 export interface LearnState {
@@ -81,18 +82,23 @@ export async function readLearnState(projectRoot: string): Promise<LearnState> {
  * @returns the state that was written (or would have been).
  */
 export async function updateLearnState(projectRoot: string, patch: Partial<LearnState>): Promise<LearnState> {
-	const current = await readLearnState(projectRoot);
-	const next: LearnState = {
-		autolearnAt: timestamp(patch.autolearnAt) ?? current.autolearnAt,
-		lastAttemptAt: timestamp(patch.lastAttemptAt) ?? current.lastAttemptAt,
-	};
-	try {
-		// The state file is a local artifact; make sure it is ignored even when autolearn runs
-		// before any memory write established the ignore file.
-		await ensureMemoryGitignore(memoryDir(projectRoot));
-		await writeAtomic(learnStateFile(projectRoot), `${JSON.stringify(next)}\n`);
-	} catch {
-		// Best effort: see the contract above.
-	}
-	return next;
+	// The read-modify-write is not atomic on its own: two hosts (or a host and a backfill) can read the
+	// same state and each publish its own patch, losing the other's timestamp. The same cross-process
+	// lock the memory journal uses serializes the pair.
+	return withMemoryLock(learnStateFile(projectRoot), async () => {
+		const current = await readLearnState(projectRoot);
+		const next: LearnState = {
+			autolearnAt: timestamp(patch.autolearnAt) ?? current.autolearnAt,
+			lastAttemptAt: timestamp(patch.lastAttemptAt) ?? current.lastAttemptAt,
+		};
+		try {
+			// The state file is a local artifact; make sure it is ignored even when autolearn runs
+			// before any memory write established the ignore file.
+			await ensureMemoryGitignore(memoryDir(projectRoot));
+			await writeAtomic(learnStateFile(projectRoot), `${JSON.stringify(next)}\n`);
+		} catch {
+			// Best effort: see the contract above.
+		}
+		return next;
+	});
 }

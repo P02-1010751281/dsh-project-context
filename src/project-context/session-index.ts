@@ -267,7 +267,24 @@ export function queueIndexLine(projectRoot: string, id: string, line: string): P
 			// first only so that a shared id keeps the current index's line; the document is ordered by
 			// date, because a straddling legacy file can hold the newest sessions, not the oldest.
 			const entries = [...entryLines(adopted?.body ?? ""), ...entryLines(existing)];
-			const document = [HEADING, "", ...orderIndexLines(dedupeIndexLines(entries, line, safeSessionId(id))).slice(-MAX_INDEX_LINES), ""].join("\n");
+			const ordered = orderIndexLines(dedupeIndexLines(entries, line, safeSessionId(id)));
+			// The cap drops the oldest lines. Their archives stay on disk, but this index is the only
+			// navigation autolearn and the handoff pointers have, so a silent drop reads as "that session
+			// never existed". Name the loss in the document itself, as an HTML comment so
+			// `parseSessionIndex` cannot mistake it for an entry.
+			//
+			// The count has to be carried forward: every write re-reads an already-capped document, so
+			// this write can only see the line it pushes out. Left uncarried the marker would always
+			// claim "1 dropped", which is as false as saying nothing.
+			const carried = Number(/<!-- (\d+) older session/.exec(existing)?.[1] ?? 0);
+			const dropped = (Number.isFinite(carried) ? carried : 0) + Math.max(0, ordered.length - MAX_INDEX_LINES);
+			const document = [
+				HEADING,
+				"",
+				...ordered.slice(-MAX_INDEX_LINES),
+				...(dropped > 0 ? ["", `<!-- ${dropped} older session${dropped === 1 ? "" : "s"} dropped from this index by the ${MAX_INDEX_LINES}-line cap; their archives remain in session-logs/ -->`] : []),
+				"",
+			].join("\n");
 			// Write before removing the adopted source, and write even when the bytes are unchanged: an
 			// adoption whose content was already canonical must still create the new file. A crash
 			// between the two leaves both files, never neither.
