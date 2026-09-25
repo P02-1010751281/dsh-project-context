@@ -1694,9 +1694,9 @@ test("the status receipt names the term that refused the threshold, not always t
 	};
 	// One baseline, three windows. `handoffKeepTokens: 0` makes the floor
 	// `baseline + 0 + MIN_SUMMARIZE_TOKENS` exactly.
-	const statusAt = async (contextWindow, config) => {
+	const statusAt = async (contextWindow, config, measurement = { totalTokens: 11_800, surfaceTokens: 0 }) => {
 		const ctx = {
-			get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 11_800, surfaceTokens: 0 }) } : undefined),
+			get: (name) => (name === "tokenMeter" ? { measure: () => measurement } : undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
 		};
 		return statusText(ctx, session, config, signal);
@@ -1724,8 +1724,26 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.match(resolved, /threshold auto \d+ \(\d+%\)/);
 	assert.doesNotMatch(resolved, /threshold unavailable/);
 
+	// The *other* term of the two-term rule can sit below the floor, and it wants the opposite lever:
+	// a heavy baseline pushes the floor past the quality knee, so "a larger context window" is
+	// backwards here (the curve approaches 157K from above — a wider window lowers the knee). This path
+	// only became reachable when the trigger became two terms; the target lift used to keep it out of
+	// the refusal set entirely.
+	const heavyConfig = resolvePluginConfig({ provider: "test-provider", model: "test-model" });
+	const heavy = { totalTokens: 512_000, surfaceTokens: 0 };
+	assert.equal(resolveThreshold(heavyConfig, heavy, 1_000_000), undefined, "the heavy fixture really is a refusal");
+	assert.equal(thresholdRefusal(heavyConfig, heavy, 1_000_000), "quality-knee");
+	const kneeSqueezed = await statusAt(1_000_000, heavyConfig, heavy);
+	assert.match(kneeSqueezed, /the model's quality knee allows only 157000 at this window/);
+	assert.match(kneeSqueezed, /a smaller baseline or keep is the lever/);
+	assert.match(kneeSqueezed, /raising the window lowers the knee/, "the receipt corrects the backwards advice");
+	assert.doesNotMatch(kneeSqueezed, /is the lever, not this window alone/, "the margin sentence must not be reused");
+	assert.doesNotMatch(kneeSqueezed, /safety margin/, "the margin is not what bound here");
+
 	// The three receipts are pairwise different: this is the property that was missing.
 	assert.notEqual(marginSqueezed, tooSmall);
+	assert.notEqual(kneeSqueezed, marginSqueezed);
+	assert.notEqual(kneeSqueezed, tooSmall);
 
 	// Fixed mode refuses exactly when the window does not clear the safety margin, because the ratio
 	// is validated into [0.1, 0.95] and the margin term binds first. Naming the ratio as a lever

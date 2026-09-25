@@ -153,6 +153,14 @@
 - 变更：质量层的回退链参数由 `upstreamUsableInput` 更名为 **`autoCompactTokenLimit`**，改用上游字段自己
   的名字（Codex `auto_compact_token_limit`）。语义不变，仍是 `??`：声明值优先，声明的 `0` 同样保留、
   不外溢到膝曲线。纯改名，`qualityLimit` 的两个分支与那三条断言原样保留。
+- 修复：**质量膝低于物理下限时，拒绝原因被归给了 4K 安全边际，并给出反向的建议**。触发点改成两项之后
+  「重 baseline」这条路径才第一次可达（此前 target 抬升把它挡在拒绝集之外）：1M 窗口、baseline 512000 时
+  floor 540000、容量 979616、膝 157000，`thresholdRefusal` 返回 `summarizer-floor`，回执写着「窗口不是
+  瓶颈……4K 安全边际让摘要装不下；更大的上下文窗口是杆杆」——而这里真正 binding 的是膝，且**更大的窗口
+  会让膝更低**，建议正好与实际相反。现在新增 `quality-knee` 这一因，`thresholdRefusal` 用与编排器完全
+  相同的比较（`qualityLimit(W) <= capacityLimit(room)`）区分膝与容量，回执改说「把 baseline / keep 调小
+  才是杆杆（调大窗口只会降低膝，不会抬高它）」。两者必须分开：膝与容量要的杆杆方向相反。
+  变异校验：去掉区分、恒返回 `summarizer-floor` → `tsc` 0、marker 已进 `lib/`、只掉 1 项（新断言）。
 - 变更：`resolveThreshold` **拆开**为单一职责的纯函数——`handoffRoom`（① 只判可行性）、
   `qualityLimit`（② 只算质量层，回退链所在）、`capacityLimit`（③ 只算容量上界），`resolveThreshold`
   只做模式选择与 ①–③ 的组合（原 ④ `summarizeAmount` 随 target 退出触发点而删除）。

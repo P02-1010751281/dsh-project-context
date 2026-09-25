@@ -26,20 +26,23 @@ function thresholdFloor(config: PluginConfig, measurement: { totalTokens: number
 /**
  * Why {@link resolveThreshold} returned `undefined`, named as the term that actually binds.
  *
- * `resolveThreshold` has three `undefined` exits with three different causes, and the receipt used
- * to render every one of them as "threshold unavailable at this window" — a claim about the window
- * that is *false* for two of the three. A roomy window (`usable > floor`) still refuses when the
- * summarizer minimum, the assembled baseline + carried tail, or the second 4K
- * {@link SAFETY_MARGIN_TOKENS} deduction is what decided it, and "at this window" sends the user to
- * change the model or the target when neither is the lever.
+ * `resolveThreshold` has four `undefined` exits with four different causes, and the receipt used to
+ * render every one of them as "threshold unavailable at this window" — a claim about the window that
+ * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the
+ * summarizer minimum, the assembled baseline + carried tail, the second 4K
+ * {@link SAFETY_MARGIN_TOKENS} deduction, or the **quality knee** is what decided it, and "at this
+ * window" sends the user to change the model or the target when neither is the lever.
+ *
+ * The knee and the margin want *opposite* levers, which is why they cannot share a cause: a larger
+ * window raises the capacity deduction's headroom but lowers the knee, so advice written for one is
+ * actively backwards for the other.
  */
-export type ThresholdRefusal = "window-headroom" | "summarizer-floor" | "no-positive-threshold";
+export type ThresholdRefusal = "window-headroom" | "quality-knee" | "summarizer-floor" | "no-positive-threshold";
 
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
  * resolves. Read-only companion: it replays the same terms, in the same order, and only reports a
- * cause when `resolveThreshold` really is `undefined`, so the diagnosis cannot drift from the
- * formula (the formula itself is deliberately untouched).
+ * cause when `resolveThreshold` really is `undefined`, so the diagnosis cannot drift from the formula.
  */
 export function thresholdRefusal(
 	config: PluginConfig,
@@ -50,7 +53,13 @@ export function thresholdRefusal(
 	if (!config.handoffAdaptive) return "no-positive-threshold";
 	// Reuse the orchestrator's own feasibility helper rather than re-deriving its terms: the two can
 	// then only disagree if the *composition* changes, and the clamp is the only remaining refusal.
-	return handoffRoom(config, measurement, contextWindow) === undefined ? "window-headroom" : "summarizer-floor";
+	const room = handoffRoom(config, measurement, contextWindow);
+	if (room === undefined) return "window-headroom";
+	// Both terms of the two-term rule can sit below the floor, and they want opposite levers. Compare
+	// them exactly as the orchestrator does. Before the trigger became two terms the target lift kept
+	// the knee path unreachable, so the whole case used to render as "summarizer-floor" — with "a
+	// larger context window" as the advice, which is backwards when the knee is what bound.
+	return qualityLimit(contextWindow) <= capacityLimit(room) ? "quality-knee" : "summarizer-floor";
 }
 
 /**
@@ -75,6 +84,12 @@ export function thresholdRefusalText(
 				? `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve consumes the entire ${contextWindow}-token window`
 				: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve exceeds the ${contextWindow}-token window by ${-usable}`;
 		return `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (context assembly ${floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS} + keep ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS})`;
+	}
+	if (reason === "quality-knee") {
+		// "A larger window" is the lever for the margin case and the *opposite* of the lever here: the
+		// curve approaches its 157K asymptote from above, so a wider window lowers the knee. Say which
+		// control actually helps rather than reusing the margin sentence.
+		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${qualityLimit(contextWindow)} at this window, so a handoff could only start past the knee; a smaller baseline or keep is the lever (raising the window lowers the knee, it does not raise it)`;
 	}
 	if (reason === "summarizer-floor") {
 		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep/target) is the lever, not this window alone`;
