@@ -203,8 +203,12 @@ export async function writeSessionArtifacts(session: Session, options: { markdow
 		// events are in there — a backfill with `--replace`, another host, a hand edit — and rebuilding
 		// would drop them with no trace. Keep a byte-for-byte recovery copy first (a `.broken-*`
 		// sibling, which the session-logs ignore file already covers) and say so in the project log.
-		// A compaction is not this case: the session really did shrink, which `persisted > events.length`
-		// distinguishes.
+		// `persisted > events.length` excludes the one case that is not a foreign writer: this
+		// process's own cursor holding more events than the session does now. dsh cannot produce that
+		// by compaction — `Session`'s log is append-only (`packages/core/session/src/index.ts`:
+		// `snapshotEvents()` returns that log and `append` only pushes onto it), and a disposed
+		// session's cursor is dropped by `releaseSessionQueue` — so the exclusion is defensive, not a
+		// live path.
 		const onDisk = await readOptional(rawPath);
 		const onDiskLines = onDisk.trim() ? onDisk.trimEnd().split("\n").length : 0;
 		const ownLines = events.length + 1;
