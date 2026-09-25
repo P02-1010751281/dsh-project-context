@@ -29,7 +29,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { archivedConversationText } from "../lib/project-context/archive.js";
-import { parseSessionJsonl, importSessionJsonl } from "../lib/project-context/import-archive.js";
+import { importSessionJsonl } from "../lib/project-context/import.js";
+import { parseSessionJsonl } from "../lib/project-context/session-jsonl.js";
 import { renderSessionMarkdown } from "../lib/project-context/session-log.js";
 import { readSessionIndex, sessionTitleFromEntries } from "../lib/project-context/session-index.js";
 

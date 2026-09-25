@@ -18,7 +18,8 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
-import { approveCandidate, autolearnProjectSkills, listCandidates, rejectCandidate, type AutolearnOutcome } from "./autolearn.js";
+import { approveCandidate, listCandidates, rejectCandidate } from "./candidate.js";
+import { autolearnProjectSkills, type AutolearnOutcome } from "./pass.js";
 import { diagnosticMessage, getProjectRoot, logError, skillsDir } from "../shared/project-state.js";
 
 export const name = "project-autolearn";

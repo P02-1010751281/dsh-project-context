@@ -26,7 +26,9 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { importArchiveFiles, parseSessionJsonl, readArchiveFile } from "../lib/project-context/import-archive.js";
+import { importArchiveFiles } from "../lib/project-context/import.js";
+import { parseSessionJsonl } from "../lib/project-context/session-jsonl.js";
+import { readArchiveFile } from "../lib/project-context/zip.js";
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);

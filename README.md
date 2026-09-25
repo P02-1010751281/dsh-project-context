@@ -90,7 +90,9 @@ src/
 │   ├── session-log.ts      #    session.jsonl / session.md 写入
 │   ├── session-index.ts    #    INDEX.md 渲染与跨进程锁
 │   ├── archive.ts          #    存档回读（渲染成对话供 ③ 取证）
-│   └── import-archive.ts   #    zip / jsonl 回填
+│   ├── session-jsonl.ts    #    session.jsonl / pi JSONL 解析与索引元数据
+│   ├── zip.ts              #    dsh 导出 zip 的目录、deflate 条目与 session.jsonl 读取
+│   └── import.ts           #    回填入口：单会话 / 单文件 / 整目录，幂等
 ├── project-memory/         # ② 整理（"dsh-project-context/memory"）
 │   ├── index.ts            #    插件入口：整理 pass 编排、/context-update、/memory 回执
 │   ├── memory-store.ts     #    记忆子系统对外门面（不变量文档 + 公共 API 再导出）
@@ -104,7 +106,12 @@ src/
 │   └── context-doc.ts      #    CONTEXT.md 渲染
 ├── project-autolearn/      # ③ 沉淀（"dsh-project-context/autolearn"）
 │   ├── index.ts            #    插件入口：闸门、/autolearn 命令
-│   ├── autolearn.ts        #    pass 逻辑、技能校验、候选审批
+│   ├── skill.ts            #    技能形状、SKILL.md 渲染、正文/描述安全校验
+│   ├── candidate.ts        #    候选文件、准入规则、approve/reject 转换
+│   ├── inventory.ts        #    技能清单（进提示词）与可取证的历史会话 id
+│   ├── parse.ts            #    模型回复 → 候选；回溯预算
+│   ├── prompt.ts           #    提示词：共享规则、正向 pass、回溯 pass
+│   ├── pass.ts             #    pass 本身：每项目节流 + 单飞
 │   └── learn-state.ts      #    项目本地状态（闸门时间戳等）
 ├── project-handoff/        # ④ 交接（"dsh-project-context/handoff"）
 │   ├── index.ts            #    插件入口：session/event 监听、attempt 编排、命令注册
@@ -124,12 +131,19 @@ src/
 │   └── watch.ts            #    浏览器侧自动切换
 ├── shared/                 # 四个插件共用
 │   ├── lock.ts             #    跨进程写锁（记忆文件与会话索引共用，泛型 target）
+│   ├── project-state.ts    #    项目状态**门面**（原始布局/迁移文档 + 公共 API 再导出）
+│   ├── paths.ts            #    项目根定位（git + 缓存）与全部路径助手
+│   ├── limits.ts           #    存储文档与提示输入的字符预算
+│   ├── files.ts            #    文件系统原语：原子写、缓存读、探测、移动/合并、临时清理
+│   ├── gitignore.ts        #    `.agents/.gitignore` 托管块
+│   ├── error-log.ts        #    errors.log 轮转、诊断截断与脱敏写入
+│   ├── redact.ts           #    日志脱敏
+│   ├── migrate.ts          #    旧布局（`.pi` / `.agents/memory/skills` / `~/.omp`）一次性迁移
 │   ├── config.ts           #    默认值与字段定义
 │   ├── settings.ts         #    设置命名空间（web 卡片 ↔ cordis 配置）
-│   ├── project-state.ts    #    路径、原子写、errors.log 轮换与密钥脱敏、旧数据迁移
 │   ├── lifecycle.ts        #    会话身份、串行后台任务、落盘跟踪
 │   ├── text.ts             #    文本计量、裁剪与渲染（回复头 / 截断 / token 估算）
-│   ├── output-budget.ts    #    辅助调用的输出预算：推预留、自适应边界、重试余量
+│   ├── output-budget.ts    #    辅助调用的输出预算：推理预留、自适应边界、重试余量
 │   ├── conversation.ts     #    会话渲染成对话分段 + 记忆输入适配
 │   ├── reply-json.ts       #    从模型回复里读取结构化 JSON（容错扫描 + 解析）
 │   └── model-call.ts       #    插件来源的辅助模型调用、路由与元数据

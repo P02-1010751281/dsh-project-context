@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
-import { autolearnProjectSkills } from "../lib/project-autolearn/autolearn.js";
+import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";

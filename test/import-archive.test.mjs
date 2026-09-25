@@ -14,12 +14,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
-import {
-	importSessionJsonl,
-	importArchiveFile,
-	parseSessionJsonl,
-	readZipEntry,
-} from "../lib/project-context/import-archive.js";
+import { importArchiveFile, importSessionJsonl } from "../lib/project-context/import.js";
+import { parseSessionJsonl } from "../lib/project-context/session-jsonl.js";
+import { readZipEntry } from "../lib/project-context/zip.js";
 
 const HEADER = {
 	type: "session",

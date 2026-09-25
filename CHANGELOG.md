@@ -37,6 +37,17 @@
   拆完复核：59 个顶层声明逐字各归一处、模块间**零循环导入**（`pluginUserMessage` / `CompletionOutcome`
   归 `model-call`、两个回复形状归 `reply-json`，正是为了断开 `model-call ↔ consolidate` 与
   `consolidate ↔ reply-json` 两组双向依赖）。typecheck 0、**198/198**。
+- 变更：`project-autolearn/autolearn.ts` 的 548 行拆成 `skill`（技能形状 / SKILL.md 渲染 / 安全校验）、
+  `candidate`（候选文件、准入规则、approve/reject）、`inventory`（技能清单与可取证会话）、
+  `parse`（回复 → 候选、回溯预算）、`prompt`（共享规则与两个 pass 的提示词）、`pass`（节流 + 单飞）。
+  `project-context/import-archive.ts` 的 346 行拆成 `session-jsonl`（解析与索引元数据）、
+  `zip`（导出包目录与 deflate 条目）、`import`（三个回填入口）。两者都是纯搬移：37 / 18 个顶层声明
+  逐字各归一处。
+- 变更：`shared/project-state.ts` 的 461 行拆成 `paths`（项目根定位与路径助手）、`limits`（字符预算）、
+  `files`（原子写 / 缓存读 / 移动合并 / 临时清理）、`gitignore`、`error-log`（轮转与脱敏写入）、
+  `redact`、`migrate`（旧布局一次性迁移）；`project-state.ts` 保留为**门面**——原始布局与迁移文档 +
+  **逐字保持原有公共 API** 的再导出，因为它有 25 个导入方，而它本身确实是「共用基础设施」而非杂乱堆。
+  56 个顶层声明逐字各归一处。最终全仓：**零循环导入**、typecheck 0、**198/198**、客户端 bundle 重建。
 
 **记忆整理（②）**
 

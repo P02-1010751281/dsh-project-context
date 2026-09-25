@@ -17,7 +17,7 @@ import { resolvePluginConfig } from "../shared/config.js";
 import { installProjectContextSettings, effectivePluginConfig } from "../shared/settings.js";
 import { projectCwd, SessionWorkTracker } from "../shared/lifecycle.js";
 import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "../shared/project-state.js";
-import { importArchiveFiles } from "./import-archive.js";
+import { importArchiveFiles } from "./import.js";
 import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./session-log.js";
 
 /**
