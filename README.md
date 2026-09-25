@@ -85,31 +85,35 @@ journal，读取时以 journal 折叠结果为准；手改 `MEMORY.md`（且比 
 
 ```
 src/
-├── session-context.ts  # ① 存档插件（project-context，包主入口）
-├── memory.ts           # ② 整理插件（project-memory）
-├── autolearn.ts        # ③ 沉淀插件（project-autolearn）
-├── handoff.ts          # ④ 交接插件（project-handoff）
-└── shared/             # 四个插件共用
-    ├── config.ts       # 默认值与字段定义
-    ├── settings.ts     # 设置命名空间（web 卡片 ↔ cordis 配置）
-    ├── project-state.ts# 路径、原子写、errors.log 轮换与密钥脱敏、旧数据迁移
-    ├── memory-store.ts # 记忆 journal / 渲染 / 备份 / 跨进程锁 / 污点解码
-    ├── lifecycle.ts    # 会话身份、串行后台任务、落盘跟踪
-    ├── session-log.ts  # session.jsonl / session.md 写入
-    ├── session-index.ts# INDEX.md 渲染
-    ├── archive.ts      # 存档回读（渲染成对话供 ③ 取证）
-    ├── import-archive.ts # zip / jsonl 回填
-    ├── learn.ts        # ② 整理 pass + 模型调用管线（③ 复用）
-    ├── autolearn.ts    # ③ pass 逻辑与技能校验
-    ├── learn-state.ts  # 项目本地状态（③ 的闸门时间戳等）
-    ├── context-doc.ts  # CONTEXT.md 渲染
-    ├── handoff-language.ts # 交接语言检测、标题本地化、陈旧提示识别
-    ├── handoff-marker.ts # 交接会话标记（host 与浏览器共用）
-    └── handoff-watch.ts  # 浏览器侧自动切换
-client/                 # 设置卡片、表单、zh/en 文案（bundle 进 lib/client.js）
+├── project-context/        # ① 存档（包主入口 "dsh-project-context"）
+│   ├── index.ts            #    插件入口：turn/end 追加、idle/disposed 落盘、/context、/session-log
+│   ├── session-log.ts      #    session.jsonl / session.md 写入
+│   ├── session-index.ts    #    INDEX.md 渲染与跨进程锁
+│   ├── archive.ts          #    存档回读（渲染成对话供 ③ 取证）
+│   └── import-archive.ts   #    zip / jsonl 回填
+├── project-memory/         # ② 整理（"dsh-project-context/memory"）
+│   ├── index.ts            #    插件入口：整理 pass 编排、/context-update、/memory 回执
+│   ├── memory-store.ts     #    记忆 journal / 渲染 / 备份 / 跨进程锁 / 污点解码
+│   └── context-doc.ts      #    CONTEXT.md 渲染
+├── project-autolearn/      # ③ 沉淀（"dsh-project-context/autolearn"）
+│   ├── index.ts            #    插件入口：闸门、/autolearn 命令
+│   ├── autolearn.ts        #    pass 逻辑、技能校验、候选审批
+│   └── learn-state.ts      #    项目本地状态（闸门时间戳等）
+├── project-handoff/        # ④ 交接（"dsh-project-context/handoff"）
+│   ├── index.ts            #    插件入口 + 阈值/切分/摘要/守卫/分类/命令
+│   ├── language.ts         #    交接语言检测、标题本地化、陈旧提示识别
+│   ├── marker.ts           #    交接会话标记（host 与浏览器共用）
+│   └── watch.ts            #    浏览器侧自动切换
+├── shared/                 # 四个插件共用
+│   ├── config.ts           #    默认值与字段定义
+│   ├── settings.ts         #    设置命名空间（web 卡片 ↔ cordis 配置）
+│   ├── project-state.ts    #    路径、原子写、errors.log 轮换与密钥脱敏、旧数据迁移
+│   ├── lifecycle.ts        #    会话身份、串行后台任务、落盘跟踪
+│   └── llm.ts              #    模型调用管线与输出预算（② / ③ / ④ 共用）
+client/                     # 设置卡片、表单、zh/en 文案（bundle 进 lib/client.js）
 scripts/
-├── build-client.mjs    # 客户端 bundle
-└── import-archives.mjs # 回填 CLI（不依赖运行中的 dsh）
+├── build-client.mjs        # 客户端 bundle
+└── import-archives.mjs     # 回填 CLI（不依赖运行中的 dsh）
 ```
 
 ## 自动归档（①）

@@ -14,11 +14,11 @@ import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
-import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
-import { renderContextDocument } from "./shared/context-doc.js";
-import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
-import { consolidateProjectState, fallbackUpdate } from "./shared/learn.js";
+import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
+import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
+import { renderContextDocument } from "./context-doc.js";
+import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
+import { consolidateProjectState, fallbackUpdate } from "../shared/llm.js";
 import {
 	MAX_CONTEXT_CHARS,
 	cachedProjectRoot,
@@ -32,7 +32,7 @@ import {
 	readOptional,
 	readTextCachedSync,
 	writeAtomic,
-} from "./shared/project-state.js";
+} from "../shared/project-state.js";
 import {
 	backupMemoryBeforeWrite,
 	importLegacyMemory,
@@ -43,7 +43,7 @@ import {
 	readMemoryDamage,
 	recordMemoryDocument,
 	withMemoryLock,
-} from "./shared/memory-store.js";
+} from "./memory-store.js";
 
 export const name = "project-memory";
 export const inject = ["llm", "systemPrompt", "commands"];

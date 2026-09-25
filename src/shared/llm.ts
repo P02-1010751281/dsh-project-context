@@ -27,7 +27,7 @@ import {
 	readOptional,
 	redactSecrets,
 } from "./project-state.js";
-import { loadMemory } from "./memory-store.js";
+import { loadMemory } from "../project-memory/memory-store.js";
 
 export const LEARN_PLUGIN_NAME = "dsh-project-context";
 

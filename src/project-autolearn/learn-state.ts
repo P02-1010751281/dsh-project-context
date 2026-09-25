@@ -11,7 +11,7 @@
  */
 
 import path from "node:path";
-import { ensureMemoryGitignore, memoryDir, readOptional, writeAtomic } from "./project-state.js";
+import { ensureMemoryGitignore, memoryDir, readOptional, writeAtomic } from "../shared/project-state.js";
 
 export interface LearnState {
 	/**

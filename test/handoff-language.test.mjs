@@ -23,14 +23,14 @@ import {
 	pendingQuestionFor,
 	settingPatch,
 	summaryAttemptBudgets,
-} from "../lib/handoff.js";
+} from "../lib/project-handoff/index.js";
 import {
 	SCAFFOLDING,
 	detectHandoffLanguage,
 	languageSamples,
 	localizeSummaryHeadings,
 	resolveLanguage,
-} from "../lib/shared/handoff-language.js";
+} from "../lib/project-handoff/language.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { PluginSettingsSchema } from "../lib/shared/settings.js";
 
@@ -254,7 +254,7 @@ const EN_SUMMARY = [
 	"follow the reference implementation",
 	"",
 	"## Files",
-	"- src/handoff.ts",
+	"- src/project-handoff/index.ts",
 	"",
 	"## Next steps",
 	"1. write tests",

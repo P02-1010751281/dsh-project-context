@@ -3,25 +3,25 @@
 	"version": "0.1.0",
 	"description": "DeepSeek Harness plugins for project-level persistent context: memory consolidation (MEMORY.md + CONTEXT.md), low-frequency autolearn for project skills, session archives with a mechanical index, and automatic handoff.",
 	"type": "module",
-	"main": "./lib/session-context.js",
-	"types": "./lib/session-context.d.ts",
+	"main": "./lib/project-context/index.js",
+	"types": "./lib/project-context/index.d.ts",
 	"exports": {
 		".": {
-			"types": "./lib/session-context.d.ts",
-			"default": "./lib/session-context.js"
+			"types": "./lib/project-context/index.d.ts",
+			"default": "./lib/project-context/index.js"
 		},
 		"./cordis.patch.yml": "./cordis.patch.yml",
 		"./memory": {
-			"types": "./lib/memory.d.ts",
-			"default": "./lib/memory.js"
+			"types": "./lib/project-memory/index.d.ts",
+			"default": "./lib/project-memory/index.js"
 		},
 		"./handoff": {
-			"types": "./lib/handoff.d.ts",
-			"default": "./lib/handoff.js"
+			"types": "./lib/project-handoff/index.d.ts",
+			"default": "./lib/project-handoff/index.js"
 		},
 		"./autolearn": {
-			"types": "./lib/autolearn.d.ts",
-			"default": "./lib/autolearn.js"
+			"types": "./lib/project-autolearn/index.d.ts",
+			"default": "./lib/project-autolearn/index.js"
 		},
 		"./client": {
 			"default": "./lib/client.js"

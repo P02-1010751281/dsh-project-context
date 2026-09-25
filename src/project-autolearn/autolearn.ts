@@ -14,9 +14,9 @@ import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 // Type-only: pulls the llm service Context merge (ctx.llm.resolveModelInfo).
 import type {} from "@deepseek-ai/dsh-llm";
-import type { PluginConfig } from "./config.js";
-import { readArchivedConversation } from "./archive.js";
-import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, parseJsonObject, reasoningReserveTokens, requestPluginText, resolveModelMetadata, resolveTarget, userTurnCount } from "./learn.js";
+import type { PluginConfig } from "../shared/config.js";
+import { readArchivedConversation } from "../project-context/archive.js";
+import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, parseJsonObject, reasoningReserveTokens, requestPluginText, resolveModelMetadata, resolveTarget, userTurnCount } from "../shared/llm.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import {
 	MAX_CONTEXT_CHARS,
@@ -36,9 +36,9 @@ import {
 	skillsDir,
 	validSkillName,
 	writeAtomic,
-} from "./project-state.js";
-import { loadMemory } from "./memory-store.js";
-import { readSessionIndex } from "./session-index.js";
+} from "../shared/project-state.js";
+import { loadMemory } from "../project-memory/memory-store.js";
+import { readSessionIndex } from "../project-context/session-index.js";
 
 export interface LearnedSkill {
 	name: string;

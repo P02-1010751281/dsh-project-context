@@ -28,10 +28,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { archivedConversationText } from "../lib/shared/archive.js";
-import { parseSessionJsonl, importSessionJsonl } from "../lib/shared/import-archive.js";
-import { renderSessionMarkdown } from "../lib/shared/session-log.js";
-import { readSessionIndex, sessionTitleFromEntries } from "../lib/shared/session-index.js";
+import { archivedConversationText } from "../lib/project-context/archive.js";
+import { parseSessionJsonl, importSessionJsonl } from "../lib/project-context/import-archive.js";
+import { renderSessionMarkdown } from "../lib/project-context/session-log.js";
+import { readSessionIndex, sessionTitleFromEntries } from "../lib/project-context/session-index.js";
 
 /** Header of a real pi archive: `timestamp` (ISO string), no `harness`, no `createdAt`. */
 const PI_HEADER = {

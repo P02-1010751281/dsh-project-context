@@ -17,7 +17,7 @@
 import { createReadStream } from "node:fs";
 import type { ReadStream } from "node:fs";
 import type { ContentBlock, ToolCallBlock } from "@deepseek-ai/dsh-llm";
-import { clip, textOf, truncateMiddle } from "./learn.js";
+import { clip, textOf, truncateMiddle } from "../shared/llm.js";
 
 const MAX_TEXT_CHARS = 4_000;
 const MAX_TOOL_CHARS = 1_500;

@@ -13,12 +13,12 @@
 import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
-import { resolvePluginConfig } from "./shared/config.js";
-import { installProjectContextSettings, effectivePluginConfig } from "./shared/settings.js";
-import { projectCwd, SessionWorkTracker } from "./shared/lifecycle.js";
-import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "./shared/project-state.js";
-import { importArchiveFiles } from "./shared/import-archive.js";
-import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./shared/session-log.js";
+import { resolvePluginConfig } from "../shared/config.js";
+import { installProjectContextSettings, effectivePluginConfig } from "../shared/settings.js";
+import { projectCwd, SessionWorkTracker } from "../shared/lifecycle.js";
+import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "../shared/project-state.js";
+import { importArchiveFiles } from "./import-archive.js";
+import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./session-log.js";
 
 /**
  * Expand `/session-log import` arguments: directories contribute their

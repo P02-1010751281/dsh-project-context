@@ -19,7 +19,7 @@
  * 2026-09-13 misdirected-command incident lacked.
  */
 
-import { planHandoffWatch, type HandoffWatchRow } from "./handoff-marker.js";
+import { planHandoffWatch, type HandoffWatchRow } from "./marker.js";
 
 /** The slice of the client context this watcher reads: `sessions` and `conversation`, when present. */
 export interface HandoffWatchContext {

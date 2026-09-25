@@ -37,7 +37,7 @@ import {
 	memoryFile,
 	readOptional,
 	writeAtomic,
-} from "./project-state.js";
+} from "../shared/project-state.js";
 
 /** The append-only memory journal for one project. */
 export function memoryJournalFile(projectRoot: string): string {

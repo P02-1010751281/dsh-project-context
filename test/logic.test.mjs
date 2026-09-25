@@ -34,9 +34,9 @@ import {
 	thresholdRefusal,
 	thresholdRefusalText,
 	turnStartedAfter,
-} from "../lib/handoff.js";
+} from "../lib/project-handoff/index.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
-import { renderContextDocument } from "../lib/shared/context-doc.js";
+import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import {
 	adaptiveOutputTokens,
 	clip,
@@ -60,12 +60,12 @@ import {
 	requestPluginTextWithMeta,
 	textOf,
 	truncateMiddle,
-} from "../lib/shared/learn.js";
-import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } from "../lib/shared/autolearn.js";
-import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/shared/handoff-marker.js";
-import { watchHandoffSwitch } from "../lib/shared/handoff-watch.js";
-import { archivedConversationText, readArchivedConversation } from "../lib/shared/archive.js";
-import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine, untouchedSince } from "../lib/shared/session-index.js";
+} from "../lib/shared/llm.js";
+import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } from "../lib/project-autolearn/autolearn.js";
+import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/project-handoff/marker.js";
+import { watchHandoffSwitch } from "../lib/project-handoff/watch.js";
+import { archivedConversationText, readArchivedConversation } from "../lib/project-context/archive.js";
+import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine, untouchedSince } from "../lib/project-context/session-index.js";
 import {
 	diagnosticMessage,
 	invalidateTextCache,
@@ -77,10 +77,10 @@ import {
 	validSkillName,
 	writeAtomic,
 } from "../lib/shared/project-state.js";
-import { releaseSessionQueue, writeSessionArtifacts } from "../lib/shared/session-log.js";
+import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-context/session-log.js";
 import { installProjectContextSettings } from "../lib/shared/settings.js";
-import { contextUpdateReply, memoryStatusReply } from "../lib/memory.js";
-import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/shared/memory-store.js";
+import { contextUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
+import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
 
 function message(role, text) {
 	return { role, source: { kind: role }, content: [{ type: "text", text }] };
@@ -365,7 +365,7 @@ test("two host processes writing one project's index lose no lines", { timeout: 
 		const memory = path.join(project, ".agents", "memory");
 		const logs = path.join(memory, "session-logs");
 		await mkdir(logs, { recursive: true });
-		const lib = new URL("../lib/shared/session-index.js", import.meta.url).href;
+		const lib = new URL("../lib/project-context/session-index.js", import.meta.url).href;
 		const writer = path.join(project, "writer.mjs");
 		await writeFile(
 			writer,

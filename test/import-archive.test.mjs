@@ -19,7 +19,7 @@ import {
 	importArchiveFile,
 	parseSessionJsonl,
 	readZipEntry,
-} from "../lib/shared/import-archive.js";
+} from "../lib/project-context/import-archive.js";
 
 const HEADER = {
 	type: "session",

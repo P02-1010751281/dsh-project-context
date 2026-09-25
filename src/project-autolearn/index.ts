@@ -15,11 +15,11 @@ import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
-import { effectivePluginConfig, installProjectContextSettings } from "./shared/settings.js";
-import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "./shared/lifecycle.js";
-import { approveCandidate, autolearnProjectSkills, listCandidates, rejectCandidate, type AutolearnOutcome } from "./shared/autolearn.js";
-import { diagnosticMessage, getProjectRoot, logError, skillsDir } from "./shared/project-state.js";
+import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
+import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
+import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
+import { approveCandidate, autolearnProjectSkills, listCandidates, rejectCandidate, type AutolearnOutcome } from "./autolearn.js";
+import { diagnosticMessage, getProjectRoot, logError, skillsDir } from "../shared/project-state.js";
 
 export const name = "project-autolearn";
 export const inject = ["llm", "commands"];

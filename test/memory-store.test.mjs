@@ -31,10 +31,10 @@ import {
 	recordMemoryDocument,
 	staleLockAge,
 	withMemoryLock,
-} from "../lib/shared/memory-store.js";
+} from "../lib/project-memory/memory-store.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
-import { consolidateProject } from "../lib/memory.js";
-import { consolidateProjectState } from "../lib/shared/learn.js";
+import { consolidateProject } from "../lib/project-memory/index.js";
+import { consolidateProjectState } from "../lib/shared/llm.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 
 /** A project root with the memory directory present. */

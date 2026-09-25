@@ -20,7 +20,7 @@ import {
 	pathExists,
 	safeSessionId,
 	writeAtomic,
-} from "./project-state.js";
+} from "../shared/project-state.js";
 import { queueSessionIndexEntry } from "./session-index.js";
 
 export interface SessionFileHeader {

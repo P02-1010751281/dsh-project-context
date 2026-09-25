@@ -6,7 +6,7 @@
  * literal in one module prevents a silent host/client drift.
  */
 
-/** Title prefix written by `src/handoff.ts` and matched by `src/shared/handoff-watch.ts`. */
+/** Title prefix written by `src/project-handoff/index.ts` and matched by `src/project-handoff/watch.ts`. */
 export const HANDOFF_TITLE_PREFIX = "↪ handoff · ";
 
 /**

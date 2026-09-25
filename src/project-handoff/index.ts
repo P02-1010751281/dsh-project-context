@@ -47,7 +47,7 @@
  *   - dsh model metadata exposes no cost tiers: the adaptive threshold is
  *     bounded by the window reserve and the keep budget only;
  *   - summary thinking defaults to `off` when the adapter exposes that effort;
- *   - `handoffLanguage: "auto"` follows the conversation (see `shared/handoff-language.ts`)
+ *   - `handoffLanguage: "auto"` follows the conversation (see `project-handoff/language.ts`)
  *     and a previous continuation prompt in the carried tail is replaced by a one-line
  *     marker so it cannot read as a fresh instruction.
  *
@@ -61,14 +61,14 @@ import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-commands";
 import type { LlmResolvedModelInfo } from "@deepseek-ai/dsh-llm";
 import type { Session } from "@deepseek-ai/dsh-session";
-import { resolvePluginConfig, type PluginConfig } from "./shared/config.js";
-import { effectivePluginConfig, installProjectContextSettings, SETTINGS_NAMESPACE } from "./shared/settings.js";
+import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
+import { effectivePluginConfig, installProjectContextSettings, SETTINGS_NAMESPACE } from "../shared/settings.js";
 import {
 	conversationMessageSections,
 	requestPluginText,
 	truncateMiddle,
 	type ConversationSection,
-} from "./shared/learn.js";
+} from "../shared/llm.js";
 import {
 	isHandoffContinuationText,
 	localizeSummaryHeadings,
@@ -77,9 +77,9 @@ import {
 	SCAFFOLDING,
 	type HandoffLanguage,
 	type HandoffLanguageMessage,
-} from "./shared/handoff-language.js";
-import { HANDOFF_TITLE_PREFIX } from "./shared/handoff-marker.js";
-import { isTopLevel } from "./shared/lifecycle.js";
+} from "./language.js";
+import { HANDOFF_TITLE_PREFIX } from "./marker.js";
+import { isTopLevel } from "../shared/lifecycle.js";
 import {
 	MAX_CONVERSATION_CHARS,
 	getProjectRoot,
@@ -89,8 +89,8 @@ import {
 	safeSessionId,
 	sessionIndexFile,
 	writeAtomic,
-} from "./shared/project-state.js";
-import { loadMemory } from "./shared/memory-store.js";
+} from "../shared/project-state.js";
+import { loadMemory } from "../project-memory/memory-store.js";
 
 export const name = "project-handoff";
 export const inject = ["llm", "commands"];

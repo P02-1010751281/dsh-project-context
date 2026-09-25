@@ -16,7 +16,7 @@ import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 import { createSnapshotStore } from "./dsh-store-compat.ts";
 // Shared with the host half so the switch logic is unit-testable without a browser.
-import { watchHandoffSwitch } from "../src/shared/handoff-watch.ts";
+import { watchHandoffSwitch } from "../src/project-handoff/watch.ts";
 import { en, zh, type SettingsCardKey } from "./locales.ts";
 import {
 	ProjectContextSettingsCard,
