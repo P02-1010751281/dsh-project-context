@@ -93,7 +93,13 @@ src/
 │   └── import-archive.ts   #    zip / jsonl 回填
 ├── project-memory/         # ② 整理（"dsh-project-context/memory"）
 │   ├── index.ts            #    插件入口：整理 pass 编排、/context-update、/memory 回执
-│   ├── memory-store.ts     #    记忆 journal / 渲染 / 备份 / 跨进程锁 / 污点解码
+│   ├── memory-store.ts     #    记忆子系统对外门面（不变量文档 + 公共 API 再导出）
+│   ├── journal.ts          #    追加日志：解析 / 折叠 / 轮转 / 归档
+│   ├── record.ts           #    一次写入：采纳外部编辑、追加、重建渲染、legacy 导入
+│   ├── load.ts             #    读取路径：journal / MEMORY.md / legacy，损伤报告
+│   ├── document.ts         #    文档规范化与按行截断标记
+│   ├── poison.ts           #    存储回复（JSON poison）解码与归一化比较键
+│   ├── backup.ts           #    写入前字节级备份与清理
 │   └── context-doc.ts      #    CONTEXT.md 渲染
 ├── project-autolearn/      # ③ 沉淀（"dsh-project-context/autolearn"）
 │   ├── index.ts            #    插件入口：闸门、/autolearn 命令
@@ -116,6 +122,7 @@ src/
 │   ├── marker.ts           #    交接会话标记（host 与浏览器共用）
 │   └── watch.ts            #    浏览器侧自动切换
 ├── shared/                 # 四个插件共用
+│   ├── lock.ts             #    跨进程写锁（记忆文件与会话索引共用，泛型 target）
 │   ├── config.ts           #    默认值与字段定义
 │   ├── settings.ts         #    设置命名空间（web 卡片 ↔ cordis 配置）
 │   ├── project-state.ts    #    路径、原子写、errors.log 轮换与密钥脱敏、旧数据迁移

@@ -11,7 +11,7 @@ import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import { legacySessionIndexFile, logsDir, memoryDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
-import { withMemoryLock } from "../project-memory/memory-store.js";
+import { withMemoryLock } from "../shared/lock.js";
 import { piTextOf } from "./archive.js";
 import type { PiBlock } from "./archive.js";
 

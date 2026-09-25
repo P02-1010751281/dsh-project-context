@@ -21,6 +21,14 @@
   `auto`（自动触发）、`command`（`/handoff` 参数与回执），`index.ts` 只剩入口与监听器。这是**纯搬移**：
   逐块核对原文件 111 个顶层声明**逐字**落在唯一的新模块中；唯一新增的代码是把测压区间的读取收进
   `getPressureCheckIntervalMs()`，不再跨模块导出一个可变 `let`。typecheck 0、**198/198**、客户端 bundle 重建。
+- 变更：`project-memory/memory-store.ts` 的 997 行同样按职责拆开——`journal`（追加日志：解析 / 折叠 /
+  轮转 / 归档）、`record`（一次写入：采纳外部编辑、追加、重建渲染、legacy 导入）、`load`（读取路径与
+  损伤报告）、`document`（规范化与按行截断标记）、`poison`（存储回复解码与归一化比较键）、`backup`
+  （写入前字节级备份与清理）。`memory-store.ts` 保留为**对外门面**（原始的不变量文档 + 公共 API 再导出），
+  因为另外三个插件都从它导入 `loadMemory`；`withMemoryLock` 是**泛型 target** 的写锁（`project-memory`
+  锁 `MEMORY.md`、`project-context` 锁会话索引），因此移到 `shared/lock.ts`。拆完复核：55 个顶层声明逐字
+  各归一处、模块间**零循环导入**（`importLegacyMemory` 归 `record`、`memoryComparisonKey` 归 `poison`，
+  正是为了断开 `load ↔ record` 的双向依赖）。typecheck 0、**198/198**。
 
 **记忆整理（②）**
 

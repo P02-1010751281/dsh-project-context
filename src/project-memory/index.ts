@@ -33,17 +33,8 @@ import {
 	readTextCachedSync,
 	writeAtomic,
 } from "../shared/project-state.js";
-import {
-	backupMemoryBeforeWrite,
-	importLegacyMemory,
-	isMemoryTruncated,
-	loadMemory,
-	loadMemorySync,
-	memoryJournalFile,
-	readMemoryDamage,
-	recordMemoryDocument,
-	withMemoryLock,
-} from "./memory-store.js";
+import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
+import { withMemoryLock } from "../shared/lock.js";
 
 export const name = "project-memory";
 export const inject = ["llm", "systemPrompt", "commands"];
