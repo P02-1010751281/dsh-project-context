@@ -18,7 +18,7 @@ import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig, installProjectContextSettings } from "../shared/settings.js";
 import { renderContextDocument } from "./context-doc.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
-import { consolidateProjectState, fallbackUpdate } from "../shared/llm.js";
+import { consolidateProjectState, fallbackUpdate } from "./consolidate.js";
 import {
 	MAX_CONTEXT_CHARS,
 	cachedProjectRoot,

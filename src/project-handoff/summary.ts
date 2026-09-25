@@ -7,7 +7,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type LlmResolvedModelInfo } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { requestPluginText } from "../shared/llm.js";
+import { requestPluginText } from "../shared/model-call.js";
 import { type HandoffLanguage, SCAFFOLDING } from "./language.js";
 
 /** Minimum room for the summary retry after a token-cap truncation. */

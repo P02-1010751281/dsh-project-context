@@ -100,6 +100,7 @@ src/
 │   ├── document.ts         #    文档规范化与按行截断标记
 │   ├── poison.ts           #    存储回复（JSON poison）解码与归一化比较键
 │   ├── backup.ts           #    写入前字节级备份与清理
+│   ├── consolidate.ts      #    整理 pass：节流、单飞、提示与结果落地
 │   └── context-doc.ts      #    CONTEXT.md 渲染
 ├── project-autolearn/      # ③ 沉淀（"dsh-project-context/autolearn"）
 │   ├── index.ts            #    插件入口：闸门、/autolearn 命令
@@ -127,7 +128,11 @@ src/
 │   ├── settings.ts         #    设置命名空间（web 卡片 ↔ cordis 配置）
 │   ├── project-state.ts    #    路径、原子写、errors.log 轮换与密钥脱敏、旧数据迁移
 │   ├── lifecycle.ts        #    会话身份、串行后台任务、落盘跟踪
-│   └── llm.ts              #    模型调用管线与输出预算（② / ③ / ④ 共用）
+│   ├── text.ts             #    文本计量、裁剪与渲染（回复头 / 截断 / token 估算）
+│   ├── output-budget.ts    #    辅助调用的输出预算：推预留、自适应边界、重试余量
+│   ├── conversation.ts     #    会话渲染成对话分段 + 记忆输入适配
+│   ├── reply-json.ts       #    从模型回复里读取结构化 JSON（容错扫描 + 解析）
+│   └── model-call.ts       #    插件来源的辅助模型调用、路由与元数据
 client/                     # 设置卡片、表单、zh/en 文案（bundle 进 lib/client.js）
 scripts/
 ├── build-client.mjs        # 客户端 bundle

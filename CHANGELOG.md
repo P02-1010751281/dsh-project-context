@@ -12,8 +12,7 @@
 - 变更：`src/` 按**每个插件一个子包**重组，包内再按**单一职责**拆文件。四个插件的 cordis 入口仍是各自
   子包的 `index.ts`，`package.json` 的 exports 子路径与 `cordis.patch.yml` 的插件 id 都没有变：
   `project-context/`（存档）、`project-memory/`（整理）、`project-autolearn/`（沉淀）、
-  `project-handoff/`（交接）、`shared/`（四个插件共用）、`client/`（浏览器半）。`shared/learn.ts`
-  更名 `shared/llm.ts`——它本来就是 ②③④ 共用的模型调用管线与输出预算，不是技能逻辑。
+  `project-handoff/`（交接）、`shared/`（四个插件共用）、`client/`（浏览器半）。
 - 变更：`project-handoff/` 的 1796 行单文件按职责拆成 11 个模块——`threshold`（触发点与护栏覆盖报告）、
   `conversation`（切分 / 未答问题 / 语言）、`summary`（摘要调用与两段文本）、`child`（子会话的创建、
   模型与权限携带、放弃回滚）、`perform`（一次交接事务的顺序）、`classify`（延后 / 暂态 / 终态）、
@@ -29,6 +28,15 @@
   锁 `MEMORY.md`、`project-context` 锁会话索引），因此移到 `shared/lock.ts`。拆完复核：55 个顶层声明逐字
   各归一处、模块间**零循环导入**（`importLegacyMemory` 归 `record`、`memoryComparisonKey` 归 `poison`，
   正是为了断开 `load ↔ record` 的双向依赖）。typecheck 0、**198/198**。
+- 变更：`shared/llm.ts` 的 843 行按职责拆开——`text`（文本计量 / 裁剪 / 渲染）、`output-budget`
+  （推理预留、自适应边界、重试余量）、`conversation`（会话分段渲染与记忆输入适配）、`reply-json`
+  （从回复里读结构化 JSON 的容错扫描与解析，含 `ContextUpdate` / `ConsolidationResult` 两个形状）、
+  `model-call`（插件来源的辅助调用、路由、元数据、`pluginUserMessage` / `CompletionOutcome`）。
+  整理 pass 本身（`consolidateProjectState`、节流与单飞状态、提示词规则）本来就不是「共用」，
+  移到 `project-memory/consolidate.ts`——它当初待在 `shared/` 只是因为 ③ 复用了那里的模型管线。
+  拆完复核：59 个顶层声明逐字各归一处、模块间**零循环导入**（`pluginUserMessage` / `CompletionOutcome`
+  归 `model-call`、两个回复形状归 `reply-json`，正是为了断开 `model-call ↔ consolidate` 与
+  `consolidate ↔ reply-json` 两组双向依赖）。typecheck 0、**198/198**。
 
 **记忆整理（②）**
 

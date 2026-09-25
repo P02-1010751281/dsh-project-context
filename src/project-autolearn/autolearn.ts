@@ -16,7 +16,10 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import type { PluginConfig } from "../shared/config.js";
 import { readArchivedConversation } from "../project-context/archive.js";
-import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, parseJsonObject, reasoningReserveTokens, requestPluginText, resolveModelMetadata, resolveTarget, userTurnCount } from "../shared/llm.js";
+import { userTurnCount } from "../shared/conversation.js";
+import { requestPluginText, resolveModelMetadata, resolveTarget } from "../shared/model-call.js";
+import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, reasoningReserveTokens } from "../shared/output-budget.js";
+import { parseJsonObject } from "../shared/reply-json.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import {
 	MAX_CONTEXT_CHARS,

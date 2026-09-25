@@ -26,30 +26,12 @@ import { continuation } from "../lib/project-handoff/summary.js";
 import { qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
-import {
-	adaptiveOutputTokens,
-	clip,
-	clipText,
-	consolidateProjectState,
-	CONSOLIDATION_PROMPT_RULES,
-	conversationText,
-	fallbackUpdate,
-	fitMemoryInput,
-	MAX_ADAPTIVE_OUTPUT_TOKENS,
-	MAX_REASONING_RESERVE_TOKENS,
-	MIN_REASONING_RESERVE_TOKENS,
-	parseConsolidation,
-	REASONING_RESERVE_RATIO,
-	REPLY_OUTPUT_MARGIN_TOKENS,
-	RETRY_OUTPUT_HEADROOM_TOKENS,
-	reasoningReserveTokens,
-	replyHead,
-	replyTokenRate,
-	requestPluginText,
-	requestPluginTextWithMeta,
-	textOf,
-	truncateMiddle,
-} from "../lib/shared/llm.js";
+import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate } from "../lib/project-memory/consolidate.js";
+import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
+import { parseConsolidation } from "../lib/shared/reply-json.js";
+import { fitMemoryInput, conversationText } from "../lib/shared/conversation.js";
+import { requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
+import { clip, clipText, replyHead, replyTokenRate, textOf, truncateMiddle } from "../lib/shared/text.js";
 import { approveCandidate, listCandidates, parseAutolearn, rejectCandidate } from "../lib/project-autolearn/autolearn.js";
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/project-handoff/marker.js";
 import { watchHandoffSwitch } from "../lib/project-handoff/watch.js";

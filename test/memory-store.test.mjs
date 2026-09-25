@@ -31,7 +31,7 @@ import {
 import { MEMORY_LOCK_STALE_MS, MEMORY_LOCK_WAIT_MS, staleLockAge, withMemoryLock } from "../lib/shared/lock.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryFile } from "../lib/shared/project-state.js";
 import { consolidateProject } from "../lib/project-memory/index.js";
-import { consolidateProjectState } from "../lib/shared/llm.js";
+import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 
 /** A project root with the memory directory present. */

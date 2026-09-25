@@ -7,7 +7,8 @@
 
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { type ConversationSection, conversationMessageSections, truncateMiddle } from "../shared/llm.js";
+import { conversationMessageSections, type ConversationSection } from "../shared/conversation.js";
+import { truncateMiddle } from "../shared/text.js";
 import { MAX_CONVERSATION_CHARS } from "../shared/project-state.js";
 import { type HandoffLanguage, type HandoffLanguageMessage, REPLAY_MARKER, isHandoffContinuationText, resolveLanguage } from "./language.js";
 

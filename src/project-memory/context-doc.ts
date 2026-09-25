@@ -1,7 +1,7 @@
 /** CONTEXT.md rendering: the rolling session summary, key points, and open tasks. */
 
-import type { ContextUpdate } from "../shared/llm.js";
 import { MAX_CONTEXT_CHARS, MAX_LIST_ITEM_CHARS, MAX_SUMMARY_CHARS } from "../shared/project-state.js";
+import { type ContextUpdate } from "../shared/reply-json.js";
 
 function trimLine(value: string, limit = MAX_LIST_ITEM_CHARS): string {
 	return value.replace(/\s+/g, " ").trim().slice(0, limit);

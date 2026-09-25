@@ -15,8 +15,8 @@ import path from "node:path";
 import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/autolearn.js";
-import { adaptiveOutputTokens } from "../lib/shared/llm.js";
-import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/llm.js";
+import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
+import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { learnStateFile, readLearnState, updateLearnState } from "../lib/project-autolearn/learn-state.js";
 import {
