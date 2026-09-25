@@ -150,6 +150,30 @@ const MIN_SUMMARIZE_TOKENS = 8_000;
 const WINDOW_RESERVE_TOKENS = 16_384;
 /** Stay this far below the usable window so streaming growth cannot cross it. */
 const SAFETY_MARGIN_TOKENS = 4_000;
+/** Where pi's fitted quality curve flattens out: the population-median reliable length. */
+const KNEE_ASYMPTOTE_TOKENS = 157_000;
+/** Window size at which the curve is half way between its asymptote and the declared window. */
+const KNEE_TRANSITION_TOKENS = 450_000;
+/** How sharply the curve turns; pi fitted 0.04 to the MRCR 8-needle population. */
+const KNEE_TRANSITION_STEEPNESS = 0.04;
+
+/**
+ * pi's fitted knee curve: how much of a declared window a model still uses *well*.
+ *
+ * `knee(W) = W − (W − 157K) / (1 + e^(−ln(W/450K)/0.04))`, fitted to the MRCR 8-needle population
+ * (46 models ≥1M: p25 127K / p50 157K / p75 190K). Its purpose is to **distrust a declared window**:
+ * models advertising 1M measure 130–170K. The curve is ≈`W` for small windows (not binding), turns
+ * around 450K, and saturates at 157K for very large ones.
+ *
+ * dsh deliberately applies it as a **cap on an already-decided value**, not as the base of the
+ * decision — see {@link resolveThreshold}. pi instead takes `max(knee, target)`, so its config target
+ * *raises* the threshold above the curve; dsh keeps the configured target primary and lets the curve
+ * only ever lower it.
+ */
+function kneeTokens(window: number): number {
+	const z = Math.log(window / KNEE_TRANSITION_TOKENS) / KNEE_TRANSITION_STEEPNESS;
+	return Math.round(window - (window - KNEE_ASYMPTOTE_TOKENS) / (1 + Math.exp(-z)));
+}
 /** Minimum room for the summary retry after a token-cap truncation. */
 const SUMMARY_RETRY_FLOOR = 32_768;
 /** Hard timeout for one summary call. */
@@ -229,7 +253,7 @@ function thresholdFloor(config: PluginConfig, measurement: { totalTokens: number
  * {@link SAFETY_MARGIN_TOKENS} deduction is what decided it, and "at this window" sends the user to
  * change the model or the target when neither is the lever.
  */
-export type ThresholdRefusal = "window-headroom" | "summarizer-floor" | "no-positive-threshold";
+export type ThresholdRefusal = "window-headroom" | "summarizer-floor" | "knee-below-floor" | "no-positive-threshold";
 
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
@@ -247,6 +271,17 @@ export function thresholdRefusal(
 	const floor = thresholdFloor(config, measurement);
 	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
 	if (usable <= floor) return "window-headroom";
+	// The configured value clears the floor whenever the window does (`targetOlder` is at least the
+	// summarize minimum) *except* when the second safety-margin deduction is what failed — that is the
+	// pre-existing `summarizer-floor` case. So once `configured` clears the floor, the knee is the
+	// only remaining term that can be below it, and naming it here keeps the receipt from blaming the
+	// safety margin for a quality-curve decision.
+	const baseline = Math.max(0, measurement.totalTokens - measurement.surfaceTokens);
+	const keep = config.handoffKeepTokens;
+	const conversationRoom = usable - baseline - keep;
+	const targetOlder = Math.max(MIN_SUMMARIZE_TOKENS, Math.min(config.handoffTargetTokens, Math.floor(conversationRoom / 2)));
+	const configured = Math.min(baseline + keep + targetOlder, usable - SAFETY_MARGIN_TOKENS);
+	if (configured >= floor) return "knee-below-floor";
 	return "summarizer-floor";
 }
 
@@ -276,6 +311,9 @@ export function thresholdRefusalText(
 	if (reason === "summarizer-floor") {
 		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep/target) is the lever, not this window alone`;
 	}
+	if (reason === "knee-below-floor") {
+		return `threshold unavailable: the model's quality knee is the limit — the fitted curve allows only ${kneeTokens(contextWindow)} tokens at this ${contextWindow}-token window, below the ${floor}-token floor set by the assembled context (${floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS}) plus keep (${config.handoffKeepTokens}) plus the summarize minimum (${MIN_SUMMARIZE_TOKENS}); this window is declared larger than the model still uses well, so the fix is a smaller assembled context, not a larger window`;
+	}
 	// Fixed mode refuses exactly when `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the
 	// ratio is validated into [0.1, 0.95], the second term binds first and the condition reduces to
 	// `W ≤ SAFETY_MARGIN`: raising the ratio can never clear a refusal, so naming it would send the
@@ -288,7 +326,7 @@ export function resolveThreshold(
 	config: PluginConfig,
 	measurement: { totalTokens: number; surfaceTokens: number },
 	contextWindow: number,
-): { tokens: number; label: string } | undefined {
+): { tokens: number; label: string; bound?: "target" | "knee" } | undefined {
 	if (!config.handoffAdaptive) {
 		const tokens = Math.min(Math.round(contextWindow * config.handoffThresholdRatio), contextWindow - SAFETY_MARGIN_TOKENS);
 		return tokens > 0 ? { tokens, label: `${Math.round(config.handoffThresholdRatio * 100)}% of window` } : undefined;
@@ -302,9 +340,18 @@ export function resolveThreshold(
 	if (usable <= floor) return undefined;
 	const conversationRoom = usable - baseline - keep;
 	const targetOlder = Math.max(MIN_SUMMARIZE_TOKENS, Math.min(config.handoffTargetTokens, Math.floor(conversationRoom / 2)));
-	const tokens = Math.min(baseline + keep + targetOlder, usable - SAFETY_MARGIN_TOKENS);
+	const configured = Math.min(baseline + keep + targetOlder, usable - SAFETY_MARGIN_TOKENS);
+	// `configured` is upstream-first: the carried tail plus the project's own `handoffTargetTokens`,
+	// bounded only by physical capacity. The knee is a **fallback safety net** that can only lower it,
+	// so it never overrides an explicit setting — it bounds a window whose declared size overstates how
+	// much of it the model still uses well. With the defaults (`handoffTargetTokens` 64000) the knee is
+	// above `configured` at every window, so this is a no-op today and only bites once a target is
+	// raised past the curve. Fixed mode returns above and is never touched.
+	const knee = kneeTokens(contextWindow);
+	const tokens = Math.min(configured, knee);
+	const bound = tokens < configured ? "knee" : "target";
 	if (tokens < floor) return undefined;
-	return { tokens, label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)` };
+	return { tokens, label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)`, bound };
 }
 
 /** Phrasings that mark the assistant's last message as awaiting a user decision. */
@@ -1496,7 +1543,10 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			// only return `undefined` here if `resolveThreshold` resolved, which this branch excludes.
 			const refusal = threshold === undefined ? thresholdRefusal(config, measurement, contextWindow) : undefined;
 			parts.push(threshold !== undefined
-				? `threshold ${threshold.label}`
+				// A clamp by the quality knee must not be silent: the user set a target and is getting a
+				// lower threshold, so the receipt names what lowered it (the same reason pi prints its
+				// `bound`). `target` needs no suffix — that is the value the user asked for.
+				? `threshold ${threshold.label}${threshold.bound === "knee" ? ` · capped by the model's quality knee (${kneeTokens(contextWindow)} at this window)` : ""}`
 				: refusal !== undefined
 					? thresholdRefusalText(refusal, config, measurement, contextWindow)
 					// Unreachable: `thresholdRefusal` is total over `resolveThreshold`'s refusals. Say the
