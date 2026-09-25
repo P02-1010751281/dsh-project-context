@@ -244,10 +244,9 @@ export function thresholdRefusal(
 ): ThresholdRefusal | undefined {
 	if (resolveThreshold(config, measurement, contextWindow) !== undefined) return undefined;
 	if (!config.handoffAdaptive) return "no-positive-threshold";
-	const floor = thresholdFloor(config, measurement);
-	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
-	if (usable <= floor) return "window-headroom";
-	return "summarizer-floor";
+	// Reuse the orchestrator's own feasibility helper rather than re-deriving its terms: the two can
+	// then only disagree if the *composition* changes, and the clamp is the only remaining refusal.
+	return handoffRoom(config, measurement, contextWindow) === undefined ? "window-headroom" : "summarizer-floor";
 }
 
 /**
@@ -284,6 +283,90 @@ export function thresholdRefusalText(
 }
 
 /** Adaptive or fixed trigger point for one measured session. Exported for tests. */
+
+/** Where pi's fitted quality curve flattens out: the population-median reliable length. */
+const KNEE_ASYMPTOTE_TOKENS = 157_000;
+/** Window size at which the curve is half way between its asymptote and the declared window. */
+const KNEE_TRANSITION_TOKENS = 450_000;
+/** How sharply the curve turns; pi fitted 0.04 to the MRCR 8-needle population. */
+const KNEE_TRANSITION_STEEPNESS = 0.04;
+
+/**
+ * pi's fitted knee curve: how much of a declared window a model still uses *well*.
+ *
+ * `knee(W) = W − (W − 157K) / (1 + e^(−ln(W/450K)/0.04))`, fitted to the MRCR 8-needle population
+ * (46 models ≥1M: p25 127K / p50 157K / p75 190K). Its purpose is to **distrust a declared window**:
+ * models advertising 1M measure 130–170K. The curve is ≈`W` below ~250K (so capacity, not the curve,
+ * binds there), turns around 450K, and saturates at 157K.
+ */
+function kneeTokens(window: number): number {
+	const z = Math.log(window / KNEE_TRANSITION_TOKENS) / KNEE_TRANSITION_STEEPNESS;
+	return Math.round(window - (window - KNEE_ASYMPTOTE_TOKENS) / (1 + Math.exp(-z)));
+}
+
+/** What the next request carries besides the conversation, and what a handoff therefore needs. */
+interface HandoffRoom {
+	/** System prompt, tool schemas, injected project context: everything but the conversation. */
+	baseline: number;
+	/** Recent tokens carried into the successor verbatim. */
+	keep: number;
+	/** The smallest trigger that still lets a summary replace the summarize minimum. */
+	floor: number;
+	/** Window left for a request once the headroom reserve is taken. */
+	usable: number;
+}
+
+/**
+ * ① Feasibility only: is there room for a handoff at all? This answers "can we hand off", not "at
+ * what threshold" — `undefined` here is a refusal before any value is computed.
+ */
+function handoffRoom(
+	config: PluginConfig,
+	measurement: { totalTokens: number; surfaceTokens: number },
+	contextWindow: number,
+): HandoffRoom | undefined {
+	const baseline = Math.max(0, measurement.totalTokens - measurement.surfaceTokens);
+	const keep = config.handoffKeepTokens;
+	const floor = baseline + keep + MIN_SUMMARIZE_TOKENS;
+	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
+	if (usable <= floor) return undefined;
+	return { baseline, keep, floor, usable };
+}
+
+/**
+ * ② Quality only: how much of the window the model still uses well.
+ *
+ * A **fallback chain**, not a sum and not a cap: prefer the upstream usable-input declaration when the
+ * harness exposes one, and fall back to the fitted knee when it does not —
+ * `quality = upstreamUsableInput ?? knee(window)`.
+ *
+ * dsh exposes only a combined `contextWindow` (`LlmModelContext`), so `upstreamUsableInput` is always
+ * absent today and the chain takes its fallback branch. The parameter is the seam for the harness
+ * change that would split declared capacity from usable input; until then callers pass nothing.
+ * Exported so the chain's two branches are testable without a live session.
+ */
+export function qualityLimit(contextWindow: number, upstreamUsableInput?: number): number {
+	return upstreamUsableInput ?? kneeTokens(contextWindow);
+}
+
+/**
+ * ③ Capacity only: the last word. A trigger may not sit past the safe use of the window, whatever the
+ * quality layer or the configured target asked for.
+ */
+function capacityLimit(room: HandoffRoom): number {
+	return room.usable - SAFETY_MARGIN_TOKENS;
+}
+
+/**
+ * ④ How much older context this configuration asks a handoff to fold into the summary, bounded by the
+ * room actually available (never more than half the conversation, so a handoff always leaves a tail).
+ */
+function summarizeAmount(config: PluginConfig, room: HandoffRoom): number {
+	const conversationRoom = room.usable - room.baseline - room.keep;
+	return Math.max(MIN_SUMMARIZE_TOKENS, Math.min(config.handoffTargetTokens, Math.floor(conversationRoom / 2)));
+}
+
+/** ⑤ Orchestrator: mode selection and the composition of ①–④. */
 export function resolveThreshold(
 	config: PluginConfig,
 	measurement: { totalTokens: number; surfaceTokens: number },
@@ -293,17 +376,14 @@ export function resolveThreshold(
 		const tokens = Math.min(Math.round(contextWindow * config.handoffThresholdRatio), contextWindow - SAFETY_MARGIN_TOKENS);
 		return tokens > 0 ? { tokens, label: `${Math.round(config.handoffThresholdRatio * 100)}% of window` } : undefined;
 	}
-	// Everything the next request carries beyond the conversation surface:
-	// system prompt, tool schemas, injected project context.
-	const baseline = Math.max(0, measurement.totalTokens - measurement.surfaceTokens);
-	const keep = config.handoffKeepTokens;
-	const floor = baseline + keep + MIN_SUMMARIZE_TOKENS;
-	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
-	if (usable <= floor) return undefined;
-	const conversationRoom = usable - baseline - keep;
-	const targetOlder = Math.max(MIN_SUMMARIZE_TOKENS, Math.min(config.handoffTargetTokens, Math.floor(conversationRoom / 2)));
-	const tokens = Math.min(baseline + keep + targetOlder, usable - SAFETY_MARGIN_TOKENS);
-	if (tokens < floor) return undefined;
+	const room = handoffRoom(config, measurement, contextWindow);
+	if (room === undefined) return undefined;
+	// The quality layer is the base and the configured target raises it (pi's order): `handoffTargetTokens`
+	// is the user's own statement of how much older context is worth summarizing, so it must be able to
+	// lift the trigger above what quality alone allows — but never past `capacityLimit`.
+	const asked = room.baseline + room.keep + summarizeAmount(config, room);
+	const tokens = Math.min(Math.max(asked, qualityLimit(contextWindow)), capacityLimit(room));
+	if (tokens < room.floor) return undefined;
 	return { tokens, label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)` };
 }
 

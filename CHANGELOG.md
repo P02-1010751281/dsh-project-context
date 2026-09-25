@@ -85,6 +85,25 @@
 
 **交接（④）**
 
+- 变更：自适应（`auto`）交接阈值改为 **pi 的两层机制**，并**改变了触发点**。质量层是一条**回退链**——
+  `quality = 上游可用输入字段 ?? knee(contextWindow)`，不是相加、也不是封顶；dsh 宿主只暴露合并后的
+  `contextWindow`（`LlmModelContext`），所以今天恒走 knee 分支，`qualityLimit(contextWindow, upstream?)`
+  的第二个参数就是宿主将来把「声明容量 / 可用输入」拆开后的接入点。曲线为 pi 原文：
+  `round(W − (W − 157K) / (1 + e^(−ln(W/450K)/0.04)))`，拟合自 MRCR 8-needle 的 46 个 ≥1M 模型，
+  用途是**不轻信声明的窗口**。组合顺序照 pi：质量层作基、`handoffTargetTokens` 在其上抬升
+  （所以配置项仍然有效）、**容量封顶有最终发言权**。
+  **这是一次行为变更**：默认配置下触发点从小窗口的「装配开销 + 保留尾巴 + target」抬到接近容量上限，
+  大窗口则由曲线封在 157K。实测（baseline 6000 / keep 20000）：65K 37576→**45152**、128K 68808→
+  **107616**、200K 90000→**179616**、400K 90000→**379616**、1M/2M 90000→**157000**。
+  这些数字与 pi 文档中 `boundary` 的 84% / 90% / 95% / 16% / 8% 逐点一致。固定比例模式在曲线之前返回，
+  完全不受影响。变异校验：回退链反向掉 1 项、容量封顶失效掉 11 项、target 失效掉 1 项。
+- 变更：`resolveThreshold` **拆开**为单一职责的纯函数——`handoffRoom`（① 只判可行性）、
+  `qualityLimit`（② 只算质量层，回退链所在）、`capacityLimit`（③ 只算容量上界）、
+  `summarizeAmount`（④ 只算要折叠的旧内容量），`resolveThreshold` 只做模式选择与 ①–④ 的组合。
+  原来一个函数里混着六件事（模式、可行性、基线、target 推导、容量、质量），这也是「拒绝原因」与
+  「阈值公式」各写一遍、容易互相漂移的根源；现在 `thresholdRefusal` 直接复用 `handoffRoom`，
+  两者只能因**组合**而分歧。
+
 - 修复：`/handoff status` 此前把**每一个**「阈值不可用」都渲染成
   `threshold unavailable at this window`——一句关于**窗口**的断言，而窗口往往不是原因。
   `resolveThreshold` 有三个 `undefined` 出口：窗口确实太小、被 `usable − SAFETY_MARGIN_TOKENS`

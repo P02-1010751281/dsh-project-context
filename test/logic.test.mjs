@@ -24,6 +24,7 @@ import {
 	maybeAutoHandoff,
 	parseTokenCount,
 	pendingQuestion,
+	qualityLimit,
 	resolveThreshold,
 	runManual,
 	setPressureCheckIntervalMs,
@@ -99,7 +100,11 @@ test("adaptive threshold reserves room for the summary and the carried tail", ()
 	const config = { ...DEFAULT_CONFIG, handoffKeepTokens: 1_000, handoffTargetTokens: 8_000 };
 	const threshold = resolveThreshold(config, { totalTokens: 20_000, surfaceTokens: 18_000 }, 32_000);
 	assert.ok(threshold);
-	assert.equal(threshold.tokens, 11_000);
+	// The quality layer is the base and `capacityLimit` has the last word, so a small window triggers
+	// at `usable − SAFETY_MARGIN` (32_000 − 16_384 − 4_000). The configured 8_000 target still raises a
+	// lower quality base, which is what keeps `/handoff target` meaningful; here the capacity cap is
+	// what decides. The old value was 11_000 = baseline + keep + target, with no quality layer at all.
+	assert.equal(threshold.tokens, 11_616);
 	assert.match(threshold.label, /^auto /);
 
 	// Window headroom below the reserve cannot fit a pass.
@@ -1787,6 +1792,51 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.doesNotMatch(one, /1 usable tokens/);
 });
 
+test("the quality layer is a fallback chain, and capacity has the last word", () => {
+	// The quality layer is `upstreamUsableInput ?? knee(window)` — a **fallback**, not a sum and not a
+	// cap. dsh's harness exposes only a combined `contextWindow` (`LlmModelContext`), so the chain
+	// always takes its knee branch today; the upstream argument is the seam for a harness that
+	// separates declared capacity from usable input.
+	assert.equal(qualityLimit(1_000_000, 250_000), 250_000, "an upstream declaration wins outright");
+	assert.equal(qualityLimit(1_000_000, undefined), 157_000, "with no upstream field the knee decides");
+	assert.equal(qualityLimit(1_000_000, 0), 0, "`??` keeps a declared zero rather than falling through");
+	// pi's fitted curve, at the points its own docs use. ≈`window` below ~250K (so capacity, not the
+	// curve, binds there), then the transition, then the 157K asymptote.
+	assert.equal(qualityLimit(128_000), 128_000);
+	assert.equal(qualityLimit(1_000_000), 157_000);
+	assert.equal(qualityLimit(2_000_000), 157_000);
+
+	// Composition, with baseline 6000 and keep 20000 (measurement below). `asked` is the configured
+	// target's request and the curve is the base; the capacity cap is applied last, so neither the
+	// curve nor the target can push the trigger past the safe use of the window.
+	const measurement = { totalTokens: 26_000, surfaceTokens: 20_000 };
+	const config = (over) => resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over });
+	const at = (window, over) => resolveThreshold(config(over), measurement, window).tokens;
+	// Honest windows below the transition: the curve says the model handles the whole window, so
+	// capacity is what decides — `window − 16_384 − 4_000`, i.e. pi's boundary numbers.
+	assert.equal(at(128_000), 107_616);
+	assert.equal(at(200_000), 179_616);
+	assert.equal(at(400_000), 379_616);
+	// Large windows: the curve saturates at 157K and becomes the binding term (983_616 of capacity).
+	assert.equal(at(1_000_000), 157_000);
+	assert.equal(at(2_000_000), 157_000);
+	// The configured target raises the curve where the curve is lower, so `/handoff target` stays
+	// meaningful: at 1M the curve allows 157_000 and a 200_000 target asks for 226_000, which the
+	// 979_616 of capacity does not constrain.
+	assert.equal(at(1_000_000, { handoffTargetTokens: 200_000 }), 226_000);
+	// Capacity still has the last word over both: at 400K the target asks for 204_808 and the curve
+	// allows 387_852, yet the window caps them at 379_616.
+	assert.equal(at(400_000, { handoffTargetTokens: 200_000 }), 379_616);
+	// Fixed ratio mode returns before the curve entirely, so an explicit user ratio is never touched.
+	const fixed = resolveThreshold(config({ handoffAdaptive: false, handoffThresholdRatio: 0.5 }), measurement, 1_000_000);
+	assert.equal(fixed.tokens, 500_000);
+	// The refusal the misattribution fix pinned still refuses: at W=40000 the capacity cap
+	// (40_000 − 16_384 − 4_000 = 19_616) falls below the floor (11_800 + 0 + 8_000 = 19_800).
+	const narrow = config({ handoffKeepTokens: 0 });
+	assert.equal(resolveThreshold(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined);
+	assert.equal(thresholdRefusal(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), "summarizer-floor");
+});
+
 test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {
 	const cwd = await mkdtemp(path.join(tmpdir(), "dsh-handoff-empty-"));
 	const created = [];
@@ -1948,7 +1998,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		let summaryCalls = 0;
 		const ctx = {
 			get: (name) => (name === "sessionController" ? controller
-				: name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) }
+				: name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
 					: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async (id) => { archives.push(id); } }
 						: undefined),
 			llm: {
@@ -2111,7 +2161,7 @@ test("the auto-handoff listener passes the trigger offset through to the settle 
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
 			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => { measures += 1; return { totalTokens: 150_000, surfaceTokens: 100_000 }; } } : undefined),
+		} : name === "tokenMeter" ? { measure: () => { measures += 1; return { totalTokens: 190_000, surfaceTokens: 100_000 }; } } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2186,7 +2236,7 @@ test("a turn/end that lands while an attempt is in flight is re-evaluated, not l
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
 			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2253,7 +2303,7 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 				create: async () => { created.push(1); return { sessionId: "child-1" }; },
 				rename: async () => undefined,
 				prompt: async () => { prompts.push(1); },
-			} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+			} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 			llm: {
 				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 				stream: stream ?? (() => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })()),
@@ -2316,7 +2366,7 @@ test("a disabled automatic handoff ignores turn/end entirely", async () => {
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
 			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => { summaryCalls += 1; return (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(); },
@@ -2360,7 +2410,7 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 			create: async () => ({ sessionId: "child-1" }),
 			rename: async () => undefined,
 			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 150_000, surfaceTokens: 100_000 }) } : undefined),
+		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
