@@ -276,8 +276,12 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
   分钟；未答问题按 `handoffPendingQuestion` 处理——`wait`
   会把问题原文作为独立段落带进新会话（此前只跳过延后、问题实际会丢），
   并以该段落**取代**常规的“先做下一步”结尾。
-  自动交接在**本会话还有未结束的后台子代理时延后**（优先读 `subagents` 服务的实时子会话列表，取
-  `mode: continuable` 且 `activity: running` 的；该服务缺失或查询失败时回退到会话日志扫描）：
+  自动交接在**本会话还有未结束的后台子代理时延后**（优先读 `subagents.listDescendants()` 的分类清单，
+  取 `kind: child`、`mode: continuable` 且 `activity: running` 的；dsh 0.1.7-alpha.1 起
+  `listChildren()` 只剩裸目录行 `{id, createdAt, mode, label}`，没有 `kind`/`activity`，所以**读不懂的
+  清单必须交回**会话日志扫描，而不是当成「没有在跑」；服务缺失、查询失败或清单无法分类都走日志。teammate
+  是同一个注册表里的 **continuable 子会话**（`subagents.startContinuable` 建的），所以正在跑的 teammate
+  同样让自动交接延后）：
   子代理落定会唤醒父会话并开启新一轮，此时交接会变成父子两个会话同时改同一个项目（本仓库 2026-09-16
   实际踩到过），所以等到没有在跑的子代理再交；**同一个失败还会从另一侧发生**——触发点是
   `turn/end`，但 harness 会在当前轮一关就立刻把队列里的用户消息开成下一轮，
@@ -327,7 +331,9 @@ Settings → Plugins → Plugin configuration → **项目上下文** 卡片（�
   而工作区列表按活动度分组，于是它排在自己延续的上面——这正是用户报的「handoff 的新会话落在旧会话
   下面」。宿主没有「结束会话」的 RPC，`archiveSession` 是唯一等价物，且必须带 `stopActivity`：不带该
   标志时宿主对仍有运行中工作的会话直接**拒绝**归档；归档只隐藏，日志、归档产物与工作区位置都保留，
-  客户端可还原。时机是重点：**自动档**触发时该会话已经落定，立即退休；**手动档 `/handoff now` 跑在
+  客户端可还原。带 `stopActivity` 时宿主还会经 subagent 家族的 `workspace/session-stop`，把该会话**仍在
+  运行的子代理后代**（含 teammate）逐个 `cancel`——所以被替换会话里在跑的子代理不会变成孤儿，反过来
+  也意味着交接会中断它们手上的活。时机是重点：**自动档**触发时该会话已经落定，立即退休；**手动档 `/handoff now` 跑在
   自己那一轮里**，此时归档会停掉正在渲染回执的那一轮，所以排到该会话的 `turn/end` 再退休（一次性，
   `session/disposed` 丢掉标记）。pi 侧不需要对应处理：它的 handoff 走 `ctx.newSession()`，是**替换**
   而非分叉，旧会话随之结束。阈值 0.4 早于 dsh 内置压缩的

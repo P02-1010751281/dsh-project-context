@@ -1650,7 +1650,7 @@ test("the automatic handoff waits for background subagents to settle", async () 
 	assert.equal(created.length, 0);
 });
 
-test("the live subagent registry is preferred over the event log", async () => {
+test("the live subagent registry is preferred over the event log, but only where it can be read", async () => {
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 	// Each case needs its own session id: the pressure check is throttled per session for 15 s
 	// process-wide, so a second call on the same id would return before reaching any guard.
@@ -1670,7 +1670,7 @@ test("the live subagent registry is preferred over the event log", async () => {
 		logger: { info() {}, warn() {} },
 	});
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
-	const runningChild = (mode) => ({ listChildren: async () => [{ kind: "child", id: "child-live", mode, activity: "running", hasChildren: false }] });
+	const runningChild = (mode) => ({ listDescendants: async () => [{ kind: "child", id: "child-live", mode, activity: "running", hasChildren: false }] });
 
 	// The registry knows about work the log cannot show at all (here: no events).
 	caseId += 1;
@@ -1692,7 +1692,7 @@ test("the live subagent registry is preferred over the event log", async () => {
 	// A registry that cannot answer falls back to the log, which still sees the running child.
 	caseId += 1;
 	await maybeAutoHandoff(
-		ctxWith({ listChildren: async () => { throw new Error("projections unavailable"); } }),
+		ctxWith({ listDescendants: async () => { throw new Error("projections unavailable"); } }),
 		session(looksContinuable),
 		config,
 	);
@@ -1701,9 +1701,47 @@ test("the live subagent registry is preferred over the event log", async () => {
 	// An inactive continuable child cannot wake this session, so it must not hold the handoff.
 	caseId += 1;
 	await assert.rejects(
-		() => maybeAutoHandoff(ctxWith({ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "inactive", hasChildren: false }] }), session([]), config),
+		() => maybeAutoHandoff(ctxWith({ listDescendants: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "inactive", hasChildren: false }] }), session([]), config),
 		/async iterable/,
 	);
+
+	// dsh 0.1.7-alpha.1 moved the classified row out of `listChildren`, which now returns the bare
+	// catalog row `{id, createdAt, mode, label}`. Filtering that on `kind`/`activity` matches nothing
+	// and used to answer `[]` — an answer, so the caller's `??` never consulted the log either, and
+	// the live-registry half of the guard was silently dead for two releases. Rows the guard cannot
+	// classify must hand control back to the log, which still sees the running child.
+	caseId += 1;
+	const catalogRows = { listDescendants: async () => [{ id: "child-live", createdAt: Date.now(), mode: "continuable", label: "child-live" }] };
+	await maybeAutoHandoff(ctxWith(catalogRows), session(looksContinuable), config);
+	assert.equal(created.length, 0, "an unclassifiable listing is not read as 'nothing is running'");
+
+	// A listing of diagnostics names children the guard cannot classify either: same rule.
+	caseId += 1;
+	await maybeAutoHandoff(ctxWith({ listDescendants: async () => [{ kind: "diagnostic", id: "child-live", reason: "unavailable" }] }), session(looksContinuable), config);
+	assert.equal(created.length, 0, "a diagnostic listing falls back to the log");
+
+	// An empty listing *is* an answer: no subagent below this session, so nothing holds the handoff.
+	caseId += 1;
+	await assert.rejects(
+		() => maybeAutoHandoff(ctxWith({ listDescendants: async () => [] }), session([]), config),
+		/async iterable/,
+	);
+
+	// A harness where `listChildren` itself still carries the classified row (dsh 0.1.6) is read too.
+	caseId += 1;
+	const legacyClassified = { listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] };
+	await maybeAutoHandoff(ctxWith(legacyClassified), session([]), config);
+	assert.equal(created.length, 0, "a harness that classifies in listChildren still defers");
+
+	// The real dsh 0.1.7 shape: both methods exist, `listChildren` answers the bare catalog row, and
+	// only `listDescendants` classifies. The classified answer must win.
+	caseId += 1;
+	const modernHarness = {
+		listChildren: async () => [{ id: "child-live", createdAt: Date.now(), mode: "continuable", label: "child-live" }],
+		listDescendants: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }],
+	};
+	await maybeAutoHandoff(ctxWith(modernHarness), session([]), config);
+	assert.equal(created.length, 0, "the classified listing wins over the bare catalog row");
 });
 
 test("a skipped automatic handoff says why in the server log", async () => {

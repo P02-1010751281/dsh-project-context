@@ -104,29 +104,50 @@ export function assertSessionSettled(session: Session, triggerSeq: number | unde
 
 /** Structural view of the optional `subagents` host service. */
 interface SubagentsLike {
-	listChildren(parentSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
+	/**
+	 * The classified listing: one row per subagent in the root's tree, each carrying `kind`
+	 * (`child`/`diagnostic`), `mode` and `activity`. It is the only listing that reports `activity`:
+	 * dsh 0.1.6's `listChildren` returned this row, and 0.1.7-alpha.1 moved it here and left
+	 * `listChildren` with the bare catalog row.
+	 */
+	listDescendants?(rootSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
+	/** Direct-child catalog read: `{id, createdAt, mode, label}` — no `kind`, so no `activity`. */
+	listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
 }
 
 /**
  * Continuable children the live registry still reports as running, or `undefined` when the service
- * is absent or failed, so the caller falls back to the event log. The registry is authoritative
- * where it exists: it knows `mode` (a one-shot child never reports a settlement), reports
- * `activity` directly instead of inferring it from a one-hour horizon, and lists what the session
- * store holds rather than what a fork inherited.
+ * is absent, failed, or answered in a shape this plugin cannot classify — the caller then falls back
+ * to the event log. The registry is authoritative where it can be read: it knows `mode` (a one-shot
+ * child never reports a settlement), reports `activity` directly instead of inferring it from a
+ * one-hour horizon, and lists what the session store holds rather than what a fork inherited.
+ *
+ * The shape check is not defensive padding. dsh 0.1.7-alpha.1 changed `listChildren` from the
+ * classified row to the bare catalog row, and a guard that filtered on `kind`/`activity` then
+ * matched nothing and answered `[]` — an answer, so the caller's `??` never consulted the log
+ * either, and the whole live-registry branch went silent for two releases. An empty listing is a
+ * real answer ("no subagent below this session"); a listing this plugin cannot read is not.
  * @param ctx - plugin context, for the optional `subagents` lookup.
  * @param session - the session about to be handed off.
  * @returns the running continuable child ids, or `undefined` when the log must be consulted.
  */
 export async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
 	const service = ctx.get("subagents") as SubagentsLike | undefined;
-	if (service === undefined || typeof service.listChildren !== "function") return undefined;
+	if (service === undefined) return undefined;
+	// Prefer the classified listing; a harness that only classifies in `listChildren` (0.1.6) still works.
+	const listing = service.listDescendants?.bind(service) ?? service.listChildren?.bind(service);
+	if (listing === undefined) return undefined;
 	try {
-		const entries = await service.listChildren(String(session.id), AbortSignal.timeout(SUBAGENT_LIST_TIMEOUT_MS));
+		const entries = await listing(String(session.id), AbortSignal.timeout(SUBAGENT_LIST_TIMEOUT_MS));
 		const ids: string[] = [];
+		let classified = false;
 		for (const raw of entries) {
 			const entry = raw as { kind?: unknown; id?: unknown; mode?: unknown; activity?: unknown };
-			if (entry.kind === "child" && entry.mode === "continuable" && entry.activity === "running" && typeof entry.id === "string") ids.push(entry.id);
+			if (entry.kind !== "child") continue;
+			classified = true;
+			if (entry.mode === "continuable" && entry.activity === "running" && typeof entry.id === "string") ids.push(entry.id);
 		}
+		if (!classified && entries.length > 0) return undefined;
 		return ids;
 	} catch {
 		// Projections unavailable, the listing timed out, or a shape from another version: the

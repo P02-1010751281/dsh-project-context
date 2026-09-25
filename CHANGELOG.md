@@ -157,6 +157,19 @@
 
 **交接（④）**
 
+- 修复：**后台子代理守卫在 dsh 0.1.7-alpha.1 之后静默失效**（也就是 2026-09-17「父子两个会话同时改同一个
+  项目」那条防线）。守卫读 `subagents` 服务时用 `kind === "child" && activity === "running"` 过滤
+  `listChildren()`；0.1.6 的 `listChildren` 确实返回带 `kind`/`activity` 的分类行（`db701fc` 写的时候是
+  对的），但 alpha.1 把分类行搬到 `listDescendants()`，`listChildren` 只剩裸目录行
+  `{id, createdAt, mode, label}`。于是过滤条件永远不成立、守卫返回 `[]`——而 `[]` 不是 nullish，调用点的
+  `??` 连**会话日志回退**都不会走，整条「实时注册表」分支连续两个版本失明：有子代理在跑时自动交接照常触发。
+  现在优先读 `listDescendants()`（0.1.6 那种只把分类行放在 `listChildren()` 的形态仍可读），并且**读不懂的
+  清单不再算「没有在跑」**：只要返回了行却一行都无法分类（裸目录行、或全是 `diagnostic` 行），就交回日志
+  回退；空清单才是「确实没有」。teammate 是同一注册表里的 continuable 子会话（`subagents.startContinuable`
+  建的），因此这条守卫也覆盖「有 teammate 在跑就不要交接」。
+  变异校验：去掉形态判断 → 掉 1；放宽 `activity` 过滤 → 掉 1；不再优先 `listDescendants` → 掉 1。
+  （诚实边界：这条守卫只作用于**自动**档；手动 `/handoff now` 按设计不查它，所以此刻仍有子代理在跑时，
+  手动交接会照常执行、并让退休的 `stopActivity` 取消那些子代理——是否收窄待定。）
 - 修复：**交接之后旧会话没有结束**。dsh 的交接是**分叉**——子会话是另一个会话——所以被交接的那个会话继续存活；
   而工作区列表按活动度分组，仍在活动的旧会话就排在自己延续的**上面**，于是用户看到 handoff 的新会话落在旧会话
   下面。宿主没有「结束会话」的 RPC；它的 `archiveSession` 是唯一等价物，而且必须带 `stopActivity`：不带该标志
