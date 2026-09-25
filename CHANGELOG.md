@@ -7,6 +7,21 @@
 
 ### 未发布（`v0.1.0` 之后）
 
+**源码结构**
+
+- 变更：`src/` 按**每个插件一个子包**重组，包内再按**单一职责**拆文件。四个插件的 cordis 入口仍是各自
+  子包的 `index.ts`，`package.json` 的 exports 子路径与 `cordis.patch.yml` 的插件 id 都没有变：
+  `project-context/`（存档）、`project-memory/`（整理）、`project-autolearn/`（沉淀）、
+  `project-handoff/`（交接）、`shared/`（四个插件共用）、`client/`（浏览器半）。`shared/learn.ts`
+  更名 `shared/llm.ts`——它本来就是 ②③④ 共用的模型调用管线与输出预算，不是技能逻辑。
+- 变更：`project-handoff/` 的 1796 行单文件按职责拆成 11 个模块——`threshold`（触发点与护栏覆盖报告）、
+  `conversation`（切分 / 未答问题 / 语言）、`summary`（摘要调用与两段文本）、`child`（子会话的创建、
+  模型与权限携带、放弃回滚）、`perform`（一次交接事务的顺序）、`classify`（延后 / 暂态 / 终态）、
+  `guard`（子代理与轮次落定）、`state`（进程内标记与节流）、`runtime`（宿主服务结构视图与路由）、
+  `auto`（自动触发）、`command`（`/handoff` 参数与回执），`index.ts` 只剩入口与监听器。这是**纯搬移**：
+  逐块核对原文件 111 个顶层声明**逐字**落在唯一的新模块中；唯一新增的代码是把测压区间的读取收进
+  `getPressureCheckIntervalMs()`，不再跨模块导出一个可变 `let`。typecheck 0、**198/198**、客户端 bundle 重建。
+
 **记忆整理（②）**
 
 - 修复：输出预算**漏算推理模型的隐藏思考**。整理要求模型在一次 JSON 回复里重新写出记忆与上下文，但预算

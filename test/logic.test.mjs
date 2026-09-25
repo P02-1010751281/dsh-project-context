@@ -14,27 +14,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import {
-	apply,
-	continuation,
-	createChildSession,
-	HandoffDeferred,
-	handoffFailureIsTransient,
-	parseRatio,
-	maybeAutoHandoff,
-	parseTokenCount,
-	pendingQuestion,
-	qualityLimit,
-	resolveThreshold,
-	runManual,
-	setPressureCheckIntervalMs,
-	settingPatch,
-	statusText,
-	textAsksQuestion,
-	thresholdRefusal,
-	thresholdRefusalText,
-	turnStartedAfter,
-} from "../lib/project-handoff/index.js";
+import { apply } from "../lib/project-handoff/index.js";
+import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
+import { createChildSession } from "../lib/project-handoff/child.js";
+import { HandoffDeferred, handoffFailureIsTransient } from "../lib/project-handoff/classify.js";
+import { parseRatio, parseTokenCount, runManual, settingPatch, statusText } from "../lib/project-handoff/command.js";
+import { pendingQuestion, textAsksQuestion } from "../lib/project-handoff/conversation.js";
+import { turnStartedAfter } from "../lib/project-handoff/guard.js";
+import { setPressureCheckIntervalMs } from "../lib/project-handoff/state.js";
+import { continuation } from "../lib/project-handoff/summary.js";
+import { qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import {

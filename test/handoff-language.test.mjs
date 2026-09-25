@@ -9,24 +9,16 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { settingPatch } from "../lib/project-handoff/command.js";
+import { handoffSplit, pendingQuestionFor, resolveHandoffLanguage, sessionLanguageMessages } from "../lib/project-handoff/conversation.js";
+import { outstandingSubagents } from "../lib/project-handoff/guard.js";
+import { assertHandoffSummarizable, handoffArtifacts } from "../lib/project-handoff/perform.js";
+import { continuation, handoffPrompt, summaryAttemptBudgets } from "../lib/project-handoff/summary.js";
 import {
 	REPLAY_MARKER,
-	assertHandoffSummarizable,
-	continuation,
-	handoffArtifacts,
-	outstandingSubagents,
-	resolveHandoffLanguage,
-	sessionLanguageMessages,
-	handoffPrompt,
-	handoffSplit,
-	isHandoffContinuationText,
-	pendingQuestionFor,
-	settingPatch,
-	summaryAttemptBudgets,
-} from "../lib/project-handoff/index.js";
-import {
 	SCAFFOLDING,
 	detectHandoffLanguage,
+	isHandoffContinuationText,
 	languageSamples,
 	localizeSummaryHeadings,
 	resolveLanguage,

@@ -1,0 +1,82 @@
+/**
+ * The automatic trigger: measure context pressure and hand off once the threshold is
+ * crossed, unless a guard defers. Driven by the `turn/end` listener in `index.ts`.
+ */
+
+import { type Context } from "@deepseek-ai/cordis";
+import { type Session } from "@deepseek-ai/dsh-session";
+import { type PluginConfig } from "../shared/config.js";
+import { CHARS_PER_TOKEN, handoffSplit, pendingQuestion } from "./conversation.js";
+import { outstandingSubagents, ownEventsOf, runningContinuableChildren } from "./guard.js";
+import { performHandoff } from "./perform.js";
+import { type SessionControllerLike, type TokenMeterLike, resolveTarget } from "./runtime.js";
+import { SKIP_LOG_INTERVAL_MS, getPressureCheckIntervalMs, pressureCheckedAt, skippedLoggedAt, skippedSince } from "./state.js";
+import { MIN_SUMMARIZE_TOKENS, resolveThreshold } from "./threshold.js";
+
+/**
+ * Measure pressure and hand off when the configured threshold is crossed. Exported so a test can
+ * drive the guards (pending question, running subagents, minimum span, a session that moved on)
+ * without the session/event plumbing of the plugin's own turn-end listener.
+ */
+export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void> {
+	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
+	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
+	if (!controller || !meter) return;
+	const target = resolveTarget(session, config);
+	if (!target) return;
+
+	// Model-info resolution and token measurement cost real work; re-check at
+	// most once per interval instead of on every turn end.
+	const key = String(session.id);
+	const now = Date.now();
+	if (now - (pressureCheckedAt.get(key) ?? 0) < getPressureCheckIntervalMs()) return;
+	pressureCheckedAt.set(key, now);
+
+	const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model);
+	const contextWindow = resolved.context?.contextWindow;
+	if (contextWindow === undefined || contextWindow <= 0) return;
+	const measurement = meter.measure(session);
+	const threshold = resolveThreshold(config, measurement, contextWindow);
+	if (!threshold || measurement.totalTokens < threshold.tokens) return;
+
+	// dsh has no editor draft mode, so by default an open question defers the handoff
+	// instead of being answered by the continuation (pi's wait). `handoffPendingQuestion`
+	// = "wait" opts into carrying the question into the new session.
+	if (config.handoffPendingQuestion === "defer" && pendingQuestion(session) !== undefined) {
+		// The user answering is exactly what starts this session's next turn, so re-check on that
+		// idle rather than after the measurement interval — the same reason the running-subagent
+		// branch below releases the stamp. Consuming it here dropped the first `turn/end` after the
+		// answer, so the handoff waited out the whole interval while the session kept growing.
+		pressureCheckedAt.delete(key);
+		ctx.logger.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
+		return;
+	}
+
+	// A running continuable subagent will wake this session again when it settles, so handing off
+	// now would leave two sessions working the same project.
+	const pending = await runningContinuableChildren(ctx, session) ?? outstandingSubagents(ownEventsOf(session), now);
+	if (pending.length > 0) {
+		ctx.logger.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", pending.length);
+		// Re-check on the next idle rather than after the measurement interval: the child settling
+		// is exactly what starts this session's next turn.
+		pressureCheckedAt.delete(key);
+		return;
+	}
+
+	const split = handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
+	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_SUMMARIZE_TOKENS) {
+		// Nothing worth summarizing: the conversation fits the recent window. Not a failure, and
+		// dsh has no host-side notification channel, so the reason is a rate-limited log line and a
+		// line in the `/handoff status` receipt, which is the surface the user actually reads.
+		if (!skippedSince.has(key)) skippedSince.set(key, now);
+		if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
+			skippedLoggedAt.set(key, now);
+			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffKeepTokens), so there is nothing older to summarize");
+		}
+		return;
+	}
+	// This idle found something to summarize, so any earlier skip no longer describes the session.
+	skippedSince.delete(key);
+
+	await performHandoff(ctx, session, target, config, resolved, "auto", undefined, split, triggerSeq);
+}

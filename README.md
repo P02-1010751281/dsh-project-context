@@ -100,7 +100,18 @@ src/
 │   ├── autolearn.ts        #    pass 逻辑、技能校验、候选审批
 │   └── learn-state.ts      #    项目本地状态（闸门时间戳等）
 ├── project-handoff/        # ④ 交接（"dsh-project-context/handoff"）
-│   ├── index.ts            #    插件入口 + 阈值/切分/摘要/守卫/分类/命令
+│   ├── index.ts            #    插件入口：session/event 监听、attempt 编排、命令注册
+│   ├── threshold.ts        #    触发点 min(quality, capacity) 与护栏覆盖报告
+│   ├── conversation.ts     #    会话切分、未答问题、文件索引、语言解析
+│   ├── summary.ts          #    摘要提示与输出预算、HANDOFF.md 与首条消息文本
+│   ├── child.ts            #    子会话创建、模型/权限携带、放弃回滚
+│   ├── perform.ts          #    一次交接事务（摘要 → 落盘 → 播种 → 切换标记）
+│   ├── classify.ts         #    失败分类：延后 / 暂态 / 终态
+│   ├── guard.ts            #    子代理与轮次落定守卫
+│   ├── state.ts            #    进程内按会话标记与测压节流
+│   ├── runtime.ts          #    宿主服务结构视图与路由解析
+│   ├── auto.ts             #    自动触发：测压并在越过阈值时交接
+│   ├── command.ts          #    /handoff 参数解析、status 回执、手动交接
 │   ├── language.ts         #    交接语言检测、标题本地化、陈旧提示识别
 │   ├── marker.ts           #    交接会话标记（host 与浏览器共用）
 │   └── watch.ts            #    浏览器侧自动切换
