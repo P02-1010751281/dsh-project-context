@@ -208,9 +208,12 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
 
 ## 配置
 
-Settings → Plugins → Plugin configuration → **项目上下文** 卡片（记忆整理 / 技能沉淀 /
+Settings → Plugins → **项目上下文** 卡片（记忆整理 / 技能沉淀 /
 自动交接三区，共享的辅助模型路由在记忆整理区末尾），写入 `~/.dsh/settings.yaml` 的
-`project-context` 段，host 侧实时生效。也可在 profile 的 `cordis.patch.yml`
+`project-context` 段，host 侧实时生效。卡片挂在插件页的 `plugins.item` 槽位上，经宿主的
+`configForms` 服务读写本命名空间，并由 `whileServed` 门控——profile 没装 host 半时页面上不会留下痕迹；
+`configForms` 是 dsh 0.1.7-alpha.1 起才有的服务（此前叫 `settingsScope`），更早的 core 上卡片**不显示**，
+host 侧功能不受影响。也可在 profile 的 `cordis.patch.yml`
 用户层覆盖：四个插件共享同一个设置命名空间，base 层取**先加载的 `project-context` 行**的
 `config:`（四行里的第一行），改其余三行不生效；面板未覆盖的字段回落到 profile
 配置，再回落到默认值。

@@ -6,7 +6,9 @@
  * (MIT, Copyright (c) 2025 HsiangNianian); chrome and controls are local.
  */
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+// Type-only: pulls the `plugins.item` SlotMap merge (the Plugins page's list slot).
+import type {} from "@deepseek-ai/dsh-client-ui-plugin-manager/client";
 import type { InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import { createSnapshotStore, type SettingsScope, type SnapshotStore } from "./dsh-store-compat.ts";
 import type { SettingsCardKey } from "./locales.ts";
@@ -159,17 +161,9 @@ export class ProjectContextSettingsCardController {
 
 /** Props the renderer binds for the project-context plugin-configuration card. */
 export type ProjectContextSettingsCardProps =
-	& PropsRuntime<"settings.plugin.item">
+	& PropsRuntime<"plugins.item">
 	& PropsLocale<"project-context">
 	& InjectFace<ProjectContextSettingsCardFace>;
-
-function ChevronMark() {
-	return (
-		<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-			<path d="m3.5 6 4.5 4 4.5-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-		</svg>
-	);
-}
 
 type FieldControl = "text" | "number" | "decimal" | "boolean" | "enum";
 
@@ -250,8 +244,10 @@ function Section(props: { title: string; description: string; children: ReactNod
  */
 export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProps) {
 	const { t } = props;
-	const [open, setOpen] = useState(false);
 	const state = props.useProjectContextSettingsCard((snapshot) => snapshot);
+	// The Plugins page renders the list row from the summary case and mounts this
+	// component again as the page body once the row is opened.
+	if (props.view === "summary") return t("card.description");
 	if (!state.available) return null;
 
 	const disabled = !state.writable;
@@ -281,64 +277,48 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 	);
 
 	return (
-		<li className="dshPcCard">
-			<button
-				type="button"
-				className="dshPcHeader"
-				aria-expanded={open}
-				onClick={() => setOpen(!open)}
-			>
-				<span className="dshPcHeadText">
-					<span className="dshPcName">{t("card.title")}</span>
-					<span className="dshPcDescription">{t("card.description")}</span>
-				</span>
-				{state.dirty ? <span className="dshPcPending">{t("chrome.unsaved")}</span> : null}
-				<span className={open ? "dshPcChevron dshPcChevronOpen" : "dshPcChevron"}>
-					<ChevronMark />
-				</span>
-			</button>
-			{open ? (
-				<div className="dshPcBody">
-					{!state.writable ? <p className="dshPcReadOnly">{t("chrome.readOnly")}</p> : null}
-					<Section title={t("section.memory.title")} description={t("section.memory.description")}>
-						{field("pc-archive-enabled", "field.archiveEnabled", "field.archiveEnabledHint", "boolean", state.archiveEnabled, "archiveEnabled")}
-						{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
-						{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
-						{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}
-						{field("pc-force-dedupe", "field.forceDedupeMs", "field.forceDedupeMsHint", "number", state.forceDedupeMs, "forceDedupeMs")}
-						{/* Shared auxiliary route: consolidation, autolearn and the handoff summary all use it. */}
-						{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
-						{field("pc-max-output-tokens", "field.maxOutputTokens", "field.maxOutputTokensHint", "number", state.maxOutputTokens, "maxOutputTokens")}
-						{field("pc-max-memory-chars", "field.maxMemoryChars", "field.maxMemoryCharsHint", "number", state.maxMemoryChars, "maxMemoryChars")}
-						{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
-						{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
-					</Section>
-					<Section title={t("section.autolearn.title")} description={t("section.autolearn.description")}>
-						{field("pc-auto-learn", "field.autoLearn", "field.autoLearnHint", "boolean", state.autoLearn, "autoLearn")}
-						{field("pc-autolearn-turns", "field.autolearnTurns", "field.autolearnTurnsHint", "number", state.autolearnTurns, "autolearnTurns")}
-						{field("pc-autolearn-interval", "field.autolearnIntervalMs", "field.autolearnIntervalMsHint", "number", state.autolearnIntervalMs, "autolearnIntervalMs")}
-					</Section>
-					<Section title={t("section.handoff.title")} description={t("section.handoff.description")}>
-						{field("pc-handoff-enabled", "field.handoffEnabled", "field.handoffEnabledHint", "boolean", state.handoffEnabled, "handoffEnabled")}
-						{field("pc-handoff-adaptive", "field.handoffAdaptive", "field.handoffAdaptiveHint", "boolean", state.handoffAdaptive, "handoffAdaptive")}
-						{field("pc-handoff-ratio", "field.handoffThresholdRatio", "field.handoffThresholdRatioHint", "decimal", state.handoffThresholdRatio, "handoffThresholdRatio")}
-						{field("pc-handoff-target", "field.handoffTargetTokens", "field.handoffTargetTokensHint", "number", state.handoffTargetTokens, "handoffTargetTokens")}
-						{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
-						{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "enum", state.handoffSummaryThinking, "handoffSummaryThinking", ["off", "session"])}
-						{field("pc-handoff-pending", "field.handoffPendingQuestion", "field.handoffPendingQuestionHint", "enum", state.handoffPendingQuestion, "handoffPendingQuestion", ["defer", "wait"])}
-						{field("pc-handoff-language", "field.handoffLanguage", "field.handoffLanguageHint", "enum", state.handoffLanguage, "handoffLanguage", ["auto", "zh", "en"])}
-					</Section>
-					<div className="dshPcFooter">
-						{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}
-						<button type="button" className="dshPcDiscard" disabled={!state.dirty || state.saving} onClick={props.discard}>
-							{t("chrome.discard")}
-						</button>
-						<button type="button" className="dshPcSave" disabled={blocked} onClick={props.save}>
-							{t(state.saving ? "chrome.saving" : "chrome.save")}
-						</button>
-					</div>
+		<div className="dshPcCard">
+			<div className="dshPcBody">
+				{!state.writable ? <p className="dshPcReadOnly">{t("chrome.readOnly")}</p> : null}
+				<Section title={t("section.memory.title")} description={t("section.memory.description")}>
+					{field("pc-archive-enabled", "field.archiveEnabled", "field.archiveEnabledHint", "boolean", state.archiveEnabled, "archiveEnabled")}
+					{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
+					{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
+					{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}
+					{field("pc-force-dedupe", "field.forceDedupeMs", "field.forceDedupeMsHint", "number", state.forceDedupeMs, "forceDedupeMs")}
+					{/* Shared auxiliary route: consolidation, autolearn and the handoff summary all use it. */}
+					{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
+					{field("pc-max-output-tokens", "field.maxOutputTokens", "field.maxOutputTokensHint", "number", state.maxOutputTokens, "maxOutputTokens")}
+					{field("pc-max-memory-chars", "field.maxMemoryChars", "field.maxMemoryCharsHint", "number", state.maxMemoryChars, "maxMemoryChars")}
+					{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
+					{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
+				</Section>
+				<Section title={t("section.autolearn.title")} description={t("section.autolearn.description")}>
+					{field("pc-auto-learn", "field.autoLearn", "field.autoLearnHint", "boolean", state.autoLearn, "autoLearn")}
+					{field("pc-autolearn-turns", "field.autolearnTurns", "field.autolearnTurnsHint", "number", state.autolearnTurns, "autolearnTurns")}
+					{field("pc-autolearn-interval", "field.autolearnIntervalMs", "field.autolearnIntervalMsHint", "number", state.autolearnIntervalMs, "autolearnIntervalMs")}
+				</Section>
+				<Section title={t("section.handoff.title")} description={t("section.handoff.description")}>
+					{field("pc-handoff-enabled", "field.handoffEnabled", "field.handoffEnabledHint", "boolean", state.handoffEnabled, "handoffEnabled")}
+					{field("pc-handoff-adaptive", "field.handoffAdaptive", "field.handoffAdaptiveHint", "boolean", state.handoffAdaptive, "handoffAdaptive")}
+					{field("pc-handoff-ratio", "field.handoffThresholdRatio", "field.handoffThresholdRatioHint", "decimal", state.handoffThresholdRatio, "handoffThresholdRatio")}
+					{field("pc-handoff-target", "field.handoffTargetTokens", "field.handoffTargetTokensHint", "number", state.handoffTargetTokens, "handoffTargetTokens")}
+					{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
+					{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "enum", state.handoffSummaryThinking, "handoffSummaryThinking", ["off", "session"])}
+					{field("pc-handoff-pending", "field.handoffPendingQuestion", "field.handoffPendingQuestionHint", "enum", state.handoffPendingQuestion, "handoffPendingQuestion", ["defer", "wait"])}
+					{field("pc-handoff-language", "field.handoffLanguage", "field.handoffLanguageHint", "enum", state.handoffLanguage, "handoffLanguage", ["auto", "zh", "en"])}
+				</Section>
+				<div className="dshPcFooter">
+					{state.dirty ? <span className="dshPcPending">{t("chrome.unsaved")}</span> : null}
+					{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}
+					<button type="button" className="dshPcDiscard" disabled={!state.dirty || state.saving} onClick={props.discard}>
+						{t("chrome.discard")}
+					</button>
+					<button type="button" className="dshPcSave" disabled={blocked} onClick={props.save}>
+						{t(state.saving ? "chrome.saving" : "chrome.save")}
+					</button>
 				</div>
-			) : null}
-		</li>
+			</div>
+		</div>
 	);
 }

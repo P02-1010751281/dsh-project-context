@@ -7,6 +7,25 @@
 
 ### 未发布（`v0.1.0` 之后）
 
+**设置卡片（client）**
+
+- 修复：**设置卡片在 dsh 0.1.7-alpha.1 之后不再渲染**（当时只修掉了启动崩溃，卡片本身静默消失）。
+  同一版上游有**两处**改动同时命中它：其一，客户端 `settingsScope` 服务被删除、改为 `configForms`
+  （按 profile 的 plugin Config），而卡片仍通过 `ctx.inject(["settingsScope"], …)` 挂载，可选注入永不触发，
+  整张卡片因此不存在；其二，卡片槽位从 `settings.plugin.item` 改名为插件页的 `plugins.item`，而
+  `slots.register` 对**未声明**的槽位直接抛错——所以槽位查找必须等该页声明它，不能靠 `register` 试探。
+  现在卡片经 `ctx.inject(["configForms"])` + `configForms.whileServed([NS])` 注册到 `plugins.item`，
+  并按该槽位契约区分两个视图：`view: 'summary'` 返回列表行的单行说明，`view: 'page'` 渲染表单本体
+  （去掉了自带的折叠表头，避免与插件页标题重复）。`configForms` **不在**静态 `inject` 列表里：缺服务的
+  静态依赖会让整个 client 入口 pending，桌面端把它变成启动崩溃；缺 `configForms`（0.1.6 及更早）现在退化为
+  「没有设置卡片」，其余功能照常。
+  顺带把客户端的 dsh 类型依赖从 `0.1.5-rc.2` 抬到与宿主同版 `0.1.7-alpha.2`：旧类型里
+  `settingsScope` 与 `settings.plugin.item` 都还在，这正是卡片「编得过、跑不了」的原因，而这类漂移只有
+  类型对齐能让 `tsc` 暴露（实测：把槽位名换回退役名，`tsc` 立即失败）。不再被引用的
+  `@deepseek-ai/dsh-client-ui-settings-plugins` devDependency 一并移除。
+  变异校验：不再按被服务命名空间门控 → 掉 1；把 `configForms` 放进静态 inject → 掉 1；
+  summary/page 视图判反 → 掉 1。
+
 **源码结构**
 
 - 变更：`src/` 按**每个插件一个子包**重组，包内再按**单一职责**拆文件。四个插件的 cordis 入口仍是各自

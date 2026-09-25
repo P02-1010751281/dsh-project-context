@@ -28,12 +28,17 @@ export interface SettingsScopeSnapshot<T> {
 	mode: "host" | "memory";
 }
 
-/** Stable subset shared by the legacy and DSH 0.1.2 settings scopes. */
+/**
+ * Stable subset shared by every settings surface this card has been built against: the legacy
+ * settings scope, dsh 0.1.2's scope, and 0.1.7-alpha.1's `ConfigForm`. The write answers ("did the
+ * Host accept it") are `unknown` because only some harnesses report them; the staged form re-reads
+ * the snapshot after saving instead of consuming the answer.
+ */
 export interface SettingsScope<T> {
 	getSnapshot(): SettingsScopeSnapshot<T>;
 	subscribe(listener: () => void): () => void;
-	set(field: string, value: unknown): Promise<void>;
-	unset(field: string): Promise<void>;
+	set(field: string, value: unknown): Promise<unknown>;
+	unset(field: string): Promise<unknown>;
 }
 
 interface SnapshotStoreModule {
