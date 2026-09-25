@@ -67,7 +67,7 @@ import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { maybeAutoHandoff } from "./auto.js";
 import { HandoffDeferred } from "./classify.js";
 import { USAGE, runManual, settingPatch, statusText, writeSetting } from "./command.js";
-import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil, handedOff, inFlight, pendingTriggerSeq, pressureCheckedAt, skippedLoggedAt, skippedSince } from "./state.js";
+import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil, handedOff, inFlight, pendingTriggerSeq, skippedLoggedAt, skippedSince } from "./state.js";
 
 export const name = "project-handoff";
 
@@ -102,9 +102,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		void maybeAutoHandoff(ctx, session, config, triggerSeq)
 			.catch(async (error: unknown) => {
 				if (error instanceof HandoffDeferred) {
-					// Not a failure: the session is still working. Drop the pressure throttle so a
-					// later `turn/end` re-checks immediately instead of waiting out the interval.
-					pressureCheckedAt.delete(key);
+					// Not a failure: the session is still working. The next `turn/end` re-checks.
 					if (Date.now() - (deferredLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 						deferredLoggedAt.set(key, Date.now());
 						ctx.logger.info("dsh-project-context: automatic handoff deferred — %s", error.message);
@@ -139,7 +137,6 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		// A disposed session can never be handed off again, so its markers must not
 		// accumulate for the lifetime of the process.
 		handedOff.delete(key);
-		pressureCheckedAt.delete(key);
 		failedUntil.delete(key);
 		skippedLoggedAt.delete(key);
 		skippedSince.delete(key);

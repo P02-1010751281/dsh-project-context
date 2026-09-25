@@ -21,7 +21,6 @@ import { HandoffDeferred, handoffFailureIsTransient } from "../lib/project-hando
 import { parseRatio, parseTokenCount, runManual, settingPatch, statusText } from "../lib/project-handoff/command.js";
 import { pendingQuestion, textAsksQuestion } from "../lib/project-handoff/conversation.js";
 import { turnStartedAfter } from "../lib/project-handoff/guard.js";
-import { setPressureCheckIntervalMs } from "../lib/project-handoff/state.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
@@ -1664,23 +1663,18 @@ test("a skipped automatic handoff says why in the server log", async () => {
 
 	// The skip repeats on every idle; the receipt must keep the first occurrence rather than
 	// reporting a session that looks skipped "just now" at every read.
-	setPressureCheckIntervalMs(0);
-	try {
-		await new Promise((resolve) => setTimeout(resolve, 5));
-		await maybeAutoHandoff(ctx, session, config);
-		assert.equal(await statusText(ctx, session, config, signal), status, "a repeated skip keeps the first timestamp");
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	await maybeAutoHandoff(ctx, session, config);
+	assert.equal(await statusText(ctx, session, config, signal), status, "a repeated skip keeps the first timestamp");
 
-		// Once an idle finds something to summarize, the marker is cleared: the receipt describes the
-		// session as it is now, not a condition it has left. Every rendered message is clipped to
-		// 4000 chars, so the older span has to clear MIN_SUMMARIZE_TOKENS on its own.
-		const grown = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
-		const many = Array.from({ length: 12 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(4_000)));
-		const grownSession = { ...session, deriveMessages: () => many };
-		await assert.rejects(() => maybeAutoHandoff(ctx, grownSession, grown), "the summarizable idle reaches the summary call");
-		assert.doesNotMatch(await statusText(ctx, grownSession, grown, signal), /auto skipped since/, "a summarizable idle clears the skip report");
-	} finally {
-		setPressureCheckIntervalMs(15_000);
-	}
+	// Once an idle finds something to summarize, the marker is cleared: the receipt describes the
+	// session as it is now, not a condition it has left. Every rendered message is clipped to
+	// 4000 chars, so the older span has to clear MIN_SUMMARIZE_TOKENS on its own.
+	const grown = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+	const many = Array.from({ length: 12 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(4_000)));
+	const grownSession = { ...session, deriveMessages: () => many };
+	await assert.rejects(() => maybeAutoHandoff(ctx, grownSession, grown), "the summarizable idle reaches the summary call");
+	assert.doesNotMatch(await statusText(ctx, grownSession, grown, signal), /auto skipped since/, "a summarizable idle clears the skip report");
 });
 
 test("the status receipt names the term that refused the threshold, not always the window", async () => {
@@ -2376,26 +2370,21 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 	// twice, and a *failed* attempt keeps its backoff: both retries go through `attempt()`. The
 	// interval is 0 so the pressure throttle cannot hide a missing re-check (a retry within the
 	// production interval would be dropped by the throttle before either gate could be observed).
-	setPressureCheckIntervalMs(0);
-	try {
-		const twice = make();
-		twice.listener(twice.session, { type: "turn/end", seq: 10, time: Date.now() });
-		twice.listener(twice.session, { type: "turn/end", seq: 12, time: Date.now() });
-		await waitFor(() => twice.created.length > 0);
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		assert.equal(twice.created.length, 1, "one handoff per session, even with a pending trigger");
-		assert.equal(twice.prompts.length, 1);
+	const twice = make();
+	twice.listener(twice.session, { type: "turn/end", seq: 10, time: Date.now() });
+	twice.listener(twice.session, { type: "turn/end", seq: 12, time: Date.now() });
+	await waitFor(() => twice.created.length > 0);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(twice.created.length, 1, "one handoff per session, even with a pending trigger");
+	assert.equal(twice.prompts.length, 1);
 
-		const failed = make(() => { throw new Error("summary exploded"); });
-		failed.listener(failed.session, { type: "turn/end", seq: 10, time: Date.now() });
-		failed.listener(failed.session, { type: "turn/end", seq: 12, time: Date.now() });
-		await waitFor(() => failed.logs.some((line) => line.startsWith("warn")));
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		assert.equal(failed.logs.filter((line) => line.startsWith("warn")).length, 1, "the backoff suppresses the retry");
-		assert.deepEqual(failed.created, []);
-	} finally {
-		setPressureCheckIntervalMs(15_000);
-	}
+	const failed = make(() => { throw new Error("summary exploded"); });
+	failed.listener(failed.session, { type: "turn/end", seq: 10, time: Date.now() });
+	failed.listener(failed.session, { type: "turn/end", seq: 12, time: Date.now() });
+	await waitFor(() => failed.logs.some((line) => line.startsWith("warn")));
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(failed.logs.filter((line) => line.startsWith("warn")).length, 1, "the backoff suppresses the retry");
+	assert.deepEqual(failed.created, []);
 });
 
 test("a disabled automatic handoff ignores turn/end entirely", async () => {
@@ -2428,16 +2417,11 @@ test("a disabled automatic handoff ignores turn/end entirely", async () => {
 			stream: () => { summaryCalls += 1; return (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(); },
 		},
 	};
-	setPressureCheckIntervalMs(0);
-	try {
-		apply(ctx, { provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
-		handlers["session/event"]?.[0](session, { type: "turn/end", seq: 10, time: Date.now() });
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		assert.deepEqual(created, [], "the switch is off");
-		assert.equal(summaryCalls, 0, "a disabled handoff never reaches the model");
-	} finally {
-		setPressureCheckIntervalMs(15_000);
-	}
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
+	handlers["session/event"]?.[0](session, { type: "turn/end", seq: 10, time: Date.now() });
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.deepEqual(created, [], "the switch is off");
+	assert.equal(summaryCalls, 0, "a disabled handoff never reaches the model");
 });
 
 test("a nothing-to-summarize skip and a deferral have separate log gates", async () => {
@@ -2492,17 +2476,11 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 	assert.equal(logs.filter((line) => line.includes("fits the recent window")).length, 1, `the deferral must not mute the skip, got ${JSON.stringify(logs)}`);
 });
 
-test("a pending-question deferral releases the pressure throttle so the answer is not dropped", async () => {
-	// The throttle bounds `resolveModelInfo` + `tokenMeter.measure`, and every *deferral* releases
-	// it — `HandoffDeferred` in the listener, the running-subagent branch in `maybeAutoHandoff` —
-	// because the condition that deferred is exactly what the next idle resolves. The
-	// pending-question branch was the one deferral that consumed the stamp instead, so under the
-	// production interval the first `turn/end` after the user answered was dropped and the handoff
-	// waited out the interval while the session kept growing. `handoffPendingQuestion` defaults to
-	// "defer", so that was the default path. Not every early return is a deferral: an unresolved
-	// context window and a session under the threshold are "nothing to do" outcomes, and consuming
-	// the interval on those is the throttle working as designed.
-	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-pending-throttle-"));
+test("an open question defers the handoff, and the answer’s first idle takes it", async () => {
+	// `handoffPendingQuestion` defaults to "defer": while the last assistant message is an open
+	// question the automatic path must not hand off (the continuation would answer it instead), and
+	// the first idle after the user answers is the one that performs the handoff.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-pending-"));
 	let conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 	conversation.push(message("assistant", "Should I delete the stale branches?"));
 	const calls = [];
@@ -2520,7 +2498,7 @@ test("a pending-question deferral releases the pressure throttle so the answer i
 		logger: { info: () => undefined, warn: () => undefined },
 	};
 	const session = {
-		id: `session-pending-throttle-${Math.random().toString(16).slice(2, 10)}`,
+		id: `session-pending-${Math.random().toString(16).slice(2, 10)}`,
 		header: { cwd: root, createdAt: Date.now() },
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
@@ -2529,21 +2507,13 @@ test("a pending-question deferral releases the pressure throttle so the answer i
 	};
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
 
-	setPressureCheckIntervalMs(15_000);
-	try {
-		await maybeAutoHandoff(ctx, session, config);
-		assert.deepEqual(calls, [], "an open question defers before any child exists");
+	await maybeAutoHandoff(ctx, session, config);
+	assert.deepEqual(calls, [], "an open question defers before any child exists");
 
-		// The user answers; the next turn ends immediately, well inside the interval. That idle is
-		// the one that may hand off, so it must not be swallowed by the stamp the deferral left.
-		conversation = [...conversation, message("user", "yes, go ahead")];
-		await maybeAutoHandoff(ctx, session, config);
-		assert.deepEqual(calls, ["create", "prompt"], "the answer's first idle re-checks and completes the handoff");
-	} finally {
-		setPressureCheckIntervalMs(15_000);
-	}
+	conversation = [...conversation, message("user", "yes, go ahead")];
+	await maybeAutoHandoff(ctx, session, config);
+	assert.deepEqual(calls, ["create", "prompt"], "the answer’s first idle completes the handoff");
 });
-
 test("a retryable manual handoff failure is not reported with the terminal wording", async () => {
 	// `/handoff now` renders its `catch` verbatim. Every failure used to come back as
 	// "Handoff failed: <message>", which tells the user the operation is over — even when the cause
