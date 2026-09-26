@@ -88,6 +88,12 @@
 - Codex's own known bug is a base mismatch (the threshold uses the original window while "usable" is 95%). And `model_auto_compact_token_limit` can only be lowered — a raise is silently ignored.
 - dsh `discovery.ts:91` `capacity(...)` is first-match-wins over five spellings; `LlmDiscoveredModel` carries only `contextWindow`/`maxTokens`, so finer metadata cannot reach a plugin — upstream fix, not this repo.
 
+## Local GUI: the two "本会话 ¥…" lines (third-party renderer)
+- 会话页那条 `本会话 ¥… · 命中 … · 输入 … · 缓存 … · 输出 …` **既不是本仓渲染、也不是重复注册**：它是第三方 `dsh-cost-meter`（现 **1.7.36**，装在 `~/.dsh/profiles/{desktop,web}/node_modules`，**不属本仓**）在 `conversation.composer.dock` 注册的**一个**格子（组件 `yn`）。该 slot 是 **session 作用域**——同时挂载几个会话正文就画几条，每条读自己那行账本，所以**数字不同 = 不同会话**，不是同一份统计被算两遍（2026-09-26 用户报的两条：¥9.517 属一个「三审三校…」子代理会话，¥2.1425 属他当时正在输入的会话）。同 slot 里平台自带的 `stats` 格子只画 `N 轮 N 步 · 缓存命中 x%`（无 ¥、无「本会话」）；插件的 `header` 位置是徽章（另一格式）。
+- 只读复核三步：客户端 `Slots` inspect root `conversation.composer.dock`（应只有 `stats` 0 + `cost-meter` 5）、宿主 `Config` listConfigs `name=dsh-cost-meter`（应只有一条 `include:cost-meter`）、账本 `~/.dsh/storages/cost-meter/ledger.json` → `days.<date>.sessions[]` 逐会话对数字。
+- **判缺陷的唯一判据**：两条**叠在同一个输入框下面** ⇒ 旧客户端注册残留 ⇒ 硬刷新（Ctrl+Shift+R）。关掉它：设置 → 费用 → 显示设置 →「会话费用显示位置」= 关闭（或 会话标题栏）。
+- 已知口径差（非缺陷）：账本按 call 记账，会比会话日志的 step 多（内联子代理的调用不写进父会话日志）；`includeSubagentCost` 只影响连续子代理后代的合并。
+
 ## Probe traps
 - pi harness probes must pass `cwd`: `makePi({ cwd: tmp })`, else the exec stub returns `process.cwd()` and `getProjectRoot` searches the wrong directory (a false "No candidate named …").
 - dsh's skill-log directory is `.agents/memory/session-logs` (`project-state.ts:111`); fixtures elsewhere make `archivedSessionIds` empty, so every case is rejected by the evidence rule — a fabricated "all cases behave the same".
