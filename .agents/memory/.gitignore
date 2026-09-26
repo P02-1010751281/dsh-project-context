@@ -1,0 +1,28 @@
+# project-context: local artifacts, do not commit
+*.memory-backup-*
+errors.log
+*.lock
+*.steal
+*.broken-*
+memory.jsonl
+memory-log-*.jsonl
+memory.jsonl.*.tmp
+autolearn-state.json
+
+# 会话原文只留本地。这一条刻意写在**这个被跟踪的**文件里，而不是只靠
+# session-logs/.gitignore —— 后者内容为 `*`、会把自己也忽略掉，无法正常提交，
+# 于是新 clone 里就没有任何东西挡住会话被误提交。
+session-logs/
+
+# autolearn 的候选队列：等待人工 approve/reject 的中间态，故意留在本地。
+# 提升为正式技能后会写到 .agents/skills/<name>/SKILL.md，那部分**是跟踪的**
+# （见 2026-09-26 的决定：已提升的技能无法从 clone 再生，因为它们的证据来源
+# .agents/memory/session-logs/ 被 .gitignore 排除；候选队列则可被下次 pass 重建）。
+skill-candidates/
+
+# 每次交接重新生成的产物，不含需要版本化的内容。
+HANDOFF.md
+# 插件配置与运行时状态混在一个文件里（含 autolearn.at 这类时间戳），
+# 带进来会每次开关都产生 diff；缺省值由插件兜底，故按本地状态处理。
+# 若哪天希望 handoff.mode / autoTargetTokens 这类配置随仓库走，把它拆出来再跟踪。
+project-context.json
