@@ -106,7 +106,12 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	// The same rules the pass applied when it stored this candidate, minus the evidence rules (a
 	// stored candidate already passed those, and its file carries no parsed evidence). Naming the rule
 	// makes "incomplete or unsafe" actionable instead of a dead end.
-	const shape = shapeRejection(description, body);
+	//
+	// The description rule must see the *untruncated* frontmatter value: `skillDescription` caps what
+	// it returns, so validating the normalized string would leave an over-cap description as a rule the
+	// pass applies and this path silently skips — a hand-written candidate could then activate a
+	// document the pass refused. Only the value that gets written is the capped one.
+	const shape = shapeRejection(skillDescription(raw, Number.MAX_SAFE_INTEGER), body);
 	if (shape !== undefined) return { ok: false, message: `Candidate "${name}" is not activatable (${shape}); not activating.` };
 	if (await readOptional(path.join(skillsDir(projectRoot), name, "SKILL.md"))) {
 		return { ok: false, message: `Skill "${name}" already exists; remove the candidate manually.` };

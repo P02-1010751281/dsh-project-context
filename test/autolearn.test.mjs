@@ -16,6 +16,7 @@ import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
+import { MAX_SKILL_DESCRIPTION_CHARS } from "../lib/project-autolearn/skill.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
@@ -636,6 +637,7 @@ test("the admission rules are one predicate, shared by the pass and the approve 
 	assert.ok(injectionBody.length > 160 && injectionBody.length < MAX_SKILL_BODY_CHARS, `fixture is ${injectionBody.length} chars`);
 	const cases = [
 		{ description: "", body: `## Steps\n\n${"x".repeat(200)}`, reason: "missing description" },
+		{ description: "d".repeat(MAX_SKILL_DESCRIPTION_CHARS + 1), body: `## Steps\n\n${"x".repeat(200)}`, reason: "description too long" },
 		{ description: "a workflow", body: "## Steps\n\ntoo short\n", reason: "body too short" },
 		{ description: "a workflow", body: `## Steps\n\n${"x".repeat(MAX_SKILL_BODY_CHARS)}`, reason: "body too long" },
 		{ description: "a workflow", body: injectionBody, reason: "body looks like an instruction injection" },
