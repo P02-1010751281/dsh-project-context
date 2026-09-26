@@ -41,8 +41,10 @@ async function existingSkillNames(projectRoot: string): Promise<Set<string>> {
  * how `approveCandidate` ended up re-deriving four of them — and a candidate approved by hand could
  * have skipped any rule the copy forgot. One pure predicate, shared by both callers.
  *
- * The name is checked by the caller: the pass validates the model's name, the approve path validates
- * the CLI argument before it reads anything.
+ * The name is deliberately not part of this predicate: `rejectionReason` checks it, and the
+ * approve/reject CLI paths validate their argument themselves. The pass path does **not**
+ * pre-validate it — `parseAutolearn` only requires `typeof name === "string"` — so the name rule in
+ * `rejectionReason` is load-bearing, not caller-guaranteed.
  */
 export function shapeRejection(description: string, body: string): string | undefined {
 	if (!description) return "missing description";

@@ -666,6 +666,30 @@ test("the admission rules are one predicate, shared by the pass and the approve 
 	assert.notEqual(await readOptional(path.join(skillsDir(root), "clean-workflow", "SKILL.md")), "", "the clean skill was written");
 });
 
+test("the name, candidate-evidence and candidate-exists branches are reachable through the pass", async () => {
+	// `rejectionReason`'s name rule reads as caller-guaranteed, but only `/autolearn approve|reject`
+	// validate their argument; the pass path takes whatever the model returned (`parseAutolearn` only
+	// requires `typeof name === "string"`). These three branches had no pin, so dropping one would go
+	// unnoticed — the same class of hole as the four rules `approveCandidate` used to re-derive.
+	const body = `## Steps\n\n${"Run the release checklist. ".repeat(12)}`;
+	const cases = [
+		{ name: "Not Kebab", evidence: [], candidate: false, reason: "invalid kebab-case name" },
+		{ name: "candidate-needs-one", evidence: [], candidate: true, reason: "needs at least one verified session id" },
+		{ name: "candidate-needs-archived", evidence: ["session-not-archived"], candidate: true, reason: "needs at least one verified session id" },
+	];
+	for (const { name, evidence, candidate, reason } of cases) {
+		const root = await project();
+		const outcome = await saveProposedSkill(root, { name, description: "a workflow", body, evidence, candidate }, new Set());
+		assert.deepEqual(outcome, { rejected: reason }, `the pass disagreed about "${reason}"`);
+	}
+	// The candidate-exists rule sits behind the evidence rule, so reaching it needs a verified id.
+	const root = await project({ sessions: ["session-a"], index: ["session-a"] });
+	await mkdir(path.join(memoryDir(root), "skill-candidates"), { recursive: true });
+	await writeFile(path.join(memoryDir(root), "skill-candidates", "draft-workflow.md"), `---\nname: draft-workflow\ndescription: "a workflow"\n---\n\n${body}\n`);
+	const outcome = await saveProposedSkill(root, { name: "draft-workflow", description: "a workflow", body, evidence: ["session-a"], candidate: true }, new Set(["session-a"]));
+	assert.deepEqual(outcome, { rejected: 'candidate "draft-workflow" already exists' });
+});
+
 test("the learn-state write takes the cross-process lock", async () => {
 	// The gate file is a read-modify-write: two hosts (or a host and the archive backfill) can read the
 	// same state and each publish its own patch, losing the other's timestamp. The same lock the memory
