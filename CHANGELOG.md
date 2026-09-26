@@ -83,6 +83,22 @@
   **刻意不统一**。理由写在常量处：等待必须越过 30s 陈旧期，否则崩溃留下的孤儿锁会在整个窗口内让每一趟
   都失败，而不是被接管（pi 侧在同一 30s 上下文中用 5s，两处不要"顺手统一"）。
 
+**自动沉淀（③）**
+
+- 修复：**手工 approve 能激活 pass 会拒绝的候选——「描述超限」这条准入规则在 approve 路径上不可达**。
+  `approveCandidate` 用 `skillDescription()` 重读候选文件，而该函数把返回值**截断**到
+  `MAX_SKILL_DESCRIPTION_CHARS`（1024），于是 `shapeRejection` 永远看不到超限值。探针实测（真实产物）：
+  一份 5000 字描述的候选文件被 `{ok: true}` 激活、写进技能的描述被静默截到 1024；而同一份文档走 pass
+  路径（`saveProposedSkill`）以 `description too long` 被拒。修法是**校验读未截断的前插值**
+  （`skillDescription(raw, Number.MAX_SAFE_INTEGER)`），只有落盘的值仍按上限截断。
+  同类排查：`skill.ts` 写侧的两处截断发生在校验**之后**，`shared/migrate.ts` 的 1024 截断是历史技能
+  迁移的归一化、不在准入路径上——这两处无此问题。
+  - 变异校验：把校验退回截断值 → 掉 1；把描述上限放大 100 倍 → 掉 1。
+  - 同时把这条规则补进 `test/autolearn.test.mjs` 的三角度案例表（谓词 / pass / approve），并把
+    `rejectionReason` 三个此前无钉的分支（非法名字、候选无归档证据、候选已存在）经 pass 路径钉住；
+    至此 `shapeRejection` 与 `rejectionReason` 的**九个**返回串全部有钉子。源码里"名字由调用方校验"
+    的注释也是错的（`parseAutolearn` 只要求 `typeof name === "string"`），一并改正。
+
 ### v0.2.0
 
 **dsh 0.1.7-rc.2 宿主 API 适配（host）**
