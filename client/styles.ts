@@ -78,11 +78,11 @@ const css = `
 }
 .dshPcInput:focus, .dshPcSelect:focus { outline: none; border-color: var(--dsw-alias-brand-primary, currentColor); }
 .dshPcInput:disabled, .dshPcSelect:disabled { opacity: .6; }
-.dshPcInputInvalid { border-color: var(--dsw-alias-label-error, #e5484d); }
+.dshPcInputInvalid { border-color: var(--dsw-alias-state-error-primary, #e5484d); }
 .dshPcHint { margin: 0; font-size: 11px; color: var(--dsw-alias-label-tertiary, inherit); }
-.dshPcInvalid { margin: 0; font-size: 11px; color: var(--dsw-alias-label-error, #e5484d); }
+.dshPcInvalid { margin: 0; font-size: 11px; color: var(--dsw-alias-state-error-primary, #e5484d); }
 .dshPcFooter { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px; }
-.dshPcFailed { margin: 0 auto 0 0; font-size: 12px; color: var(--dsw-alias-label-error, #e5484d); }
+.dshPcFailed { margin: 0 auto 0 0; font-size: 12px; color: var(--dsw-alias-state-error-primary, #e5484d); }
 .dshPcDiscard, .dshPcSave {
   padding: 6px 14px;
   border-radius: 8px;
@@ -91,7 +91,12 @@ const css = `
   border: 1px solid var(--dsw-alias-border-l2, rgb(127 127 127 / 30%));
 }
 .dshPcDiscard { background: transparent; color: var(--dsw-alias-label-secondary, inherit); }
-.dshPcSave { background: var(--dsw-alias-brand-primary, #4f7cff); border-color: transparent; color: #fff; }
+/* Fill AND foreground come from the theme as a pair: this platform binds brand-primary to
+   near-black in the light theme and near-white in the dark one, so a literal white label vanishes
+   on the dark theme's near-white fill. The platform's own pairing is label-primary-foreground
+   (see ui-primitives Button.primary), which flips with the theme. */
+.dshPcSave { background: var(--dsw-alias-button-primary-fill, #4f7cff); border-color: transparent; color: var(--dsw-alias-label-primary-foreground, #fff); }
+.dshPcSave:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover, #4f7cff); }
 .dshPcDiscard:disabled, .dshPcSave:disabled { opacity: .5; cursor: default; }
 `;
 
