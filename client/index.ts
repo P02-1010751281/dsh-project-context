@@ -14,7 +14,6 @@ import type {} from "@deepseek-ai/dsh-client-ui-settings/client";
 import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 // Type-only: pulls the `plugins.bundle.config` SlotMap merge declared by the Plugins page.
 import type {} from "@deepseek-ai/dsh-client-ui-plugin-manager/client";
-import { createSnapshotStore } from "./dsh-store-compat.ts";
 // Shared with the host half so the switch logic is unit-testable without a browser.
 import { watchHandoffSwitch } from "../src/project-handoff/watch.ts";
 import { en, zh, type SettingsCardKey } from "./locales.ts";
@@ -73,7 +72,6 @@ export function apply(ctx: ClientContext): void {
 	ctx.inject(["configForms"], (formsCtx) => {
 		const controller = new ProjectContextSettingsCardController(
 			formsCtx.configForms.get<ProjectContextSettings>(NS),
-			createSnapshotStore,
 		);
 		// The controller subscribes to the form in its constructor; that
 		// subscription belongs to this fiber, so a reload must not leak it.

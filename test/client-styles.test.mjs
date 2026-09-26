@@ -1,84 +1,110 @@
 /**
- * The card's colour contract: every colour it paints comes from the platform's theme token layer.
+ * The client half's presentation contract: the platform draws the card, and nothing local paints.
  *
- * The defect this pins: the primary action button was `background: var(--dsw-alias-brand-primary)`
- * with a literal `color: #fff`. This platform binds `--dsw-alias-brand-primary` to its *inverted*
- * surface ink — near-black in the light theme, **near-white in the dark one** (`ui-theme`'s
- * `design-platform.css`; `ui-dockkit` warns about exactly this in a source comment). So in the dark
- * theme the button was white-on-near-white: a blank grey pill with the label still in the DOM and
- * still taking up width. The light theme looked correct, which is why only a dark-theme screenshot
- * caught it.
+ * The defect this replaced: the card hand-rolled its own button as
+ * `background: var(--dsw-alias-brand-primary); color: #fff`. This platform binds that token to its
+ * *inverted* surface ink (near-black in the light theme, **near-white in the dark one**), so in the
+ * dark theme the label was white on near-white — a blank pill with its text still in the DOM. It
+ * also named `--dsw-alias-label-error`, which no theme layer defines. Both are one class of mistake:
+ * a colour written by a plugin that does not know the theme.
  *
- * The fix is the platform's own pairing — `ui-primitives` `Button.primary` uses
- * `--dsw-alias-button-primary-fill` with `--dsw-alias-label-primary-foreground`, and the foreground
- * flips with the theme. The general assertion below keeps the next colour from being hardcoded the
- * same way: a bare literal in a colour position is only allowed as a `var()` fallback.
+ * The fix is structural rather than a better literal. Every control now comes from the platform —
+ * `SettingsForm` for the frame and its save, `SettingsValueField` for text and number rows, `Switch`,
+ * `Pill`, `Tag` and `Button` for the rest — and `client/styles.ts` is geometry only, so there is no
+ * place left in this repo for a colour to be written at all. The assertions below are that invariant,
+ * not a spot fix: they stay red if any literal colour, any paint declaration, or any hand-rolled
+ * control returns.
  *
- * `client/styles.ts` is browser-side source that `pnpm test` never compiles, like the other client
+ * `client/*.ts(x)` is browser-side source that `pnpm test` never compiles, like the other client
  * halves this suite static-asserts. Run `pnpm test`.
  */
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("../client/styles.ts", import.meta.url), "utf8");
-const css = /const css = `([\s\S]*?)`;/.exec(source)?.[1];
-assert.ok(css, "client/styles.ts must keep its stylesheet in a `const css` template literal");
-// Comments explain the token choice; they are not part of the colour contract.
-const declarations = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([a-z-]+)\s*:\s*([^;{}]+);/g)];
+const client = new URL("../client/", import.meta.url);
+/** Strip comments: prose may discuss colours, code may not write them. */
+const strip = (source) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 
-test("the primary action pairs the platform's fill token with its foreground token", () => {
-	// A selector can appear in a combined rule (the shared sizing) *and* in its own rule (the colour),
-	// so collect every rule that names it instead of trusting the first match.
-	const rule = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-		.filter(([, selectors]) => selectors.split(",").some((part) => part.trim() === ".dshPcSave"))
-		.map(([, , body]) => body)
-		.join("\n");
-	assert.ok(rule.includes("background"), "the .dshPcSave rule must paint its own fill");
-	// Both halves must be the platform's pair: taking the fill from the theme while hardcoding the
-	// label is exactly the bug, and it is invisible in whichever theme the other half happens to fit.
+const card = await readFile(new URL("settings-card.tsx", client), "utf8");
+const sheet = await readFile(new URL("styles.ts", client), "utf8");
+const entry = await readFile(new URL("index.ts", client), "utf8");
+const cardCode = strip(card);
+
+test("every control on the card is the platform's own", () => {
 	assert.match(
-		rule,
-		/background:\s*var\(--dsw-alias-button-primary-fill/,
-		"the primary button's fill must come from the platform's button fill token",
+		cardCode,
+		/from "@deepseek-ai\/dsh-client-ui-primitives"/,
+		"the card must render the platform's settings components",
 	);
-	assert.match(
-		rule,
-		/color:\s*var\(--dsw-alias-label-primary-foreground/,
-		"the primary button's label must come from the platform's paired foreground token",
-	);
-	assert.doesNotMatch(
-		rule,
-		/color:\s*(#fff\b|#ffffff\b|white\b)/i,
-		"a literal white label vanishes on the dark theme's near-white fill",
-	);
+	// The frame, its staged model, and the four controls the card composes rows from.
+	for (const name of ["SettingsForm", "SettingsFormModel", "SettingsValueField", "Switch", "Pill", "Tag", "Button"]) {
+		assert.match(cardCode, new RegExp(`\\b${name}\\b`), `${name} must come from the platform package`);
+	}
+	// The staged form, the cross-layout store probe and the private field controls are retired: the
+	// platform owns atomic revision-fenced writes, the save's failure handling and its unmount discard.
+	assert.doesNotMatch(cardCode, /\bclass\s+\w*Form\b/, "a private staged form must not come back");
+	assert.doesNotMatch(cardCode, /require\(/, "the platform modules are imported, not probed at runtime");
+	assert.doesNotMatch(entry, /createSnapshotStore|dsh-store-compat/, "the store probe must not come back");
 });
 
-test("no colour is hardcoded outside a var() fallback", () => {
-	const colour = /(^|-)color$|background|border|outline|fill|stroke/;
-	const literal = /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|\b(?:white|black|red|blue|green|gray|grey)\b/i;
+test("the card's table is the only place a field is declared", () => {
+	// One table drives the specs, the projection and the rows; a second list of keys is how the three
+	// drift apart (a spec with no row, a row reading another field's state).
+	assert.match(cardCode, /ROWS\.map\(\(row\) => SPEC_BUILDERS\[row\.kind\]\(row\)\)/, "specs must come from the table");
+	assert.match(cardCode, /for \(const row of ROWS\) fields\[row\.key\] = this\.form\.field\(row\.key\)/, "the projection must walk the table");
+	assert.match(cardCode, /SECTIONS\.map\(/, "the rows must come from the table's sections");
+});
+
+test("the card's own stylesheet paints nothing", () => {
+	const css = /const css = `([\s\S]*?)`;/.exec(sheet)?.[1];
+	assert.ok(css, "client/styles.ts must keep its stylesheet in a `const css` template literal");
+	const declarations = [...strip(css).matchAll(/([a-z-]+)\s*:\s*([^;{}]+);/g)];
+	assert.ok(declarations.length > 0, "the sheet must still carry the card's layout");
+	// Paint is anything that can name a colour. Geometry (display, flex, gap, padding, margin,
+	// font-size, font-weight, letter-spacing, text-transform) is all this sheet may use.
+	const paint = /^(?:color|background|background-.+|border|border-.+|outline|outline-.+|box-shadow|text-shadow|fill|stroke|accent-color|caret-color|text-decoration-color|column-rule.*)$/;
 	const offenders = declarations
-		// A `var(--token, fallback)` fallback is theme-layer adjacent and allowed; strip the whole call.
-		// The fallback may itself contain parens (`rgb(127 127 127 / 24%)`), hence the nested group.
-		.map(([, property, value]) => [property, value.replace(/var\((?:[^()]|\([^()]*\))*\)/g, "var()")])
-		.filter(([property, value]) => colour.test(property) && literal.test(value))
-		.map(([property, value]) => `${property}: ${value.trim()}`);
+		.filter(([, property]) => paint.test(property.trim()))
+		.map(([, property, value]) => `${property}: ${value.trim()}`);
 	assert.deepEqual(
 		offenders,
 		[],
-		`every colour must come from a --dsw-* token (literal found in: ${offenders.join(" | ")})`,
+		`the card must paint nothing itself; every colour comes from the platform's components (found: ${offenders.join(" | ")})`,
 	);
 });
 
-test("the error colour names a token the theme layer actually defines", () => {
-	// `--dsw-alias-label-error` reads plausibly but does not exist in `ui-theme`'s
-	// `design-platform.css` (0.1.7-rc.2): the card silently fell back to a hardcoded red that then
-	// ignored the theme. The family is `--dsw-alias-state-error-*`.
-	assert.match(css, /--dsw-alias-state-error-primary/, "the error colour must use the state-error token");
-	assert.doesNotMatch(
-		css,
-		/--dsw-alias-label-error/,
-		"--dsw-alias-label-error is not a theme token; its fallback is a hardcoded red",
+test("no colour literal is written anywhere in the client half", async () => {
+	const literal = /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|\b(?:white|black|red|blue|green|gray|grey|silver|maroon|navy|teal|olive|lime|aqua|fuchsia|purple|orange|yellow)\b/i;
+	const offenders = [];
+	for (const file of await readdir(client)) {
+		if (!/\.tsx?$/.test(file)) continue;
+		for (const [index, line] of strip(await readFile(new URL(file, client), "utf8")).split("\n").entries()) {
+			if (literal.test(line)) offenders.push(`${file}:${index + 1}: ${line.trim()}`);
+		}
+	}
+	assert.deepEqual(
+		offenders,
+		[],
+		`a colour written here cannot follow the theme (${offenders.join(" | ")})`,
+	);
+});
+
+test("the client bundle resolves the platform's modules instead of inlining a copy", async () => {
+	// The shell seeds this table (`@deepseek-ai/dsh-client-web`'s `platform.ts` / `seed.ts`); dropping
+	// an entry from the externals list would inline the package instead — including its CSS modules,
+	// which cannot ride a single-JS bundle.
+	const script = await readFile(new URL("../scripts/build-client.mjs", import.meta.url), "utf8");
+	assert.match(script, /"@deepseek-ai\/dsh-client-ui-primitives"/, "ui-primitives must stay external");
+	assert.match(script, /"@deepseek-ai\/dsh-client-store"/, "the client store must stay external");
+});
+
+test("the retired client modules stay deleted", async () => {
+	const files = (await readdir(client)).sort();
+	assert.deepEqual(
+		files,
+		["card-fields.ts", "index.ts", "locales.ts", "settings-card.tsx", "styles.ts"],
+		"the hand-rolled form, store probe and field styles must not return as files nobody asserts",
 	);
 });

@@ -31,7 +31,18 @@ const result = await build({
 	platform: "browser",
 	target: "es2020",
 	jsx: "automatic",
-	external: ["react", "react/jsx-runtime"],
+	// The shell's frozen module table. `@deepseek-ai/dsh-client-ui-primitives` carries the settings
+	// form and every themed control this card renders, and `@deepseek-ai/dsh-client-store` the
+	// snapshot store the form model publishes through; both are seeded by the shell
+	// (`@deepseek-ai/dsh-client-web`'s `platform.ts` / `seed.ts`), so the bundle must resolve them
+	// through the loader's `require` instead of inlining its own copy — which would also inline the
+	// package's CSS modules, something esbuild cannot bundle for a single JS output.
+	external: [
+		"react",
+		"react/jsx-runtime",
+		"@deepseek-ai/dsh-client-store",
+		"@deepseek-ai/dsh-client-ui-primitives",
+	],
 	write: false,
 	logLevel: "warning",
 });

@@ -31,6 +31,34 @@
     `settings-card.tsx` 的 `PropsRuntime<"plugins.item">` 同步改绑。
   - 变异校验：单字段去掉标记 → 掉 1；把解引用改成空操作 → 掉 1；把published 值改回快照 → 掉 1。
 
+**设置卡片改用平台组件（client）**
+
+- 修复：**暗色主题下保存按钮是「白字白底」**。真机截图 + 像素测量定位：按钮内部 stddev 0.0031（完全
+  平坦，没有任何字形），相邻「放弃」0.089（有字），两者宽度相当——说明文字占了位、只是看不见。根因是
+  自绘的 `background: var(--dsw-alias-brand-primary); color: #fff`：该 token 在本平台是**反转墨色**
+  （亮色近黑 `rgb(15,17,21)`、暗色近白 `rgb(249,250,251)`，见 `ui-theme` 的 `design-platform.css`；
+  `ui-dockkit` 源码注释专门警告过不要拿它当强调背景），于是亮色正常、暗色白字白底。上一轮只在亮色主题
+  下验证，因此漏过。同一次审计还发现自绘样式里的 `--dsw-alias-label-error` **在主题层并不存在**（全仓
+  只有官方 `SettingsForm.module.css` 引用它、无任何定义），一直静默吃硬编码红。
+- 变更：卡片不再自绘，改用官方设置页的写法——`SettingsForm`（框架、保存按钮、只读/未加载提示）、
+  `SettingsValueField`（文本与数字行）、`Switch` / `Pill`（布尔与枚举行）、`Tag` / `Button`（覆盖徽章与
+  重置），暂存写入直接用平台的 `SettingsFormModel`，快照 store 由模型内部从
+  `@deepseek-ai/dsh-client-store` 取。两者都是 shell 冻结进浏览器模块表的平台模块
+  （`@deepseek-ai/dsh-client-web` 的 `platform.ts` / `seed.ts`），bundle 只 `require` 不内联
+  （`scripts/build-client.mjs` 的 externals），CSS modules 因此由 shell 提供——社区插件
+  （`dsh-context`、`@linxin666/dsh-client-ui-git-graph`）也是这么用的。
+- 变更：本仓库只剩一张**字段表** `client/card-fields.ts`（21 行的 kind 与选项；spec 列表、投影、渲染行
+  全部由它派生，键不可能三处漂移）和一份**纯几何、零颜色**的 `client/styles.ts`。删除
+  `client/settings-form.ts`（手抄的暂存表单，266 行）与 `client/dsh-store-compat.ts`（跨版本 store 探测，
+  75 行）；客户端 bundle 40,608 → 28,380 字节。
+- 修复（随平台语义一并生效）：自绘表单有三个缺陷——保存**逐字段** `set/unset`（A 落盘、B 被拒时用户看到
+  「失败」但 A 已经改了）且没有 revision fence；`save()` 没有 `try/finally`，一次 reject 会让 `saving`
+  永远为 true，按钮永久卡在「保存中…」；离开页面不丢弃草稿。平台的 `SettingsFormModel` 是一次原子
+  `mutate(ops, revision)` + `try/catch/finally` + unmount 丢弃，这三条随之消失。
+- 变更（用户可见）：卡片上**没有「放弃」按钮**——官方语义是离开页面即丢弃草稿，与官方设置页一致。
+- 变异校验（四个变异体均 build 0）：样式表加回颜色字面量 → 掉 2；删掉一行字段表 → 掉 1；布尔解析接受
+  任意草稿 → 掉 1；spec 不再由字段表派生 → 掉 1。
+
 **并发写入保护（host）**
 
 - 文档：`MEMORY_LOCK_WAIT_MS`（`MEMORY_LOCK_STALE_MS + 5s` = 35s）与兄弟仓库 pi 侧同名常量的 5s

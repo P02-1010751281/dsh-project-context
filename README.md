@@ -149,7 +149,7 @@ src/
 │   ├── conversation.ts     #    会话渲染成对话分段 + 记忆输入适配
 │   ├── reply-json.ts       #    从模型回复里读取结构化 JSON（容错扫描 + 解析）
 │   └── model-call.ts       #    插件来源的辅助模型调用、路由与元数据
-client/                     # 设置卡片、表单、zh/en 文案（bundle 进 lib/client.js）
+client/                     # 设置卡片、字段表、zh/en 文案（bundle 进 lib/client.js）
 scripts/
 ├── build-client.mjs        # 客户端 bundle
 └── import-archives.mjs     # 回填 CLI（不依赖运行中的 dsh）
@@ -215,6 +215,13 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 `plugins.bundle.config` 槽位、键为 bundle 包名 `dsh-project-context`（该槽位按包名分派；
 `plugins.item` 归**官方插件**卡片），经宿主的 `configForms` 服务读写本命名空间，并由 `whileServed`
 门控——profile 没装 host 半时页面上不会留下痕迹。
+
+卡片本身**不是自绘的**：框架、保存按钮、文本/数字行、只读与未加载提示都来自平台的
+`@deepseek-ai/dsh-client-ui-primitives`（`SettingsForm` / `SettingsValueField` / `Switch` / `Pill` /
+`Tag` / `Button`），暂存写入用平台的 `SettingsFormModel`，本仓库只提供一张**字段表**
+（`client/card-fields.ts`：21 行 = spec + 投影 + 渲染行三者共同的唯一来源）和一份**纯几何、零颜色**
+的排版样式表。因此保存语义也是平台的：一次**原子** `mutate`（带 revision fence）、Host 拒绝时保留草稿，
+**离开页面即丢弃草稿**——所以卡片上没有「放弃」按钮（与官方设置页一致）。
 
 命名空间就是 **Loader 条目 id** `project-context`：dsh 0.1.7-rc.2 起，设置表单由**归属插件模块导出的
 `Config` schema 投影**而来（`SettingsForms.schema(entry)` 读 `entry.fiber.runtime.Config`），
@@ -398,6 +405,7 @@ host，漏跑会让服务端继续分发旧 bundle；重建后运行中的 `dsh 
 
 MIT © 2026 呼啸山庄 (P02-1010751281)，见 [LICENSE](./LICENSE)。
 
-设置卡片、表单与 store 兼容层的模式改编自
-[dsh-auto-continue](https://github.com/HsiangNianian/dsh-auto-continue)
-（MIT，Copyright (c) 2025 HsiangNianian），相关源文件头保留了原署名。
+设置卡片按官方设置页（`@deepseek-ai/dsh-client-ui-settings-*` 各卡片）的写法组装：槽位注册 +
+平台表单模型 + 平台控件。早期版本的卡片外壳与 store 探测层曾改编自
+[dsh-auto-continue](https://github.com/HsiangNianian/dsh-auto-continue)（MIT，Copyright (c) 2025
+HsiangNianian），这两处在改用平台组件后已删除。

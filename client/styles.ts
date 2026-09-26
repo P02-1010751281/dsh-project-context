@@ -1,108 +1,37 @@
 /**
- * Styles for the project-context settings card, injected at factory
- * materialization so the client module system's style bookkeeping owns them.
- * Uses DSH design tokens so the card follows the active theme.
+ * The card's own layout, injected at factory materialization so the client module system's style
+ * bookkeeping owns it.
+ *
+ * **Geometry only.** No declaration here names a colour, a background, a border or any other paint:
+ * every pixel the card shows comes from the platform's components (`SettingsForm`,
+ * `SettingsValueField`, `Switch`, `Pill`, `Tag`, `Button`), which carry the theme tokens themselves.
+ * That is what makes the theme un-representable here — a literal colour next to a themed fill is
+ * exactly the defect this sheet used to carry (a white label on the dark theme's near-white fill).
+ * `test/client-styles.test.mjs` asserts the invariant.
  */
 
 const css = `
-.dshPcCard {
-  border: 1px solid var(--dsw-alias-border-l2, rgb(127 127 127 / 24%));
-  background: var(--dsw-alias-bg-layer-3, transparent);
-  border-radius: 14px;
-  list-style: none;
-  margin-bottom: 10px;
-  overflow: hidden;
+.dshPcSection { margin-top: 18px; }
+.dshPcSection:first-child { margin-top: 4px; }
+.dshPcSectionTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
-.dshPcHeader {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 12px 16px;
-  border: 0;
-  background: transparent;
-  color: var(--dsw-alias-label-primary, inherit);
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-.dshPcHeader:hover { background: var(--dsw-alias-bg-module-platform, rgb(127 127 127 / 8%)); }
-.dshPcHeadText { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.dshPcName { font-size: 14px; font-weight: 600; }
-.dshPcDescription { font-size: 12px; color: var(--dsw-alias-label-tertiary, inherit); }
-.dshPcPending {
-  flex: none;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  color: var(--dsw-alias-brand-primary, inherit);
-  border: 1px solid var(--dsw-alias-brand-primary, currentColor);
-}
-.dshPcChevron { flex: none; display: inline-flex; transition: transform .18s ease; }
-.dshPcChevronOpen { transform: rotate(180deg); }
-.dshPcBody { padding: 4px 16px 14px; border-top: 1px solid var(--dsw-alias-border-l2, rgb(127 127 127 / 18%)); }
-.dshPcReadOnly { margin: 10px 0 0; font-size: 12px; color: var(--dsw-alias-label-tertiary, inherit); }
-.dshPcSection { margin-top: 14px; }
-.dshPcSectionTitle { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--dsw-alias-label-secondary, inherit); }
-.dshPcSectionDescription { margin: 2px 0 8px; font-size: 12px; color: var(--dsw-alias-label-tertiary, inherit); }
-.dshPcGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 14px; }
-.dshPcField { display: flex; flex-direction: column; gap: 4px; }
-.dshPcFieldHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.dshPcLabel { font-size: 12px; color: var(--dsw-alias-label-secondary, inherit); }
-.dshPcBadges { display: inline-flex; align-items: center; gap: 6px; }
-.dshPcBadge {
-  font-size: 10px;
-  padding: 0 6px;
-  border-radius: 999px;
-  color: var(--dsw-alias-label-dimmed, inherit);
-  border: 1px solid var(--dsw-alias-border-l2, currentColor);
-}
-.dshPcReset {
-  border: 0;
-  background: transparent;
-  color: var(--dsw-alias-brand-primary, inherit);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-}
-.dshPcReset:disabled { opacity: .5; cursor: default; }
-.dshPcInput, .dshPcSelect {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 9px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l2, rgb(127 127 127 / 30%));
-  background: var(--dsw-alias-bg-layer-1, transparent);
-  color: var(--dsw-alias-label-primary, inherit);
-  font: inherit;
-}
-.dshPcInput:focus, .dshPcSelect:focus { outline: none; border-color: var(--dsw-alias-brand-primary, currentColor); }
-.dshPcInput:disabled, .dshPcSelect:disabled { opacity: .6; }
-.dshPcInputInvalid { border-color: var(--dsw-alias-state-error-primary, #e5484d); }
-.dshPcHint { margin: 0; font-size: 11px; color: var(--dsw-alias-label-tertiary, inherit); }
-.dshPcInvalid { margin: 0; font-size: 11px; color: var(--dsw-alias-state-error-primary, #e5484d); }
-.dshPcFooter { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px; }
-.dshPcFailed { margin: 0 auto 0 0; font-size: 12px; color: var(--dsw-alias-state-error-primary, #e5484d); }
-.dshPcDiscard, .dshPcSave {
-  padding: 6px 14px;
-  border-radius: 8px;
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid var(--dsw-alias-border-l2, rgb(127 127 127 / 30%));
-}
-.dshPcDiscard { background: transparent; color: var(--dsw-alias-label-secondary, inherit); }
-/* Fill AND foreground come from the theme as a pair: this platform binds brand-primary to
-   near-black in the light theme and near-white in the dark one, so a literal white label vanishes
-   on the dark theme's near-white fill. The platform's own pairing is label-primary-foreground
-   (see ui-primitives Button.primary), which flips with the theme. */
-.dshPcSave { background: var(--dsw-alias-button-primary-fill, #4f7cff); border-color: transparent; color: var(--dsw-alias-label-primary-foreground, #fff); }
-.dshPcSave:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover, #4f7cff); }
-.dshPcDiscard:disabled, .dshPcSave:disabled { opacity: .5; cursor: default; }
+.dshPcSectionDescription { margin: 2px 0 6px; font-size: 12px; }
+.dshPcRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 0; }
+.dshPcRowHead { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.dshPcRowLabel { font-size: 13px; font-weight: 500; }
+.dshPcRowControl { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.dshPcRowText { flex: 1 1 100%; min-width: 0; margin: 0; font-size: 12px; }
+.dshPcPills { display: inline-flex; align-items: center; gap: 6px; }
 `;
 
 const STYLE_ID = "dsh-project-context-card-styles";
 
-/** Inject the card stylesheet once. */
+/** Inject the card's layout sheet once. */
 export function injectStyles(): void {
 	if (typeof document === "undefined") return;
 	if (document.getElementById(STYLE_ID) !== null) return;

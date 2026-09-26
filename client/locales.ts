@@ -1,13 +1,15 @@
 /** Settings-card dictionaries for the `project-context` locale namespace. */
 
+import type { SettingsFormLabels } from "@deepseek-ai/dsh-client-ui-primitives";
+
 export const zh = {
 	"card.title": "项目上下文",
 	"card.description": "维护项目 MEMORY.md / CONTEXT.md、项目技能与会话索引",
-	"chrome.unsaved": "未保存",
 	"chrome.save": "保存",
 	"chrome.saving": "保存中…",
-	"chrome.discard": "放弃",
 	"chrome.saveFailed": "保存未生效，请重试",
+	"chrome.unavailable": "该插件当前未加载，暂时无法配置",
+	"chrome.invalidNumber": "请填数字；留空表示使用默认值",
 	"chrome.readOnly": "当前环境的设置为只读",
 	"chrome.overridden": "已覆盖",
 	"chrome.reset": "重置",
@@ -66,11 +68,11 @@ export type SettingsCardKey = keyof typeof zh;
 export const en: Record<SettingsCardKey, string> = {
 	"card.title": "Project Context",
 	"card.description": "Maintain project MEMORY.md / CONTEXT.md, skills and the session index",
-	"chrome.unsaved": "Unsaved",
 	"chrome.save": "Save",
 	"chrome.saving": "Saving…",
-	"chrome.discard": "Discard",
 	"chrome.saveFailed": "Save did not land; try again",
+	"chrome.unavailable": "This plugin is not loaded, so it cannot be configured right now",
+	"chrome.invalidNumber": "Enter a number, or leave blank to use the default",
 	"chrome.readOnly": "Settings are read-only in this environment",
 	"chrome.overridden": "Overridden",
 	"chrome.reset": "Reset",
@@ -123,3 +125,22 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffLanguage": "Handoff language",
 	"field.handoffLanguageHint": "auto (default, follows the conversation), zh or en; summary headings are localized too",
 };
+
+/**
+ * The form frame's copy, read from this card's dictionary.
+ *
+ * The frame is the platform's `SettingsForm`, so its labels are the platform's five, not this
+ * plugin's own chrome: a deployment that never composed the host half reads "not loaded" instead of
+ * a form nothing would accept.
+ * @param t - the card's locale reader.
+ * @returns the labels the shared settings form renders.
+ */
+export function formLabels(t: (key: SettingsCardKey) => string): SettingsFormLabels {
+	return {
+		unavailable: t("chrome.unavailable"),
+		readOnly: t("chrome.readOnly"),
+		saveFailed: t("chrome.saveFailed"),
+		save: t("chrome.save"),
+		saving: t("chrome.saving"),
+	};
+}

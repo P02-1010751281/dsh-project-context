@@ -1,151 +1,96 @@
 /**
- * Project-context settings card: edits the `project-context` namespace from
- * the Plugin configuration section (Settings → Plugins).
+ * Project-context settings card: the `project-context` namespace's form on the Plugins page.
  *
- * Adapted from the card pattern of dsh-client-auto-continue
- * (MIT, Copyright (c) 2025 HsiangNianian); chrome and controls are local.
+ * The card is assembled from the platform's own settings surface rather than a private copy of it:
+ * `SettingsForm` draws the frame, its read-only/unavailable notices and the single save that writes
+ * every staged edit; `SettingsValueField` the released text and number rows; `Switch`, `Pill`, `Tag`
+ * and `Button` the boolean and closed-enum rows the platform does not ship a field for; and
+ * `SettingsFormModel` the staged, revision-fenced write over the shared configuration form.
+ *
+ * Nothing here paints — `styles.ts` is geometry only — so the card cannot drift from the theme the
+ * way its hand-rolled button did (a literal white label on the dark theme's near-white fill), and
+ * the platform owns the save's semantics: one atomic mutation, drafts kept when the Host refuses,
+ * and every staged edit dropped when the page is left.
  */
 
-import { type ReactNode } from "react";
+import {
+	booleanField,
+	hintKey,
+	labelKey,
+	ROWS,
+	SECTIONS,
+	unionField,
+	type FieldRow,
+	type ProjectContextSettings,
+} from "./card-fields.ts";import {
+	Button,
+	Pill,
+	SettingsForm,
+	SettingsFormModel,
+	SettingsValueField,
+	Switch,
+	Tag,
+	settingsNumberField,
+	settingsTextField,
+	type SettingsFieldSpec,
+	type SettingsFieldState,
+	type SettingsFormActions,
+	type SettingsFormScope,
+	type SettingsFormShell,
+} from "@deepseek-ai/dsh-client-ui-primitives";
+import type { SnapshotStore } from "@deepseek-ai/dsh-client-store";
 // Type-only: pulls the `plugins.bundle.config` SlotMap merge (the Plugins page's bundle-config slot).
 import type {} from "@deepseek-ai/dsh-client-ui-plugin-manager/client";
 import type { InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
-import { createSnapshotStore, type SettingsScope, type SnapshotStore } from "./dsh-store-compat.ts";
-import type { SettingsCardKey } from "./locales.ts";
-import {
-	booleanField,
-	CardForm,
-	decimalField,
-	numberField,
-	textField,
-	type CardActions,
-	type CardFieldState,
-	type CardShell,
-} from "./settings-form.ts";
+import { formLabels } from "./locales.ts";
 import { injectStyles } from "./styles.ts";
 
-// Styles must land during factory materialization so the module system's style bookkeeping owns them.
+// The layout sheet must land during factory materialization so the module system owns its bookkeeping.
 injectStyles();
 
-/** The `project-context` settings section shape (mirrors the host schema). */
-export interface ProjectContextSettings {
-	archiveEnabled: boolean;
-	autoConsolidate: boolean;
-	consolidateTurns: number;
-	consolidateIntervalMs: number;
-	forceDedupeMs: number;
-	maxTokens: number;
-	maxOutputTokens: number;
-	maxMemoryChars: number;
-	provider: string;
-	model: string;
-	autoLearn: boolean;
-	autolearnTurns: number;
-	autolearnIntervalMs: number;
-	handoffEnabled: boolean;
-	handoffAdaptive: boolean;
-	handoffThresholdRatio: number;
-	handoffTargetTokens: number;
-	handoffKeepTokens: number;
-	handoffSummaryThinking: "off" | "session";
-	handoffPendingQuestion: "defer" | "wait";
-	handoffLanguage: "auto" | "zh" | "en";
-}
+export type { ProjectContextSettings };
 
-/** What the card renders. */
-export interface ProjectContextSettingsCardState extends CardShell {
-	archiveEnabled: CardFieldState;
-	autoConsolidate: CardFieldState;
-	consolidateTurns: CardFieldState;
-	consolidateIntervalMs: CardFieldState;
-	forceDedupeMs: CardFieldState;
-	maxTokens: CardFieldState;
-	maxOutputTokens: CardFieldState;
-	maxMemoryChars: CardFieldState;
-	provider: CardFieldState;
-	model: CardFieldState;
-	autoLearn: CardFieldState;
-	autolearnTurns: CardFieldState;
-	autolearnIntervalMs: CardFieldState;
-	handoffEnabled: CardFieldState;
-	handoffAdaptive: CardFieldState;
-	handoffThresholdRatio: CardFieldState;
-	handoffTargetTokens: CardFieldState;
-	handoffKeepTokens: CardFieldState;
-	handoffSummaryThinking: CardFieldState;
-	handoffPendingQuestion: CardFieldState;
-	handoffLanguage: CardFieldState;
+/** State the card renders: the shared form shell plus one entry per table row. */
+export interface ProjectContextSettingsCardState extends SettingsFormShell {
+	readonly fields: Readonly<Record<keyof ProjectContextSettings, SettingsFieldState>>;
 }
 
 /** The registration-side face the card's slot entry injects. */
-export interface ProjectContextSettingsCardFace extends CardActions {
+export interface ProjectContextSettingsCardFace extends SettingsFormActions {
 	hooks: {
 		/** Card snapshot bound by the renderer as useProjectContextSettingsCard. */
 		projectContextSettingsCard: SnapshotStore<ProjectContextSettingsCardState>;
 	};
 }
 
-/** Bridges the `project-context` scope onto the card's staged form. */
+/**
+ * The platform's spec builders, keyed by row kind. Number and text reuse the platform's own
+ * conversions; boolean and enum are this plugin's, declared in `card-fields.ts`.
+ */
+const SPEC_BUILDERS: Record<FieldRow["kind"], (row: FieldRow) => SettingsFieldSpec> = {
+	number: (row) => settingsNumberField(row.key),
+	text: (row) => settingsTextField(row.key),
+	boolean: (row) => booleanField(row.key),
+	union: (row) => unionField(row.key, row.options ?? []),
+};
+
+/** Bridges the `project-context` scope onto the platform's staged settings form. */
 export class ProjectContextSettingsCardController {
-	private readonly form: CardForm<ProjectContextSettings>;
+	private readonly form: SettingsFormModel<ProjectContextSettings>;
 	private readonly store: SnapshotStore<ProjectContextSettingsCardState>;
 
-	/**
-	 * @param scope - the bound settings scope for the `project-context` namespace.
-	 * @param createStore - platform snapshot-store factory.
-	 */
-	constructor(scope: SettingsScope<ProjectContextSettings>, createStore: typeof createSnapshotStore) {
-		this.form = new CardForm(scope, [
-			booleanField("archiveEnabled"),
-			booleanField("autoConsolidate"),
-			numberField("consolidateTurns", 1),
-			numberField("consolidateIntervalMs", 1000),
-			numberField("forceDedupeMs", 0),
-			numberField("maxTokens", 256),
-			numberField("maxOutputTokens", 256),
-			numberField("maxMemoryChars", 4000),
-			textField("provider"),
-			textField("model"),
-			booleanField("autoLearn"),
-			numberField("autolearnTurns", 1),
-			numberField("autolearnIntervalMs", 1000),
-			booleanField("handoffEnabled"),
-			booleanField("handoffAdaptive"),
-			decimalField("handoffThresholdRatio", 0.1, 0.95),
-			numberField("handoffTargetTokens", 8000),
-			numberField("handoffKeepTokens", 0),
-			textField("handoffSummaryThinking"),
-			textField("handoffPendingQuestion"),
-			textField("handoffLanguage"),
-		]);
-		this.store = this.form.bind(() => this.projection(), createStore);
+	/** @param scope - the bound configuration form for the `project-context` namespace. */
+	constructor(scope: SettingsFormScope<ProjectContextSettings>) {
+		this.form = new SettingsFormModel(scope, ROWS.map((row) => SPEC_BUILDERS[row.kind](row)));
+		this.store = this.form.bind(() => this.projection());
 	}
 
+	// One loop over the same table the specs and the rows come from: a key cannot be projected
+	// twice, or be missing from the projection, without the table itself changing.
 	private projection(): ProjectContextSettingsCardState {
-		return {
-			...this.form.shell(),
-			archiveEnabled: this.form.field("archiveEnabled"),
-			autoConsolidate: this.form.field("autoConsolidate"),
-			consolidateTurns: this.form.field("consolidateTurns"),
-			consolidateIntervalMs: this.form.field("consolidateIntervalMs"),
-			forceDedupeMs: this.form.field("forceDedupeMs"),
-			maxTokens: this.form.field("maxTokens"),
-			maxOutputTokens: this.form.field("maxOutputTokens"),
-			maxMemoryChars: this.form.field("maxMemoryChars"),
-			provider: this.form.field("provider"),
-			model: this.form.field("model"),
-			autoLearn: this.form.field("autoLearn"),
-			autolearnTurns: this.form.field("autolearnTurns"),
-			autolearnIntervalMs: this.form.field("autolearnIntervalMs"),
-			handoffEnabled: this.form.field("handoffEnabled"),
-			handoffAdaptive: this.form.field("handoffAdaptive"),
-			handoffThresholdRatio: this.form.field("handoffThresholdRatio"),
-			handoffTargetTokens: this.form.field("handoffTargetTokens"),
-			handoffKeepTokens: this.form.field("handoffKeepTokens"),
-			handoffSummaryThinking: this.form.field("handoffSummaryThinking"),
-			handoffPendingQuestion: this.form.field("handoffPendingQuestion"),
-			handoffLanguage: this.form.field("handoffLanguage"),
-		};
+		const fields = {} as Record<keyof ProjectContextSettings, SettingsFieldState>;
+		for (const row of ROWS) fields[row.key] = this.form.field(row.key);
+		return { ...this.form.shell(), fields };
 	}
 
 	/** Build the face the card's slot registration injects. */
@@ -165,76 +110,127 @@ export type ProjectContextSettingsCardProps =
 	& PropsLocale<"project-context">
 	& InjectFace<ProjectContextSettingsCardFace>;
 
-type FieldControl = "text" | "number" | "decimal" | "boolean" | "enum";
-
-interface FieldProps {
-	id: string;
+/** Copy every row's control shares. */
+interface RowCopy {
 	label: string;
 	hint: string;
-	control: FieldControl;
-	options?: readonly string[];
-	state: CardFieldState;
-	disabled: boolean;
 	overriddenLabel: string;
 	resetLabel: string;
-	onEdit: (text: string) => void;
-	onReset: () => void;
+	invalidLabel: string;
+	disabled: boolean;
 }
 
-function Field(props: FieldProps) {
-	const { state } = props;
-	const selectOptions = props.control === "boolean"
-		? [{ value: "true", label: "✓" }, { value: "false", label: "✗" }]
-		: (props.options ?? []).map((value) => ({ value, label: value }));
+/**
+ * The badge and reset a staged override shows beside any row's label.
+ * @param props - whether the row is overridden, its actions, and the copy.
+ * @returns the badge and reset, or null while nothing is staged.
+ */
+function Override(props: { overridden: boolean; disabled: boolean; overriddenLabel: string; resetLabel: string; onReset: () => void }) {
+	if (!props.overridden) return null;
 	return (
-		<div className="dshPcField">
-			<div className="dshPcFieldHead">
-				<label className="dshPcLabel" htmlFor={props.id}>{props.label}</label>
-				{state.overridden ? (
-					<span className="dshPcBadges">
-						<span className="dshPcBadge">{props.overriddenLabel}</span>
-						<button type="button" className="dshPcReset" disabled={props.disabled} onClick={props.onReset}>
-							{props.resetLabel}
-						</button>
-					</span>
-				) : null}
-			</div>
-			{props.control === "boolean" || props.control === "enum" ? (
-				<select
-					id={props.id}
-					className="dshPcSelect"
-					value={state.text}
-					disabled={props.disabled}
-					onChange={(event) => props.onEdit(event.target.value)}
-				>
-					<option value="">—</option>
-					{selectOptions.map((option) => (
-						<option key={option.value} value={option.value}>{option.label}</option>
-					))}
-				</select>
-			) : (
-				<input
-					id={props.id}
-					className={state.invalid ? "dshPcInput dshPcInputInvalid" : "dshPcInput"}
-					type="text"
-					inputMode={props.control === "number" ? "numeric" : props.control === "decimal" ? "decimal" : undefined}
-					value={state.text}
-					disabled={props.disabled}
-					onChange={(event) => props.onEdit(event.target.value)}
+		<>
+			<Tag tone="neutral">{props.overriddenLabel}</Tag>
+			<Button variant="ghost" size="sm" disabled={props.disabled} onClick={props.onReset}>
+				{props.resetLabel}
+			</Button>
+		</>
+	);
+}
+
+/**
+ * One boolean row: a labelled switch. The draft's text is where the staged state lives, so the
+ * switch reads and writes the same draft every other control does.
+ * @param props - the row, its state, the copy, and the edit actions.
+ * @returns the row.
+ */
+function BooleanRow(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; onEdit: (text: string) => void; onReset: () => void }) {
+	const { copy, state } = props;
+	return (
+		<div className="dshPcRow">
+			<div className="dshPcRowHead">
+				<span className="dshPcRowLabel">{copy.label}</span>
+				<Override
+					overridden={state.overridden}
+					disabled={copy.disabled}
+					overriddenLabel={copy.overriddenLabel}
+					resetLabel={copy.resetLabel}
+					onReset={props.onReset}
 				/>
-			)}
-			<p className={state.invalid ? "dshPcInvalid" : "dshPcHint"}>{props.hint}</p>
+			</div>
+			<div className="dshPcRowControl">
+				<Switch
+					checked={state.text === "true"}
+					label={copy.label}
+					disabled={copy.disabled}
+					onChange={(next) => { props.onEdit(next ? "true" : "false"); }}
+				/>
+			</div>
+			<p className="dshPcRowText">{copy.hint}</p>
 		</div>
 	);
 }
 
-function Section(props: { title: string; description: string; children: ReactNode }) {
+/**
+ * One closed-enum row: the option set as selectable pills, so a value the schema would refuse
+ * cannot be typed.
+ * @param props - the row and its options, the state, the copy, and the edit actions.
+ * @returns the row.
+ */
+function UnionRow(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; onEdit: (text: string) => void; onReset: () => void }) {
+	const { copy, state } = props;
 	return (
-		<section className="dshPcSection">
-			<div className="dshPcSectionTitle">{props.title}</div>
-			<p className="dshPcSectionDescription">{props.description}</p>
-			<div className="dshPcGrid">{props.children}</div>
-		</section>
+		<div className="dshPcRow">
+			<div className="dshPcRowHead">
+				<span className="dshPcRowLabel">{copy.label}</span>
+				<Override
+					overridden={state.overridden}
+					disabled={copy.disabled}
+					overriddenLabel={copy.overriddenLabel}
+					resetLabel={copy.resetLabel}
+					onReset={props.onReset}
+				/>
+			</div>
+			<div className="dshPcRowControl dshPcPills">
+				{(props.row.options ?? []).map((option) => (
+					<Pill
+						key={option}
+						active={state.text === option}
+						disabled={copy.disabled}
+						onClick={() => { props.onEdit(option); }}
+					>
+						{option}
+					</Pill>
+				))}
+			</div>
+			<p className="dshPcRowText">{copy.hint}</p>
+		</div>
+	);
+}
+
+/**
+ * One table row, dispatched on its kind: the platform's field for text and number, this card's two
+ * rows for the shapes the platform has no field for.
+ * @param props - the row, its state, the row copy, and the edit actions.
+ * @returns the rendered row.
+ */
+function Row(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; onEdit: (text: string) => void; onReset: () => void }) {
+	const { row, state, copy } = props;
+	if (row.kind === "boolean") return <BooleanRow {...props} />;
+	if (row.kind === "union") return <UnionRow {...props} />;
+	return (
+		<SettingsValueField
+			id={`dsh-pc-${row.key}`}
+			label={copy.label}
+			hint={copy.hint}
+			overriddenLabel={copy.overriddenLabel}
+			resetLabel={copy.resetLabel}
+			invalidLabel={copy.invalidLabel}
+			{...(row.kind === "number" ? { numeric: true } : {})}
+			disabled={copy.disabled}
+			{...state}
+			onEdit={props.onEdit}
+			onReset={props.onReset}
+		/>
 	);
 }
 
@@ -245,80 +241,37 @@ function Section(props: { title: string; description: string; children: ReactNod
 export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProps) {
 	const { t } = props;
 	const state = props.useProjectContextSettingsCard((snapshot) => snapshot);
-	// The Plugins page renders the list row from the summary case and mounts this
-	// component again as the page body once the row is opened.
+	// The Plugins page renders the list row from the summary case and mounts this component again as
+	// the page body once the row is opened.
 	if (props.view === "summary") return t("card.description");
-	if (!state.available) return null;
 
-	const disabled = !state.writable;
-	const blocked = !state.dirty || state.invalid || state.saving;
-	const field = (
-		id: string,
-		labelKey: SettingsCardKey,
-		hintKey: SettingsCardKey,
-		control: FieldControl,
-		value: CardFieldState,
-		fieldName: keyof ProjectContextSettings,
-		options?: readonly string[],
-	) => (
-		<Field
-			id={id}
-			label={t(labelKey)}
-			hint={t(hintKey)}
-			control={control}
-			options={options}
-			state={value}
-			disabled={disabled}
-			overriddenLabel={t("chrome.overridden")}
-			resetLabel={t("chrome.reset")}
-			onEdit={(text) => props.edit(fieldName, text)}
-			onReset={() => props.resetField(fieldName)}
-		/>
-	);
+	const copy = (row: FieldRow): RowCopy => ({
+		label: t(labelKey(row.key)),
+		hint: t(hintKey(row.key)),
+		overriddenLabel: t("chrome.overridden"),
+		resetLabel: t("chrome.reset"),
+		invalidLabel: t("chrome.invalidNumber"),
+		disabled: !state.writable,
+	});
 
 	return (
-		<div className="dshPcCard">
-			<div className="dshPcBody">
-				{!state.writable ? <p className="dshPcReadOnly">{t("chrome.readOnly")}</p> : null}
-				<Section title={t("section.memory.title")} description={t("section.memory.description")}>
-					{field("pc-archive-enabled", "field.archiveEnabled", "field.archiveEnabledHint", "boolean", state.archiveEnabled, "archiveEnabled")}
-					{field("pc-auto-consolidate", "field.autoConsolidate", "field.autoConsolidateHint", "boolean", state.autoConsolidate, "autoConsolidate")}
-					{field("pc-consolidate-turns", "field.consolidateTurns", "field.consolidateTurnsHint", "number", state.consolidateTurns, "consolidateTurns")}
-					{field("pc-consolidate-interval", "field.consolidateIntervalMs", "field.consolidateIntervalMsHint", "number", state.consolidateIntervalMs, "consolidateIntervalMs")}
-					{field("pc-force-dedupe", "field.forceDedupeMs", "field.forceDedupeMsHint", "number", state.forceDedupeMs, "forceDedupeMs")}
-					{/* Shared auxiliary route: consolidation, autolearn and the handoff summary all use it. */}
-					{field("pc-max-tokens", "field.maxTokens", "field.maxTokensHint", "number", state.maxTokens, "maxTokens")}
-					{field("pc-max-output-tokens", "field.maxOutputTokens", "field.maxOutputTokensHint", "number", state.maxOutputTokens, "maxOutputTokens")}
-					{field("pc-max-memory-chars", "field.maxMemoryChars", "field.maxMemoryCharsHint", "number", state.maxMemoryChars, "maxMemoryChars")}
-					{field("pc-provider", "field.provider", "field.providerHint", "text", state.provider, "provider")}
-					{field("pc-model", "field.model", "field.modelHint", "text", state.model, "model")}
-				</Section>
-				<Section title={t("section.autolearn.title")} description={t("section.autolearn.description")}>
-					{field("pc-auto-learn", "field.autoLearn", "field.autoLearnHint", "boolean", state.autoLearn, "autoLearn")}
-					{field("pc-autolearn-turns", "field.autolearnTurns", "field.autolearnTurnsHint", "number", state.autolearnTurns, "autolearnTurns")}
-					{field("pc-autolearn-interval", "field.autolearnIntervalMs", "field.autolearnIntervalMsHint", "number", state.autolearnIntervalMs, "autolearnIntervalMs")}
-				</Section>
-				<Section title={t("section.handoff.title")} description={t("section.handoff.description")}>
-					{field("pc-handoff-enabled", "field.handoffEnabled", "field.handoffEnabledHint", "boolean", state.handoffEnabled, "handoffEnabled")}
-					{field("pc-handoff-adaptive", "field.handoffAdaptive", "field.handoffAdaptiveHint", "boolean", state.handoffAdaptive, "handoffAdaptive")}
-					{field("pc-handoff-ratio", "field.handoffThresholdRatio", "field.handoffThresholdRatioHint", "decimal", state.handoffThresholdRatio, "handoffThresholdRatio")}
-					{field("pc-handoff-target", "field.handoffTargetTokens", "field.handoffTargetTokensHint", "number", state.handoffTargetTokens, "handoffTargetTokens")}
-					{field("pc-handoff-keep", "field.handoffKeepTokens", "field.handoffKeepTokensHint", "number", state.handoffKeepTokens, "handoffKeepTokens")}
-					{field("pc-handoff-thinking", "field.handoffSummaryThinking", "field.handoffSummaryThinkingHint", "enum", state.handoffSummaryThinking, "handoffSummaryThinking", ["off", "session"])}
-					{field("pc-handoff-pending", "field.handoffPendingQuestion", "field.handoffPendingQuestionHint", "enum", state.handoffPendingQuestion, "handoffPendingQuestion", ["defer", "wait"])}
-					{field("pc-handoff-language", "field.handoffLanguage", "field.handoffLanguageHint", "enum", state.handoffLanguage, "handoffLanguage", ["auto", "zh", "en"])}
-				</Section>
-				<div className="dshPcFooter">
-					{state.dirty ? <span className="dshPcPending">{t("chrome.unsaved")}</span> : null}
-					{state.failed ? <p className="dshPcFailed">{t("chrome.saveFailed")}</p> : null}
-					<button type="button" className="dshPcDiscard" disabled={!state.dirty || state.saving} onClick={props.discard}>
-						{t("chrome.discard")}
-					</button>
-					<button type="button" className="dshPcSave" disabled={blocked} onClick={props.save}>
-						{t(state.saving ? "chrome.saving" : "chrome.save")}
-					</button>
-				</div>
-			</div>
-		</div>
+		<SettingsForm labels={formLabels(t)} state={state} onSave={props.save} onDiscard={props.discard}>
+			{SECTIONS.map((section) => (
+				<section key={section.titleKey} className="dshPcSection">
+					<h3 className="dshPcSectionTitle">{t(section.titleKey)}</h3>
+					<p className="dshPcSectionDescription">{t(section.descriptionKey)}</p>
+					{section.rows.map((row) => (
+						<Row
+							key={row.key}
+							row={row}
+							state={state.fields[row.key]}
+							copy={copy(row)}
+							onEdit={(text) => { props.edit(row.key, text); }}
+							onReset={() => { props.resetField(row.key); }}
+						/>
+					))}
+				</section>
+			))}
+		</SettingsForm>
 	);
 }
