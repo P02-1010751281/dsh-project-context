@@ -10,7 +10,7 @@ description: "Keep .agents/memory/MEMORY.md under the 32000-char cap and verify 
 ## Procedure
 
 1. **Measure before and after any memory edit**
-   - `wc -c .agents/memory/MEMORY.md`
+   - `wc -m .agents/memory/MEMORY.md` — **characters, which is the unit of the cap**. `wc -c` counts **bytes**, and this document is mostly CJK, so it overstates by roughly a third: a 26K-character file reads as ~34K bytes and looks over the cap when it is not. The authority is step 2's `loaded.text.length`, not either `wc`.
    - `MAX_MEMORY_CHARS` is **32000**; `MIN_MEMORY_CHARS` 4000; `MAX_MEMORY_CHARS_LIMIT` 200000 (configurable via `maxMemoryChars`).
    - Budget **~31,500 chars**, not 32000: a session appends memory between checks, so 32000 is already over the cap by the time you notice.
 
@@ -27,7 +27,7 @@ description: "Keep .agents/memory/MEMORY.md under the 32000-char cap and verify 
    - Keep the document under ~6000 words; memory is for durable project truth, not narrative.
 
 5. **Re-measure and re-probe, then report the numbers**
-   - After compressing: repeat `wc -c` and the `loadMemory(root, 32000)` + `isMemoryTruncated()` probe, and state the final char count plus the boolean (e.g. "31,683 chars, untruncated").
+   - After compressing: repeat the `loadMemory(root, 32000)` + `isMemoryTruncated()` probe (and `wc -m` if you want the raw count), and state the final **character** count plus the boolean (e.g. "31,683 chars, untruncated").
 
 6. **Confirm the tail survived**
    - If the write was meant to be permanent, check that the newest content is still present after the plugin's next write (e.g. locate the newest convention heading in the tail). Newly appended lines are exactly what a silent truncation drops.
@@ -35,4 +35,5 @@ description: "Keep .agents/memory/MEMORY.md under the 32000-char cap and verify 
 ## Traps this guard exists for
 - Silent permanent loss of newly appended content: new lines land past the cut point and are dropped on write.
 - The loaded-memory trap: marker present, status healthy, `/memory status` shows nothing wrong.
+- Verifying the cap with `wc -c`: it is bytes, not characters, so a CJK-heavy document reads ~30% over the cap while `isMemoryTruncated()` is false — a false alarm that invites pointless compression.
 - Verifying by grep for the marker or by a green test run instead of `isMemoryTruncated()`.
