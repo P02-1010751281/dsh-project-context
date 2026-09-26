@@ -2449,17 +2449,17 @@ test("the auto-handoff listener passes the trigger offset through to the settle 
 	assert.ok(!logs.some((line) => line.startsWith("warn")), "a deferral is not a failure");
 
 	// Round 2: still busy. The rate limit keeps this from spamming the log, and the offset must be
-	// the *triggering* one — a constant would make a settled session defer too (round 3). Reaching
-	// the measurement again also proves the deferral released the pressure throttle.
+	// the *triggering* one — a constant would make a settled session defer too (round 3). Reaching a
+	// second measurement also proves a deferral does not stop the next `turn/end` from re-measuring.
 	own.push({ type: "turn/end", seq: 12, time: Date.now() }, { type: "turn/start", seq: 13, time: Date.now() });
 	listener(session, { type: "turn/end", seq: 12, time: Date.now() });
 	await waitFor(() => measures >= 2);
-	assert.ok(measures >= 2, "the deferral released the pressure throttle");
+	assert.ok(measures >= 2, "the next turn/end re-measures after a deferral");
 	assert.equal(deferrals(), 1, "a second deferral inside the interval is not logged again");
 	assert.deepEqual(created, []);
 
 	// Round 3: the session truly settled (no `turn/start` after the trigger). The deferral must not
-	// have wedged the session — no failure backoff, no stale in-flight marker, no spent throttle.
+	// have wedged the session — no failure backoff, no stale in-flight marker.
 	own.push({ type: "turn/end", seq: 14, time: Date.now() });
 	listener(session, { type: "turn/end", seq: 14, time: Date.now() });
 	await waitFor(() => created.length > 0);
@@ -2583,9 +2583,9 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 	};
 
 	// A settled trigger recorded during a *successful* attempt must not hand the same session off
-	// twice, and a *failed* attempt keeps its backoff: both retries go through `attempt()`. The
-	// interval is 0 so the pressure throttle cannot hide a missing re-check (a retry within the
-	// production interval would be dropped by the throttle before either gate could be observed).
+	// twice, and a *failed* attempt keeps its backoff: both retries go through `attempt()`. The two
+	// `turn/end` events are delivered back to back so the gate itself has to reject the second one —
+	// the automatic path re-measures every turn, so nothing else could be silencing it.
 	const twice = make();
 	twice.listener(twice.session, { type: "turn/end", seq: 10, time: Date.now() });
 	twice.listener(twice.session, { type: "turn/end", seq: 12, time: Date.now() });

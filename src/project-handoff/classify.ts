@@ -290,8 +290,9 @@ export function handoffFailureIsTransient(error: unknown): boolean {
  * Used where the failure is caught and re-thrown so the verdict survives to the receipt.
  *
  * A {@link HandoffDeferred} is passed through **unchanged**: the automatic path tests
- * `instanceof HandoffDeferred` to release its pressure throttle and to archive the abandoned child,
- * and re-wrapping it would silently turn the 2026-09-17 double-write guard into an ordinary error.
+ * `instanceof HandoffDeferred` to keep a deferral out of the failure backoff and to title and retire
+ * the abandoned child as deferred rather than failed, and re-wrapping it would silently turn the
+ * 2026-09-17 double-write guard into an ordinary error.
  */
 export function transientIfRetryable(error: unknown): Error {
 	if (error instanceof HandoffDeferred || error instanceof HandoffTransient) return error;
