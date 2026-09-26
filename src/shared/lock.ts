@@ -18,6 +18,10 @@ export const MEMORY_LOCK_STALE_MS = 30_000;
  * How long a writer waits for the lock before failing the pass. It must exceed the staleness
  * horizon: a lock orphaned by a crash is not stealable until then, so a shorter wait would fail
  * every pass for the rest of that window instead of taking the abandoned lock over.
+ *
+ * The sibling pi port pins a flat 5 s wait under the same 30 s horizon, so there an orphaned lock
+ * does fail every pass until it expires. The divergence is deliberate and must not be "unified":
+ * the invariant above is exactly what this value encodes, and a 5 s wait here would break it.
  */
 export const MEMORY_LOCK_WAIT_MS = MEMORY_LOCK_STALE_MS + 5_000;
 

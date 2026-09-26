@@ -31,6 +31,12 @@
     `settings-card.tsx` 的 `PropsRuntime<"plugins.item">` 同步改绑。
   - 变异校验：单字段去掉标记 → 掉 1；把解引用改成空操作 → 掉 1；把published 值改回快照 → 掉 1。
 
+**并发写入保护（host）**
+
+- 文档：`MEMORY_LOCK_WAIT_MS`（`MEMORY_LOCK_STALE_MS + 5s` = 35s）与兄弟仓库 pi 侧同名常量的 5s
+  **刻意不统一**。理由写在常量处：等待必须越过 30s 陈旧期，否则崩溃留下的孤儿锁会在整个窗口内让每一趟
+  都失败，而不是被接管（pi 侧在同一 30s 上下文中用 5s，两处不要"顺手统一"）。
+
 ### v0.2.0
 
 **dsh 0.1.7-rc.2 宿主 API 适配（host）**
