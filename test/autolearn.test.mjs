@@ -17,6 +17,7 @@ import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
 import { MAX_SKILL_DESCRIPTION_CHARS } from "../lib/project-autolearn/skill.js";
+import { parseAutolearn } from "../lib/project-autolearn/parse.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
@@ -671,11 +672,16 @@ test("the admission rules are one predicate, shared by the pass and the approve 
 test("the name, candidate-evidence and candidate-exists branches are reachable through the pass", async () => {
 	// `rejectionReason`'s name rule reads as caller-guaranteed, but only `/autolearn approve|reject`
 	// validate their argument; the pass path takes whatever the model returned (`parseAutolearn` only
-	// requires `typeof name === "string"`). These three branches had no pin, so dropping one would go
-	// unnoticed — the same class of hole as the four rules `approveCandidate` used to re-derive.
+	// requires `typeof name === "string"`, then trims it). The first case drives that path end to end
+	// through the real parser: the rule is only load-bearing if a *model answer* can carry a non-kebab
+	// name this far, and an assertion that started at `saveProposedSkill` would not notice a future
+	// `parse.ts` that filtered names and silently turned the rule into dead code.
 	const body = `## Steps\n\n${"Run the release checklist. ".repeat(12)}`;
+	const modelAnswer = parseAutolearn(JSON.stringify({ skill: { name: "Not Kebab", description: "a workflow", body, evidence: [], candidate: false } }));
+	assert.equal(modelAnswer.skill?.name, "Not Kebab", "parseAutolearn must not filter the name");
+	assert.deepEqual(await saveProposedSkill(await project(), modelAnswer.skill, new Set()), { rejected: "invalid kebab-case name" });
+
 	const cases = [
-		{ name: "Not Kebab", evidence: [], candidate: false, reason: "invalid kebab-case name" },
 		{ name: "candidate-needs-one", evidence: [], candidate: true, reason: "needs at least one verified session id" },
 		{ name: "candidate-needs-archived", evidence: ["session-not-archived"], candidate: true, reason: "needs at least one verified session id" },
 	];
@@ -684,8 +690,15 @@ test("the name, candidate-evidence and candidate-exists branches are reachable t
 		const outcome = await saveProposedSkill(root, { name, description: "a workflow", body, evidence, candidate }, new Set());
 		assert.deepEqual(outcome, { rejected: reason }, `the pass disagreed about "${reason}"`);
 	}
+	// Precedence: a proposal that breaks two rules names the name rule, so which reason a user sees does
+	// not depend on which guard happens to run first (swapping the two guards was invisible before).
+	assert.deepEqual(
+		await saveProposedSkill(await project(), { name: "Not Kebab", description: "", body: "## Steps\n\ntoo short\n", evidence: [], candidate: false }, new Set()),
+		{ rejected: "invalid kebab-case name" },
+		"a doubly-invalid proposal must report the name rule",
+	);
 	// The candidate-exists rule sits behind the evidence rule, so reaching it needs a verified id.
-	const root = await project({ sessions: ["session-a"], index: ["session-a"] });
+	const root = await project();
 	await mkdir(path.join(memoryDir(root), "skill-candidates"), { recursive: true });
 	await writeFile(path.join(memoryDir(root), "skill-candidates", "draft-workflow.md"), `---\nname: draft-workflow\ndescription: "a workflow"\n---\n\n${body}\n`);
 	const outcome = await saveProposedSkill(root, { name: "draft-workflow", description: "a workflow", body, evidence: ["session-a"], candidate: true }, new Set(["session-a"]));

@@ -43,8 +43,9 @@ async function existingSkillNames(projectRoot: string): Promise<Set<string>> {
  *
  * The name is deliberately not part of this predicate: `rejectionReason` checks it, and the
  * approve/reject CLI paths validate their argument themselves. The pass path does **not**
- * pre-validate it — `parseAutolearn` only requires `typeof name === "string"` — so the name rule in
- * `rejectionReason` is load-bearing, not caller-guaranteed.
+ * pre-validate it — `parseAutolearn` only requires `typeof name === "string"` (then trims it) — so the
+ * name rule in `rejectionReason` is load-bearing, not caller-guaranteed. That rule also runs before
+ * the shape rules, so a doubly-invalid proposal reports the name; both facts are pinned by tests.
  */
 export function shapeRejection(description: string, body: string): string | undefined {
 	if (!description) return "missing description";
