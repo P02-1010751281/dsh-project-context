@@ -170,3 +170,53 @@ test("the archive entry exports the Config schema the Host projects a settings f
 	const client = await readFile(fileURLToPath(new URL("../client/index.ts", import.meta.url)), "utf8");
 	assert.ok(client.includes(`const NS = "${SETTINGS_NAMESPACE}"`), "the card must bind the namespace the Host serves");
 });
+
+test("every settings field carries the volatile mark the Host's form projection requires", async () => {
+	// `SettingsForms.describe()` runs each schema through `volatileForm()`, which keeps a field only
+	// when it (or an ancestor) carries the schemastery `volatile` mark and returns `undefined` for a
+	// schema whose fields are all ordinary. Such an entry is served by nobody: the namespace never
+	// reaches the client's describe mirror, `whileServed` never fires, and the card disappears with no
+	// error and no log. Measured on dsh 0.1.7-rc.2: without the marks the Host serves 23 namespaces and
+	// not this one; with them it serves 24 including `project-context`.
+	const { PluginSettingsSchema } = await import("../lib/shared/settings.js");
+	const dict = PluginSettingsSchema.dict ?? {};
+	const keys = Object.keys(dict);
+	assert.ok(keys.length > 0, "the schema must declare settings fields");
+	for (const key of keys) {
+		assert.equal(dict[key].meta?.volatile, true, `${key} must be volatile or the Host drops the whole namespace`);
+	}
+});
+
+test("volatile settings are read through their live references, not snapshotted", async () => {
+	// The mark makes schemastery hand each field over as a live reference (cosmokit's shared protocol,
+	// branded with a global symbol), and the Loader commits a volatile-only settings write straight into
+	// those references (`Entry._commitVolatile`) without restarting the entry. So both halves matter:
+	// the owner must be able to resolve a reference, and every reader must see a later write.
+	const WRITE = Symbol.for("cosmokit.volatile.write");
+	const reference = value => {
+		let current = value;
+		return Object.freeze({ get: () => current, [WRITE]: next => { current = next } });
+	};
+
+	const { resolvePluginConfig } = await import("../lib/shared/config.js");
+	assert.equal(resolvePluginConfig({ handoffSummaryThinking: reference("session") }).handoffSummaryThinking, "session");
+	assert.equal(resolvePluginConfig({ archiveEnabled: reference(false) }).archiveEnabled, false);
+
+	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+	const fiberConfig = { archiveEnabled: reference(true), handoffTargetTokens: reference(64_000) };
+	let release;
+	const ctx = {
+		effect: callback => { release = callback(); return release; },
+		fiber: { config: fiberConfig },
+	};
+	publishProjectContextSettings(ctx, resolvePluginConfig({}));
+	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true);
+	fiberConfig.archiveEnabled[WRITE](false);
+	assert.equal(
+		effectivePluginConfig(resolvePluginConfig({})).archiveEnabled,
+		false,
+		"a volatile write must reach the other plugins without a remount",
+	);
+	release?.();
+	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true, "releasing restores the caller's own config");
+});

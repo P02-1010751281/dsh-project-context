@@ -8,18 +8,20 @@
  * `ctx.inject(["settingsScope"], …)` so a core without the service degrades to "no settings card".
  *
  * The same release then replaced `settingsScope` with `configForms` (per-profile plugin Config) and
- * renamed the card slot from `settings.plugin.item` to `plugins.item` on the plugin manager's page.
- * The card kept targeting both dead names, so it compiled while rendering nothing: the optional
- * `settingsScope` lookup never fired, and the slot it would have registered into is no longer
- * declared (`slots.register` throws for an undeclared slot, which is why the lookup has to wait for
- * the declaration).
+ * reorganized the card slots: the old `settings.plugin.item` list is now the official-only
+ * `plugins.item` plus the bundle-scoped `plugins.bundle.config`, which the Plugins page dispatches by
+ * the bundle's package name. The card kept targeting both dead names, so it compiled while rendering
+ * nothing: the optional `settingsScope` lookup never fired, and the slot it would have registered into
+ * is no longer declared (`slots.register` throws for an undeclared slot, which is why the lookup has to
+ * wait for the declaration).
  *
  * A static assertion is the right shape here: the card pulls React in, so the suite never imports
  * it. The halves asserted below are exactly the ones the repair rests on — the services must not be
- * *required*, the card must still *ask* for them, and it must name the slot the page declares.
+ * *required*, the card must still *ask* for them, and it must name the slot and key the page declares.
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -54,12 +56,17 @@ test("the client's static inject list carries only services every composition pr
 });
 
 test("the settings card registers on the slot the Plugins page declares, and only while served", () => {
-	// `settings.plugin.item` was the pre-0.1.7 name; the page declares `plugins.item` today, and a
-	// registration against a name nothing declares throws.
-	assert.match(code, /const CARD_SLOT = "plugins\.item"/, "the card slot must be the current one");
+	// `settings.plugin.item` was the pre-0.1.7 name. Today the page declares `plugins.item` for the
+	// official cards and `plugins.bundle.config` for a bundle's own configuration — this plugin ships a
+	// bundle patch, so its card belongs to the latter, keyed by the package name the page dispatches.
+	const packageName = JSON.parse(
+		readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+	).name;
+	assert.match(code, /const CARD_SLOT = "plugins\.bundle\.config"/, "the card slot must be the current one");
+	assert.match(code, new RegExp(`const BUNDLE_KEY = "${packageName}"`), "the card key must be the bundle the page dispatches");
 	assert.doesNotMatch(code, /settings\.plugin\.item/, "the retired slot name must not come back");
 	assert.doesNotMatch(code, /settingsScope/, "the retired service must not come back");
-	assert.match(card, /PropsRuntime<"plugins\.item">/, "the card's props must bind the current slot");
+	assert.match(card, /PropsRuntime<"plugins\.bundle\.config">/, "the card's props must bind the current slot");
 
 	// A deployment that never composed the host half serves no `project-context` namespace, and the
 	// page must then show no trace of the card.
@@ -70,7 +77,7 @@ test("the settings card registers on the slot the Plugins page declares, and onl
 	);
 	assert.match(entry, /formsCtx\.configForms\.get<ProjectContextSettings>\(NS\)/, "the card edits its own namespace");
 
-	// The `plugins.item` contract renders the row from the summary case and the page body from the
-	// same component; a card without the summary branch renders its whole form inside the row.
+	// The slot contract types both views on the same component; the bundle page asks for the body, and
+	// a card without the summary branch renders its whole form inside the official row.
 	assert.match(card, /props\.view === "summary"/, "the card must answer the summary view");
 });

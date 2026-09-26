@@ -210,17 +210,24 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
 
 ## 配置
 
-Settings → Plugins → **项目上下文** 卡片（记忆整理 / 技能沉淀 /
-自动交接三区，共享的辅助模型路由在记忆整理区末尾），host 侧实时生效。卡片挂在插件页的 `plugins.item`
-槽位上，经宿主的 `configForms` 服务读写本命名空间，并由 `whileServed` 门控——profile 没装 host 半时
-页面上不会留下痕迹。
+Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行（打开后是记忆整理 / 技能沉淀 /
+自动交接三区，共享的辅助模型路由在记忆整理区末尾），host 侧实时生效。卡片挂在插件页的
+`plugins.bundle.config` 槽位、键为 bundle 包名 `dsh-project-context`（该槽位按包名分派；
+`plugins.item` 归**官方插件**卡片），经宿主的 `configForms` 服务读写本命名空间，并由 `whileServed`
+门控——profile 没装 host 半时页面上不会留下痕迹。
 
 命名空间就是 **Loader 条目 id** `project-context`：dsh 0.1.7-rc.2 起，设置表单由**归属插件模块导出的
 `Config` schema 投影**而来（`SettingsForms.schema(entry)` 读 `entry.fiber.runtime.Config`），
 不再有 `settings.register` / `installSection` 这类运行时注册 API。所以 host 半边把
 `PluginSettingsSchema` 作为 `Config` 从 `project-context` 入口导出；四个插件共享同一个命名空间
-（该入口发布自己 apply 到的 live config，其余三个读取它），base 层因此恒为
+（该入口发布自己 fiber 的 live config，其余三个读取它），base 层因此恒为
 `cordis.patch.yml` 里 `project-context` 那一行的 `config:`，改其余三行不生效。
+
+**新增字段必须带 volatile 标记**（`.extra("volatile", true)`，见 `src/shared/settings.ts`）：
+`describe()` 用 `volatileForm()` 过滤，一份没有该标记的 schema 会让**整个条目**从被服务命名空间里
+消失，卡片随之无错误、无日志地不渲染（`test/settings-form.test.mjs` 逐个字段钉住这条）。标记同时让
+这些字段以**活引用**交给插件，所以 `resolvePluginConfig` 会按 cosmokit 的共享协议解引用，而共享设置
+是**读取器**而非快照——loader 对只改 volatile 字段的写入是原地提交引用、不重启条目。
 
 设置值写在**当前 profile 的 patch 文档**里（`SettingsForms.documentPath`），不再是
 `~/.dsh/settings.yaml`：rc.2 在 Loader 安定后把该文件里的旧段一次性导入 profile（文件改名为

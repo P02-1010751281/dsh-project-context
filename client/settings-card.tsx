@@ -7,7 +7,7 @@
  */
 
 import { type ReactNode } from "react";
-// Type-only: pulls the `plugins.item` SlotMap merge (the Plugins page's list slot).
+// Type-only: pulls the `plugins.bundle.config` SlotMap merge (the Plugins page's bundle-config slot).
 import type {} from "@deepseek-ai/dsh-client-ui-plugin-manager/client";
 import type { InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import { createSnapshotStore, type SettingsScope, type SnapshotStore } from "./dsh-store-compat.ts";
@@ -161,7 +161,7 @@ export class ProjectContextSettingsCardController {
 
 /** Props the renderer binds for the project-context plugin-configuration card. */
 export type ProjectContextSettingsCardProps =
-	& PropsRuntime<"plugins.item">
+	& PropsRuntime<"plugins.bundle.config">
 	& PropsLocale<"project-context">
 	& InjectFace<ProjectContextSettingsCardFace>;
 

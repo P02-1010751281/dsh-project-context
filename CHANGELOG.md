@@ -7,7 +7,29 @@
 
 ### 未发布（`v0.2.0` 之后）
 
-（暂无）
+**设置卡片（client + host）**
+
+- 修复：**卡片在 rc.2 上仍然不渲染**（`v0.2.0` 只修到"导出 `Config`"，那一步必要但不充分）。
+  rc.2 的 `SettingsForms.describe()` 会把每份 schema 过一遍 `settings/schema.ts` 的 `volatileForm()`：
+  只有**带 schemastery `volatile` 标记**的字段（或其祖先）会被留下，一份字段全是普通类型的 schema
+  直接返回 `undefined`，于是**整个条目被跳过**——宿主不再为该命名空间服务任何东西，客户端 describe
+  镜像里没有它，`whileServed` 永不触发，卡片**无错误、无日志地消失**。实测（隔离 rc.2 实例 + 真机
+  浏览器）：标记前宿主服务 23 个命名空间且不含 `project-context`，标记后 24 个含它，条目 4/4 运行中，
+  三个分区 21 个字段在 bundle 页上渲染出来。
+  - 21 个字段全部打上标记，用 `extra("volatile", true)` 而不是 `.volatile()`：两者写入的是同一个
+    `meta.volatile`（表单投影与 loader 的 `volatileEntries` 读的都是它），但修饰符还会把解析 **mode**
+    切到 `volatile`，让每个值变成 `Volatile` 活引用，并牵出无法命名的类型（导出该 schema 会 `TS2742`
+    编译失败）。标记本身足够，且不动值类型。
+  - **标记会让 schemastery 把这些字段交给插件时是活引用而非值**，所以 `resolvePluginConfig` 现在按
+    cosmokit 的共享协议（`Symbol.for("cosmokit.volatile.write")`，跨 ESM/CJS 副本识别用）解引用；
+    否则归属条目会拿自己的 config 报 "`handoffSummaryThinking` must be …" 而激活失败。
+  - 共享设置从**快照**改为**读取器**：loader 对"只改 volatile 字段"的写入是 `Entry._commitVolatile`
+    ——把新值**原地提交进运行中 fiber 的引用**、不重启条目——所以 apply 时拍下的快照会让卡片"看得见、
+    改不动"。现在 `effectivePluginConfig` 每次从归属 fiber 的 config 重解析，写入立刻被四个插件看到。
+  - 卡片改挂 `plugins.bundle.config`、键为本 bundle 包名 `dsh-project-context`（`plugins.item` 是
+    **官方插件专用**列表；bundle 自身配置的归属槽位是前者，社区四个能显示的卡片都这么做），
+    `settings-card.tsx` 的 `PropsRuntime<"plugins.item">` 同步改绑。
+  - 变异校验：单字段去掉标记 → 掉 1；把解引用改成空操作 → 掉 1；把published 值改回快照 → 掉 1。
 
 ### v0.2.0
 

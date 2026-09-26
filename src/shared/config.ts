@@ -73,12 +73,35 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
 const CONFIG_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
 
+/**
+ * Brand of cosmokit's live config reference, taken from the global symbol registry.
+ *
+ * schemastery resolves a `volatile` settings field to such a reference instead of the value, and
+ * cosmokit brands it with a well-known `Symbol.for(...)` so copies of the library that do not share a
+ * module instance still recognize it. Reading through that same global symbol keeps this package's
+ * runtime dependency surface unchanged (`schemastery` only).
+ */
+const VOLATILE_WRITE = Symbol.for("cosmokit.volatile.write");
+
+/** Follow a schemastery `volatile` settings field to its current value; plain values pass through. */
+function fieldValue<T>(value: T): T {
+	if (typeof value !== "object" || value === null || !(VOLATILE_WRITE in value)) return value;
+	const read = (value as { get?: () => unknown }).get;
+	return (typeof read === "function" ? read.call(value) : value) as T;
+}
+
 /** Validate one raw cordis config object and apply defaults. Throws on unknown keys or bad types. */
 export function resolvePluginConfig(raw: unknown): PluginConfig {
 	if (raw === undefined || raw === null) return { ...DEFAULT_CONFIG };
 	if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("dsh-project-context: config must be an object");
 
-	const input = raw as Record<string, unknown>;
+	// The owner entry's config arrives *resolved*, and every field of PluginSettingsSchema is marked
+	// volatile so the Host projects a form for it — which makes schemastery hand those fields over as
+	// live references rather than values. Follow each one; the reference's value is re-read on every
+	// call, so a later settings write is visible without the entry restarting.
+	const input = Object.fromEntries(
+		Object.entries(raw as Record<string, unknown>).map(([key, value]) => [key, fieldValue(value)]),
+	);
 	for (const key of Object.keys(input)) {
 		if (!CONFIG_KEYS.has(key)) throw new Error(`dsh-project-context: unknown config key "${key}"`);
 	}
