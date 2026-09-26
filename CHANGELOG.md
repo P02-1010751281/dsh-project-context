@@ -96,7 +96,7 @@
   - 变异校验：把校验退回截断值 → 掉 1；把描述上限放大 100 倍 → 掉 1。
   - 同时把这条规则补进 `test/autolearn.test.mjs` 的三角度案例表（谓词 / pass / approve），并把
     `rejectionReason` 三个此前无钉的分支（非法名字、候选无归档证据、候选已存在）经 pass 路径钉住；
-    至此 `shapeRejection` 与 `rejectionReason` 的**九个**返回串全部有钉子。源码里"名字由调用方校验"
+    至此 `shapeRejection` 与 `rejectionReason` 的**十个**返回串（5 个 shape + 5 个 `rejectionReason`，其中两条带名字模板）全部有钉子。源码里"名字由调用方校验"
     的注释也是错的（`parseAutolearn` 只要求 `typeof name === "string"`），一并改正。
 
 ### v0.2.0
