@@ -58,6 +58,24 @@
 - 变更（用户可见）：卡片上**没有「放弃」按钮**——官方语义是离开页面即丢弃草稿，与官方设置页一致。
 - 变异校验（四个变异体均 build 0）：样式表加回颜色字面量 → 掉 2；删掉一行字段表 → 掉 1；布尔解析接受
   任意草稿 → 掉 1；spec 不再由字段表派生 → 掉 1。
+- 新增：`test/card-render.test.mjs`，本仓库第一个**真渲染**的客户端测试（其余客户端测试都是对源码的
+  字符串扫描：能证明某个字符串不在，不能证明控件进了 DOM）。它把卡片与平台的 `SettingsForm` /
+  `SettingsValueField` / `Switch` / `Pill` 一起 esbuild 打包，经 `react-dom/server` 渲染后按字段表核对：
+  **21 行各出现一次**（8 行由卡片包装、13 行由平台绘制，且平台绘制的 13 个 id 与表里 number/text 的键
+  完全相等）、**5 个开关**、**3 组共 7 个胶囊**、整页**只有 1 个保存控件**（起手 `disabled`，落一次编辑
+  才可用）、未服务的命名空间 0 行 + 提示、只读 21 行 + 提示且保存禁用、覆盖字段恰好 1 徽章 + 1 重置；
+  写入路径确认**一次**原子 `mutate`（`path:['consolidateTurns']`、`value:20`、`expectedRevision:7`）、
+  被拒后 `failed:true` 且 `saving:false` 且草稿保留、非法草稿一次都不写。
+- 依赖：上条测试用到的 `react` / `react-dom` 进了 devDependencies，`clsx` / `zustand` / `immer` 也一样。
+  后三个**本不是**本仓库的依赖，是上游打包缺陷：`@deepseek-ai/dsh-client-ui-primitives` 与
+  `@deepseek-ai/dsh-client-store` 的 `lib/index.js` 会 import 它们，而这两个包 0.1.7-rc.2 的 manifest
+  **只声明了 cordis peer**（`dependencies` 为空），Shell 从自己的 workspace 供所以一直无人发现；
+  一旦自己打包就必须自己供。同一份 `lib/index.js` 还 import `shiki` / `katex` / `micromark-*` /
+  `mdast-util-*` / `simple-icons` / `diff` / `anser` / `@deepseek-ai/dsh-util-*`（markdown 与代码块那一
+  面），测试按上游实际 import 的**具名导出**注入惰性 passthrough 并在 `t.diagnostic` 中列出，卡片真正
+  渲染的组件仍是真件。浏览器 bundle 不受影响：这五个仍全部 external。
+- 变异校验（渲染测试，四个变异体都能打包通过）：布尔不再走平台 `Switch` → 掉 1；枚举行只留第一个选项
+  → 掉 1；平台行丢掉自己的 id → 掉 1；卡片加回一个自绘按钮 → 掉 1。
 
 **并发写入保护（host）**
 
