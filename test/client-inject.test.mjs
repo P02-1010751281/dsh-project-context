@@ -77,7 +77,9 @@ test("the settings card registers on the slot the Plugins page declares, and onl
 	);
 	assert.match(entry, /formsCtx\.configForms\.get<ProjectContextSettings>\(NS\)/, "the card edits its own namespace");
 
-	// The slot contract types both views on the same component; the bundle page asks for the body, and
-	// a card without the summary branch renders its whole form inside the official row.
+	// `PluginConfigViewProps` types `view: 'summary' | 'page'` on every configuration slot, but the
+	// keyed `plugins.bundle.config` slot is rendered with `view: 'page'` only, so this branch is off the
+	// live path today. It is asserted because losing it would render the whole form as a one-liner if a
+	// surface ever asked for the summary — the failure the branch exists to prevent.
 	assert.match(card, /props\.view === "summary"/, "the card must answer the summary view");
 });

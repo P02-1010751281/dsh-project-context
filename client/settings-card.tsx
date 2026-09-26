@@ -22,7 +22,8 @@ import {
 	unionField,
 	type FieldRow,
 	type ProjectContextSettings,
-} from "./card-fields.ts";import {
+} from "./card-fields.ts";
+import {
 	Button,
 	Pill,
 	SettingsForm,
@@ -241,8 +242,10 @@ function Row(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; o
 export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProps) {
 	const { t } = props;
 	const state = props.useProjectContextSettingsCard((snapshot) => snapshot);
-	// The Plugins page renders the list row from the summary case and mounts this component again as
-	// the page body once the row is opened.
+	// Today the Plugins page renders the keyed `plugins.bundle.config` slot with `view: 'page'` only
+	// (`PluginManagerPage.tsx`), so this branch is not on the live path. It stays because `view` is
+	// typed `'summary' | 'page'` for every configuration slot alike, and rendering the whole form
+	// inside a one-line row would be the failure mode if a surface ever asked for the summary.
 	if (props.view === "summary") return t("card.description");
 
 	const copy = (row: FieldRow): RowCopy => ({
