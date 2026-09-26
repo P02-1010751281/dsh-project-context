@@ -1,6 +1,6 @@
 ---
 name: dsh-project-context-concurrent-writer-guard
-description: "Safely stage and commit in the dsh-project-context repo when another dsh agent session may be editing the same files."
+description: "Safely stage and commit in the dsh-project-context repo when another dsh agent session may be editing the same files, including the check that no new .agents/skills/ entry was left unstaged."
 ---
 
 Purpose: safely edit and commit in /mnt/Data/Projects/dsh-project-context when another dsh agent session may be editing the same files.
@@ -13,7 +13,7 @@ Procedure:
 3. Enter the idle window: wait until the other writer's target file mtime has stopped changing. In the session logs, waiting until the other session's last write was several minutes old was enough. Re-read the files after the wait.
 4. Edit only the files scoped to the current task. After edits, run `pnpm typecheck` and `pnpm test` (prepend the current Node 22 bin dir to PATH; the Nix store path rotates, so run `node -v` first). Run `pnpm build` only for client-side changes.
 5. Commit with a scoped add: `git add <exact paths>`, never `git add -A` or `git add .`. Inspect `git diff --cached` to confirm no other session's changes are included. Commit in English Conventional Commits (`fix:`, `docs:`, etc.).
-6. Push only after `git status --short` shows only your files plus the repo's normal untracked entries (.agents/, thinking-effort-loaded.json). If another session's changes are staged or committed, do not rewrite history; coordinate with the user.
+6. Push only after `git status --short` shows only your files plus the repo's *transient* untracked entries (`.agents/memory/session-logs/`, `.agents/memory/skill-candidates/`, `memory.jsonl`, `thinking-effort-loaded.json`). An untracked `.agents/skills/<name>/SKILL.md` is **not** transient: a concurrent session writes skills straight into that directory without staging them, so `??` there means a skill is one clone away from being lost (skills cannot be regenerated — their evidence, `session-logs/`, is gitignored). Check it every time: compare `ls -d .agents/skills/*/` with `git ls-files '.agents/skills/**/SKILL.md'` (counts must match), then read any new file (frontmatter present, sections coherent, no credential patterns) and stage it. This happened silently twice on 2026-09-26 (`dsh-artifact-claim-verification` 16:32, `dsh-nix-desktop-launcher-artifact-verify` 17:17). If another session's changes are staged or committed, do not rewrite history; coordinate with the user.
 7. Do not restart the user's dsh web or dsh-desktop to make your change live; propose the restart instead. Record open tasks in .agents/memory/CONTEXT.md or .agents/memory/HANDOFF.md, not in skills or commit messages.
 
 Expected outcome: your task's files are committed and pushed without clobbering another live session's work, and the tree is left clean except the normal untracked artifacts.

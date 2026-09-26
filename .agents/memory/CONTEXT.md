@@ -18,11 +18,12 @@ Last updated: 2026-09-26T09:23:52.997Z
 
 ## Open tasks
 
-- 裁决 autolearn 候选 `dsh-session-log-user-correction-recovery.md`：只由 1 个会话（`session-8256f99d`）证实，未达 2 会话提升门槛；提升为 `.agents/skills/<name>/SKILL.md` 还是继续留在候选队列由用户决定。
-- 裁决交付线题材的技能归属：`dsh-nix-desktop-launcher-artifact-verify` 的题材属于已撤出本仓的交付线，但被留在本仓跟踪（理由：技能是给本仓 agent 的操作规程，且技能机制只在本仓存在）；若要按题材搬到 `/etc/nixos`，需先定「搬到哪、由谁发现」。
-- 每次提交前核对技能入库状态：`ls -d .agents/skills/*/` 与 `git ls-files '.agents/skills/**/SKILL.md'` 逐目录对比——当天已出现两次未跟踪的新技能，这是这条边界唯一会静默失效的方式。
-- 留意记忆 cap 余量（现约 7.8K）；下次 consolidation 前以 `loadMemory(root, 32000)` + `isMemoryTruncated(loaded.text) === false` 与 `damaged`/`poisoned` 为准，记录轮次而非精确字节。
-- 清理 `CONTEXT.md` 里 `docs/upstream-pi-triage.md` 那条已自我作废的过期措辞（已被自身划掉并注明早已入库 `01809c5`）——删除还是留作历史待定。
-- Upstream（dsh core，不在本仓）：把 `discovery.ts` 的 `capacity()` 拆开，使「声明的总窗口」与「可用输入上限」成为两个字段；只有那之后 `qualityLimit` 的上游分支才能接线。
+- **已裁决（2026-09-26）：autolearn 候选 `dsh-session-log-user-correction-recovery.md` 维持候选。** 它只由 1 个会话（`session-8256f99d`）证实，未达本仓写入的提升门槛（`MIN_SKILL_SESSIONS = 2` / `MIN_CANDIDATE_SESSIONS = 1`），按机制自身的规则不提升。**再评估触发**：出现第二个可验证复现该流程的归档会话（判据是在 `session-logs/` 里找到「用户自称此前纠正过、且靠 `user/message` 与 `source.kind == "user"` 恢复」的第二个 session id），把它加进候选的 `evidence:` 注释行。不提升不等于遗忘：它仍在候选队列，autolearn 每次 pass 都会读到它。
+- **已裁决：交付线题材的技能留在本仓**（用户 2026-09-26 明确「非本仓不用管」）。`dsh-nix-desktop-launcher-artifact-verify` 与 `dsh-host-build-restart-verify` 的题材属于 `/etc/nixos` 的交付链，但技能机制只在本仓存在（`/etc/nixos` 没有 `.agents/skills/`），技能又是给**本仓** agent 的操作规程，故不搬迁；交付线的**事实**仍只在 `/etc/nixos`（见 Commits 里那条指针）。
+- **已落地：把「新技能未 stage」的核对写进技能本身（2026-09-26）。** `dsh-project-context-concurrent-writer-guard` 第 6 步现在区分**瞬态**未跟踪项（`session-logs/`、`skill-candidates/`、`memory.jsonl`、`thinking-effort-loaded.json`）与**非瞬态的未跟踪技能**，并要求每次提交前对比盘上技能目录与 `git ls-files` 的技能清单、读完新文件（frontmatter / 章节 / 密钥样式）再入库。当天两次漏掉（16:32、17:17）正是这条的失败模式。
+- **已关闭：`rejectionReason` 的覆盖缺口**（2026-09-26）。审计口径过期一半：`runHandoff` 已不存在、`statusText` 早有直接断言；真正缺的「非法名字 / 候选无归档证据 / 候选已存在」三个分支已通过 pass 路径钉住（`9bd452c`，三个有效变异体）。同时纠正了源码里「名字由调用方校验」的错误注释——`parseAutolearn` 只要求 `typeof name === "string"`。
+- 留意记忆 cap 余量（约 6K）；下次 consolidation 前以 `loadMemory(root, 32000)` 与 `isMemoryTruncated(loaded.text) === false`、`damaged`/`poisoned` 为准，记录轮次而非精确字节。
+- ~~清理 `CONTEXT.md` 里 `docs/upstream-pi-triage.md` 那条已自我作废的过期措辞~~ **已消解：那句话已不在文件里**（本会话重写 CONTEXT 时删掉，全库 grep 0 命中），这条待办本身是空转，删除。
+- **Residual（不在本仓，用户已明确不处理）**：upstream dsh core 把 `discovery.ts` 的 `capacity()` 拆成「声明总窗口」+「可用输入上限」，`qualityLimit` 的上游分支才能接线；pi 侧 `resolveThreshold` 的 `!model || usage.tokens === null` 与截断重试守卫的覆盖。
 
 <!-- latest-session-title: dsh-project-context — 交付线撤出本仓、第二个未跟踪技能入库 -->
