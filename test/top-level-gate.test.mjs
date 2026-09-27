@@ -23,6 +23,11 @@
  * covered here: it only warms a cache the parent already warmed and writes nothing, so a gate there
  * would be an untestable branch.
  *
+ * This file also owns the sibling refusal that is not about delegation: `archiveEnabled: false` must
+ * stop every automatic write too. Three of `project-context`'s four points honoured that flag;
+ * `session/disposed` wrote anyway (a session.jsonl + session.md + index line on dispose) until
+ * 2026-09-27, against `README.md`'s "关掉后不再自动写会话存档与索引".
+ *
  * Run `pnpm test`, which builds `lib/` first and then runs `node --test`.
  */
 
@@ -241,7 +246,7 @@ async function archivedChildren(root) {
 }
 
 /** Archive directories the context plugin writes for one lifecycle event on one fresh project. */
-async function contextArchives(event, origin) {
+async function contextArchives(event, origin, overrides = {}) {
 	const root = await project("dsh-gate-context-");
 	const { handlers, on } = handlerContext();
 	applyContext(
@@ -252,7 +257,7 @@ async function contextArchives(event, origin) {
 			on,
 			commands: { register: () => () => undefined },
 		},
-		resolvePluginConfig({ provider: "test-provider", model: "test-model" }),
+		resolvePluginConfig({ provider: "test-provider", model: "test-model", ...overrides }),
 	);
 	const agent = fakeAgent(root, { id: `session-${event.replace(/\W/g, "-")}-${origin ?? "top"}`, origin });
 	// The real payload shapes, not `fire()`'s generic one: `agent/disposed` carries the agent and
@@ -277,5 +282,15 @@ test("project-context: a delegated session is not archived on any lifecycle even
 	for (const event of ["agent/status", "agent/disposed", "session/disposed", "session/event"]) {
 		assert.equal(await contextArchives(event, "subagent"), 0, `${event}: a delegated session must not archive itself into the project`);
 		assert.equal(await contextArchives(event), 1, `${event}: the same event on a top-level session archives once`);
+	}
+});
+
+test("project-context: archiving disabled writes nothing on any lifecycle event", async () => {
+	// `archiveEnabled: false` is the user turning the feature off, and the README promises no
+	// automatic archive or index write — `/session-log` is the documented escape hatch, which is why
+	// the commands are not covered here. Each negative keeps its own positive control.
+	for (const event of ["agent/status", "agent/disposed", "session/disposed", "session/event"]) {
+		assert.equal(await contextArchives(event, undefined, { archiveEnabled: false }), 0, `${event}: archiving is off, so nothing may be written automatically`);
+		assert.equal(await contextArchives(event), 1, `${event}: the same event with archiving on writes once`);
 	}
 });

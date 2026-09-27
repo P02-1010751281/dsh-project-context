@@ -107,11 +107,15 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("session/flush", (session) => pending.flush(session));
 
 	ctx.on("session/disposed", (session) => {
-		// The release runs even for a refused session: the per-session cursors are populated by
-		// writing, which the gate above prevents on every automatic path — but the ungated
-		// `/session-log now` command writes under the very same session key, and without this the
-		// cursor would outlive the session.
+		// Either refusal still drops the queue entry: the per-session cursors are populated by
+		// writing, which no automatic path can do once refused — but the ungated `/session-log now`
+		// command writes under the very same session key, and without this the cursor would outlive
+		// the session.
 		if (!isTopLevel(session)) return releaseSessionQueue(session);
+		// The same flag the other three points honour. This point used to write anyway, so turning
+		// archiving off still produced a session.jsonl + session.md + index line on dispose, against
+		// README's "关掉后不再自动写会话存档与索引".
+		if (!effectivePluginConfig(entry).archiveEnabled) return releaseSessionQueue(session);
 		void queueSessionArtifacts(session, { markdown: true }).finally(() => releaseSessionQueue(session));
 	});
 
