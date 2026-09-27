@@ -5,8 +5,8 @@ description: "Port a feature from the sibling pi-project-context harness into th
 
 Use when the dsh-project-context repo (/mnt/Data/Projects/dsh-project-context) must absorb a feature that already exists in the sibling pi harness (/mnt/Data/Projects/pi-project-context, extensions/project-context/*.ts). The port brief usually names the pi functions/lines and the dsh call sites.
 
-1. Environment. node is not on the default PATH. Export the Nix node bin first in every command:
-   export PATH="/nix/store/lfaydgacdyngci7p60s8wwvgdm74fjkx-nodejs-24.19.0/bin:$PATH"
+1. Environment. Node lives in the Nix store and both its path and version rotate, so never paste a recorded store path (every one recorded here before has gone dead). Run `node -v` first; if commands cannot find node, prepend the bin dir of the node you just verified:
+   export PATH="$(dirname "$(command -v node)"):$PATH"
 
 2. Read both sides before editing. Open the named pi reference functions (e.g. handoff.ts helpers, autolearn.ts gate/prompt/evidence helpers, config.ts keys, consolidate.ts) and their dsh counterparts in src/ and src/shared/. The pi code is the behavioral spec; the dsh code is what must keep working.
 
