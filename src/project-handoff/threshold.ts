@@ -92,12 +92,14 @@ export function thresholdRefusalText(
 		//
 		// "A smaller baseline" is not a setting the user can lower — no config key feeds it, it is
 		// derived from the measurement — so the sentence must also name the setting that does clear this
-		// refusal: an explicit ratio is not checked against the knee at all (design A), which is exactly
-		// what {@link thresholdOverrideText} already tells a user whose `/handoff target` the knee
-		// overrode. Say *that*, not where the resulting trigger lands: below W ≈ 488K a 0.4 trigger sits
-		// under the knee, so "auto can start past it" is false in a reachable band (checked at W=450K:
-		// knee 303500, 0.4 trigger 180000). It must not mention the safety margin either: that term did
-		// not bind here, and naming it would misattribute the refusal.
+		// refusal: an explicit ratio is not checked against the knee at all, because the agreed fence lets
+		// an explicit setting override the quality ceiling that governs the auto composition. That is
+		// exactly what {@link thresholdOverrideText} already tells a user whose `/handoff target` the knee
+		// overrode. Say *that*, not where the resulting trigger lands: below the `knee(W)` / `0.4W`
+		// crossing (≈488K at the current constants) a 0.4 trigger sits under the knee, so "auto can start
+		// past it" is false in a reachable band (checked at W=450K: knee 303500, 0.4 trigger 180000). It
+		// must not mention the safety margin either: that term did not bind here, and naming it would
+		// misattribute the refusal.
 		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${qualityLimit(contextWindow)} at this window, so a handoff could only start past the knee; a smaller baseline or keep is the lever (raising the window lowers the knee, it does not raise it), or make the trigger explicit with a fixed ratio — /handoff 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
 	if (reason === "summarizer-floor") {
