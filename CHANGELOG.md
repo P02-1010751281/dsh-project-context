@@ -15,9 +15,9 @@
   是子会话、来自 15 个父会话；这些原件保留在
   `/mnt/Data/Backups/dsh-project-context/session-logs-subagent-2026-09-27.tar.gz`，所以这个数字**永久可复核**
   （`tar -tzf <该包> | cut -d/ -f1 | sort -u | wc -l` → 67）。仍在增长的那份看 store：**每个会话目录取一份**
-  日志头（`~/.dsh/sessions/<encoded-cwd>/*/session.v*.jsonl.zstd`——v3 是旧格式、最新只到 2026-09-22，glob 只
-  写 `session.v3` 会漏掉一半），数 `session` 头里的 `origin: "subagent"`（**现查**：写这段时 70；注意这是
-  「每目录一份」，不是「每文件一份」）。比「200 行索引上限」更利的是：autolearn 实际只读**最新 50 条**
+  日志头（v3 是旧格式、最新只到 2026-09-22，glob 只写 `session.v3` 会漏掉一半），数 `session` 头里的
+  `origin: "subagent"`（**现查**：写这段时 70；注意这是「每目录一份」，不是「每文件一份」）。等价可粘贴一行：
+  `for d in ~/.dsh/sessions/<encoded-cwd>/*/; do f=$(ls "$d"/session.v*.jsonl.zstd 2>/dev/null | sort -V | tail -1); [ -n "$f" ] && zstdcat "$f" | head -1; done | grep -c '"origin":"subagent"'`比「200 行索引上限」更利的是：autolearn 实际只读**最新 50 条**
   （`MAX_INDEX_ENTRIES`），
   而那 50 条当时已被子会话占据多数——索引是它的证据面，这不是理论上的远期风险。现在四个产出写入点
   （`session/event` 的 `turn/end`、`agent/status` 的 idle、`agent/disposed`、`session/disposed`）都过闸门；
@@ -31,13 +31,24 @@
   `agent/disposed`、`session/disposed`；其余三个插件的用例仍绿）。独立审核另在 `lib/` 副本上做了两个变异体：
   闸门恒拒 → 掉**正对照**（证明负例不是「本来就不会发生」）；`apply` 顶部直接 `return` → 新用例红（所以它
   不是空转就过）。`tsc` 0、`isTopLevel` 使用数 4→3 的 marker 落在 `lib/`。
+- 修复：**`archiveEnabled: false` 时 `session/disposed` 仍会写归档与索引行**。四个自动写入点里只有它不查这个开
+  关，于是「关掉归档」之后，会话在 dispose 时照样产出 `session.jsonl` + `session.md` + 一行索引——与
+  `README.md` 的「关掉后不再自动写会话存档与索引」以及客户端提示「关闭后不再自动写 session.jsonl /
+  session.md / INDEX.md」都相反。现在它和其余三个点一样先查开关；两种拒绝（子会话 / 开关关闭）都仍然调用
+  `releaseSessionQueue`（理由同上）。显式命令 `/session-log now`、`import` 不受影响——那正是文档承诺的逃生口。
+  变异校验：拆掉这条检查 → 掉 1 项，正是 `session/disposed: archiving is off, so nothing may be written
+  automatically`，其余用例仍绿。
 - 注意：闸门**不回溯**存量；那 67 份子会话归档属**本地数据**（`session-logs/` 未跟踪），已按本轮单独清理
   （先备份到仓外、校验后删除，再用插件自己的锁 + 原子写重写索引；清理那一刻 46 行与磁盘一致、0 悬空）。清理
   依据：这些 id 在 tracked 文件里**零引用**。
   **但闸门要宿主重启才加载**：清理之后、重启之前仍在跑的旧构建会继续归档子会话——实测备份后 22:10:01 就又有
   一个审核子会话落进 `session-logs/`，所以「46 行 / 0 子会话」当天即失效。**重启后应重跑一次清理**：脚本与
-  备份放在一起，`/mnt/Data/Backups/dsh-project-context/purge-subagent-archives.mjs`（幂等，备份名带时刻、
+  备份放在一起，`/mnt/Data/Backups/dsh-project-context/purge-subagent-archives.mjs`（幂等，备份名带 UTC 时刻、
   拒绝覆盖）。
+  索引里的旧标题也顺手清了一个：`01a09863` 存的是旧上限下的 119 字符截断（同一标题的前缀），已用
+  `queueIndexLine` 走真写入路径重推成完整的 160 字符；`01a095f7` 的 `DSH Project Context — Initialization`
+  是**从 pi 旧索引采用来的真标题**（该会话是 pi 格式、归档里没有 `session/title`），重推只会把它降级成首条
+  用户消息，故**故意保留**。
 
 **project-context（会话索引）**
 
