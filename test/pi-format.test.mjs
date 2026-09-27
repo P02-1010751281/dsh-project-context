@@ -17,6 +17,13 @@
  * `user/message` event, so a pi session imported by dsh was indexed as
  * "Untitled session" — the one label autolearn navigates the index by.
  *
+ * A fifth: that title fallback took the handoff's own continuation prompt — a
+ * `user`-role message with no marker distinguishing it from a person's — as the
+ * session's first user message. dsh's prompt RPC carries no source kind, and a
+ * pi archive stores pi's seed the same way, so each harness's own structural
+ * detector is applied here: dsh's is prefix + `<handoff>`/`</handoff>` markers +
+ * closing (no heading), pi's is prefix + a section heading + closing line.
+ *
  * Fixtures are inlined on purpose: `.agents/` is this machine's data, not a
  * repository asset.
  *
@@ -33,6 +40,7 @@ import { importSessionJsonl } from "../lib/project-context/import.js";
 import { parseSessionJsonl } from "../lib/project-context/session-jsonl.js";
 import { renderSessionMarkdown } from "../lib/project-context/session-log.js";
 import { readSessionIndex, sessionTitleFromEntries } from "../lib/project-context/session-index.js";
+import { SCAFFOLDING, isHandoffContinuationText } from "../lib/project-handoff/language.js";
 
 /** Header of a real pi archive: `timestamp` (ISO string), no `harness`, no `createdAt`. */
 const PI_HEADER = {
@@ -240,6 +248,91 @@ test("sessionTitleFromEntries reads a pi user message, so an imported pi session
 	const multiBlock = piMessage({ role: "user", content: [{ type: "text", text: "hello" }, { type: "text", text: "world" }] });
 	assert.equal(sessionTitleFromEntries([multiBlock]), "helloworld");
 	assert.match(archivedConversationText(JSON.stringify(multiBlock), 50_000), /## user\nhelloworld$/);
+});
+
+test("the title fallback skips a handoff's own continuation prompt, dsh's and pi's", () => {
+	// Regression: the fallback took the first `user`-role message, but a handoff seeds its
+	// successor with one and nothing marks it as generated (dsh's prompt RPC carries no source
+	// kind; a pi archive stores pi's seed the same way). `01a09821` was therefore indexed under an
+	// 11,384-character pi banner instead of the user's own first message.
+	const piMessageOf = (text) => piMessage({ role: "user", content: [{ type: "text", text }] });
+	// pi's real shape, taken from its `handoff/prompt.ts`: preamble, carry note, both headings, closing.
+	const piSeed = [
+		"This session continues work handed off from a previous session (35% of its context window had been used).",
+		"The handoff summary below covers the earlier part of that session; its most recent messages were carried over verbatim.",
+		"",
+		"## Handoff Summary",
+		"…",
+		"",
+		"## Previous session details",
+		"- Previous session id: 01a09620-b50e-730b-b213-29d5a68358bf",
+		"",
+		"Continue the task from where it left off.",
+	].join("\n");
+	assert.equal(sessionTitleFromEntries([piMessageOf(piSeed), piMessageOf("旧的删掉，继续")]), "旧的删掉，继续");
+	assert.equal(sessionTitleFromEntries([piMessageOf(piSeed)]), "Untitled session", "a seed-only session is not titled by the banner");
+
+	const dshMessage = (text) => ({
+		type: "user/message",
+		data: { source: { kind: "user", rpcId: "4f0f7006-a02d-41a6-9cdd-e38586fa47d7" }, content: [{ type: "text", text }] },
+	});
+	const dshSeed = [
+		SCAFFOLDING.en.continuationPreamble("session-parent-1234"),
+		"",
+		"<handoff>",
+		"…",
+		"</handoff>",
+		"",
+		SCAFFOLDING.en.continuationClosing,
+	].join("\n");
+	// The cross-check that keeps the fixture honest: this really is a prompt dsh's own detector
+	// recognizes, so the assertion below cannot pass by the fixture having drifted into prose.
+	assert.equal(isHandoffContinuationText(dshSeed), true);
+	assert.equal(sessionTitleFromEntries([dshMessage(dshSeed), dshMessage("fix the failing test")]), "fix the failing test");
+	assert.equal(sessionTitleFromEntries([dshMessage(dshSeed)]), "Untitled session");
+	// A `session/title` still outranks whatever the user messages say (dsh's own precedence).
+	assert.equal(
+		sessionTitleFromEntries([{ type: "session/title", data: { title: "↪ handoff · parent" } }, dshMessage(dshSeed)]),
+		"↪ handoff · parent",
+	);
+
+	// The conjunction is the discriminator: dropping one part of the shape makes the message a
+	// person's again, so a user who quotes a handoff (or pastes its opening) keeps their title.
+	// Matching the prefix alone would swallow exactly the messages this guard exists to preserve.
+	const quoted = piSeed.replace(/\nContinue the task from where it left off\.$/, "\n\nAlso, please fix the failing test.");
+	const quotedTitle = sessionTitleFromEntries([piMessageOf(quoted)]);
+	assert.equal(quotedTitle.startsWith("This session continues work handed off"), true, "a quoted prompt is still a user message");
+	assert.notEqual(quotedTitle, "Untitled session");
+	// Both headings must go: the set is a membership test, so leaving either one in still satisfies
+	// the shape (the first attempt at this assertion replaced only one and was wrong).
+	const headingsGone = piSeed.replace("## Handoff Summary", "## Notes").replace("## Previous session details", "## More notes");
+	assert.equal(sessionTitleFromEntries([piMessageOf(headingsGone)]).startsWith("This session continues work handed off"), true, "a heading is required");
+	// The prefix is the third part and the one a test can most easily leave unpinned: an adversarial
+	// review's mutant deleted this check and the whole suite stayed green (11/11), because every other
+	// fixture still carried the prefix. A paste that starts at `## Handoff Summary` and ends on pi's
+	// closing line is all prosaic English, so that gap was reachable, not theoretical.
+	const prefixGone = piSeed.slice(piSeed.indexOf("\n") + 1);
+	assert.equal(prefixGone.startsWith("The handoff summary"), true, "the fixture really has the preamble removed");
+	assert.equal(
+		sessionTitleFromEntries([piMessageOf(prefixGone)]).startsWith("The handoff summary below"),
+		true,
+		"the preamble prefix is required",
+	);
+	// A message that is exactly the prefix is not a prompt either (no heading, no closing).
+	assert.equal(
+		sessionTitleFromEntries([piMessageOf("This session continues work handed off from a previous session (")]).startsWith(
+			"This session continues work handed off",
+		),
+		true,
+		"the prefix alone is not a prompt",
+	);
+	// One prompt can arrive as several text blocks — pi joins them with no separator — and the guard
+	// runs on the joined text, so the shape has to survive the split.
+	const splitSeed = piMessage({
+		role: "user",
+		content: [{ type: "text", text: piSeed.slice(0, 60) }, { type: "text", text: piSeed.slice(60) }],
+	});
+	assert.equal(sessionTitleFromEntries([splitSeed, piMessageOf("next")]), "next", "a seed split across blocks is still one prompt");
 });
 
 test("a pi session imported by dsh gets its first user message as the index title", async () => {
