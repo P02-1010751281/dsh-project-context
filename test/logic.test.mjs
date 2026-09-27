@@ -1854,6 +1854,24 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.match(kneeSqueezed, /raising the window lowers the knee/, "the receipt corrects the backwards advice");
 	assert.doesNotMatch(kneeSqueezed, /is the lever, not this window alone/, "the margin sentence must not be reused");
 	assert.doesNotMatch(kneeSqueezed, /safety margin/, "the margin is not what bound here");
+	// The knee cannot be lifted by `/handoff target` (the orchestrator deliberately keeps the configured
+	// target off the trigger line), and this refusal used to stop at "a smaller baseline or keep" — which
+	// is not a setting the user can lower, because no config key feeds the baseline. The setting that does
+	// clear it is an explicit ratio, since design (A) applies the quality ceiling in auto mode only. The
+	// override receipt already names it; this refusal must not leave the user at a dead lever.
+	assert.match(kneeSqueezed, /\/handoff 0\.4 is not checked against the knee/, "the refusal names the control that clears it");
+	// …but it must not say where that trigger *lands*. Below W ≈ 488K a 0.4 trigger sits **under** the
+	// knee, so an earlier wording ("so auto can start past it") was a false placement claim in a reachable
+	// band. Pin the band itself, so the ban is evidence-backed rather than a matter of taste.
+	const bandW = 450_000;
+	const bandMeasurement = { totalTokens: 300_000, surfaceTokens: 0 };
+	const bandAuto = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	assert.equal(thresholdRefusal(bandAuto, bandMeasurement, bandW), "quality-knee", "W=450K with a 300K baseline is a knee refusal");
+	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffAdaptive: false, handoffThresholdRatio: 0.4 });
+	const bandTrigger = resolveThreshold(bandFixed, bandMeasurement, bandW);
+	assert.ok(bandTrigger !== undefined && bandTrigger.tokens < qualityLimit(bandW),
+		`a 0.4 trigger sits below the knee here: ${bandTrigger?.tokens} vs ${qualityLimit(bandW)}`);
+	assert.doesNotMatch(kneeSqueezed, /can start past it/, "no placement claim about where a fixed trigger lands");
 
 	// The three receipts are pairwise different: this is the property that was missing.
 	assert.notEqual(marginSqueezed, tooSmall);

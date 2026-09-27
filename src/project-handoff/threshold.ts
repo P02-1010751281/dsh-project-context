@@ -89,7 +89,16 @@ export function thresholdRefusalText(
 		// "A larger window" is the lever for the margin case and the *opposite* of the lever here: the
 		// curve approaches its 157K asymptote from above, so a wider window lowers the knee. Say which
 		// control actually helps rather than reusing the margin sentence.
-		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${qualityLimit(contextWindow)} at this window, so a handoff could only start past the knee; a smaller baseline or keep is the lever (raising the window lowers the knee, it does not raise it)`;
+		//
+		// "A smaller baseline" is not a setting the user can lower — no config key feeds it, it is
+		// derived from the measurement — so the sentence must also name the setting that does clear this
+		// refusal: an explicit ratio is not checked against the knee at all (design A), which is exactly
+		// what {@link thresholdOverrideText} already tells a user whose `/handoff target` the knee
+		// overrode. Say *that*, not where the resulting trigger lands: below W ≈ 488K a 0.4 trigger sits
+		// under the knee, so "auto can start past it" is false in a reachable band (checked at W=450K:
+		// knee 303500, 0.4 trigger 180000). It must not mention the safety margin either: that term did
+		// not bind here, and naming it would misattribute the refusal.
+		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${qualityLimit(contextWindow)} at this window, so a handoff could only start past the knee; a smaller baseline or keep is the lever (raising the window lowers the knee, it does not raise it), or make the trigger explicit with a fixed ratio — /handoff 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
 	if (reason === "summarizer-floor") {
 		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep/target) is the lever, not this window alone`;
