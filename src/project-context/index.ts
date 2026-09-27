@@ -15,7 +15,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-commands";
 import { resolvePluginConfig } from "../shared/config.js";
 import { PluginSettingsSchema, effectivePluginConfig, publishProjectContextSettings } from "../shared/settings.js";
-import { projectCwd, SessionWorkTracker } from "../shared/lifecycle.js";
+import { projectCwd, isTopLevel, SessionWorkTracker } from "../shared/lifecycle.js";
 import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "../shared/project-state.js";
 import { importArchiveFiles } from "./import.js";
 import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./session-log.js";
@@ -64,12 +64,27 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	const pending = new SessionWorkTracker();
 
 	ctx.on("agent/created", ({ agent }) => {
+		// Deliberately ungated because it produces no artifact: it only fills an in-process root cache
+		// (plus one `git rev-parse`) for a cwd the parent already warmed. The four points below are the
+		// ones that write.
 		void getProjectRoot(projectCwd(agent.session)).catch(() => undefined);
 		return undefined;
 	});
 
+	// A delegated child inherits the parent's cwd, so every child used to archive itself into the
+	// project's session-logs and index. The 2026-09-27 census found 67 of 113 archive directories were
+	// `origin: "subagent"` children — those originals are kept in
+	// `/mnt/Data/Backups/dsh-project-context/session-logs-subagent-2026-09-27.tar.gz`, so the number
+	// stays checkable — and they were already a majority of the newest-50 window autolearn reads
+	// (`MAX_INDEX_ENTRIES` in project-autolearn). The other three plugins refuse a child on their own
+	// lifecycle points; this one now does too.
+	//
+	// Non-goal: the explicit `/session-log now` and `import` commands stay ungated — an explicit
+	// command is the user asking, which is also how `archiveEnabled: false` is documented — so a child
+	// whose owner runs one still writes its own directory and index line.
 	ctx.on("session/event", (session, event) => {
 		if (event.type !== "turn/end") return;
+		if (!isTopLevel(session)) return;
 		if (!effectivePluginConfig(entry).archiveEnabled) return;
 		void queueSessionArtifacts(session, { markdown: false });
 	});
@@ -78,11 +93,13 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	// and the session index are written when the agent settles or is disposed.
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle") return;
+		if (!isTopLevel(agent.session)) return;
 		if (!effectivePluginConfig(entry).archiveEnabled) return;
 		pending.track(agent.session, queueSessionArtifacts(agent.session, { markdown: true }));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
+		if (!isTopLevel(agent.session)) return;
 		if (!effectivePluginConfig(entry).archiveEnabled) return;
 		pending.track(agent.session, queueSessionArtifacts(agent.session, { markdown: true }));
 	});
@@ -90,6 +107,11 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("session/flush", (session) => pending.flush(session));
 
 	ctx.on("session/disposed", (session) => {
+		// The release runs even for a refused session: the per-session cursors are populated by
+		// writing, which the gate above prevents on every automatic path — but the ungated
+		// `/session-log now` command writes under the very same session key, and without this the
+		// cursor would outlive the session.
+		if (!isTopLevel(session)) return releaseSessionQueue(session);
 		void queueSessionArtifacts(session, { markdown: true }).finally(() => releaseSessionQueue(session));
 	});
 

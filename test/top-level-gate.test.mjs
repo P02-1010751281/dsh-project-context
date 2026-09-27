@@ -1,27 +1,38 @@
 /**
  * The `isTopLevel` gate: project-wide work must not run once per delegated child.
  *
- * Three plugins schedule per-project work from session lifecycle events — `project-memory` and
+ * Four plugins schedule per-project work from session lifecycle events — `project-memory` and
  * `project-autolearn` on `agent/status`/`agent/disposed`, `project-handoff` on `session/event`
- * (`turn/end`). Each refuses a session whose header carries `origin: "subagent"`, the single origin
+ * (`turn/end`), and `project-context` on all four of those (it writes the session archive and its
+ * index line). Each refuses a session whose header carries `origin: "subagent"`, the single origin
  * upstream writes on its one child-creation path (one-shot subagents and continuable Agent Team
  * members alike). Without the gate every child would consolidate the same `MEMORY.md`, distil the
- * same skills from the same index, and try to hand itself off.
+ * same skills from the same index, try to hand itself off, and archive itself into the project's
+ * `session-logs/` — that last one was missing until 2026-09-27, by which time a census found 67 of
+ * the 113 archive directories were children (the purged originals are kept in
+ * `/mnt/Data/Backups/dsh-project-context/session-logs-subagent-2026-09-27.tar.gz`), and they were
+ * already a majority of the newest-50 window autolearn reads (`MAX_INDEX_ENTRIES` in
+ * project-autolearn).
  *
  * Every case drives the plugin's real `apply()` wiring twice on its own throwaway project: once as
  * a delegated session (nothing happens) and once as a top-level one (the very same event does the
  * work). The positive half is what makes the negative half evidence — a fixture that simply cannot
  * schedule any work would satisfy the negative half on its own.
  *
+ * `project-context`'s fifth lifecycle point, `agent/created`, stays ungated on purpose and is not
+ * covered here: it only warms a cache the parent already warmed and writes nothing, so a gate there
+ * would be an untestable branch.
+ *
  * Run `pnpm test`, which builds `lib/` first and then runs `node --test`.
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
+import { apply as applyContext } from "../lib/project-context/index.js";
 import { apply as applyHandoff } from "../lib/project-handoff/index.js";
 import { apply as applyMemory } from "../lib/project-memory/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
@@ -221,4 +232,50 @@ test("project-autolearn: a delegated session runs no distill pass on either life
 test("project-handoff: a delegated session's settled turn end starts no handoff", async () => {
 	assert.equal(await handoffCreates("subagent"), 0, "a delegated session must not hand itself off");
 	assert.equal(await handoffCreates(), 1, "the same settled turn end hands a top-level session off once");
+});
+
+/** Session directories this fixture's own archive produced (the pre-seeded one does not count). */
+async function archivedChildren(root) {
+	const entries = await readdir(logsDir(root), { withFileTypes: true });
+	return entries.filter((entry) => entry.isDirectory() && entry.name !== "session-archived").map((entry) => entry.name);
+}
+
+/** Archive directories the context plugin writes for one lifecycle event on one fresh project. */
+async function contextArchives(event, origin) {
+	const root = await project("dsh-gate-context-");
+	const { handlers, on } = handlerContext();
+	applyContext(
+		{
+			logger: { info() {}, warn() {} },
+			// `publishProjectContextSettings` registers a disposer through `ctx.effect`.
+			effect: (callback) => callback(),
+			on,
+			commands: { register: () => () => undefined },
+		},
+		resolvePluginConfig({ provider: "test-provider", model: "test-model" }),
+	);
+	const agent = fakeAgent(root, { id: `session-${event.replace(/\W/g, "-")}-${origin ?? "top"}`, origin });
+	// The real payload shapes, not `fire()`'s generic one: `agent/disposed` carries the agent and
+	// `session/disposed` the session itself.
+	const dispatch = {
+		"agent/status": () => handlers.get("agent/status")[0]({ agent, status: "idle" }),
+		"agent/disposed": () => handlers.get("agent/disposed")[0]({ agent }),
+		"session/disposed": () => handlers.get("session/disposed")[0](agent.session),
+		"session/event": () => handlers.get("session/event")[0](agent.session, { type: "turn/end", seq: 10, time: Date.now() }),
+	};
+	dispatch[event]();
+	const flush = handlers.get("session/flush")?.[0];
+	if (flush) await flush(agent.session);
+	// Only the `markdown: true` writes are tracked, so the other two points get a bounded window; the
+	// positive control (same write, no gate) proves it is long enough. Measured on this machine: the
+	// archive write resolves in 6–8 ms, so 200 ms is ~25× the latency being waited for.
+	for (let i = 0; i < 40 && (await archivedChildren(root)).length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	return (await archivedChildren(root)).length;
+}
+
+test("project-context: a delegated session is not archived on any lifecycle event", async () => {
+	for (const event of ["agent/status", "agent/disposed", "session/disposed", "session/event"]) {
+		assert.equal(await contextArchives(event, "subagent"), 0, `${event}: a delegated session must not archive itself into the project`);
+		assert.equal(await contextArchives(event), 1, `${event}: the same event on a top-level session archives once`);
+	}
 });
