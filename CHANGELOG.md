@@ -7,6 +7,32 @@
 
 ### 未发布（`v0.2.1` 之后）
 
+**project-context（归档范围）**
+
+- 修复：**委派的子会话会被逐个归档进项目**。`project-context` 是本仓唯一没有 `isTopLevel` 闸门的插件，而其余
+  三个都在自己的生命周期点上拒绝 `origin: "subagent"`；子会话继承父会话的 cwd，于是每个 delegate 都往
+  `.agents/memory/session-logs/` 写一份归档 + 一行索引。**2026-09-27 普查**（清理前那一刻）113 份归档里 67 份
+  是子会话、来自 15 个父会话；这些原件保留在
+  `/mnt/Data/Backups/dsh-project-context/session-logs-subagent-2026-09-27.tar.gz`，所以这个数字**永久可复核**
+  （`tar -tzf <该包> | cut -d/ -f1 | sort -u | wc -l` → 67）。仍在增长的那份看 store：
+  `~/.dsh/sessions/<encoded-cwd>/*/session.v3.jsonl.zstd` 的 `session` 头里数 `origin: "subagent"`（**现查**，
+  当天已是 69）。比「200 行索引上限」更利的是：autolearn 实际只读**最新 50 条**（`MAX_INDEX_ENTRIES`），
+  而那 50 条当时已被子会话占据多数——索引是它的证据面，这不是理论上的远期风险。现在四个产出写入点
+  （`session/event` 的 `turn/end`、`agent/status` 的 idle、`agent/disposed`、`session/disposed`）都过闸门；
+  `agent/created` **故意不闸**（它只填进程内的项目根缓存并跑一次 `git rev-parse`，不产出任何文件）。
+  `session/disposed` 即使被拒也照旧调用 `releaseSessionQueue`——**不是**死代码：那几张按 session 键的光标表
+  只由真写入填充，闸门挡住了所有自动路径，但**未设闸的 `/session-log now` 命令**会用同一个 key 填它，这条释放
+  正是为那种情况留的（若哪天连命令也设闸，这行才真的可删）。
+  **非目标**（已写进源码注释）：`/session-log now` 与 `import` 这两个显式命令不设闸——显式命令就是用户在要求，
+  与 `archiveEnabled: false` 的既有文档一致，所以子会话的属主手敲命令仍会写它自己的目录与索引行。
+  变异校验：四个闸门**各自**拆掉 → 各掉 1 项，且都正好只掉对应事件的那条断言（`session/event`、`agent/status`、
+  `agent/disposed`、`session/disposed`；其余三个插件的用例仍绿）。独立审核另在 `lib/` 副本上做了两个变异体：
+  闸门恒拒 → 掉**正对照**（证明负例不是「本来就不会发生」）；`apply` 顶部直接 `return` → 新用例红（所以它
+  不是空转就过）。`tsc` 0、`isTopLevel` 使用数 4→3 的 marker 落在 `lib/`。
+- 注意：闸门**不回溯**存量；那 67 份子会话归档属**本地数据**（`session-logs/` 未跟踪），已按本轮单独清理
+  （先备份到仓外、校验后删除，再用插件自己的锁 + 原子写重写索引：46 行与磁盘一致、0 悬空）。清理依据：这些
+  id 在 tracked 文件里**零引用**。
+
 **project-context（会话索引）**
 
 - 修复：`INDEX.md` 的**标题兜底**会把 handoff 自己注入的**续接提示**当成会话的首条用户消息。dsh 的 prompt RPC
