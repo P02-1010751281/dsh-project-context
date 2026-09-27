@@ -16,9 +16,10 @@
   `/mnt/Data/Backups/dsh-project-context/session-logs-subagent-2026-09-27.tar.gz`，所以这个数字**永久可复核**
   （`tar -tzf <该包> | cut -d/ -f1 | sort -u | wc -l` → 67）。仍在增长的那份看 store：**每个会话目录取一份**
   日志头（v3 是旧格式、最新只到 2026-09-22，glob 只写 `session.v3` 会漏掉一半），数 `session` 头里的
-  `origin: "subagent"`（**现查**：写这段时 70；注意这是「每目录一份」，不是「每文件一份」）。等价可粘贴一行：
-  `for d in ~/.dsh/sessions/<encoded-cwd>/*/; do f=$(ls "$d"/session.v*.jsonl.zstd 2>/dev/null | sort -V | tail -1); [ -n "$f" ] && zstdcat "$f" | head -1; done | grep -c '"origin":"subagent"'`比「200 行索引上限」更利的是：autolearn 实际只读**最新 50 条**
-  （`MAX_INDEX_ENTRIES`），
+  `origin: "subagent"`（**现查**：写这段时 70；注意这是「每目录一份」，不是「每文件一份」）。等价可粘贴一行
+  （`2>/dev/null` 是给 `head -1` 提前关掉的管道静音，否则每个文件都会打一行 broken pipe）：
+  `for d in ~/.dsh/sessions/<encoded-cwd>/*/; do f=$(ls "$d"/session.v*.jsonl.zstd 2>/dev/null | sort -V | tail -1); [ -n "$f" ] && zstdcat "$f" 2>/dev/null | head -1; done | grep -c '"origin":"subagent"'`
+  比「200 行索引上限」更利的是：autolearn 实际只读**最新 50 条**（`MAX_INDEX_ENTRIES`），
   而那 50 条当时已被子会话占据多数——索引是它的证据面，这不是理论上的远期风险。现在四个产出写入点
   （`session/event` 的 `turn/end`、`agent/status` 的 idle、`agent/disposed`、`session/disposed`）都过闸门；
   `agent/created` **故意不闸**（它只填进程内的项目根缓存并跑一次 `git rev-parse`，不产出任何文件）。
@@ -45,7 +46,7 @@
   一个审核子会话落进 `session-logs/`，所以「46 行 / 0 子会话」当天即失效。**重启后应重跑一次清理**：脚本与
   备份放在一起，`/mnt/Data/Backups/dsh-project-context/purge-subagent-archives.mjs`（幂等，备份名带 UTC 时刻、
   拒绝覆盖）。
-  索引里的旧标题也顺手清了一个：`01a09863` 存的是旧上限下的 119 字符截断（同一标题的前缀），已用
+  索引里的旧标题也顺手清了一个：`01a09863` 原来存的是 119 字符的截断标题（同一标题的前缀，清理前实测），已用
   `queueIndexLine` 走真写入路径重推成完整的 160 字符；`01a095f7` 的 `DSH Project Context — Initialization`
   是**从 pi 旧索引采用来的真标题**（该会话是 pi 格式、归档里没有 `session/title`），重推只会把它降级成首条
   用户消息，故**故意保留**。
