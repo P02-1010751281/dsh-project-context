@@ -12,7 +12,7 @@ Release workflow for the dsh-project-context plugins (repo root /mnt/Data/Projec
    The changelog is `CHANGELOG.md`, not the README; the README only points to it. Move completed entries from the `未发布` section into a new version heading in `CHANGELOG.md`. Set `version` in `package.json` to the release version. Keep README prose wrapped at 100 columns and never split an inline code span across lines. Use English Conventional Commits (`feat:`, `fix:`, `docs:`, `chore(release):`).
 
 3. Run the full gate under the correct Node.
-   Run `node -v`; the Nix store path rotates on rebuild, so prepend the real Node 22 path to PATH before pnpm scripts. Run `pnpm typecheck`, `pnpm test`, and `pnpm build`. `pnpm test` must pass (expected count). When stdout is not a TTY, `node --test` prints TAP (`# pass N`) instead of `ℹ pass`; check the exit code, not a grep for the reporter.
+   Run `node -v`; the Nix store path and version rotate on rebuild, so prepend the node it reports — `PATH="$(dirname "$(command -v node)"):$PATH"` — never a pasted store path. Run `pnpm typecheck`, `pnpm test`, and `pnpm build`. `pnpm test` must pass (expected count). When stdout is not a TTY, `node --test` prints TAP (`# pass N`) instead of `ℹ pass`; check the exit code, not a grep for the reporter.
 
 4. Commit the release changes.
    Stage only the files changed for the release (e.g. `package.json`, `CHANGELOG.md`, `README.md`). Commit with a message such as `chore(release): vX.Y.Z`.

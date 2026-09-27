@@ -5,7 +5,7 @@ description: "Run a review-driven fix batch on the dsh-project-context plugins: 
 
 Use this when a batch of dsh-project-context changes (a fix, a port follow-up, or an audit item) must be independently scrutinized before it is trusted and landed on `main`. It is the repo's established cycle: review -> reproduce -> fix -> mutation-check -> verify -> commit/push -> closure review.
 
-Repo: `/mnt/Data/Projects/dsh-project-context` (plugins: `project-context`, `project-memory`, `project-autolearn`, `project-handoff`). Toolchain: pnpm, `tsc`, `node --test`. If pnpm scripts cannot find node, prepend the Nix node bin dir, e.g. `PATH=/nix/store/gf597zf0ysgbngwb92baxgxjd02px6jh-nodejs-22.23.2/bin:$PATH`.
+Repo: `/mnt/Data/Projects/dsh-project-context` (plugins: `project-context`, `project-memory`, `project-autolearn`, `project-handoff`). Toolchain: pnpm, `tsc`, `node --test`. If pnpm scripts cannot find node, prepend the node you just verified — after `node -v`, `PATH="$(dirname "$(command -v node)"):$PATH"` — never a pasted store path (recorded ones have gone dead).
 
 1. Freeze the batch scope. List the files actually changed for this task. The batch is one reviewable unit; do not mix unrelated work into it.
 
