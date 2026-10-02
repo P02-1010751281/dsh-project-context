@@ -83,6 +83,36 @@
   动」是假话，那条断言因此是**否定式**的，并把该 W 的 fixture 一起钉住。
   变异校验：把措辞改回「so auto can start past it」→ `tsc` 0、措辞已进 `lib/`、掉 1 项（新的否定断言）。
 
+**project-memory / project-autolearn（人类轮次判定）**
+
+- 修复：**handoff 横幅被当成一个人类轮次，也让 `firstUserText` 以横幅作答**。dsh 的 prompt RPC 不带 source
+  kind，宿主把 seed 一律写成 `{kind:"user", rpcId}`，于是 `userTurnCount` 声称的「plugin-injected user-role
+  context does not count」在每个交接子会话上都不成立：每个子会话的轮数 +1，autolearn / consolidation 的轮次
+  闸门因此比人真正驱动的**早一轮**。`firstUserText` 更直接——它喂 `fallbackUpdate`，那条兜底摘要存的是横幅
+  开头（经 `clip(…, MAX_SUMMARY_CHARS)` 截断），而不是人开口说的第一句。现在两者共用一个判别器
+  （`humanUserText`），复用既有的 `isHandoffContinuationText`（跨插件引用，不复制第二份规则；与 `INDEX.md`
+  的标题兜底是同一个谓词），只跳过 handoff 自己生成的**完整**续接提示。
+  实测本机归档（**现查** `ls -d .agents/memory/session-logs/*/ | wc -l`；下面只记当时那一刻的量级）：读到的
+  39 份 dsh 归档里 **37 份**被横幅多算一轮、**37 份**的 `firstUserText` 就是横幅；修复后各 0。其中 10 份
+  子会话只有横幅、没有真人首条消息，`firstUserText` 因此返回空串、兜底摘要回到「Session recorded without a
+  model summary.」——这是「没有人类首条消息」时的正确取值，不是新缺陷。
+  变异校验：把跳过改回「恒不跳过」（保留符号引用，避开 `TS6133` 的伪红）→ 掉 4 项（单元 3 条 + autolearn
+  轮次闸门 1 条，即两个消费点各有一条钉子）；再把判别器**放大**成「含 `<handoff>` 就跳过」→ 只掉 1 项，正是
+  「引用 / 扩写了横幅的真人消息仍算人类轮次」那条负对照（所以该负对照承重）。
+- 注意（**已知缺陷，本仓未修**）：横幅在**语义上**仍是一条 `user` 消息，所以交接子会话的第一回合里
+  `create_goal` / `update_goal` 的 `edit|pause|resume` 会被它当作**人类授权**。这不是措辞问题，是宿主侧的
+  判据：dsh 的 `packages/goal/tool-goal/src/authority.ts` 里 `hasDirectHumanInput` 就是「当前 root-agent
+  回合内存在 `type === "user/message" && data.source.kind === "user"` 的事件」（0.1.7-rc.2 现查），而本插件
+  的 seed 走 `controller.prompt`，其请求里没有 source 字段、宿主一律补 `user`。上游那段注释自己写明了出路：
+  「非人类生产者必须自带 source，而不是继承这份权威」。
+  本次只改**读侧**（轮次与首条文本），**没有**动 seed 路径——用户裁决是保住交接可靠性优先。让 seed 自带 kind
+  有两条路，都不便宜：(1) 上游给 `SessionPromptRequest` 加 source 字段；(2) 把 seed 挪到能自带 source 的
+  生产者（`Agent.followup(message: UserMessage)`，`UserMessage.source` 是 producer 必填字段），但那会绕过
+  `controller.prompt` 这条 RPC，连带丢掉它提供的东西——`requireModel` 的模型选择校验、`hasPromptRequest` 的
+  requestId 幂等（两者都在 dsh 的 `api/session-controller/src/commands.ts`），以及 `transientIfRetryable` 的
+  `RemoteError` 包装与 `signal`。为一条标题和几个计数不值得。**W1（写侧）留给将来。** 在那之前，读侧只能按
+  结构识别，运行时**无法**据此拒绝 goal 变更。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**
