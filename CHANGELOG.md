@@ -99,19 +99,28 @@
   变异校验：把跳过改回「恒不跳过」（保留符号引用，避开 `TS6133` 的伪红）→ 掉 4 项（单元 3 条 + autolearn
   轮次闸门 1 条，即两个消费点各有一条钉子）；再把判别器**放大**成「含 `<handoff>` 就跳过」→ 只掉 1 项，正是
   「引用 / 扩写了横幅的真人消息仍算人类轮次」那条负对照（所以该负对照承重）。
-- 注意（**已知缺陷，本仓未修**）：横幅在**语义上**仍是一条 `user` 消息，所以交接子会话的第一回合里
-  `create_goal` / `update_goal` 的 `edit|pause|resume` 会被它当作**人类授权**。这不是措辞问题，是宿主侧的
-  判据：dsh 的 `packages/goal/tool-goal/src/authority.ts` 里 `hasDirectHumanInput` 就是「当前 root-agent
-  回合内存在 `type === "user/message" && data.source.kind === "user"` 的事件」（0.1.7-rc.2 现查），而本插件
-  的 seed 走 `controller.prompt`，其请求里没有 source 字段、宿主一律补 `user`。上游那段注释自己写明了出路：
-  「非人类生产者必须自带 source，而不是继承这份权威」。
-  本次只改**读侧**（轮次与首条文本），**没有**动 seed 路径——用户裁决是保住交接可靠性优先。让 seed 自带 kind
-  有两条路，都不便宜：(1) 上游给 `SessionPromptRequest` 加 source 字段；(2) 把 seed 挪到能自带 source 的
-  生产者（`Agent.followup(message: UserMessage)`，`UserMessage.source` 是 producer 必填字段），但那会绕过
-  `controller.prompt` 这条 RPC，连带丢掉它提供的东西——`requireModel` 的模型选择校验、`hasPromptRequest` 的
-  requestId 幂等（两者都在 dsh 的 `api/session-controller/src/commands.ts`），以及 `transientIfRetryable` 的
-  `RemoteError` 包装与 `signal`。为一条标题和几个计数不值得。**W1（写侧）留给将来。** 在那之前，读侧只能按
-  结构识别，运行时**无法**据此拒绝 goal 变更。
+- 修复：**交接 seed 借用人类的 `user` 身份**，于是一个非人类生产者持有「直接人类授权」。交接子会话的第一回合
+  里，`create_goal` / `update_goal` 的 `edit|pause|resume` 都会被横幅授权。判据在宿主侧：dsh 的
+  `packages/goal/tool-goal/src/authority.ts` 的 `hasDirectHumanInput` 就是「当前 root-agent 回合内存在
+  `type === "user/message" && data.source.kind === "user"` 的事件」（0.1.7-rc.2 现查），而上游那段注释自己
+  写明了契约：「非人类生产者必须自带 source，而不是继承这份权威」。
+  根因是**投递路径**而非措辞：seed 走 `sessionController.prompt`，而 `SessionPromptRequest` 只有
+  `requestId`/`sessionId`/`mode`/`content`/`clientTimeZone`、**没有** source 字段，宿主一律补
+  `{kind:"user", rpcId}`（`api/session-controller/src/commands.ts` 现查）。现在 seed 直接投进子 Agent 的收件箱、
+  带本插件自己的 kind：`agents.get(childId).followup(pluginUserMessage(prompt))`，其中 `pluginUserMessage` 是
+  `shared/model-call.ts` 早就为辅助模型调用建好的那一个（其注释原本就写着「kind 不能是 `user`」）。RPC 自己也是
+  这么投递的（同文件里的 `agent.followup(message)`），所以换掉的只是 source。
+  **因此 `userTurnCount` / `firstUserText` 现在按 kind 就看不到 seed**，读侧那层结构识别退回为对**旧日志**与
+  pi 归档的兜底，而不是唯一防线。
+  诚实边界：这条投递换掉了 RPC 层，随之丢掉的是它的内容校验（prompt 从不为空）与错误翻译；但**不是**丢
+  `requireModel`——那个属于 `session/selectModel`，`carryModelSelection` 照旧调用它；也**不是**丢
+  `hasPromptRequest` 幂等——它只匹配 `kind: "user"` 且复用同一 `requestId` 的消息，而每次尝试都新铸一个 id，
+  对本 seed 从未生效过。`signal` 也不再传给 seed，但该调用现在是同步的，没有可取消的等待窗口。非驻留的子会话
+  **不回落**到 RPC（回落会静默恢复这份人类授权），而是让交接响亮地失败。
+  变异校验：让 seed 重新带上 `kind: "user"` → `tsc` 0、marker 进 `lib/`、掉 2 项（两条新钉子）；把「非驻留」
+  改成静默 `return`（跳过 seed）→ 掉 1 项（正是那条响亮失败断言）。另有 **11 条既有用例**在同一批里从
+  `controller.prompt` 迁到 agents 收件箱，它们的调用序列断言（`["create", "seed"]`）因此**同时钉住
+  `perform.ts` 走的是哪条投递路径**——那些 fixture 的 controller 已不再提供 `prompt`，改回去会当场红。
 
 ### v0.2.1（2026-09-26）
 
