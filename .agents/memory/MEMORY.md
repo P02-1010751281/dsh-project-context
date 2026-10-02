@@ -38,7 +38,7 @@
 - Commit messages are English Conventional Commits.
 - **算「发布跨度」不要数提交总数**：先分代码提交与文档提交，再看有没有新 config key / peer 下限变更 / 配置迁移，最后才判 patch 还是 minor。peeled 提交用 `git rev-list -n1 v0.2.1` 现查，**别记 hash**。
 - 发版只打 annotated tag、不改代码，所以**不需要重启桌面端**；流程见 tracked 技能 `dsh-project-context-release`。已发布段的历史数字**只加有日期的补注、不改写**。
-- pi 侧：**pi 没有 CHANGELOG**（靠 `docs/` + tag）；tag 现查 `git -C /mnt/Data/Projects/pi-project-context tag -l --sort=-v:refname | head -1`。**未获用户许可不动 pi 仓库。**
+- pi 侧：**pi 没有 CHANGELOG**（靠 `docs/` + tag）；tag 现查 `git -C /mnt/Data/Projects/pi-project-context tag -l --sort=-v:refname | head -1`。那条「`ed2704c` 文档空白」经 2026-09-26 核查**不成立、别再当开放项**：`docs/` 从未提过被删的 `saveConfig(projectRoot, config)`（`grep -rn saveConfig docs/` = 0），仓里另一个 `saveConfig` 是 `handoff/settings.ts` 的零参同名函数；已把 `tests/switches-test.mjs` 的注释改成点名「removed in ed2704c」。**未获用户许可不动 pi 仓库。**
 
 ## Commits (main)
 - **Code baseline = last `src/`-touching commit; functional baseline = last `src/` commit that changed behaviour** — **Derive, don't remember**: `git log -1 --oneline -- src/` + `git show --stat`（是否只改注释）。**别在这里枚举 hash 链**；**`origin/main` 也不记字面值**——用 `git rev-parse HEAD origin/main`。`v0.1.0` 不是 HEAD。
