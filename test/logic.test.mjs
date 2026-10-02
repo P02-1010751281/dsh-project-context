@@ -24,6 +24,7 @@ import { pendingQuestion, textAsksQuestion } from "../lib/project-handoff/conver
 import { turnStartedAfter } from "../lib/project-handoff/guard.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
+import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runtime.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate } from "../lib/project-memory/consolidate.js";
@@ -1852,9 +1853,11 @@ test("the status receipt names the term that refused the threshold, not always t
 	// One measurement, three windows. `handoffKeepTokens: 0` makes the floor
 	// `overhead + 0 + MIN_SUMMARIZE_TOKENS`, and this fixture reports no envelope, so the floor is
 	// exactly MIN_SUMMARIZE_TOKENS and the refusals below come from the window and the margin alone.
-	const statusAt = async (contextWindow, config, measurement = { totalTokens: 11_800, surfaceTokens: 11_800 }) => {
+	const statusAt = async (contextWindow, config, measurement = { totalTokens: 11_800, surfaceTokens: 11_800 }, projections) => {
 		const ctx = {
-			get: (name) => (name === "tokenMeter" ? { measure: () => measurement } : undefined),
+			get: (name) => (name === "tokenMeter" ? { measure: () => measurement }
+				: name === "sessionProjections" ? projections
+				: undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
 		};
 		return statusText(ctx, session, config, signal);
@@ -1965,6 +1968,32 @@ test("the status receipt names the term that refused the threshold, not always t
 	const one = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_385);
 	assert.match(one, /\b1 usable token after\b/, `plural used for one: ${one}`);
 	assert.doesNotMatch(one, /1 usable tokens/);
+
+	// The envelope is the harness's own `contextBreakdown` composition (`systemTokens + toolsTokens`),
+	// read through `ctx.sessionProjections.snapshot`. Anything absent or malformed yields no envelope
+	// rather than a guessed one, and the receipt reads the same envelope the automatic path does.
+	const oneProjection = (breakdown) => ({
+		snapshot: (_session, keys) => ({
+			asOfSeq: 0,
+			values: keys?.includes("contextBreakdown") ? { contextBreakdown: breakdown } : {},
+		}),
+	});
+	assert.equal(projectionEnvelope(oneProjection({ systemTokens: 20_000, toolsTokens: 3_000 }), session), 23_000);
+	assert.equal(projectionEnvelope(undefined, session), undefined, "no registry means no envelope, not a guess");
+	assert.equal(projectionEnvelope(oneProjection(undefined), session), undefined, "no projection means no envelope");
+	assert.equal(projectionEnvelope(oneProjection({ systemTokens: "x" }), session), undefined, "a malformed value is not a number");
+	assert.equal(
+		measuredContext({ measure: () => ({ totalTokens: 5, surfaceTokens: 5 }) }, oneProjection({ systemTokens: 1_000, toolsTokens: 500 }), session).overheadTokens,
+		1_500,
+		"one entry point folds the envelope into the measurement",
+	);
+	// A 200K envelope puts the floor past the knee at keep 0 (`157_000 < 208_000`); the identical
+	// measurement without the projection resolves, which is what makes this a pin on the wiring.
+	const squeezed = await statusAt(1_000_000, adaptive, { totalTokens: 11_800, surfaceTokens: 11_800 }, oneProjection({ systemTokens: 200_000, toolsTokens: 0 }));
+	assert.match(squeezed, /threshold unavailable: not the window/);
+	assert.doesNotMatch(squeezed, /threshold auto/, "the receipt must not claim a resolved trigger");
+	const unsqueezed = await statusAt(1_000_000, adaptive, { totalTokens: 11_800, surfaceTokens: 11_800 });
+	assert.match(unsqueezed, /threshold auto \d+ \(\d+%\)/, "without the projection the same numbers resolve");
 });
 
 test("a guardrail override of the manual threshold is warned about, not silent", async () => {

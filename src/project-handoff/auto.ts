@@ -9,7 +9,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { CHARS_PER_TOKEN, handoffSplit, pendingQuestion } from "./conversation.js";
 import { pendingSubagentWork } from "./guard.js";
 import { performHandoff } from "./perform.js";
-import { type SessionControllerLike, type TokenMeterLike, resolveTarget } from "./runtime.js";
+import { type SessionControllerLike, type SessionProjectionsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { SKIP_LOG_INTERVAL_MS, skippedLoggedAt, skippedSince } from "./state.js";
 import { MIN_SUMMARIZE_TOKENS, resolveThreshold } from "./threshold.js";
 
@@ -27,6 +27,7 @@ import { MIN_SUMMARIZE_TOKENS, resolveThreshold } from "./threshold.js";
 export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void> {
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
+	const projections = ctx.get("sessionProjections") as SessionProjectionsLike | undefined;
 	if (!controller || !meter) return;
 	const target = resolveTarget(session, config);
 	if (!target) return;
@@ -37,7 +38,10 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model);
 	const contextWindow = resolved.context?.contextWindow;
 	if (contextWindow === undefined || contextWindow <= 0) return;
-	const measurement = meter.measure(session);
+	// `measuredContext` folds in the harness's `contextBreakdown` envelope; without it the floor would
+	// have to be derived from the meter's two differently-based outputs, which is the defect this exists
+	// to prevent.
+	const measurement = measuredContext(meter, projections, session);
 	const threshold = resolveThreshold(config, measurement, contextWindow);
 	if (!threshold || measurement.totalTokens < threshold.tokens) return;
 

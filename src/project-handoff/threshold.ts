@@ -26,9 +26,9 @@ const SAFETY_MARGIN_TOKENS = 4_000;
  * arithmetic may cross them — and this plugin is a consumer of measurements, not a repricer of them.
  *
  * `overheadTokens` is the envelope the next request carries beyond the conversation surface (system
- * prompt, tool schemas, framing) **on `totalTokens`' basis**. No released harness reports it, so
- * callers pass nothing and the floor carries only the terms this plugin owns. The field is the seam for
- * the harness change that exposes it, exactly like {@link qualityLimit}'s `autoCompactTokenLimit`.
+ * prompt, tool schemas). Callers read it from the harness: `projectionEnvelope` sums the token meter's
+ * own `contextBreakdown` projection (`systemTokens + toolsTokens`). When no registry is mounted the
+ * floor carries only the terms this plugin owns.
  *
  * `surfaceTokens` is part of the meter's contract and is deliberately **not read** here: the plugin has
  * no question of its own that the surface alone answers, and reading it only ever invited the

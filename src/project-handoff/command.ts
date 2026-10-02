@@ -12,7 +12,7 @@ import { resolveLanguage } from "./language.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
 import { sessionLanguageMessages } from "./conversation.js";
 import { performHandoff } from "./perform.js";
-import { type SessionControllerLike, type SettingsLike, type TokenMeterLike, resolveTarget } from "./runtime.js";
+import { type SessionControllerLike, type SessionProjectionsLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { handedOff, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
 import { resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "./threshold.js";
 
@@ -87,11 +87,14 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 	const parts: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const target = resolveTarget(session, config);
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
+	const projections = ctx.get("sessionProjections") as SessionProjectionsLike | undefined;
 	if (target !== undefined && meter !== undefined) {
 		const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
 		const contextWindow = resolved.context?.contextWindow;
 		if (contextWindow !== undefined && contextWindow > 0) {
-			const measurement = meter.measure(session);
+			// Same envelope the automatic path uses, so the receipt cannot explain a decision the trigger
+			// did not make.
+			const measurement = measuredContext(meter, projections, session);
 			const percent = Math.round((measurement.totalTokens / contextWindow) * 100);
 			parts.push(`context ${measurement.totalTokens}/${contextWindow} (${percent}%)`);
 			const threshold = resolveThreshold(config, measurement, contextWindow);

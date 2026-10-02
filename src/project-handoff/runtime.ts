@@ -17,6 +17,50 @@ export interface SessionControllerLike {
 }
 
 /**
+ * Structural view of the session projection registry (`ctx.sessionProjections`,
+ * `@deepseek-ai/dsh-session-projection`). The token meter registers `contextBreakdown` with it —
+ * the harness's own answer to "what is the prompt made of" — and `snapshot` is synchronous.
+ */
+export interface SessionProjectionsLike {
+	snapshot(session: Session, keys?: readonly string[]): { asOfSeq: number; values: Record<string, unknown> };
+}
+
+/**
+ * The envelope the next request carries beyond the conversation, for `threshold.ts`.
+ *
+ * Read from the harness's `contextBreakdown` projection (`systemTokens + toolsTokens`). It is
+ * **never** derived by subtracting two meter outputs: `tokenMeter.measure`'s `totalTokens` is anchored
+ * on the provider's `usage` while its `surfaceTokens` is priced by a fixed-density heuristic, so the
+ * difference is `envelope + density error` — 263324 against a real 42845 on one measured session, an
+ * error that grows with the conversation and put the floor permanently past the knee.
+ *
+ * `undefined` when the registry or the projection is absent, which leaves the floor at `keep + MIN`.
+ * The composition is the meter's fixed-density estimate, the same basis `keep`, `MIN_SUMMARIZE_TOKENS`
+ * and `handoffSplit` are measured in, so the floor stays internally consistent.
+ */
+export function projectionEnvelope(projections: SessionProjectionsLike | undefined, session: Session): number | undefined {
+	const value = projections?.snapshot(session, ["contextBreakdown"]).values.contextBreakdown;
+	if (value === undefined || value === null || typeof value !== "object") return undefined;
+	const { systemTokens, toolsTokens } = value as { systemTokens?: unknown; toolsTokens?: unknown };
+	if (typeof systemTokens !== "number" && typeof toolsTokens !== "number") return undefined;
+	return (typeof systemTokens === "number" ? systemTokens : 0) + (typeof toolsTokens === "number" ? toolsTokens : 0);
+}
+
+/**
+ * The meter's measurement plus the harness-reported envelope, ready for `threshold.ts`. One entry
+ * point so the automatic path and the `/handoff status` receipt cannot read different envelopes.
+ */
+export function measuredContext(
+	meter: TokenMeterLike,
+	projections: SessionProjectionsLike | undefined,
+	session: Session,
+): { totalTokens: number; surfaceTokens: number; overheadTokens?: number } {
+	const measured = meter.measure(session);
+	const envelope = projectionEnvelope(projections, session);
+	return envelope === undefined ? measured : { ...measured, overheadTokens: envelope };
+}
+
+/**
  * Structural view of the workspace registry (`ctx.workspaceRegistry`); the service
  * is optional per profile, and `resolveByPath` canonicalizes like the registry does.
  */
@@ -42,8 +86,8 @@ export interface TokenMeterLike {
 	/**
 	 * `totalTokens` is anchored on the provider's reported usage; `surfaceTokens` is priced by the
 	 * meter's fixed-density heuristic, so the two are on different bases and must not be subtracted.
-	 * `overheadTokens` would be the envelope on the total's basis; no released harness reports it yet,
-	 * so it is optional and the plugin never derives it (see `threshold.ts` `ContextMeasurement`).
+	 * `overheadTokens` is the envelope from the harness's `contextBreakdown` projection (see
+	 * {@link projectionEnvelope}); it is never derived from the two above.
 	 */
 	measure(session: Session): { totalTokens: number; surfaceTokens: number; overheadTokens?: number };
 }
