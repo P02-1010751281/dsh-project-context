@@ -83,6 +83,36 @@
   动」是假话，那条断言因此是**否定式**的，并把该 W 的 fixture 一起钉住。
   变异校验：把措辞改回「so auto can start past it」→ `tsc` 0、措辞已进 `lib/`、掉 1 项（新的否定断言）。
 
+- 修复：**自动交接在本机永远不会触发**——`resolveThreshold` 恒返回 `undefined`，而回执把它归因成质量膝。
+  根因是**跨计量基准相减**：`floor = max(0, totalTokens − surfaceTokens) + keep + MIN_SUMMARIZE`。dsh 的
+  `token-meter` 只报两个数，而它们基准不同——`totalTokens` 锚在路由 provider 报的 `usage` 上，`surfaceTokens`
+  由固定密度启发式定价（`estimate.ts` 的 `CHARS_PER_TOKEN = 4`；只有图片/文件走路由定价）。所以那个差值是
+  **真开销 + 密度误差**：真机一次测量 `495117 − 231793 = 263324`，而同一次请求里 dsh 自己定义的「信封」只有
+  工具 schema 的 `42845`（`estimateToolsTokens` 的注释明说 system prompt 是 surface 节点、信封只有这一个计价
+  字段）——即 **220479 全是误差**。中文约 1 字符 = 1 token 而启发式按 4 字符/token，误差随对话**线性增长**，
+  于是 `floor = 263324 + keep + 8000` 永远压在 `knee(1M) = 157000` 之上：`resolveThreshold` 返回 `undefined`，
+  自动路径在 `auto.ts:42` 静默退出——**不是「还没到」，是结构上永不触发**；而 `/handoff status` 会给出一句算术
+  为真、杠杆指错的 `quality-knee`（作者自己的注释就承认「a smaller baseline 不是用户能调的设置」）。
+  现在**插件不再自己合成信封**：新增可选的 `ContextMeasurement.overheadTokens`（harness 按 `totalTokens` 基准
+  报告的信封），缺省 0，`HandoffRoom.baseline` 随之改名为 `overhead`。该字段是**上游接线的 seam**，与
+   `qualityLimit(window, upstream?)` 同一模式：今天没有 harness 报它，所以信封项为 0、`floor = keep + 8K`。
+   诚实边界：`quality-knee` **仍然可达**，但只剩用户自己那一条路——`handoffKeepTokens` 上界 200000
+   （`config.ts`），1M 窗口下现查 `keep=149000` 解析、`keep=149001` 拒绝（`/handoff keep 200k` 的真实命令解析器
+   也接受）；harness 将来报出信封同样可达。回执因此按「`keep` 能否清掉膝」分别给词：能清时点名 `keep`，不能
+   清时**不再**把一个不起作用的 `keep` 说成杠杆（那是旧 “a smaller baseline” 的同一种病），只推 `/handoff 0.4`。
+   而「值不值得折」这件事仍留在唯一能精确回答它的地方——`maybeAutoHandoff` 拿真实的
+   `handoffSplit` 比 `MIN_SUMMARIZE_TOKENS`（该检查本来就在 `auto.ts:61`）；threshold 层那份是同一规则的
+   第二份、且基准混用的副本，按本仓「重复规则是根因」的既有裁决删掉——`handoffRoom` 现在直接调
+   `thresholdFloor`，可行性判定与回执共用同一份 floor。
+  行为翻转（**旧断言建立在假拒绝上，已改写**）：原先被钉成拒绝的 `W=40000 / keep=0 / total 11800` 现在解析为
+  `19616`（窗口的 49%），该 fixture 刻意保留非零的 `totalTokens − surfaceTokens`，否则旧公式会算出同一个数、
+  断言就成了空转；`heavy = {total: 512000, surface: 0}` 那条「重 baseline 压过膝」的 fixture 改为显式
+  `overheadTokens: 200000`（信封必须来自 harness）；回执里的 “a smaller baseline” 与 “context assembly 0 + …”
+  一并去掉。
+  变异校验：把根因原样放回（`overhead = totalTokens − surfaceTokens`）→ `tsc` 0、marker 进
+  `lib/project-handoff/threshold.js`、掉 2 项（回执用例 + composition 用例，后者含 W=40000 与「真机 CJK
+  形状必须解析」两条）；`sha256sum -c` 恢复、重建后 `lib/` marker 0、门禁 0/0/242。
+
 **project-memory / project-autolearn（人类轮次判定）**
 
 - 修复：**handoff 横幅被当成一个人类轮次，也让 `firstUserText` 以横幅作答**。dsh 的 prompt RPC 不带 source
