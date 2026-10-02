@@ -107,9 +107,13 @@
   `{ systemTokens, toolsTokens, messageTokens }`（0.1.7-rc.2 源码：`breakdown-projection.ts` 的
   `wire: { viewSchema: breakdownSchema, view: state => state.breakdown }`，`session-projection/src/index.ts` 的
   `snapshot()` 走 `viewCell(...)`、冷读 `viewCheckpoint()` 走 `viewSchema.parse(view(state))`）；在缓存里看不到
-  顶层 `systemTokens` 不是缺陷。还有一条盲区：1M 窗口 + 小 `keep` 时 floor 远低于膝 157000，所以回执里那个
-  `threshold auto 157000` **只**证明 floor 不再带密度误差，**不**证明这次 `contextBreakdown` 读取解析成功——
-  `projectionEnvelope` 返回 `undefined` 时回执数字完全相同（floor 退回 `keep + 8K`，仍被膝压住）。
+  顶层 `systemTokens` 不是缺陷。活体验证（**它比任何推算都强，而且早于本轮**）：2026-10-02 22:06:45 本仓父会话
+  `4cdeb0b9` 在一次真实 `turn/end` 上触发了 auto 交接——后继 `dfa432f0` 的 `createdAt` = 22:06:54、`cwd` 为本仓、
+  首条用户消息即交接横幅且 `source.kind` 为 `dsh-project-context`，而父会话那份 1406 行日志里**没有一条 `command/run`**
+  （所以走的是 auto 路径，不是 `/handoff now`）；宿主 22:02:11 启动、`lib/` 为 21:56 那份，即带本修复的构建。修复前
+  `floor = 263324 + keep + 8000` 恒高于膝，auto 路径**结构上不可能**触发，所以「它触发过一次」本身就是「修复已加载」
+  的判据。**别再把实测写成待办**：它已经真实发生过；钉子有两枚——后继的 `createdAt`，与它首条 `user/message` 的
+  `source.kind`（`~/.dsh/sessions/<encoded-cwd>/session-<id>/`）。
    诚实边界：`quality-knee` **仍然可达**，但只剩用户自己那一条路——`handoffKeepTokens` 上界 200000
    （`config.ts`），1M 窗口下现查 `keep=149000` 解析、`keep=149001` 拒绝（`/handoff keep 200k` 的真实命令解析器
    也接受）；harness 将来报出信封同样可达。回执因此按「`keep` 能否清掉膝」分别给词：能清时点名 `keep`，不能
@@ -126,6 +130,20 @@
   变异校验：把根因原样放回（`overhead = totalTokens − surfaceTokens`）→ `tsc` 0、marker 进
   `lib/project-handoff/threshold.js`、掉 2 项（回执用例 + composition 用例，后者含 W=40000 与「真机 CJK
   形状必须解析」两条）；`sha256sum -c` 恢复、重建后 `lib/` marker 0、门禁 0/0/242。
+
+- 修复：**`/handoff status` 对「信封读没读到」是盲的**——上一条把 floor 修对了，但回执仍无法证明这次
+  `contextBreakdown` **解析成功**。回执里那句 `threshold auto <n>` 在读到与读不到时是**同一个字符串**：1M 窗口 +
+  默认 `keep` 20000 时，带 45_000 信封是 `73000`、退回 `keep + 8K` 是 `28000`，而膝 `157000` 两者都压得住，于是
+  都解析成 `auto 157000 (16%)`。当时只能靠推算回答「投影到底读到了没有」，而推算不是回执的义务。现在
+  `measuredContext` 一并报出信封**来自哪次读取**（`MeasuredContext.envelopeSource`：`"projection"` = harness 的
+  `contextBreakdown`；`"meter"` = meter 自己给的**同一个量**），回执据此渲染三态之一：
+  `harness envelope <n>` / `meter envelope <n> — not the harness composition` / `harness envelope unavailable —
+  no contextBreakdown projection`。归因落在 auto 路径与回执共用的那个唯一入口上，所以不会出现「值对、出处错」——
+  这正是本仓「错误归因比静默降级更糟」那条判定类缺陷的一个新实例；meter 给的信封被单独命名，是因为它数值上等价、
+  来源上不等价。
+  变异校验：把回执那行替换成一个常量 → `tsc` 0、特征串已从 `lib/project-handoff/command.js` 消失、掉 1 项；把归因
+  恒等于 `"projection"`（即把 meter 的来源也说成 harness 的）→ `tsc` 0、掉 1 项——同一个新用例里两条断言各自可达。
+  `sha256sum -c` 恢复、重建后 `lib/` marker 0、门禁 0/0/243。
 
 **project-memory / project-autolearn（人类轮次判定）**
 
