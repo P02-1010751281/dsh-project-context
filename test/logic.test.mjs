@@ -1839,7 +1839,7 @@ test("the status receipt names the term that refused the threshold, not always t
 	// `resolveThreshold` returns `undefined` from three different comparisons. The receipt used to
 	// render all of them as "threshold unavailable at this window", which is a *false* claim in two
 	// of the three: the window can be roomy and the threshold still refuses on the summarize
-	// minimum, on the assembled baseline + keep, or on the 4K safety margin applied a second time.
+	// minimum, on the reported envelope + keep, or on the 4K safety margin applied a second time.
 	// A user told "at this window" swaps models or raises `/handoff target` and nothing changes.
 	const signal = new AbortController().signal;
 	const session = {
@@ -1849,9 +1849,10 @@ test("the status receipt names the term that refused the threshold, not always t
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
 	};
-	// One baseline, three windows. `handoffKeepTokens: 0` makes the floor
-	// `baseline + 0 + MIN_SUMMARIZE_TOKENS` exactly.
-	const statusAt = async (contextWindow, config, measurement = { totalTokens: 11_800, surfaceTokens: 0 }) => {
+	// One measurement, three windows. `handoffKeepTokens: 0` makes the floor
+	// `overhead + 0 + MIN_SUMMARIZE_TOKENS`, and this fixture reports no envelope, so the floor is
+	// exactly MIN_SUMMARIZE_TOKENS and the refusals below come from the window and the margin alone.
+	const statusAt = async (contextWindow, config, measurement = { totalTokens: 11_800, surfaceTokens: 11_800 }) => {
 		const ctx = {
 			get: (name) => (name === "tokenMeter" ? { measure: () => measurement } : undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
@@ -1859,21 +1860,22 @@ test("the status receipt names the term that refused the threshold, not always t
 		return statusText(ctx, session, config, signal);
 	};
 	const adaptive = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
-	// usable = 40_000 − 16_384 = 23_616 > floor = 11_800 + 8_000 = 19_800: the window is roomy and
-	// the binding term is `usable − SAFETY_MARGIN_TOKENS`, so blaming the window here is the bug.
-	assert.equal(resolveThreshold(adaptive, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined, "the fixture really is a refusal");
-	const marginSqueezed = await statusAt(40_000, adaptive);
-	assert.equal(thresholdRefusal(adaptive, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), "summarizer-floor");
+	// W=27_000: usable = 27_000 − 16_384 = 10_616 > floor = 0 + 8_000, but the capacity cap
+	// (27_000 − 16_384 − 4_000 = 6_616) sits below that floor, so the summarize minimum refuses. The
+	// window is roomy, so blaming the window here is the bug.
+	assert.equal(resolveThreshold(adaptive, { totalTokens: 11_800, surfaceTokens: 11_800 }, 27_000), undefined, "the fixture really is a refusal");
+	const marginSqueezed = await statusAt(27_000, adaptive);
+	assert.equal(thresholdRefusal(adaptive, { totalTokens: 11_800, surfaceTokens: 11_800 }, 27_000), "summarizer-floor");
 	assert.match(marginSqueezed, /threshold unavailable: the window is not the limit/);
-	assert.match(marginSqueezed, /23616 usable tokens clear the 19800-token floor/, "the receipt quotes the comparison that failed");
+	assert.match(marginSqueezed, /10616 usable tokens clear the 8000-token floor/, "the receipt quotes the comparison that failed");
 	assert.match(marginSqueezed, /4000-token safety margin/);
 	assert.doesNotMatch(marginSqueezed, /window too small/, "a roomy window must not be blamed");
 
-	// usable = 13_616 <= floor: the window really is the binding term.
-	assert.equal(thresholdRefusal(adaptive, { totalTokens: 11_800, surfaceTokens: 0 }, 30_000), "window-headroom");
-	const tooSmall = await statusAt(30_000, adaptive);
+	// usable = 20_000 − 16_384 = 3_616 <= floor = 8_000: the window really is the binding term.
+	assert.equal(thresholdRefusal(adaptive, { totalTokens: 11_800, surfaceTokens: 11_800 }, 20_000), "window-headroom");
+	const tooSmall = await statusAt(20_000, adaptive);
 	assert.match(tooSmall, /threshold unavailable: window too small/);
-	assert.match(tooSmall, /leaves 13616 usable tokens/);
+	assert.match(tooSmall, /leaves 3616 usable tokens/);
 	assert.doesNotMatch(tooSmall, /the window is not the limit/);
 
 	// A window wide enough to resolve must still print the resolved label, not a refusal.
@@ -1881,36 +1883,48 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.match(resolved, /threshold auto \d+ \(\d+%\)/);
 	assert.doesNotMatch(resolved, /threshold unavailable/);
 
-	// The *other* term of the two-term rule can sit below the floor, and it wants the opposite lever:
-	// a heavy baseline pushes the floor past the quality knee, so "a larger context window" is
-	// backwards here (the curve approaches 157K from above — a wider window lowers the knee). This path
-	// only became reachable when the trigger became two terms; the target lift used to keep it out of
-	// the refusal set entirely.
+	// The *other* term of the two-term rule can sit below the floor, and it wants the opposite lever: a
+	// large **reported** envelope pushes the floor past the quality knee, so "a larger context window" is
+	// backwards here (the curve approaches 157K from above — a wider window lowers the knee). The envelope
+	// must come from the harness: with none reported the floor is `keep + 8_000` and the knee cannot
+	// refuse at all, which is exactly why it may not be derived by subtraction.
 	const heavyConfig = resolvePluginConfig({ provider: "test-provider", model: "test-model" });
-	const heavy = { totalTokens: 512_000, surfaceTokens: 0 };
+	const heavy = { totalTokens: 512_000, surfaceTokens: 300_000, overheadTokens: 200_000 };
 	assert.equal(resolveThreshold(heavyConfig, heavy, 1_000_000), undefined, "the heavy fixture really is a refusal");
 	assert.equal(thresholdRefusal(heavyConfig, heavy, 1_000_000), "quality-knee");
 	const kneeSqueezed = await statusAt(1_000_000, heavyConfig, heavy);
 	assert.match(kneeSqueezed, /the model's quality knee allows only 157000 at this window/);
-	assert.match(kneeSqueezed, /a smaller baseline or keep is the lever/);
-	assert.match(kneeSqueezed, /raising the window lowers the knee/, "the receipt corrects the backwards advice");
+	// A 200K envelope leaves no `keep` that clears a 157K knee, so the receipt must not name `keep` as the
+	// lever here — that is the same dead-lever defect the old "a smaller baseline" wording had.
+	assert.match(kneeSqueezed, /no `keep` value clears this/);
+	assert.doesNotMatch(kneeSqueezed, /lower `keep`/, "an inert lever must not be named");
+	assert.match(kneeSqueezed, /raising it lowers the knee/, "the receipt corrects the backwards advice");
+
+	// The reachable-today path is `keep` itself: it is bounded at 200_000, so at a 1M window 149_000
+	// resolves and 149_001 refuses. Here `keep` *is* the lever, and the receipt must say so.
+	const kneeByKeep = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_001 });
+	assert.equal(thresholdRefusal(kneeByKeep, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), "quality-knee");
+	const keepSqueezed = await statusAt(1_000_000, kneeByKeep, { totalTokens: 11_800, surfaceTokens: 0 });
+	assert.match(keepSqueezed, /lower `keep`/, "the lever that really binds is named");
+	// One token less of carried tail clears it, which is what makes `keep` the lever rather than a slogan.
+	const oneLess = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_000 });
+	assert.notEqual(resolveThreshold(oneLess, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), undefined);
 	assert.doesNotMatch(kneeSqueezed, /is the lever, not this window alone/, "the margin sentence must not be reused");
 	assert.doesNotMatch(kneeSqueezed, /safety margin/, "the margin is not what bound here");
 	// The knee cannot be lifted by `/handoff target` (the orchestrator deliberately keeps the configured
-	// target off the trigger line), and this refusal used to stop at "a smaller baseline or keep" — which
-	// is not a setting the user can lower, because no config key feeds the baseline. The setting that does
-	// clear it is an explicit ratio, since the agreed fence lets an explicit setting override the quality
-	// ceiling that governs the auto composition. The override receipt already names it; this refusal must
-	// not leave the user at a dead lever.
+	// target off the trigger line), and the floor's envelope term is not a setting either — only `keep` is.
+	// The setting that clears this refusal today is an explicit ratio, since the agreed fence lets an
+	// explicit setting override the quality ceiling that governs the auto composition. The override receipt
+	// already names it; this refusal must not leave the user at a dead lever.
 	assert.match(kneeSqueezed, /\/handoff 0\.4 is not checked against the knee/, "the refusal names the control that clears it");
 	// …but it must not say where that trigger *lands*. Below the `knee(W)` / `0.4W` crossing (≈488K at the
 	// current constants) a 0.4 trigger sits **under** the knee, so an earlier wording ("so auto can start
 	// past it") was a false placement claim in a reachable band. Pin one point in that band, so the ban is
 	// evidence-backed rather than a matter of taste.
 	const bandW = 450_000;
-	const bandMeasurement = { totalTokens: 300_000, surfaceTokens: 0 };
+	const bandMeasurement = { totalTokens: 600_000, surfaceTokens: 300_000, overheadTokens: 300_000 };
 	const bandAuto = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
-	assert.equal(thresholdRefusal(bandAuto, bandMeasurement, bandW), "quality-knee", "W=450K with a 300K baseline is a knee refusal");
+	assert.equal(thresholdRefusal(bandAuto, bandMeasurement, bandW), "quality-knee", "W=450K with a 300K reported envelope is a knee refusal");
 	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffAdaptive: false, handoffThresholdRatio: 0.4 });
 	const bandTrigger = resolveThreshold(bandFixed, bandMeasurement, bandW);
 	assert.ok(bandTrigger !== undefined && bandTrigger.tokens < qualityLimit(bandW),
@@ -1967,7 +1981,7 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
 	};
-	// baseline 6000 (26_000 − 20_000), keep 20_000 by default.
+	// No envelope is reported, so the floor and `asked` carry only `keep` (20_000 by default) and the target.
 	const statusAt = async (contextWindow, over) => {
 		const ctx = {
 			get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) } : undefined),
@@ -1976,15 +1990,15 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 		return statusText(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over }), signal);
 	};
 
-	// Quality guardrail wins: at 1M the knee allows 157_000 while a 200_000 target needs 226_000.
+	// Quality guardrail wins: at 1M the knee allows 157_000 while a 200_000 target needs 220_000.
 	const quality = await statusAt(1_000_000, { handoffTargetTokens: 200_000 });
 	assert.match(quality, /not applied in full/, `expected a warning, got ${quality}`);
-	assert.match(quality, /needs a 226000-token threshold/);
+	assert.match(quality, /needs a 220000-token threshold/);
 	assert.match(quality, /quality knee allows 157000/);
 	// The default target fits under the guardrail, so there is nothing to warn about.
 	const honoured = await statusAt(1_000_000, {});
 	assert.doesNotMatch(honoured, /not applied in full/, `unexpected warning: ${honoured}`);
-	// Capacity guardrail wins: at 65_536 the default target needs 90_000 and only 45_152 fit.
+	// Capacity guardrail wins: at 65_536 the default target needs 84_000 and only 45_152 fit.
 	const capacity = await statusAt(65_536, {});
 	assert.match(capacity, /not applied in full/);
 	assert.match(capacity, /only 45152 tokens fit this 65536-token window/);
@@ -2012,8 +2026,8 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 	assert.equal(qualityLimit(1_000_000), 157_000);
 	assert.equal(qualityLimit(2_000_000), 157_000);
 
-	// Composition: `min(quality(window), capacity(room))`, exactly two terms, with baseline 6000 and
-	// keep 20000 (measurement below). No configured key appears on that line.
+	// Composition: `min(quality(window), capacity(room))`, exactly two terms, with keep 20000 and no
+	// reported envelope (measurement below). No configured key appears on that line.
 	const measurement = { totalTokens: 26_000, surfaceTokens: 20_000 };
 	const config = (over) => resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over });
 	const at = (window, over) => resolveThreshold(config(over), measurement, window).tokens;
@@ -2037,11 +2051,19 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 	// Fixed ratio mode returns before the curve entirely, so an explicit user ratio is never touched.
 	const fixed = resolveThreshold(config({ handoffAdaptive: false, handoffThresholdRatio: 0.5 }), measurement, 1_000_000);
 	assert.equal(fixed.tokens, 500_000);
-	// The refusal the misattribution fix pinned still refuses: at W=40000 the capacity cap
-	// (40_000 − 16_384 − 4_000 = 19_616) falls below the floor (11_800 + 0 + 8_000 = 19_800).
+	// Regression: the W=40000 case the misattribution fix pinned as a refusal was a measurement-basis
+	// artifact, not model behaviour. The fixture keeps a non-zero `totalTokens − surfaceTokens` on purpose:
+	// with the subtraction restored the floor is 11_800 + 8_000 = 19_800, above the capacity cap 19_616, so
+	// this assertion is the one that fails under the bug rather than passing for the wrong reason.
 	const narrow = config({ handoffKeepTokens: 0 });
-	assert.equal(resolveThreshold(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined);
-	assert.equal(thresholdRefusal(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), "summarizer-floor");
+	assert.equal(resolveThreshold(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000)?.tokens, 19_616);
+	assert.equal(thresholdRefusal(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined);
+	// The shape a real CJK session produces — a provider-anchored total far above the density-priced
+	// surface — must resolve on a 1M window. Read as a difference it was a 263K "envelope", which put the
+	// floor above the knee and made the automatic trigger structurally unreachable.
+	const cjk = { totalTokens: 495_117, surfaceTokens: 231_793 };
+	assert.equal(resolveThreshold(config({}), cjk, 1_000_000)?.tokens, 157_000, "the real session's shape resolves");
+	assert.equal(thresholdRefusal(config({}), cjk, 1_000_000), undefined);
 });
 
 test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {
@@ -2108,9 +2130,11 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 		snapshotEvents: () => [],
 	};
 	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
-	// Both auto gates are closed: the switch is off, and at 40K the capacity cap (19_616) falls below
-	// the floor (19_800), so the automatic path refuses.
-	assert.equal(resolveThreshold(entry, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined, "the auto threshold refuses here");
+	// The switch is off, and the threshold gate is closed too — but at a narrower window than before: at
+	// 40K the capacity cap (19_616) now clears the floor (keep 0 + 8_000), so a refusal has to come from
+	// where it really binds, the summarize minimum at 27K.
+	assert.notEqual(resolveThreshold(entry, { totalTokens: 11_800, surfaceTokens: 11_800 }, 40_000), undefined, "the fixture's own window resolves");
+	assert.equal(resolveThreshold(entry, { totalTokens: 11_800, surfaceTokens: 11_800 }, 27_000), undefined, "the auto threshold refuses here");
 
 	const reply = await runManual(ctx, session, entry, new AbortController().signal);
 	assert.equal(reply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(reply)}`);

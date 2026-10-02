@@ -18,9 +18,42 @@ const WINDOW_RESERVE_TOKENS = 16_384;
 /** Stay this far below the usable window so streaming growth cannot cross it. */
 const SAFETY_MARGIN_TOKENS = 4_000;
 
-/** Everything the next request carries beyond the conversation surface, plus keep and the minimum. */
-function thresholdFloor(config: PluginConfig, measurement: { totalTokens: number; surfaceTokens: number }): number {
-	return Math.max(0, measurement.totalTokens - measurement.surfaceTokens) + config.handoffKeepTokens + MIN_SUMMARIZE_TOKENS;
+/**
+ * What this plugin reads from the harness's meter.
+ *
+ * `totalTokens` is anchored on the routed provider's reported `usage`; `surfaceTokens` is priced by the
+ * meter's **fixed-density heuristic** (4 characters per token). The two are on *different bases*, so no
+ * arithmetic may cross them — and this plugin is a consumer of measurements, not a repricer of them.
+ *
+ * `overheadTokens` is the envelope the next request carries beyond the conversation surface (system
+ * prompt, tool schemas, framing) **on `totalTokens`' basis**. No released harness reports it, so
+ * callers pass nothing and the floor carries only the terms this plugin owns. The field is the seam for
+ * the harness change that exposes it, exactly like {@link qualityLimit}'s `autoCompactTokenLimit`.
+ *
+ * `surfaceTokens` is part of the meter's contract and is deliberately **not read** here: the plugin has
+ * no question of its own that the surface alone answers, and reading it only ever invited the
+ * cross-basis subtraction this interface exists to forbid.
+ */
+export interface ContextMeasurement {
+	readonly totalTokens: number;
+	readonly surfaceTokens: number;
+	readonly overheadTokens?: number;
+}
+
+/**
+ * The smallest trigger that still lets a summary replace the summarize minimum: the carried tail plus
+ * that minimum, plus the envelope when the harness reports one.
+ *
+ * It deliberately does **not** derive the envelope as `totalTokens − surfaceTokens`. That difference is
+ * `overhead + (real surface − heuristic surface)`: for a CJK-heavy conversation the density heuristic
+ * undercounts the surface by roughly 2×, and the whole shortfall lands in the difference. A real
+ * session measured `495117 − 231793 = 263324` where the envelope was `42845`, so the floor became
+ * `263324 + keep + 8000 = 271324` — above the `157000` knee at a 1M window — and `resolveThreshold`
+ * refused **permanently**, with a receipt that blamed the knee. The knee was never the cause.
+ */
+function thresholdFloor(config: PluginConfig, measurement: ContextMeasurement): number {
+	const overhead = measurement.overheadTokens ?? 0;
+	return Math.max(0, overhead) + config.handoffKeepTokens + MIN_SUMMARIZE_TOKENS;
 }
 
 /**
@@ -29,7 +62,7 @@ function thresholdFloor(config: PluginConfig, measurement: { totalTokens: number
  * `resolveThreshold` has four `undefined` exits with four different causes, and the receipt used to
  * render every one of them as "threshold unavailable at this window" — a claim about the window that
  * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the
- * summarizer minimum, the assembled baseline + carried tail, the second 4K
+ * summarizer minimum, the reported envelope + carried tail, the second 4K
  * {@link SAFETY_MARGIN_TOKENS} deduction, or the **quality knee** is what decided it, and "at this
  * window" sends the user to change the model or the target when neither is the lever.
  *
@@ -46,7 +79,7 @@ export type ThresholdRefusal = "window-headroom" | "quality-knee" | "summarizer-
  */
 export function thresholdRefusal(
 	config: PluginConfig,
-	measurement: { totalTokens: number; surfaceTokens: number },
+	measurement: ContextMeasurement,
 	contextWindow: number,
 ): ThresholdRefusal | undefined {
 	if (resolveThreshold(config, measurement, contextWindow) !== undefined) return undefined;
@@ -69,7 +102,7 @@ export function thresholdRefusal(
 export function thresholdRefusalText(
 	reason: ThresholdRefusal,
 	config: PluginConfig,
-	measurement: { totalTokens: number; surfaceTokens: number },
+	measurement: ContextMeasurement,
 	contextWindow: number,
 ): string {
 	const floor = thresholdFloor(config, measurement);
@@ -83,27 +116,48 @@ export function thresholdRefusalText(
 			: usable === 0
 				? `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve consumes the entire ${contextWindow}-token window`
 				: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve exceeds the ${contextWindow}-token window by ${-usable}`;
-		return `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (context assembly ${floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS} + keep ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS})`;
+		const envelope = floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS;
+		// The envelope term exists only when the harness reports one; printing "0-token envelope" would
+		// invent a term that took no part in the comparison.
+		const assembly = envelope > 0
+			? `the ${envelope}-token envelope the harness reports + keep ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
+			: `keep ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
+		return `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (${assembly})`;
 	}
 	if (reason === "quality-knee") {
 		// "A larger window" is the lever for the margin case and the *opposite* of the lever here: the
 		// curve approaches its 157K asymptote from above, so a wider window lowers the knee. Say which
 		// control actually helps rather than reusing the margin sentence.
 		//
-		// "A smaller baseline" is not a setting the user can lower — no config key feeds it, it is
-		// derived from the measurement — so the sentence must also name the setting that does clear this
-		// refusal: an explicit ratio is not checked against the knee at all, because the agreed fence lets
-		// an explicit setting override the quality ceiling that governs the auto composition. That is
-		// exactly what {@link thresholdOverrideText} already tells a user whose `/handoff target` the knee
-		// overrode. Say *that*, not where the resulting trigger lands: below the `knee(W)` / `0.4W`
-		// crossing (≈488K at the current constants) a 0.4 trigger sits under the knee, so "auto can start
-		// past it" is false in a reachable band (checked at W=450K: knee 303500, 0.4 trigger 180000). It
-		// must not mention the safety margin either: that term did not bind here, and naming it would
-		// misattribute the refusal.
-		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${qualityLimit(contextWindow)} at this window, so a handoff could only start past the knee; a smaller baseline or keep is the lever (raising the window lowers the knee, it does not raise it), or make the trigger explicit with a fixed ratio — /handoff 0.4 is not checked against the knee, which is what blocks auto here`;
+		// The floor's terms are the harness-reported envelope, `keep` and the summarize minimum. Only
+		// `keep` is a config key, and it reaches this refusal on its own **today**: `handoffKeepTokens` is
+		// bounded at 200_000 (`config.ts`), so at a 1M window `keep >= 149_001` puts the floor past the
+		// 157_000 knee (measured: 149_000 resolves, 149_001 refuses). A reported envelope can reach it too.
+		// Neither the window nor the target is a lever here — the window is the *opposite* lever (the curve
+		// approaches 157K from above, so a wider window lowers the knee) and `/handoff target` never enters
+		// the floor. The setting that clears it *today* is an explicit ratio, which is not checked against
+		// the knee at all because the agreed fence lets an explicit setting override the quality ceiling
+		// that governs the auto composition — exactly what {@link thresholdOverrideText} already tells a
+		// user whose `/handoff target` the knee overrode. Say *that*, not where the resulting trigger
+		// lands: below the `knee(W)` / `0.4W` crossing (≈488K at the current constants) a 0.4 trigger sits
+		// under the knee, so "auto can start past it" is false in a reachable band (checked at W=450K:
+		// knee 303500, 0.4 trigger 180000). It must not mention the safety margin either: that term did
+		// not bind here, and naming it would misattribute the refusal.
+		const knee = qualityLimit(contextWindow);
+		// Naming `keep` is only honest when `keep` can actually clear the knee: `floor − keep − MIN` is the
+		// envelope, so `keep` helps iff `knee − envelope − MIN > 0`. In the envelope-driven case no `keep`
+		// value clears it, and naming one would be the same dead-lever defect the baseline wording had.
+		const envelope = floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS;
+		const keepClears = knee - envelope - MIN_SUMMARIZE_TOKENS > 0;
+		const lever = envelope > 0
+			? keepClears
+				? `lower \`keep\` (the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever — raising it lowers the knee)`
+				: `no \`keep\` value clears this: the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever (raising it lowers the knee)`
+			: "lower `keep` (the window is the wrong lever — raising it lowers the knee)";
+		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
 	if (reason === "summarizer-floor") {
-		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep/target) is the lever, not this window alone`;
+		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep) is the lever, not this window alone`;
 	}
 	// Fixed mode refuses exactly when `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the
 	// ratio is validated into [0.1, 0.95], the second term binds first and the condition reduces to
@@ -136,8 +190,8 @@ function kneeTokens(window: number): number {
 
 /** What the next request carries besides the conversation, and what a handoff therefore needs. */
 interface HandoffRoom {
-	/** System prompt, tool schemas, injected project context: everything but the conversation. */
-	baseline: number;
+	/** Envelope the harness reports on the total's basis; 0 when it reports none (see `ContextMeasurement`). */
+	overhead: number;
 	/** Recent tokens carried into the successor verbatim. */
 	keep: number;
 	/** The smallest trigger that still lets a summary replace the summarize minimum. */
@@ -152,15 +206,17 @@ interface HandoffRoom {
  */
 function handoffRoom(
 	config: PluginConfig,
-	measurement: { totalTokens: number; surfaceTokens: number },
+	measurement: ContextMeasurement,
 	contextWindow: number,
 ): HandoffRoom | undefined {
-	const baseline = Math.max(0, measurement.totalTokens - measurement.surfaceTokens);
+	const overhead = Math.max(0, measurement.overheadTokens ?? 0);
 	const keep = config.handoffKeepTokens;
-	const floor = baseline + keep + MIN_SUMMARIZE_TOKENS;
+	// One definition of the floor, shared with the receipt's `thresholdRefusalText`: a rule written twice
+	// is this repo's documented recurring root cause, and the two copies had already drifted once.
+	const floor = thresholdFloor(config, measurement);
 	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
 	if (usable <= floor) return undefined;
-	return { baseline, keep, floor, usable };
+	return { overhead, keep, floor, usable };
 }
 
 /**
@@ -223,7 +279,7 @@ export interface ThresholdOverride {
  */
 export function resolveThreshold(
 	config: PluginConfig,
-	measurement: { totalTokens: number; surfaceTokens: number },
+	measurement: ContextMeasurement,
 	contextWindow: number,
 ): { tokens: number; label: string; override?: ThresholdOverride } | undefined {
 	if (!config.handoffAdaptive) {
@@ -251,7 +307,7 @@ export function resolveThreshold(
 	if (tokens < room.floor) return undefined;
 	// The threshold the configured target needs for its fold to fit under the trigger. Above the
 	// guardrail's value the setting cannot be honoured, and the guardrail that bound it is named.
-	const asked = room.baseline + room.keep + config.handoffTargetTokens;
+	const asked = room.overhead + room.keep + config.handoffTargetTokens;
 	return {
 		tokens,
 		label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)`,

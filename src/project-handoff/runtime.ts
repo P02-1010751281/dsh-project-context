@@ -39,7 +39,13 @@ export interface WorkspaceRegistryLike {
 
 /** Structural view of the token meter; the service is optional per profile. */
 export interface TokenMeterLike {
-	measure(session: Session): { totalTokens: number; surfaceTokens: number };
+	/**
+	 * `totalTokens` is anchored on the provider's reported usage; `surfaceTokens` is priced by the
+	 * meter's fixed-density heuristic, so the two are on different bases and must not be subtracted.
+	 * `overheadTokens` would be the envelope on the total's basis; no released harness reports it yet,
+	 * so it is optional and the plugin never derives it (see `threshold.ts` `ContextMeasurement`).
+	 */
+	measure(session: Session): { totalTokens: number; surfaceTokens: number; overheadTokens?: number };
 }
 
 /** Structural view of the settings service; writes persist the user layer. */
