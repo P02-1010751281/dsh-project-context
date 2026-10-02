@@ -4,7 +4,6 @@
  * written last, so an abandoned attempt leaves nothing behind in the project.
  */
 
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { type Context } from "@deepseek-ai/cordis";
 import { type LlmResolvedModelInfo } from "@deepseek-ai/dsh-llm";
@@ -14,7 +13,7 @@ import { getProjectRoot, logsDir, memoryDir, safeSessionId, sessionIndexFile, wr
 import { loadMemory } from "../project-memory/memory-store.js";
 import { type HandoffLanguage, localizeSummaryHeadings } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
-import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement } from "./child.js";
+import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement, seedChildSession } from "./child.js";
 import { transientIfRetryable } from "./classify.js";
 import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffSplit, pendingQuestionFor, resolveHandoffLanguage } from "./conversation.js";
 import { assertSessionSettled } from "./guard.js";
@@ -122,28 +121,20 @@ export async function performHandoff(
 	// IS the browser half's switch signal, so a handoff that fails here would
 	// otherwise leave the user switched into an empty child while the parent stays
 	// unmarked — and the retry after the failure backoff would create a second one.
-	const promptSignal = signal ?? new AbortController().signal;
 	let promptAttempted = false;
 	try {
 		// Last check: creating the child is an RPC, and configuring it is two more round trips, so a
 		// turn can still open inside that window. The child already exists here, so the catch below
 		// strips its switch marker instead of leaving the browser pointed at a duplicate continuation.
 		assertSessionSettled(session, triggerSeq);
-		// The flag is raised *before* the call: the prompt can be admitted and the turn opened before
-		// the request rejects, so a rejection is not proof that the child stayed idle.
+		// The flag is raised *before* the call: the seed can be admitted and the child's turn opened
+		// before the call reports a failure, so a failure is not proof that the child stayed idle.
 		promptAttempted = true;
-		await controller.prompt(
-			{
-				requestId: randomUUID(),
-				sessionId: childId,
-				mode: "queue",
-				content: [{ type: "text", text: prompt }],
-			},
-			promptSignal,
-		);
-		// The prompt RPC is the last window: its turn can open while the request is in flight, and
-		// then the child runs the duplicate continuation the guard exists to prevent. The seed is
-		// already durable, so this check undoes it (cancel below) rather than skipping it.
+		// Deliberately not `controller.prompt`: the RPC hardcodes `source.kind = "user"`, which would
+		// hand the seed the person's authority (and their turn count). See `seedChildSession`.
+		seedChildSession(ctx, childId, prompt);
+		// Reading the parent again closes the same window from the other side: a turn that opened
+		// there while the child was being configured means the user moved on.
 		assertSessionSettled(session, triggerSeq);
 		// The document is written last, once this attempt is certain to be seeded, so an abandoned
 		// handoff leaves nothing behind in the project. Nothing above reads it: the seed prompt

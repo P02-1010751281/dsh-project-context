@@ -6,7 +6,9 @@
  */
 
 import { type Context } from "@deepseek-ai/cordis";
+import { type UserMessage } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
+import { pluginUserMessage } from "../shared/model-call.js";
 import { HandoffDeferred } from "./classify.js";
 import { type SessionControllerLike, type WorkspaceRegistryLike } from "./runtime.js";
 import { pendingRetire } from "./state.js";
@@ -166,6 +168,45 @@ export async function carryModelSelection(
 	} catch (error: unknown) {
 		ctx.logger.warn("dsh-project-context: handoff could not carry the parent's model selection: %s", error instanceof Error ? error.message : String(error));
 	}
+}
+
+/** The one live-Agent capability the seed needs: queueing an ordinary follow-up turn. */
+interface SeedTargetLike {
+	followup(message: UserMessage): void;
+}
+
+/**
+ * Admit the continuation prompt to the freshly created child.
+ *
+ * The prompt goes straight into the child's Agent inbox carrying this plugin's own message source
+ * kind, instead of through `sessionController.prompt`. That RPC hardcodes `source = {kind:"user",
+ * rpcId}` — `SessionPromptRequest` has no source field — which makes a machine-written seed
+ * indistinguishable from something the person typed. Three consumers paid for that: `userTurnCount`
+ * counted the banner as a human turn, the index title fallback had to recognize it structurally, and
+ * dsh's goal tools grant `create_goal` / `update_goal edit|pause|resume` to "a direct human turn",
+ * which `goal/tool-goal/src/authority.ts` decides by `source.kind === "user"`. A seed runs before the
+ * user has said anything, so it must not carry that authority.
+ *
+ * This performs the same delivery the RPC did (`agent.followup(message)`). Leaving the RPC behind
+ * also leaves behind its content validation (the prompt is never empty) and its error translation,
+ * but not its model check: `requireModel` belongs to `session/selectModel`, which
+ * {@link carryModelSelection} still calls. Its request-id dedupe could never fire here either — it
+ * matched only `kind: "user"` messages carrying a reused id, and each attempt mints a fresh one.
+ *
+ * The registry is read directly with no fallback to the RPC: falling back would silently reinstate
+ * exactly the human authority this exists to remove, so a child that is not resident fails the
+ * handoff loudly instead.
+ * @param ctx - plugin context carrying the host's live `agents` registry.
+ * @param childId - the child session that receives the seed.
+ * @param prompt - the continuation prompt.
+ */
+export function seedChildSession(ctx: Context, childId: string, prompt: string): void {
+	const agents = ctx.get("agents") as { get?(id: string): SeedTargetLike | undefined } | undefined;
+	const child = agents?.get?.(childId);
+	if (child === undefined || typeof child.followup !== "function") {
+		throw new Error(`the handoff child ${childId} is not resident in this process, so its continuation prompt was not admitted`);
+	}
+	child.followup(pluginUserMessage(prompt));
 }
 
 /**

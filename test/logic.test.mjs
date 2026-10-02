@@ -17,7 +17,7 @@ import { promisify } from "node:util";
 import { apply } from "../lib/project-handoff/index.js";
 import { pendingRetire } from "../lib/project-handoff/state.js";
 import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
-import { createChildSession } from "../lib/project-handoff/child.js";
+import { createChildSession, seedChildSession } from "../lib/project-handoff/child.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "../lib/project-handoff/classify.js";
 import { parseRatio, parseTokenCount, runManual, settingPatch, statusText } from "../lib/project-handoff/command.js";
 import { pendingQuestion, textAsksQuestion } from "../lib/project-handoff/conversation.js";
@@ -29,7 +29,7 @@ import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate } from "../lib/project-memory/consolidate.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation } from "../lib/shared/reply-json.js";
-import { fitMemoryInput, conversationText } from "../lib/shared/conversation.js";
+import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/conversation.js";
 import { requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
 import { clip, clipText, replyHead, replyTokenRate, textOf, truncateMiddle } from "../lib/shared/text.js";
 import { approveCandidate, listCandidates, rejectCandidate } from "../lib/project-autolearn/candidate.js";
@@ -777,6 +777,48 @@ test("the handoff child keeps the parent's agent preset", async () => {
 		{ cwd: "/project", agentPreset: "anchored-standard" },
 		{}, // a session without a preset keeps the previous create shape
 	]);
+});
+
+test("the handoff seed carries the plugin's own source kind, never the human one", () => {
+	// The seed reaches the child through its Agent inbox (`followup`), not through the prompt RPC:
+	// that RPC hardcodes `source = {kind:"user", rpcId}` and `SessionPromptRequest` has no source
+	// field, so a machine-written banner was indistinguishable from something the person typed.
+	// Three consumers read that field — the turn counter, the index title fallback, and dsh's goal
+	// tools, which grant `create_goal` / `update_goal edit|pause|resume` to a "direct human turn".
+	const delivered = [];
+	const child = { followup: (message) => delivered.push(message) };
+	const ctx = { get: (name) => (name === "agents" ? { get: (id) => (id === "session-child" ? child : undefined) } : undefined) };
+
+	seedChildSession(ctx, "session-child", "从会话 session-parent 交接。");
+
+	assert.equal(delivered.length, 1);
+	assert.equal(delivered[0].source.kind, "dsh-project-context", "the seed must not borrow the human kind");
+	assert.equal(delivered[0].role, "user", "it is still a user-role message; only the source differs");
+	assert.equal(delivered[0].content[0].text, "从会话 session-parent 交接。");
+});
+
+test("the delivered seed is invisible to the human-turn reader, unlike a real user message", () => {
+	// The same text read two ways. Without the second half this pin would pass on a fixture that
+	// simply never counts anything.
+	const delivered = [];
+	const ctx = { get: (name) => (name === "agents" ? { get: () => ({ followup: (message) => delivered.push(message) }) } : undefined) };
+	seedChildSession(ctx, "session-child", "seed text");
+	const asSeeded = { snapshotEvents: () => [{ type: "user/message", data: { source: delivered[0].source, content: delivered[0].content } }] };
+	assert.equal(userTurnCount(asSeeded), 0, "a plugin seed is not a human turn");
+	const asHuman = { snapshotEvents: () => [{ type: "user/message", data: { source: { kind: "user" }, content: delivered[0].content } }] };
+	assert.equal(userTurnCount(asHuman), 1, "the same text under the RPC's kind would have counted");
+});
+
+test("a non-resident handoff child fails the seed loudly instead of falling back to the RPC", () => {
+	// A fallback would silently restore the human-kind source this change removes, so an absent child
+	// must raise. Each case is a different way the registry can fail to answer.
+	const noService = { get: () => undefined };
+	assert.throws(() => seedChildSession(noService, "session-child", "seed"), /not resident/);
+	const emptyRegistry = { get: (name) => (name === "agents" ? { get: () => undefined } : undefined) };
+	assert.throws(() => seedChildSession(emptyRegistry, "session-child", "seed"), /not resident/);
+	// An entry that cannot queue a turn (another dsh version's shape) is not a seed target either.
+	const inert = { get: (name) => (name === "agents" ? { get: () => ({}) } : undefined) };
+	assert.throws(() => seedChildSession(inert, "session-child", "seed"), /not resident/);
 });
 
 test("readArchivedConversation streams a file and tolerates a missing one", async () => {
@@ -1631,7 +1673,7 @@ test("the automatic handoff waits for background subagents to settle", async () 
 	const settledEvent = { type: "user/message", time: Date.now() - 30_000, data: { source: { kind: "subagent-settled", senderSessionId: "child-live" } } };
 
 	const created = [];
-	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined };
 	const ctxFor = () => ({
 		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : undefined),
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
@@ -1664,7 +1706,7 @@ test("subagent work is read as turn activity, not as residency", async () => {
 		snapshotEvents: () => events,
 	});
 	const created = [];
-	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined };
 	// The live Agent registry. `AgentStatus` is `'idle' | 'running'` and flips at every turn
 	// boundary; dsh's own `list_agents` maps `idle` to `inactive` for the model.
 	const agentsWith = (status) => ({ get: () => (status === undefined ? undefined : { status }) });
@@ -1752,7 +1794,7 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	// The conversation fits the recent window, so there is nothing to summarize: dsh has no host-side
 	// notification channel, so the reason is a log line (findable with `/handoff status` next to it).
 	const logs = [];
-	const controller = { create: async () => ({ sessionId: "child-1" }), rename: async () => undefined, prompt: async () => undefined };
+	const controller = { create: async () => ({ sessionId: "child-1" }), rename: async () => undefined };
 	const ctx = {
 		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens: 199_000, surfaceTokens: 199_000 }) } : undefined),
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
@@ -2005,7 +2047,7 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 test("a manual handoff on a conversation that fits the carried window is refused, not fabricated", async () => {
 	const cwd = await mkdtemp(path.join(tmpdir(), "dsh-handoff-empty-"));
 	const created = [];
-	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined, prompt: async () => undefined };
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined };
 	let modelCalls = 0;
 	const ctx = {
 		get: (name) => (name === "sessionController" ? controller : undefined),
@@ -2042,12 +2084,15 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-manual-"));
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 	const calls = [];
+	// The seed reaches the child through `agents.get(childId).followup`, deliberately not through
+	// `sessionController.prompt`: that RPC stamps `source.kind = "user"`, which would give a
+	// machine-written seed the person's authority (and count it as one of their turns).
+	const agents = { get: () => ({ followup: () => { calls.push("seed"); } }) };
 	const ctx = {
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => { calls.push("prompt"); },
-		} : name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async () => undefined } : undefined),
+		} : name === "agents" ? agents : name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async () => undefined } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 40_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2069,7 +2114,7 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 
 	const reply = await runManual(ctx, session, entry, new AbortController().signal);
 	assert.equal(reply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(reply)}`);
-	assert.deepEqual(calls, ["create", "prompt"], "the one-shot command creates and seeds the child");
+	assert.deepEqual(calls, ["create", "seed"], "the one-shot command creates and seeds the child");
 });
 
 test("a manual handoff refuses while a background subagent is still running", async () => {
@@ -2083,9 +2128,11 @@ test("a manual handoff refuses while a background subagent is still running", as
 	const controller = {
 		create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
 		rename: async () => undefined,
-		prompt: async () => { calls.push("prompt"); },
 	};
-	const agents = { get: (id) => (id === "child-live" ? { status: "running" } : undefined) };
+	// One registry answers both questions this fixture asks: the activity guard reads `status`, and
+	// the seed reads `followup`. A child the guard calls running never reaches the seed anyway.
+	const seedTarget = { followup: () => { calls.push("seed"); } };
+	const agents = { get: (id) => (id === "child-live" ? { status: "running" } : seedTarget) };
 	const ctxFor = (subagents, live = agents) => ({
 		get: (name) => (name === "sessionController" ? controller : name === "subagents" ? subagents : name === "agents" ? live : undefined),
 		llm: {
@@ -2122,14 +2169,14 @@ test("a manual handoff refuses while a background subagent is still running", as
 	const resident = await runManual(
 		ctxFor(
 			{ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] },
-			{ get: () => ({ status: "idle" }) },
+			{ get: (id) => (id === "child-live" ? { status: "idle" } : seedTarget) },
 		),
 		sessionFor([]),
 		entry,
 		new AbortController().signal,
 	);
 	assert.equal(resident.kind, "success", `expected a resident-only child to allow the handoff, got ${JSON.stringify(resident)}`);
-	assert.deepEqual(calls, ["create", "prompt"]);
+	assert.deepEqual(calls, ["create", "seed"]);
 	calls.length = 0;
 
 	// A listing that cannot be read is not an answer: the log's unsettled continuable child refuses too.
@@ -2146,7 +2193,7 @@ test("a manual handoff refuses while a background subagent is still running", as
 	// The same fixture with nothing running hands off, so the refusals above are caused by the child.
 	const allowed = await runManual(ctxFor({ listChildren: async () => [] }), sessionFor([]), entry, new AbortController().signal);
 	assert.equal(allowed.kind, "success", `expected the idle session to hand off, got ${JSON.stringify(allowed)}`);
-	assert.deepEqual(calls, ["create", "prompt"]);
+	assert.deepEqual(calls, ["create", "seed"]);
 });
 
 test("a handoff child inherits the parent's session-local model and permission preset", async () => {
@@ -2164,7 +2211,6 @@ test("a handoff child inherits the parent's session-local model and permission p
 		const controller = {
 			create: async () => { calls.push(["create"]); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => { calls.push(["prompt"]); },
 			...(selectModel === undefined ? {} : { selectModel: async (request) => { calls.push(["selectModel", request]); if (selectModel === "throw") throw new Error("selection rejected"); } }),
 		};
 		const presets = {
@@ -2173,9 +2219,10 @@ test("a handoff child inherits the parent's session-local model and permission p
 		};
 		const ctx = {
 			get: (name) => (name === "sessionController" ? controller
-				: name === "permissionPresets" ? (presetsAbsent ? undefined : presets)
-					: name === "sessions" ? { get: (id) => (resident && id === "child-1" ? childSession : undefined) }
-						: undefined),
+				: name === "agents" ? { get: () => ({ followup: () => { calls.push(["seed"]); } }) }
+					: name === "permissionPresets" ? (presetsAbsent ? undefined : presets)
+						: name === "sessions" ? { get: (id) => (resident && id === "child-1" ? childSession : undefined) }
+							: undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }), stream: summaryStream },
 			logger: { info() {}, warn() {} },
 		};
@@ -2194,7 +2241,7 @@ test("a handoff child inherits the parent's session-local model and permission p
 	const routed = () => ({ config: { provider: "parent-provider", model: "parent-model", reasoningEffort: "high" } });
 	const carried = await run({ selectModel: true, requestHeader: routed, preset: "danger-full-access" });
 	assert.equal(carried.reply.kind, "success");
-	assert.deepEqual(carried.calls.map(([kind]) => kind), ["create", "current", "setPreset", "selectModel", "prompt"], "both carries land before the seed prompt");
+	assert.deepEqual(carried.calls.map(([kind]) => kind), ["create", "current", "setPreset", "selectModel", "seed"], "both carries land before the seed");
 	assert.deepEqual(carried.calls[1], ["current", carried.sessionId], "the preset is read from the parent session");
 	assert.deepEqual(carried.calls[2], ["setPreset", "danger-full-access", true], "the switch lands on the child session");
 	assert.deepEqual(carried.calls[3][1], { sessionId: "child-1", provider: "parent-provider", model: "parent-model", reasoningEffort: "high" });
@@ -2204,41 +2251,41 @@ test("a handoff child inherits the parent's session-local model and permission p
 	// permission cases below stay independent of them.
 	const unrouted = await run({ selectModel: true, requestHeader: () => undefined, presetsAbsent: true });
 	assert.equal(unrouted.reply.kind, "success");
-	assert.deepEqual(unrouted.calls.map(([kind]) => kind), ["create", "prompt"]);
+	assert.deepEqual(unrouted.calls.map(([kind]) => kind), ["create", "seed"]);
 
 	// An empty pair in the header is not a selection either: installing it would break the route.
 	const blank = await run({ selectModel: true, requestHeader: () => ({ config: { provider: "", model: "" } }), presetsAbsent: true });
 	assert.equal(blank.reply.kind, "success");
-	assert.deepEqual(blank.calls.map(([kind]) => kind), ["create", "prompt"]);
+	assert.deepEqual(blank.calls.map(([kind]) => kind), ["create", "seed"]);
 
 	// Fail-open: a rejected selection, or a runtime without the call, must not fail a handoff whose
 	// child already exists.
 	const rejected = await run({ selectModel: "throw", requestHeader: routed, presetsAbsent: true });
 	assert.equal(rejected.reply.kind, "success");
-	assert.deepEqual(rejected.calls.map(([kind]) => kind), ["create", "selectModel", "prompt"]);
+	assert.deepEqual(rejected.calls.map(([kind]) => kind), ["create", "selectModel", "seed"]);
 	const absent = await run({ selectModel: undefined, requestHeader: routed, presetsAbsent: true });
 	assert.equal(absent.reply.kind, "success");
-	assert.deepEqual(absent.calls.map(([kind]) => kind), ["create", "prompt"]);
+	assert.deepEqual(absent.calls.map(([kind]) => kind), ["create", "seed"]);
 
 	// The permission half, which the user reported as missing: a parent switched to full access must
 	// not hand off into a child that asks for approval again.
 	const permissive = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access" });
 	assert.equal(permissive.reply.kind, "success");
-	assert.deepEqual(permissive.calls.map(([kind]) => kind), ["create", "current", "setPreset", "prompt"]);
+	assert.deepEqual(permissive.calls.map(([kind]) => kind), ["create", "current", "setPreset", "seed"]);
 
 	// `custom` means the effective knobs match no preset and is never a switch target.
 	const custom = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "custom" });
-	assert.deepEqual(custom.calls.map(([kind]) => kind), ["create", "current", "prompt"]);
+	assert.deepEqual(custom.calls.map(([kind]) => kind), ["create", "current", "seed"]);
 
 	// A child that is not resident, a profile without the service, and a rejected switch are all
 	// fail-open: the handoff still completes with the child that was already created.
 	const gone = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", resident: false });
-	assert.deepEqual(gone.calls.map(([kind]) => kind), ["create", "prompt"], "no child session, nothing to switch");
+	assert.deepEqual(gone.calls.map(([kind]) => kind), ["create", "seed"], "no child session, nothing to switch");
 	const noService = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", presetsAbsent: true });
-	assert.deepEqual(noService.calls.map(([kind]) => kind), ["create", "prompt"]);
+	assert.deepEqual(noService.calls.map(([kind]) => kind), ["create", "seed"]);
 	const refused = await run({ selectModel: undefined, requestHeader: () => undefined, preset: "danger-full-access", setThrows: true });
 	assert.equal(refused.reply.kind, "success");
-	assert.deepEqual(refused.calls.map(([kind]) => kind), ["create", "current", "setPreset", "prompt"]);
+	assert.deepEqual(refused.calls.map(([kind]) => kind), ["create", "current", "setPreset", "seed"]);
 });
 
 test("the automatic handoff yields to a session that is already on its next turn", async () => {
@@ -2250,7 +2297,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-settle-"));
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 
-	const run = async ({ events, startTurnOnSummary, startTurnOnCreate, startTurnOnPrompt, promptThrows, cancelThrows, cancelAbsent, emptySummary }) => {
+	const run = async ({ events, startTurnOnSummary, startTurnOnCreate, startTurnOnSeed, seedThrows, cancelThrows, cancelAbsent, emptySummary }) => {
 		const calls = [];
 		const renames = [];
 		const cancels = [];
@@ -2271,16 +2318,21 @@ test("the automatic handoff yields to a session that is already on its next turn
 					if (cancelThrows) throw new Error("cancel transport down");
 				},
 			}),
-			prompt: async () => {
-				calls.push("prompt");
-				if (startTurnOnPrompt) own.push({ type: "turn/start", seq: 11, time: Date.now() });
-				if (promptThrows) throw new Error("seed rejected");
+		};
+		// The seed is a synchronous inbox admission, so a case that makes it fail must throw
+		// synchronously — an `async` thrower would reject the promise nobody awaits instead.
+		const seedTarget = {
+			followup: () => {
+				calls.push("seed");
+				if (startTurnOnSeed) own.push({ type: "turn/start", seq: 11, time: Date.now() });
+				if (seedThrows) throw new Error("seed rejected");
 			},
 		};
 		let summaryCalls = 0;
 		const ctx = {
 			get: (name) => (name === "sessionController" ? controller
-				: name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
+				: name === "agents" ? { get: () => seedTarget }
+					: name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
 					: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async (id, options) => { archives.push(id); if (options?.stopActivity === true) retired.push(id); } }
 						: undefined),
 			llm: {
@@ -2351,17 +2403,17 @@ test("the automatic handoff yields to a session that is already on its next turn
 
 	// The turn opens inside the *prompt* RPC — the last window. The seed is already durable, so it is
 	// cancelled, retitled and archived rather than left to run the duplicate continuation.
-	const duringPrompt = await run({ events: [turnEnd], startTurnOnPrompt: true });
-	assert.ok(duringPrompt.error instanceof HandoffDeferred, `expected a deferral, got ${duringPrompt.error}`);
-	assert.deepEqual(duringPrompt.calls, ["create", "prompt"]);
-	assert.deepEqual(duringPrompt.cancels, ["child-1"], "the admitted seed is cancelled");
-	assert.match(duringPrompt.renames[0] ?? "", /^handoff deferred · /);
-	assert.deepEqual(duringPrompt.archives, ["child-1"]);
+	const duringSeed = await run({ events: [turnEnd], startTurnOnSeed: true });
+	assert.ok(duringSeed.error instanceof HandoffDeferred, `expected a deferral, got ${duringSeed.error}`);
+	assert.deepEqual(duringSeed.calls, ["create", "seed"]);
+	assert.deepEqual(duringSeed.cancels, ["child-1"], "the admitted seed is cancelled");
+	assert.match(duringSeed.renames[0] ?? "", /^handoff deferred · /);
+	assert.deepEqual(duringSeed.archives, ["child-1"]);
 	assert.ok(!existsSync(path.join(root, ".agents", "memory", "HANDOFF.md")), "the document is written only after the last check");
 
 	// A child whose seed could not be cancelled may still be running the duplicate continuation, so
 	// it must stay visible instead of being quietly archived.
-	const cancelBroke = await run({ events: [turnEnd], startTurnOnPrompt: true, cancelThrows: true });
+	const cancelBroke = await run({ events: [turnEnd], startTurnOnSeed: true, cancelThrows: true });
 	assert.ok(cancelBroke.error instanceof HandoffDeferred, `expected a deferral, got ${cancelBroke.error}`);
 	assert.deepEqual(cancelBroke.cancels, ["child-1"]);
 	assert.match(cancelBroke.renames[0] ?? "", /^handoff deferred · /);
@@ -2369,7 +2421,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 	assert.ok(cancelBroke.logs.some((line) => line.startsWith("warn")), "the failed cancel is reported");
 
 	// A runtime without `cancel` cannot prove the child is idle: same rule, no warning to log.
-	const noCancel = await run({ events: [turnEnd], startTurnOnPrompt: true, cancelAbsent: true });
+	const noCancel = await run({ events: [turnEnd], startTurnOnSeed: true, cancelAbsent: true });
 	assert.ok(noCancel.error instanceof HandoffDeferred, `expected a deferral, got ${noCancel.error}`);
 	assert.deepEqual(noCancel.cancels, []);
 	assert.deepEqual(noCancel.archives, [], "an uncancelled child stays visible");
@@ -2379,9 +2431,9 @@ test("the automatic handoff yields to a session that is already on its next turn
 
 	// A genuine failure is not a deferral: the child stays visible under a failed title instead of
 	// being archived, so the user can see that a handoff was attempted and broke.
-	const broken = await run({ events: [turnEnd], promptThrows: true });
+	const broken = await run({ events: [turnEnd], seedThrows: true });
 	assert.ok(!(broken.error instanceof HandoffDeferred) && broken.error !== undefined, `expected a failure, got ${broken.error}`);
-	assert.deepEqual(broken.calls, ["create", "prompt"]);
+	assert.deepEqual(broken.calls, ["create", "seed"]);
 	assert.match(broken.renames[0] ?? "", /^handoff failed · /);
 	assert.deepEqual(broken.archives, [], "a failure stays visible");
 	assert.deepEqual(broken.cancels, ["child-1"], "a rejected prompt may still have admitted the seed");
@@ -2389,7 +2441,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 	// Control: a settled session still hands off, so the guard cannot pass by disabling the feature.
 	const settled = await run({ events: [turnEnd, { type: "turn/start", seq: 4, time: Date.now() }] });
 	assert.equal(settled.error, undefined);
-	assert.deepEqual(settled.calls, ["create", "prompt"]);
+	assert.deepEqual(settled.calls, ["create", "seed"]);
 	assert.equal(settled.renames.length, 1, "a successful handoff publishes the switch marker");
 	assert.ok(settled.renames[0].startsWith("↪ handoff · "), `expected the switch marker, got ${settled.renames[0]}`);
 	assert.deepEqual(settled.cancels, [], "a successful handoff cancels nothing");
@@ -2446,8 +2498,7 @@ test("the auto-handoff listener passes the trigger offset through to the settle 
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => { measures += 1; return { totalTokens: 190_000, surfaceTokens: 100_000 }; } } : undefined),
+		} : name === "agents" ? { get: () => ({ followup: () => undefined }) } : name === "tokenMeter" ? { measure: () => { measures += 1; return { totalTokens: 190_000, surfaceTokens: 100_000 }; } } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2521,8 +2572,7 @@ test("a turn/end that lands while an attempt is in flight is re-evaluated, not l
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
+		} : name === "agents" ? { get: () => ({ followup: () => undefined }) } : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2588,8 +2638,7 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 			get: (name) => (name === "sessionController" ? {
 				create: async () => { created.push(1); return { sessionId: "child-1" }; },
 				rename: async () => undefined,
-				prompt: async () => { prompts.push(1); },
-			} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
+			} : name === "agents" ? { get: () => ({ followup: () => { prompts.push(1); } }) } : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 			llm: {
 				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 				stream: stream ?? (() => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })()),
@@ -2646,8 +2695,7 @@ test("a disabled automatic handoff ignores turn/end entirely", async () => {
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => undefined,
-		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
+		} : name === "agents" ? { get: () => ({ followup: () => undefined }) } : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => { summaryCalls += 1; return (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(); },
@@ -2685,7 +2733,6 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 		get: (name) => (name === "sessionController" ? {
 			create: async () => ({ sessionId: "child-1" }),
 			rename: async () => undefined,
-			prompt: async () => undefined,
 		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
@@ -2724,9 +2771,9 @@ test("an open question defers the handoff, and the answer’s first idle takes i
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => { calls.push("prompt"); },
-		} : name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
-			: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async () => undefined } : undefined),
+		} : name === "agents" ? { get: () => ({ followup: () => { calls.push("seed"); } }) }
+			: name === "tokenMeter" ? { measure: () => ({ totalTokens: 190_000, surfaceTokens: 100_000 }) }
+				: name === "workspaceRegistry" ? { resolveByPath: async () => undefined, archiveSession: async () => undefined } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2748,7 +2795,7 @@ test("an open question defers the handoff, and the answer’s first idle takes i
 
 	conversation = [...conversation, message("user", "yes, go ahead")];
 	await maybeAutoHandoff(ctx, session, config);
-	assert.deepEqual(calls, ["create", "prompt"], "the answer’s first idle completes the handoff");
+	assert.deepEqual(calls, ["create", "seed"], "the answer’s first idle completes the handoff");
 });
 test("a retryable manual handoff failure is not reported with the terminal wording", async () => {
 	// `/handoff now` renders its `catch` verbatim. Every failure used to come back as
@@ -2758,7 +2805,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 	// *both* directions: a genuine bug must still say "failed", so the retry advice is trustworthy.
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-transient-"));
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
-	const replyFor = async (promptImpl) => {
+	const replyFor = async (followupImpl) => {
 		const session = {
 			id: `session-transient-${Math.random().toString(16).slice(2, 10)}`,
 			header: { cwd: root, createdAt: Date.now() },
@@ -2771,8 +2818,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 			get: (name) => (name === "sessionController" ? {
 				create: async () => ({ sessionId: "child-1" }),
 				rename: async () => undefined,
-				prompt: promptImpl,
-			} : undefined),
+			} : name === "agents" ? { get: () => ({ followup: followupImpl }) } : undefined),
 			llm: {
 				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 				stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -2783,8 +2829,9 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 	};
 
 	// Retryable: a turn is still open on the child, which is exactly the condition the automatic
-	// path defers on rather than failing.
-	const busy = await replyFor(async () => { throw new Error("a turn is already running for this session"); });
+	// path defers on rather than failing. The seed is admitted synchronously, so these throwers are
+	// synchronous too — an `async` one would reject a promise nothing awaits.
+	const busy = await replyFor(() => { throw new Error("a turn is already running for this session"); });
 	assert.equal(busy.kind, "error");
 	assert.match(busy.text, /Handoff deferred \(temporarily failed, safe to retry\)/);
 	assert.match(busy.text, /a turn is already running for this session/, "the true cause is still quoted");
@@ -2792,15 +2839,15 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 	assert.doesNotMatch(busy.text, /Handoff failed/, "a retryable cause must not claim the handoff failed");
 
 	// Retryable by error code, with no hint in the prose.
-	const reset = await replyFor(async () => { const error = new Error("socket hang up"); error.code = "ECONNRESET"; throw error; });
+	const reset = await replyFor(() => { const error = new Error("socket hang up"); error.code = "ECONNRESET"; throw error; });
 	assert.match(reset.text, /Handoff deferred \(temporarily failed, safe to retry\)/);
 	assert.doesNotMatch(reset.text, /Handoff failed/);
 
 	// Terminal: a genuine programming error, so the retry advice must NOT appear — otherwise the
 	// user retries a handoff that can never succeed.
-	const broken = await replyFor(async () => { throw new Error("controller.prompt is not a function"); });
+	const broken = await replyFor(() => { throw new Error("child.followup is not a function"); });
 	assert.equal(broken.kind, "error");
-	assert.match(broken.text, /^Handoff failed: controller\.prompt is not a function$/);
+	assert.match(broken.text, /^Handoff failed: child\.followup is not a function$/);
 	assert.doesNotMatch(broken.text, /safe to retry/);
 	assert.doesNotMatch(broken.text, /deferred/);
 
@@ -2808,7 +2855,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 	assert.equal(handoffFailureIsTransient(new Error("429 Too Many Requests")), true);
 	assert.equal(handoffFailureIsTransient(new Error("503 Service Unavailable")), true);
 	assert.equal(handoffFailureIsTransient(new Error("model not found: gpt-nope")), false);
-	assert.equal(handoffFailureIsTransient(new Error("controller.prompt is not a function")), false);
+	assert.equal(handoffFailureIsTransient(new Error("child.followup is not a function")), false);
 	assert.equal(handoffFailureIsTransient("a bare string"), false, "an unknown shape is terminal, never a promised retry");
 
 	// Upstream spells these as identifiers, not as standalone words. A single outer `\b…\b` around
@@ -3054,8 +3101,7 @@ test("the manual handoff stays exempt from the settle guard", async () => {
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
 			rename: async () => undefined,
-			prompt: async () => { calls.push("prompt"); },
-		} : undefined),
+		} : name === "agents" ? { get: () => ({ followup: () => { calls.push("seed"); } }) } : undefined),
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
@@ -3064,7 +3110,7 @@ test("the manual handoff stays exempt from the settle guard", async () => {
 	};
 	const reply = await runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), new AbortController().signal);
 	assert.equal(reply.kind, "success", `expected a handoff, got ${JSON.stringify(reply)}`);
-	assert.deepEqual(calls, ["create", "prompt"]);
+	assert.deepEqual(calls, ["create", "seed"]);
 	assert.equal(turnStartedAfter(session, 0), true, "the fixture really does look busy");
 });
 
@@ -3427,8 +3473,7 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 		get: (name) => (name === "sessionController" ? {
 			create: async () => ({ sessionId: "child-1" }),
 			rename: async () => undefined,
-			prompt: async () => undefined,
-		} : name === "workspaceRegistry" ? {
+		} : name === "agents" ? { get: () => ({ followup: () => undefined }) } : name === "workspaceRegistry" ? {
 			resolveByPath: async () => undefined,
 			archiveSession: async (id, options) => { archived.push([id, options?.stopActivity === true]); },
 		} : undefined),

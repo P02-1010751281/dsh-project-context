@@ -35,7 +35,16 @@ export type CompletionOutcome = {
 	reasoningTokens: number;
 };
 
-function pluginUserMessage(text: string): UserMessage {
+/**
+ * One plugin-authored user message, tagged with this producer's own source kind.
+ *
+ * The kind is deliberately never `user`: `userTurnCount` counts human turns by `source.kind === "user"`,
+ * and dsh's goal tools grant `create_goal` / `update_goal edit|pause|resume` to a "direct human turn" by
+ * reading that same field (`goal/tool-goal/src/authority.ts`). Anything this plugin writes on the
+ * model's behalf — an auxiliary call's prompt, or the handoff seed — must therefore carry its own
+ * kind instead of borrowing the person's authority.
+ */
+export function pluginUserMessage(text: string): UserMessage {
 	return {
 		id: randomUUID() as UserMessage["id"],
 		role: "user",

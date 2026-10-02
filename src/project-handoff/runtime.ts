@@ -14,15 +14,6 @@ export interface SessionControllerLike {
 	selectModel?(request: { sessionId: string; provider: string; model: string; reasoningEffort?: string }): Promise<unknown>;
 	/** Cancels the child's admitted turn when a seed has to be undone; absent in older runtimes. */
 	cancel?(request: { sessionId: string }): Promise<unknown>;
-	prompt(
-		request: {
-			requestId: string;
-			sessionId: string;
-			mode: "queue" | "steer";
-			content: readonly { type: "text"; text: string }[];
-		},
-		signal: AbortSignal,
-	): Promise<unknown>;
 }
 
 /**
