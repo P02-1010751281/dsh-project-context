@@ -6,6 +6,7 @@
 
 import { type ToolCallBlock } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
+import { isHandoffContinuationText } from "../project-handoff/language.js";
 import { MAX_CONVERSATION_CHARS } from "./project-state.js";
 import { MAX_ADAPTIVE_OUTPUT_TOKENS, MIN_CLIP_CHARS, REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, allocateTokens, reasoningReserveTokens } from "./output-budget.js";
 import { clip, clipTo, replyTokenRate, textOf, truncateMiddle } from "./text.js";
@@ -162,15 +163,42 @@ export function conversationText(session: Session): string {
 	return truncateMiddle(conversationSections(session).join("\n\n"), MAX_CONVERSATION_CHARS);
 }
 
-/** Human turns only: plugin-injected user-role context does not count. */
-export function userTurnCount(session: Session): number {
-	return session.snapshotEvents().filter((event) => event.type === "user/message" && event.data.source.kind === "user").length;
+/** One event as `session.snapshotEvents()` returns them. */
+type SessionEvent = ReturnType<Session["snapshotEvents"]>[number];
+
+/**
+ * Text of a `user/message` a person wrote, else `undefined`.
+ *
+ * The handoff's own continuation prompt is injected through the same prompt RPC as a real user
+ * message — dsh's `SessionPromptRequest` carries no source kind, so the host records the seed as
+ * `{kind:"user"}` like any other — and it must not read as a human turn. Counting it would start
+ * every handoff child one turn nearer the autolearn/consolidation gates than the person actually
+ * drove it, and would hand `firstUserText` a 70K-character banner instead of what was asked.
+ * `isHandoffContinuationText` is reused rather than re-implemented, so this and the session
+ * index's title fallback agree on what a generated prompt is; both carry the same accepted
+ * residual, that a message reproducing a banner verbatim is indistinguishable from one.
+ *
+ * The pi sibling's prompt is deliberately not composed in here: it reaches a log only as a bare
+ * `message` line in a pi archive, which the index title and the Markdown renderer read as raw
+ * entries — never through a live dsh session's `snapshotEvents()`.
+ *
+ * Returns `""` for a human message with no text, which `userTurnCount` still counts as a turn.
+ */
+function humanUserText(event: SessionEvent): string | undefined {
+	if (event.type !== "user/message" || event.data.source.kind !== "user") return undefined;
+	const text = textOf(event.data.content);
+	return isHandoffContinuationText(text) ? undefined : text;
 }
 
+/** Human turns only: injected user-role context and handoff banners do not count. */
+export function userTurnCount(session: Session): number {
+	return session.snapshotEvents().filter((event) => humanUserText(event) !== undefined).length;
+}
+
+/** First message a person wrote; injected context and handoff banners are skipped. */
 export function firstUserText(session: Session): string {
 	for (const event of session.snapshotEvents()) {
-		if (event.type !== "user/message" || event.data.source.kind !== "user") continue;
-		const text = textOf(event.data.content);
+		const text = humanUserText(event);
 		if (text) return text;
 	}
 	return "";

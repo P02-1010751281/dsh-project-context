@@ -21,6 +21,7 @@ import { parseAutolearn } from "../lib/project-autolearn/parse.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
+import { continuation } from "../lib/project-handoff/summary.js";
 import { learnStateFile, readLearnState, updateLearnState } from "../lib/project-autolearn/learn-state.js";
 import {
 	MAX_SKILL_BODY_CHARS,
@@ -85,12 +86,14 @@ async function project({ skills = [], sessions = [], index = [] } = {}) {
 	return root;
 }
 
+/** One human `user/message` event, in the shape `userTurnCount` reads. */
+function userEvent(text) {
+	return { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text }] } };
+}
+
 /** A minimal Agent stand-in: routing, session id, cwd, and human turns. */
-function fakeAgent(cwd, { id = "session-current", turns = 2 } = {}) {
-	const events = Array.from({ length: turns }, (_, index) => ({
-		type: "user/message",
-		data: { source: { kind: "user" }, content: [{ type: "text", text: `turn ${index + 1}` }] },
-	}));
+function fakeAgent(cwd, { id = "session-current", turns = 2, events: explicit } = {}) {
+	const events = explicit ?? Array.from({ length: turns }, (_, index) => userEvent(`turn ${index + 1}`));
 	return {
 		options: { provider: "test-provider", model: "test-model" },
 		session: {
@@ -183,6 +186,37 @@ test("a recorded pass resets the accumulated turn counter", async () => {
 	await utimes(memoryFile(root), stamp, stamp);
 	assert.equal(await autolearnProjectSkills(ctx, agent, config), undefined);
 	assert.equal(ctx.calls.length, 1);
+});
+
+test("a handoff banner does not count toward the autolearn turn gate", async () => {
+	// A handoff seed is a `user/message` with `source.kind === "user"`, so counting raw events
+	// would open the two-turn gate one human turn early. The material gate is open (a fresh
+	// fixture's `autolearnAt` is 0) and the interval gate is closed by priming `lastAttemptAt` to
+	// now — otherwise an attempt timestamp of 0 makes "time since the last attempt" ~56 years and
+	// the interval alone decides, which would hide the turn gate entirely.
+	const config = resolvePluginConfig({ autolearnTurns: 2, autolearnIntervalMs: 60 * 60 * 1000 });
+	const seed = continuation("session-parent", "## Goal\n\ncarry on", "", { log: "logs/session-parent/session.md", index: "logs/INDEX.md" });
+
+	const early = await project({ sessions: ["session-a"] });
+	await updateLearnState(early, { lastAttemptAt: Date.now() });
+	const ctx = fakeContext(['{"skill": null}']);
+	assert.equal(
+		await autolearnProjectSkills(ctx, fakeAgent(early, { events: [userEvent(seed), userEvent("第一轮")] }), config),
+		undefined,
+		"one human turn plus a banner is not two turns",
+	);
+	assert.equal(ctx.calls.length, 0);
+
+	// The positive control, so the assertion above cannot pass because the fixture never runs:
+	// two real turns still reach the gate and run the pass.
+	const later = await project({ sessions: ["session-a"] });
+	await updateLearnState(later, { lastAttemptAt: Date.now() });
+	const second = fakeContext(['{"skill": null}']);
+	assert.deepEqual(
+		await autolearnProjectSkills(second, fakeAgent(later, { events: [userEvent(seed), userEvent("第一轮"), userEvent("第二轮")] }), config),
+		{ skill: null, backtracked: [], candidate: false },
+	);
+	assert.equal(second.calls.length, 1);
 });
 
 test("the prompt carries the project skill inventory and a reuse is rejected", async () => {
