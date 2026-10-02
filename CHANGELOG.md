@@ -98,9 +98,18 @@
   `{ systemTokens, toolsTokens, messageTokens }` 就是「prompt 由什么构成」的官方答案，`systemTokens + toolsTokens`
   即信封（`runtime.ts` 的 `projectionEnvelope`，`measuredContext` 是 auto 路径与回执共用的唯一入口）。
   `HandoffRoom.baseline` 随之改名为 `overhead`，`handoffRoom` 与回执共用同一份 `thresholdFloor`——那条规则原先
-  写了三遍，且已经漂移过一次。该 projection 在本机**正在跑**（现查
-  `grep -l contextBreakdown ~/.dsh/storages/session_projcache/sessions/*.json | wc -l`），GUI 的上下文面板读的
-  也是它；projection 缺失或值畸形时信封为 `undefined`（floor 退回 `keep + 8K`），而不是猜一个数。
+  写了三遍，且已经漂移过一次。该 projection 在本机**正在跑**——现查要走**最新被写入的那个 cache 根**
+  （`grep -l contextBreakdown "$(ls -dt ~/.dsh/storages/session_projcache*/sessions | head -1)"/*.json | wc -l`）：
+  域名带变体/版本后缀，**别写死**，同级还留着一份升级前的旧根（末次写入 2026-09-25），把旧路径写进文档就等于
+  拿旧文件冒充活体证据。GUI 的上下文面板读的也是它；projection 缺失或值畸形时信封为 `undefined`（floor 退回
+  `keep + 8K`），而不是猜一个数。**别拿投影缓存去验信封的字段形状**：缓存行存的是 projection 的**状态**
+  （`{nodes, breakdown}`），`sessionProjections.snapshot()` 返回的是它的 **wire view**——即
+  `{ systemTokens, toolsTokens, messageTokens }`（0.1.7-rc.2 源码：`breakdown-projection.ts` 的
+  `wire: { viewSchema: breakdownSchema, view: state => state.breakdown }`，`session-projection/src/index.ts` 的
+  `snapshot()` 走 `viewCell(...)`、冷读 `viewCheckpoint()` 走 `viewSchema.parse(view(state))`）；在缓存里看不到
+  顶层 `systemTokens` 不是缺陷。还有一条盲区：1M 窗口 + 小 `keep` 时 floor 远低于膝 157000，所以回执里那个
+  `threshold auto 157000` **只**证明 floor 不再带密度误差，**不**证明这次 `contextBreakdown` 读取解析成功——
+  `projectionEnvelope` 返回 `undefined` 时回执数字完全相同（floor 退回 `keep + 8K`，仍被膝压住）。
    诚实边界：`quality-knee` **仍然可达**，但只剩用户自己那一条路——`handoffKeepTokens` 上界 200000
    （`config.ts`），1M 窗口下现查 `keep=149000` 解析、`keep=149001` 拒绝（`/handoff keep 200k` 的真实命令解析器
    也接受）；harness 将来报出信封同样可达。回执因此按「`keep` 能否清掉膝」分别给词：能清时点名 `keep`，不能
