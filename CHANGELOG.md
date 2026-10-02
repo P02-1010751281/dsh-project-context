@@ -93,9 +93,14 @@
   于是 `floor = 263324 + keep + 8000` 永远压在 `knee(1M) = 157000` 之上：`resolveThreshold` 返回 `undefined`，
   自动路径在 `auto.ts:42` 静默退出——**不是「还没到」，是结构上永不触发**；而 `/handoff status` 会给出一句算术
   为真、杠杆指错的 `quality-knee`（作者自己的注释就承认「a smaller baseline 不是用户能调的设置」）。
-  现在**插件不再自己合成信封**：新增可选的 `ContextMeasurement.overheadTokens`（harness 按 `totalTokens` 基准
-  报告的信封），缺省 0，`HandoffRoom.baseline` 随之改名为 `overhead`。该字段是**上游接线的 seam**，与
-   `qualityLimit(window, upstream?)` 同一模式：今天没有 harness 报它，所以信封项为 0、`floor = keep + 8K`。
+  现在**插件不再自己合成信封**：`ContextMeasurement.overheadTokens` 由 harness 已有的 projection 读出——
+  `ctx.sessionProjections.snapshot(session, ['contextBreakdown'])` 返回的
+  `{ systemTokens, toolsTokens, messageTokens }` 就是「prompt 由什么构成」的官方答案，`systemTokens + toolsTokens`
+  即信封（`runtime.ts` 的 `projectionEnvelope`，`measuredContext` 是 auto 路径与回执共用的唯一入口）。
+  `HandoffRoom.baseline` 随之改名为 `overhead`，`handoffRoom` 与回执共用同一份 `thresholdFloor`——那条规则原先
+  写了三遍，且已经漂移过一次。该 projection 在本机**正在跑**（现查
+  `grep -l contextBreakdown ~/.dsh/storages/session_projcache/sessions/*.json | wc -l`），GUI 的上下文面板读的
+  也是它；projection 缺失或值畸形时信封为 `undefined`（floor 退回 `keep + 8K`），而不是猜一个数。
    诚实边界：`quality-knee` **仍然可达**，但只剩用户自己那一条路——`handoffKeepTokens` 上界 200000
    （`config.ts`），1M 窗口下现查 `keep=149000` 解析、`keep=149001` 拒绝（`/handoff keep 200k` 的真实命令解析器
    也接受）；harness 将来报出信封同样可达。回执因此按「`keep` 能否清掉膝」分别给词：能清时点名 `keep`，不能
