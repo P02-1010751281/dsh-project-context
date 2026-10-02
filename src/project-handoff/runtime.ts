@@ -47,17 +47,40 @@ export function projectionEnvelope(projections: SessionProjectionsLike | undefin
 }
 
 /**
+ * Which read supplied {@link ContextMeasurement.overheadTokens}, or `undefined` when neither did.
+ *
+ * `"projection"` is the harness's own composition (`contextBreakdown`). `"meter"` is an envelope the
+ * meter volunteered — the same *quantity*, but not the harness's answer, so it must not be reported as
+ * if it were (this repo's recurring defect class is a right value under a wrong attribution).
+ */
+export type EnvelopeSource = "projection" | "meter";
+
+/** {@link measuredContext}'s result: `threshold.ts`'s `ContextMeasurement` plus where the envelope came from. */
+export interface MeasuredContext {
+	readonly totalTokens: number;
+	readonly surfaceTokens: number;
+	readonly overheadTokens?: number;
+	readonly envelopeSource?: EnvelopeSource;
+}
+
+/**
  * The meter's measurement plus the harness-reported envelope, ready for `threshold.ts`. One entry
  * point so the automatic path and the `/handoff status` receipt cannot read different envelopes.
+ *
+ * The source is reported, not just the value: the receipt's `threshold auto <n>` is the **same string**
+ * whether the envelope was read or not (at a 1M window with a small `keep` the knee, not the floor, is
+ * what binds), so a value alone leaves "did `contextBreakdown` parse?" unanswerable from the receipt.
  */
 export function measuredContext(
 	meter: TokenMeterLike,
 	projections: SessionProjectionsLike | undefined,
 	session: Session,
-): { totalTokens: number; surfaceTokens: number; overheadTokens?: number } {
+): MeasuredContext {
 	const measured = meter.measure(session);
 	const envelope = projectionEnvelope(projections, session);
-	return envelope === undefined ? measured : { ...measured, overheadTokens: envelope };
+	if (envelope !== undefined) return { ...measured, overheadTokens: envelope, envelopeSource: "projection" };
+	// No projection: keep an envelope the meter itself reported, but label it as the meter's.
+	return measured.overheadTokens === undefined ? measured : { ...measured, envelopeSource: "meter" };
 }
 
 /**

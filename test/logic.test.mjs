@@ -1996,6 +1996,66 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.match(unsqueezed, /threshold auto \d+ \(\d+%\)/, "without the projection the same numbers resolve");
 });
 
+test("the receipt names whether the harness envelope was read, because the threshold cannot", async () => {
+	// `threshold auto <n>` is the *same string* whether the envelope arrived or not: at a 1M window with
+	// the default 20_000 `keep`, the quality knee (157_000) sits above the floor both with a 45_000
+	// envelope (73_000) and without one (28_000). So the only way to answer "did the harness's
+	// `contextBreakdown` parse?" from `/handoff status` is for the receipt to name the read — the trigger
+	// sentence it already printed cannot distinguish the two states.
+	const signal = new AbortController().signal;
+	const session = {
+		id: `session-envelope-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => [],
+		requestHeader: () => undefined,
+		snapshotEvents: () => [],
+	};
+	const oneProjection = (breakdown) => ({
+		snapshot: (_session, keys) => ({
+			asOfSeq: 0,
+			values: keys?.includes("contextBreakdown") ? { contextBreakdown: breakdown } : {},
+		}),
+	});
+	const statusWith = async (measurement, projections) => {
+		const ctx = {
+			get: (name) => (name === "tokenMeter" ? { measure: () => measurement }
+				: name === "sessionProjections" ? projections
+				: undefined),
+			llm: { resolveModelInfo: async () => ({ context: { contextWindow: 1_000_000 } }) },
+		};
+		return statusText(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model" }), signal);
+	};
+	const plain = { totalTokens: 120_000, surfaceTokens: 60_000 };
+	const withEnvelope = await statusWith(plain, oneProjection({ systemTokens: 40_000, toolsTokens: 5_000 }));
+	const without = await statusWith(plain);
+	assert.match(withEnvelope, /harness envelope 45000/);
+	assert.match(without, /harness envelope unavailable/);
+	// The discriminator: the sentence the user reads is identical in both states, which is exactly why a
+	// receipt carrying only that sentence reported two different situations identically. Deleting the new
+	// line keeps every other assertion here green — this pair is what makes it load-bearing.
+	for (const text of [withEnvelope, without]) assert.match(text, /threshold auto 157000 \(16%\)/);
+	assert.notEqual(withEnvelope, without);
+
+	// An envelope the *meter* volunteered is the same quantity from a different read. It must not be
+	// presented as the harness's composition — a right number under a wrong attribution is this repo's
+	// recurring defect class.
+	const meterEnvelope = await statusWith({ ...plain, overheadTokens: 1_234 });
+	assert.match(meterEnvelope, /meter envelope 1234 — not the harness composition/);
+	assert.doesNotMatch(meterEnvelope, /harness envelope 1234/);
+	// …and the projection wins when both are present, because that is the harness's own answer.
+	const both = await statusWith({ ...plain, overheadTokens: 1_234 }, oneProjection({ systemTokens: 40_000, toolsTokens: 5_000 }));
+	assert.match(both, /harness envelope 45000/);
+	assert.doesNotMatch(both, /meter envelope/);
+
+	// The attribution is decided in `measuredContext`, so pin it at the source as well.
+	assert.equal(
+		measuredContext({ measure: () => plain }, oneProjection({ systemTokens: 7, toolsTokens: 3 }), session).envelopeSource,
+		"projection",
+	);
+	assert.equal(measuredContext({ measure: () => plain }, undefined, session).envelopeSource, undefined, "no registry, no claim");
+	assert.equal(measuredContext({ measure: () => ({ ...plain, overheadTokens: 5 }) }, undefined, session).envelopeSource, "meter");
+});
+
 test("a guardrail override of the manual threshold is warned about, not silent", async () => {
 	// The threshold has two sources: the guardrail (the quality layer, then the usable window) and the
 	// manual setting (`/handoff target`, or a fixed `/handoff 0.95` ratio). The guardrail owns the

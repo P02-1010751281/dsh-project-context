@@ -97,6 +97,16 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			const measurement = measuredContext(meter, projections, session);
 			const percent = Math.round((measurement.totalTokens / contextWindow) * 100);
 			parts.push(`context ${measurement.totalTokens}/${contextWindow} (${percent}%)`);
+			// The envelope is an *input* to the trigger, and the trigger alone cannot show whether it
+			// arrived: a 1M window with a small `keep` puts the knee above the floor either way, so the
+			// same `threshold auto <n>` renders when the floor carries the envelope and when it falls back
+			// to `keep + MIN`. Without this line "the harness projection parsed" is unfalsifiable from the
+			// receipt — and it is the harness's composition, so a meter-supplied one is named as such.
+			parts.push(measurement.envelopeSource === "projection"
+				? `harness envelope ${measurement.overheadTokens ?? 0}`
+				: measurement.envelopeSource === "meter"
+					? `meter envelope ${measurement.overheadTokens ?? 0} — not the harness composition`
+					: "harness envelope unavailable — no contextBreakdown projection");
 			const threshold = resolveThreshold(config, measurement, contextWindow);
 			// Never render every refusal as a claim about the window: `thresholdRefusal` names the
 			// comparison that actually failed, and the two are derived from the same terms. It can
