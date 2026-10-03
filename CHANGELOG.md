@@ -115,7 +115,11 @@
   的判据。**别再把实测写成待办**：它已经真实发生过；钉子有两枚——后继的 `createdAt`，与它首条 `user/message` 的
   `source.kind`（`~/.dsh/sessions/<encoded-cwd>/session-<id>/`）。2026-10-03 08:11:30 又独立发生一次：`bd1b383f` → `046c6acb`
   在同一判据下 auto 触发（父会话同样无 `command/run`、后继 `session/title` 为 `↪ handoff · bd1b383f`），宿主 07:57:35 启动、`lib/`
-  为 07:36 那份，即**含 `envelopeSource` 的构建**。另：auto 只在 `turn/end` 评估、无定时器，故已超阈值却不再结束回合的会话不会 auto 交接
+  为 07:36 那份，即**含 `envelopeSource` 的构建**。2026-10-03 09:28:25 的**第三次是链式的**：由交接横幅
+  开启的 `046c6acb` 自己也在一次真实 `turn/end`（`reason.kind` = `completed`）上 auto 交接出 `d01598e7`——
+  父会话末条 `assistant/message` 的 `data.usage.totalTokens` = 244045 / 窗口 1M（膝 157000）、整份日志里
+  **零条 `command/run`**，后继 `session/title` 为 `↪ handoff · 046c6acb`；宿主就是**当前在跑**的 pid 4702
+  （09:11:09 启动），所以「正在服务本 GUI 的宿主是否已加载本修复」不必再靠启动时间推算。另：auto 只在 `turn/end` 评估、无定时器，故已超阈值却不再结束回合的会话不会 auto 交接
   ——`3b278dd2`（nixos）与 `ae629225`（DSH-AV）就是这样，两者于 2026-10-03 08:00 被用户手动 `/handoff now` 退休。
    诚实边界：`quality-knee` **仍然可达**，但只剩用户自己那一条路——`handoffKeepTokens` 上界 200000
    （`config.ts`），1M 窗口下现查 `keep=149000` 解析、`keep=149001` 拒绝（`/handoff keep 200k` 的真实命令解析器
