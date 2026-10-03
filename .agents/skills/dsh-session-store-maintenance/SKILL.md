@@ -7,18 +7,18 @@ Use when a task requires looking at, probing, repairing, or cleaning up dsh sess
 
 ## Ground rules
 - Read-only inspection of `~/.dsh` is acceptable. Never send messages into the user's real sessions unless they explicitly approve a rescue.
-- Do not restart the user's `dsh web` service; propose it instead. Plugin code changes load only at the next start.
+- Do not restart the user's serving host; propose it instead. Plugin code changes load only at the next start. Ask which host is serving rather than assuming: `ss -ltnp | grep -E '19387|3080'` (desktop vs web).
 - Create throwaway probe sessions only under `/tmp`, and archive them afterwards.
-- A second agent session may be working in this repo concurrently: stage only the paths changed for the current task (`git add <paths>`), never `add -A`.
+- A second agent session may be working in this repo concurrently: stage only the paths changed for the current task (`git add <paths>`), never `add -A`; the full scoped-commit and `git commit -F <msg> -- <paths>` rule lives in `dsh-project-context-concurrent-writer-guard`.
 
 ## Probe the running server (read-only)
-- Wrapper: `/tmp/rpc.sh <method> '<json args>' 3080` against `dsh web` on `127.0.0.1:3080`.
-- Argument shapes differ per method: `session/list` wants `{"args":{"_request":{}}}`; `session/page` wants `{"args":{"request":{...}}}`; workspace mutations want `{"args":{"request":{...}}}`.
+- There is **no** `/tmp/rpc.sh` in this repo and `/tmp` does not survive a reboot: check with `ls -l /tmp/rpc.sh` before using it, and recreate it (or use the Cordis Inspect read-only queries plus the harness's own tools) instead of assuming a helper exists. Port: take the serving host's from `ss -ltnp | grep -E '19387|3080'` — do not hardcode 3080, the desktop host on 19387 is usually the live one.
+- Argument shapes differ per method: `session/list` wants `{"args":{"_request":{}}}`; `session/page` wants `{"args":{"request":{...}}}`; workspace mutations want `{"args":{"request":{...}}}`. These were read off the 0.1.7-rc.2 line — re-check the shape against the running line rather than trusting this list.
 - Confirm a session is loadable with `session/page`; expect HTTP 200.
 - Caution: probing `session/create` makes the server load the sessions it touches and grows RSS; a restart releases it.
 
 ## Read a session log
-- Path: `~/.dsh/sessions/<encoded-cwd>/<session-id>/session.v3.jsonl.zstd` (current) or legacy `session.jsonl.zstd` (v0).
+- Path: `~/.dsh/sessions/<encoded-cwd>/<session-id>/session.v4.jsonl.zstd` (current) with legacy `session.v3.jsonl.zstd` and `session.jsonl.zstd` (v0) still on disk in older directories. Do **not** glob only `session.v3` — v4 outnumbers v3 in this store and a v3-only glob silently misses the majority. Pick the newest with `ls "$d"/session.v*.jsonl.zstd 2>/dev/null | sort -V | tail -1`.
 - Decompress with `zstdcat <file>` and parse the JSONL events.
 - v0 logs are migrated in memory and usually open fine; only v0 logs carrying an old subagent descriptor are refused (history unreadable, raw file left on disk). Disk format alone is not the discriminator.
 - Layout: the writer emits one zstd frame per append batch, header frame first, checksum flag on; the reader decodes frame by frame.

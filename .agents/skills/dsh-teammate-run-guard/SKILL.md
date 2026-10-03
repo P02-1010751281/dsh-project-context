@@ -18,9 +18,8 @@ While teammates run
 
 Recovery and cleanup
 8. After every teammate settles or dies, run the recorded `sha256sum -c` over the snapshotted files. Treat any unrestored mutation as unverified work and restore it before continuing.
-9. Restoring src/ does not restore lib/. End a mutation round with a rebuild (`pnpm build`) and confirm the mutant marker is gone from lib/ (`grep -c <marker> lib/` = 0) before trusting later probes; otherwise subsequent runs read the mutant build and give false results.
+9. Restoring `src/` does not restore `lib/`: a later probe would read the mutant build and give false results. The mutant lifecycle — restore from the hash-verified copy, then rebuild and confirm the marker count in `lib/` is 0 — is owned by `dsh-plugin-mutation-round`; do not restate it here.
 10. If a teammate dies mid-task, look first for its /tmp artifacts (snapshot, probes, partial report) and finish the work from them instead of blindly re-spawning.
 
-Mutation validity (for teammate- or self-produced mutants)
-11. A mutant is valid only if it compiles with 0 errors, its marker is present in lib/ after the build, and it demonstrably changes behaviour on a probe input. A compile error such as TS6133 from an unused symbol is not a behavioural difference and produces an invalid red.
-12. Restore mutated sources from the hash-verified /tmp copy; do not use `git checkout --` or `git stash`.
+Mutation validity
+11. What makes a mutant *valid* — it compiles with 0 errors, its marker reached `lib/` after the build, and it demonstrably changes behaviour on a probe input — is defined once in `dsh-plugin-mutation-round`. A compile error such as TS6133 from an unused symbol is not a behavioural difference and produces an invalid red; a teammate's mutant is only evidence once that round is complete.

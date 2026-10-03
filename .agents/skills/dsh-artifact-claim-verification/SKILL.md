@@ -11,7 +11,7 @@ Use this whenever a teammate's report, a previous session's handoff, or your own
 Before touching code or committing, list every claim that changes your action: file/line/symbol citations, counts, root cause, "the fix is X", "this out-of-scope edit is required", and rebuttals of earlier hypotheses.
 
 ## 2. Citations
-- `wc -l <file>` first, then `grep -n <symbol> <file>`. Paths and line numbers drift when a module is split: a report cited `src/autolearn.ts:449` while that file is 111 lines (the code lived in `src/shared/autolearn.ts`). A fixer following the citation opens a file that does not contain the code.
+- `wc -l <file>` first, then `grep -n <symbol> <file>`. Paths and line numbers drift when a module is split: one report cited a file at `:449` while that file was 111 lines and the code had moved to a sibling module — and by 2026-10-03 **both** of those paths were gone from the tree, so the witness itself can no longer be re-checked. That is the point rather than a defect: cite the **symbol** (`git grep -n '<symbol>' -- src/`), never a path/line you did not just read.
 - `grep -rn <symbol> src/` for anything the report vouches for. One symbol marked as confirmed had zero hits in the tree.
 - Carry symbol names forward, not line numbers; a path/line stale by one refactor is enough to send the next agent to the wrong file.
 
@@ -23,7 +23,7 @@ Re-derive the failing expression yourself instead of accepting the label. A repo
 - Check internal arithmetic: a percentage and a baseline that cannot both be true, or a tally that disagrees with its own table, are the same error class as the one already corrected in an earlier round.
 
 ## 5. Rebuttals
-When a reviewer rebuts a hypothesis, read the cited code and confirm the identity claim yourself (for example, three call sites really do pass the same expression because the `const model = resolveAuxModel(...)` binding is never reassigned before use). Retire the rebutted hypothesis explicitly; do not keep it in circulation or act on it later.
+When a reviewer rebuts a hypothesis, read the cited code and confirm the identity claim yourself — e.g. check that the several call sites really do pass the same expression because the named binding is never reassigned before use (do not name a symbol you have not grepped: the example this rule was first written from has zero hits in the tree today). Retire the rebutted hypothesis explicitly; do not keep it in circulation or act on it later.
 
 ## 6. Necessity and scope claims
 - If a report says an extra edit is required, test it: copy the edits aside, revert them, rebuild, and observe exactly which test turns red. Restore them byte-identically afterwards, then confirm the suite is green again. If exactly the expected test fails, the necessity claim holds.

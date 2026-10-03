@@ -11,7 +11,7 @@ description: "Verify a change to the Nix-built dsh desktop launcher (launch.sh /
 
 1. **launch.sh 会被 `makeWrapper` 内联进 wrapper**，产物里可能根本不存在 `<out>/lib/dsh-desktop/launch.sh`。直接在 wrapper 里搜关键字得 0 命中 ≠ 接线失败。
 2. 找**真正的 exec 目标**：读 wrapper 尾部（用 `read` 或取尾部若干行），找 `exec "/nix/store/<hash>-launch.sh"`。壳脚本在**独立的 store 路径**（与 dsh-desktop 产物不同 hash）。
-3. **这个 hash 可能与你刚构建的那个不是同一个**（本仓实测：live wrapper 指向 `0rr2jfp6…-launch.sh`，而本地构建产物是 `gwzaa2mj…`）。先确定「哪个 launch.sh 真的会被跑」，再谈验证。
+3. **这个 hash 可能与你刚构建的那个不是同一个，而且写进技能的 store hash 一定会被 GC**（本仓两个记录过的 hash 现在都已消失）。别记 hash，现查：`readlink -f "$(command -v dsh-desktop)"` 取 PATH 上真正会被启动的产物，再读它的 wrapper **尾部**找 `exec "/nix/store/<hash>-launch.sh" "$@"`。先确定「哪个 launch.sh 真的会被跑」，再谈验证。
 4. 与该路径比对：`diff <store 的 launch.sh> <仓库工作区副本>` 应为空（identical）；不等说明产物不是当前源码。
 
 ## 端到端验证必须用真实产物 + 干净环境

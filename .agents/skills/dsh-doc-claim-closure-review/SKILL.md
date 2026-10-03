@@ -28,9 +28,7 @@ Use after a review-driven fix batch that edited tracked documentation or memory:
    - For counts of tracked skills, write the comparison command, not the number.
 
 4. Edit long memory/doc lines safely.
-   - Do not use prefix-based replace scripts; they can leave a duplicated half-sentence.
-   - Use whole-line replacement with an inline anchor assertion.
-   - After editing, read back the line and check that the same sentence does not appear twice.
+   - The whole-line replacement + anchor assertion + read-back discipline is owned by `dsh-project-memory-cap-guard`; follow it instead of improvising a replace script. In one line: never a prefix-based replace (it can leave a duplicated half-sentence), always replace the entire line, assert the anchor survived, then read the line back and check the same sentence does not appear twice.
    - If parentheses were inserted or removed, verify they balance.
 
 5. Run a mechanical residual check.
@@ -41,7 +39,7 @@ Use after a review-driven fix batch that edited tracked documentation or memory:
 
 6. Verify project invariants without relying on remembered numbers.
    - Baseline: `git log -1 -- src/` and `git log -1 --format=%cI -- src/`.
-   - Memory: `loadMemory(root, 32000)`; check `truncated`, `damaged`, `poisoned`.
+   - Memory: run the `dsh-project-memory-cap-guard` check (plugin API, not a grep for the marker) — do not copy its cap numbers or measured sizes into this procedure.
    - Tracked skills: compare `ls -d .agents/skills/*/` with `git ls-files '.agents/skills/**/SKILL.md'`.
    - Gate: `pnpm typecheck`, `pnpm build`, `pnpm test` (or per project script).
    - Do not cite old test counts or byte sizes as fixed values.
