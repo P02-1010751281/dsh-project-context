@@ -9,7 +9,7 @@ Use when a task requires looking at, probing, repairing, or cleaning up dsh sess
 - Read-only inspection of `~/.dsh` is acceptable. Never send messages into the user's real sessions unless they explicitly approve a rescue.
 - Do not restart the user's serving host; propose it instead. Plugin code changes load only at the next start. Ask which host is serving rather than assuming: `ss -ltnp | grep -E '19387|3080'` (desktop vs web).
 - Create throwaway probe sessions only under `/tmp`, and archive them afterwards.
-- A second agent session may be working in this repo concurrently: stage only the paths changed for the current task (`git add <paths>`), never `add -A`; the full scoped-commit and `git commit -F <msg> -- <paths>` rule lives in `dsh-project-context-concurrent-writer-guard`.
+- A second agent session may be working in this repo concurrently, so use the scoped commit: stage only this task's paths and never `git add -A` — the full rule (the exact add, `git commit -F <msg> -- <paths>`, and the `git diff --cached` check) lives in `dsh-project-context-concurrent-writer-guard` step 5.
 
 ## Probe the running server (read-only)
 - There is **no** `/tmp/rpc.sh` in this repo and `/tmp` does not survive a reboot: check with `ls -l /tmp/rpc.sh` before using it, and recreate it (or use the Cordis Inspect read-only queries plus the harness's own tools) instead of assuming a helper exists. Port: take the serving host's from `ss -ltnp | grep -E '19387|3080'` — do not hardcode 3080, the desktop host on 19387 is usually the live one.

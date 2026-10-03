@@ -45,8 +45,7 @@ Use after a review-driven fix batch that edited tracked documentation or memory:
    - Do not cite old test counts or byte sizes as fixed values.
 
 7. Commit and verify.
-   - Stage only the doc/memory paths changed for this task: `git add <paths>`.
-   - Commit with `git commit -F <msg> -- <paths>` (options before `--`).
+   - Use the scoped commit: stage only this task's paths and never `git add -A` — the full rule (the exact add, `git commit -F <msg> -- <paths>`, and the `git diff --cached` check) lives in `dsh-project-context-concurrent-writer-guard` step 5.
    - Push, then verify `git rev-parse HEAD origin/main` and `git status --short`.
    - If the fix touched only docs/memory, do not restart the desktop host.
 

@@ -47,7 +47,7 @@ Use this skill whenever `.agents/memory/MEMORY.md` or `.agents/memory/CONTEXT.md
    - If the write was meant to be permanent, check that the newest content is still present after the plugin's next write (e.g. locate the newest convention heading in the tail). Newly appended lines are exactly what a silent truncation drops.
 
 9. **Stage only what this task changed**
-   - `git add <paths>`, `git commit -F <msg> -- <paths>` (options before `--`), never `add -A`: a second agent session is frequently editing this repo, and its untracked work must not be swept in.
+   - Use the scoped commit: stage only this task's paths and never `git add -A` — the full rule (the exact add, `git commit -F <msg> -- <paths>`, and the `git diff --cached` check) lives in `dsh-project-context-concurrent-writer-guard` step 5. A second agent session is frequently editing this repo, and its untracked work must not be swept in.
 
 ## Traps this guard exists for
 - Silent permanent loss of newly appended content: new lines land past the cut point and are dropped on write.

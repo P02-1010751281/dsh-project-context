@@ -196,3 +196,61 @@ be **corrected, not merged** (dead `src/shared/{learn,autolearn}.ts`, dead pi la
   executed the suite again for a tangential claim. `.credentials.yaml` was read for key names only.
 - Scope = the 14 tracked skills + 3 candidates. No other repo's or `~/.dsh`-level skill corpus was
   examined.
+
+## 7. Post-audit status (added 2026-10-03, after the consolidation round)
+
+This report was written against `652907c`; the consolidation commit `3cd2cba` landed afterwards. Read
+§3 and §5 as statements about that revision, and this section as the current status.
+
+**Fixed in `3cd2cba`** — every §3 row that still read "still stale" or "Unmodified":
+
+- `pi-to-dsh-feature-port` — dead `src/shared/{learn,autolearn}.ts` and the dead pi layout replaced;
+  §7 now reads "Edit **`src/` only** — never `lib/*.js`", so it no longer contradicts `mutation-round`.
+- `session-store-maintenance` — v4 named as current, v3/v0 as legacy, with the v3-only-glob warning.
+- `review-fix-batch` — the dead `src/handoff.ts`/`src/learn-state.ts`/`src/memory.ts` citations are
+  gone; no recorded baseline survives (the remaining `132/132` and `145/145` are labelled as examples
+  that went stale).
+- `cap-guard`, `artifact-claim-verification`, `nix-desktop-launcher-artifact-verify`,
+  `host-build-restart-verify` — fixed as marked in §3.
+- §5 verdict 3 — `dsh-session-log-user-correction-recovery` was **promoted** to a tracked skill, so
+  §5 no longer describes the on-disk state.
+
+**Already executed inside `3cd2cba`** (the audit proposed them; the concurrent round did them):
+
+- **M2** (mutation validity, one owner): `teammate-run-guard` §9/§11 point at `mutation-round` and
+  carry no restatement.
+- **M4** (memory-edit mechanics, one owner): `doc-claim-closure-review` §4 is a pointer; its unique §5
+  mechanical residual check was kept.
+
+**Executed in the follow-up round (this commit):**
+
+- **M3** (scoped commit, one owner): **now executed.** `concurrent-writer-guard` §5 is the single
+  definition and says so; `release` §1, `doc-claim-closure-review` §7, `cap-guard` §9,
+  `session-store-maintenance` ground rules, `review-fix-batch` §8 and `pi-to-dsh-feature-port` §3 now
+  carry the identical one-line pointer. That is **2 wordings across those 7 sites instead of 7
+  diverging ones**, and the safety token `never git add -A` is deliberately kept inline at every site:
+  a bare pointer fails when it is not followed.
+- **Deliberately not converted:** `dsh-nix-desktop-launcher-artifact-verify` keeps its own phrasing —
+  its instance governs `/etc/nixos` (another repo, another concurrent session), so
+  `concurrent-writer-guard` is the wrong pointer target there. The corpus therefore holds 8 sites
+  carrying the rule, not 1.
+- **Found and fixed while executing M3** (none of these were in §3): the dead `src/handoff.ts` example
+  in `concurrent-writer-guard` §2; `/tmp/rpc.sh` presented as an existing helper in
+  `review-fix-batch` §3 while `session-store-maintenance` §15 already recorded that it is gone; and
+  `pi-to-dsh-feature-port`'s frontmatter, which promised "the baseline test count" while its §6
+  rejects comparing against a baseline number.
+
+**§6's limits are now closed by a read-only pass** (2026-10-03): `pnpm typecheck` exits 0 (both
+tsconfigs); `node --test` prints `tests 243 / pass 243 / fail 0` and exits 0 — run without the `tsc`
+half of `pnpm test` so that nothing writes into `lib/`; a recompile into a temp dir followed by
+`diff -rq <tmp> lib/` reports the single extra entry `lib/client.js`, which is the byte-exact test that
+`lib/` still mirrors this `src/`. The `243/243` in §1/§6 is therefore no longer only a count for a
+pre-existing build.
+
+**Still open** (unchanged): M5 (one owner for the shared verify sentence) and M6 (one owner for the
+session-event invariant). Neither would lose a rule by being moved; both were left for a round that
+does not touch the same files.
+
+**Not covered here:** the ~51 skills under `~/.agents/skills` — a separate repo, vendored from 16
+upstream GitHub sources — audited in
+`.agents/evidence/2026-10-03-third-party-skill-corpus-audit/audit.md`.

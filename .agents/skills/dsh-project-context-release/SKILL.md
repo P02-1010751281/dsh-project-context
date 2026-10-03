@@ -6,7 +6,7 @@ description: "Cut and publish a versioned release of the dsh-project-context plu
 Release workflow for the dsh-project-context plugins (repo root /mnt/Data/Projects/dsh-project-context).
 
 1. Check the working tree and concurrent-session state.
-   Run `git status --short`. Untracked `.agents/` and `thinking-effort-loaded.json` are normal. A second dsh agent session may be working in this repo and can leave changes staged. Never run `git add -A`. Stage only the release paths (`git add <paths>`) and commit with `git commit -F <msg> -- <paths>` so another session's staged work is not swept in.
+   Run `git status --short`. Untracked `.agents/` and `thinking-effort-loaded.json` are normal. A second dsh agent session may be working in this repo and can leave changes staged, so use the scoped commit: stage only this task's paths and never `git add -A` — the full rule (the exact add, `git commit -F <msg> -- <paths>`, and the `git diff --cached` check) lives in `dsh-project-context-concurrent-writer-guard` step 5.
 
 2. Update version and changelog.
    The changelog is `CHANGELOG.md`, not the README; the README only points to it. Move completed entries from the `未发布` section into a new version heading in `CHANGELOG.md`. Set `version` in `package.json` to the release version. Keep README prose wrapped at 100 columns and never split an inline code span across lines. Use English Conventional Commits (`feat:`, `fix:`, `docs:`, `chore(release):`).
