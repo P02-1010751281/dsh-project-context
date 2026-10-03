@@ -20,7 +20,8 @@ Last updated: 2026-10-02T19:55:00+08:00
 ## Open tasks
 
 - 留意记忆 cap 余量（**用 API 现查，不写死数字**）；以 `loadMemory(root, 32000)` 与 `isMemoryTruncated(loaded.text) === false`、`damaged` / `poisoned` 为准。**只记轮次与量级。**
-- autolearn 候选 `dsh-session-log-user-correction-recovery.md` **维持候选**（证据会话数未达本仓 2 会话门槛——**不写死数字，现读该候选文件的 `evidence:` 行**；文件在本地未跟踪的 `.agents/memory/skill-candidates/`）。**再评估触发**：出现第二个可复现该流程的归档会话，把它加进候选的 `evidence:` 行。
+- autolearn 候选 `dsh-session-log-user-correction-recovery.md`：**门槛已达成**（2026-10-03 语义复扫：55 归档 / 187 条 `source.kind=="user"` 回合 / 149 条逐条实读 ⇒ 8 起真纠正，其中第二起独立事件是 09-27 用户贴出上下文面板 → 提交 `3837cc1` 反着记 → 10-02 用户纠正 → 提交 `e3aea8d` 替换；旧的「无第二起」是**关键词扫描的假象**，候选文件已改写步骤 2–4 并加「纠正常不带纠正词汇」的判别器）。**待用户裁决是否提升为 tracked 技能**——提升会写入 `.agents/skills/`，故未擅自做。
+- `0.2.0-rc.2` 升级：**判据已备，等用户决定 `home-manager switch` 的时机与桌面端重启归属**。证据 + 复跑脚本在 `.agents/evidence/2026-10-03-dsh-020rc2-api-compat/`（四个插件两半对 0.2.0 类型 0 错且控制线绿；desktop/web 声明 bundle 全过 peer 闸；**web 本就已钉 `0.2.0-rc.2`**，而 ctxdev/headless 的 `dsh-experimental-agent-team*@0.1.6-alpha.1` 会在新线被 disabled）。`dsh-rewind-plugin` 只在真正切到新线之后再谈装回。
 - **Residual（不在本仓，用户已明确不处理）**：upstream dsh core 把 `discovery.ts` 的 `capacity()` 拆成「声明总窗口」+「可用输入上限」，`qualityLimit` 的上游分支才能接线；pi 侧 `resolveThreshold` 的 `!model || usage.tokens === null` 与截断重试守卫的覆盖。
 - 已闭合项（不再逐条占位；历史提交用 `git log --oneline` 现查，不在此写 hash）：交付线事实撤出留指针；未跟踪技能入库；技能核对写进 guard 技能；准入分支补钉；描述上限在 approve 路径可达；独立审核抓到的顺序 / 解析器钉与文档诚实性问题。
 - 2026-10-02 收尾：写侧 seed 自带 kind（`dsh-project-context`）+ 读侧跳过 handoff 横幅已落地并经**运行时验证**（本机一次真实交接的子会话首条 seed 即 `{kind:"dsh-project-context"}` 且无 `rpcId`）；MEMORY.md 压掉闭合审计叙述以恢复 cap 余量。细节见 `CHANGELOG.md` 未发布段与 MEMORY.md。
