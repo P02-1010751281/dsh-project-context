@@ -234,11 +234,14 @@ This report was written against `652907c`; the consolidation commit `3cd2cba` la
   its instance governs `/etc/nixos` (another repo, another concurrent session), so
   `concurrent-writer-guard` is the wrong pointer target there. The corpus therefore holds 8 sites
   carrying the rule, not 1.
-- **Found and fixed while executing M3** (none of these were in §3): the dead `src/handoff.ts` example
-  in `concurrent-writer-guard` §2; `/tmp/rpc.sh` presented as an existing helper in
-  `review-fix-batch` §3 while `session-store-maintenance` §15 already recorded that it is gone; and
-  `pi-to-dsh-feature-port`'s frontmatter, which promised "the baseline test count" while its §6
-  rejects comparing against a baseline number.
+- **Found while executing M3** (none of these were in §3): the dead `src/handoff.ts` example in
+  `concurrent-writer-guard` §2 and `/tmp/rpc.sh` presented as an existing helper in
+  `review-fix-batch` §3 (while `session-store-maintenance` §15 already recorded that it is gone) were
+  fixed then. A third item — `pi-to-dsh-feature-port`'s frontmatter promising "the baseline test
+  count" while its §6 rejects comparing against a baseline — was **reported as fixed in `fa454aa`'s
+  message but never landed**: that commit's diff for the file touches only step 3, so the frontmatter
+  still carried the promise at `38830d2`. **Corrected in this round** (it now says "the no-regression
+  bar"). Lesson: a commit message claiming a fix is not evidence the fix landed — read the diff.
 
 **§6's limits are now closed by a read-only pass** (2026-10-03): `pnpm typecheck` exits 0 (both
 tsconfigs); `node --test` prints `tests 243 / pass 243 / fail 0` and exits 0 — run without the `tsc`
@@ -247,9 +250,13 @@ half of `pnpm test` so that nothing writes into `lib/`; a recompile into a temp 
 `lib/` still mirrors this `src/`. The `243/243` in §1/§6 is therefore no longer only a count for a
 pre-existing build.
 
-**Still open** (unchanged): M5 (one owner for the shared verify sentence) and M6 (one owner for the
-session-event invariant). Neither would lose a rule by being moved; both were left for a round that
-does not touch the same files.
+**M5/M6 executed** (2026-10-03, follow-up round): the shared verify sentence now has one owner
+(`dsh-artifact-claim-verification` §9; `upstream-source-ground-truth-verify` §6 points there), and the
+session-event invariant now has one owner (`dsh-session-store-maintenance`, which names
+`Session.append` and the `ignorable` literal; `review-fix-batch` §2 + closing line and
+`pi-to-dsh-feature-port` §4 point there). As with M3, the rule token stays inline at every pointing
+site on purpose — a bare pointer fails when it is not followed — so the corpus holds 2 sites per rule,
+not 1. No rule dropped.
 
 **Not covered here:** the ~51 skills under `~/.agents/skills` — a separate repo, vendored from 16
 upstream GitHub sources — audited in

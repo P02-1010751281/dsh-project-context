@@ -31,7 +31,7 @@ Use when a task requires looking at, probing, repairing, or cleaning up dsh sess
 - Hide a session (no delete-session RPC exists): `workspace/archiveSession {"args":{"request":{"sessionId":"..."}}}` adds it to the archive set the sidebar filters out.
 
 ## Repair a log the harness refuses to load
-Symptom: a session becomes unloadable (`gateway/internal`) because its log contains an event type outside the harness's known set and not marked `ignorable: true`. Plugins must not append custom session event types at all; write project-side files instead.
+Symptom: a session becomes unloadable (`gateway/internal`) because its log contains an event type outside the harness's known set and not marked `ignorable: true`. Plugins must not append custom session event types at all; write project-side files instead. **This skill owns that invariant** and the `Session.append` / `ignorable` mechanism below; the other skills point here instead of restating it.
 1. Confirm the server currently holds no writer on that file (the failing load is what makes patching safe).
 2. Back the file up (e.g. `/tmp/session-repair-backup/`).
 3. Locate the offending frame: split the file on zstd frame boundaries and find the small standalone frame that holds the bad event, typically the last append batch.
