@@ -113,7 +113,10 @@
   （所以走的是 auto 路径，不是 `/handoff now`）；宿主 22:02:11 启动、`lib/` 为 21:56 那份，即带本修复的构建。修复前
   `floor = 263324 + keep + 8000` 恒高于膝，auto 路径**结构上不可能**触发，所以「它触发过一次」本身就是「修复已加载」
   的判据。**别再把实测写成待办**：它已经真实发生过；钉子有两枚——后继的 `createdAt`，与它首条 `user/message` 的
-  `source.kind`（`~/.dsh/sessions/<encoded-cwd>/session-<id>/`）。
+  `source.kind`（`~/.dsh/sessions/<encoded-cwd>/session-<id>/`）。2026-10-03 08:11:30 又独立发生一次：`bd1b383f` → `046c6acb`
+  在同一判据下 auto 触发（父会话同样无 `command/run`、后继 `session/title` 为 `↪ handoff · bd1b383f`），宿主 07:57:35 启动、`lib/`
+  为 07:36 那份，即**含 `envelopeSource` 的构建**。另：auto 只在 `turn/end` 评估、无定时器，故已超阈值却不再结束回合的会话不会 auto 交接
+  ——`3b278dd2`（nixos）与 `ae629225`（DSH-AV）就是这样，两者于 2026-10-03 08:00 被用户手动 `/handoff now` 退休。
    诚实边界：`quality-knee` **仍然可达**，但只剩用户自己那一条路——`handoffKeepTokens` 上界 200000
    （`config.ts`），1M 窗口下现查 `keep=149000` 解析、`keep=149001` 拒绝（`/handoff keep 200k` 的真实命令解析器
    也接受）；harness 将来报出信封同样可达。回执因此按「`keep` 能否清掉膝」分别给词：能清时点名 `keep`，不能
