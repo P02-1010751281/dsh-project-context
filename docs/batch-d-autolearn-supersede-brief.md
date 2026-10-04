@@ -1,9 +1,10 @@
 # Batch D port brief — autolearn may supersede a skill it generated
 
-**Status: ruled 2026-10-05, not started.** Decided to be portable by the fourth pi triage pass
-(`docs/upstream-pi-triage.md` §"Fourth pass", commit `2d562ce` of the range `6707376..f6bea1d`). Nothing
-here is implemented; this file states everything a fresh session needs, and every claim in it is either a
-pi path at a stated revision or a read-now command.
+**Status: implemented 2026-10-05.** Code and tests landed in `84274e5`; §5's acceptance criteria D1–D6 are
+pinned by `test/autolearn.test.mjs` and the mutants listed there all redden exactly their own cases. Decided
+to be portable by the fourth pi triage pass (`docs/upstream-pi-triage.md` §"Fourth pass", commit `2d562ce`
+of the range `6707376..f6bea1d`). Every claim here is either a pi path at a stated revision or a read-now
+command.
 
 ## 1. Why
 
@@ -102,3 +103,26 @@ Two dsh-only facts the port must respect:
 - Mutants that must each redden exactly their own cases: drop the marker from the shared promoted-document
   renderer (all of D1–D3), ignore the marker in the gate (D2), fall back to a blanket refusal in approve
   (D3), drop the body injection (D4).
+
+## 6. What the port changed from pi's implementation (2026-10-05)
+
+1. **No `scope` field.** dsh's inventory only scans the project's `skillsDir` (there is no global skill
+   directory here), so the gate's condition is `collision.autolearn` alone where pi's is
+   `scope === "project" && autolearn`, and a learned body never needs the scope guard. `learnedBodiesText`
+   iterates the same single-scope list.
+2. **A supersede always lands through the candidate gate** (ruling 3): the pass's direct publish keeps its
+   blanket refusal on an existing destination, so the only path that replaces a marked skill is
+   `/autolearn approve`. pi's pass publishes a two-session proposal directly. In dsh the invariant is
+   shared with the candidate flow the plugin already has (`MIN_CANDIDATE_SESSIONS` vs `MIN_SKILL_SESSIONS`),
+   which is why the enforcement is split rather than moved: the gate is provenance-aware, the write is not.
+3. **`skillDocument(skill)` reads `skill.candidate`** instead of pi's extra `candidate` parameter, so the
+   promoted-document owner is `promotedDocument(name, description, body)` and the candidate header stays in
+   `skillDocument`. Approve goes through `promotedDocument` too, which is what makes "the marker cannot be
+   forgotten in one path" structural rather than tested.
+4. **Both prompts carry the block.** pi has one prompt builder; dsh has a forward and a backtrack prompt and
+   `skillRules()` is shared by both, so `<learned-skill-bodies>` is injected into both (the rule that
+   forbids reusing an unshown name is in both). A mutant that drops it from either prompt reddens the same
+   merge-prompt test, which is the assertion covering both calls.
+5. **The candidate-exists rule still sorts after the collision rule**, so a proposal for a marked name that
+   already has a candidate reports `candidate "<name>" already exists` rather than the collision. That
+   ordering is pre-existing and was kept.

@@ -581,6 +581,28 @@
   （日志门控改回 `wrote &&`、状态去掉 context 析取项）。门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build`
   通过（`lib/client.js` 28376 字节）、`node --test` **322 pass / 0 fail**。
 
+**project-autolearn（批 D：可以取代自己生成的技能，且只取代自己生成的）**
+
+- 修复：**autolearn 只能新增技能，学歪了就只能手工改**。`rejectionReason` 拒绝任何已存在的名字，所以一条学到后过时或写错的
+  技能无法被更新，覆盖同一片工作的提案反而被当近似重复丢掉。pi 当初把「更新/合并已有技能」写成非目标，理由只有一个：它分不清
+  哪条是**自己写的**、哪条是人手写或导入的；现在这个出处**写在产物上**——本管线写出的每条 `SKILL.md` 都在正文里带一条
+  `<!-- autolearn-generated: … -->`（**不**放 frontmatter：`skillDescription` 与候选解析器都读 frontmatter，未知键会被当成
+  候选字段）。标记随技能一起消失，所以「删掉技能后同名位置被人手写占用」永远不会被误认成自己的。`promotedDocument` 是这篇文档的
+  **唯一**作者，pass 的直发与 `/autolearn approve` 都走它，所以标记不可能在某一条写路径上漏掉。
+- 取代**一律走候选门**：闸门只对带标记的名字放行（人手写/导入的同名仍拒），但直发路径**保留无条件拒绝**——它只能创建新名字、
+  永不替换既有文件，所以替换带标记技能的唯一路径是 `/autolearn approve`，且是本人批准过的改动。approve 读的是**被替换文件本身**
+  的标记，不是缓存的清单。证据规则不放宽：取代写的是整篇新正文，所以按新建对待（非候选 2 个、候选 1 个已验证 session）。
+- 合并需要原文，所以带标记技能的**整篇正文**随 prompt 走 `<learned-skill-bodies>`（首轮与回溯轮都带，因为那条禁止复用的规则
+  两处都有），inventory 里标 `(learned)`；放不下的正文**整条不带**（截断的正文只会诱发有损合并），规则同时禁止本轮复用未被
+  展示的 learned 名字。`RECORD_SKILL_TOOL` 的 name/candidate 两处措辞与 inventory 同时改，否则这个例外是死代码。
+- 变异校验（**五个**变异体，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：让渲染器写出认不出的标记（改写
+  `PROVENANCE_COMMENT`；直接删掉插值会因 `noUnusedLocals` 报 TS6133，属无效变异体）→ 三条新用例全红；闸门忽略标记 →
+  只掉「只有自己写的才能被取代」；approve 退回无条件拒绝 → 同一条用例（形状上把 `autolearnProvenance` 保持被引用）；
+  `basePrompt` 丢掉正文注入 → 掉合并 prompt 那条；`backtrackPrompt` 丢掉正文注入 → 同一条（证明回溯轮也在断言范围内）。
+  收尾从 `sha256sum -c` 校验过的 `/tmp` 副本恢复 `src/`、重建后 `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`node --test`
+  **333 pass / 0 fail**（新增 3 条）。裁定与验收标准 D1–D6 在 `docs/batch-d-autolearn-supersede-brief.md` §4/§5。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**
