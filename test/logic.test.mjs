@@ -4738,6 +4738,10 @@ test("requestPluginText and its meta variant keep the error and abort semantics"
 			() => requestPluginText(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined),
 			(error) => {
 				assert.equal(error.message, "plugin model call failed (boom): upstream exploded");
+				// The code must survive this boundary: routing on it is the only way a caller can tell a
+				// refused request's shape from a quota or an outage, and dsh's own contract forbids
+				// parsing the message. Dropping it here silently disables the tools-free fallback.
+				assert.equal(error.code, "boom", "the harness failure code must ride on the thrown error");
 				return true;
 			},
 			`${kind} must still throw`,
