@@ -288,6 +288,18 @@
   `HarnessError.code` 与 core 的可重试码集，但本机没有任何可达路由会拒绝 `tools`，且本插件的包装把 finish 里的
   码拍进了消息文本）；autolearn 的「先重试再读」则是因为文本解析器 fail-soft（不可解析即 `{skill:null}`），
   先读会把被截断的回复误报成「没有新技能」。逐条现状与证据在 `docs/upstream-pi-triage.md`。
+  **2026-10-05 二次补记**：上一条把两条残余写成「已决定不移植」，**两条的理由都不成立**，已在
+  `docs/batch-b-residual-decisions.md` 重新裁定（该文档不改代码；两条现为「已裁定、待实施」）。`callAux` 无工具回退缺的
+  **不是**可观察的码——tools 被拒就是 provider 400，本仓可走的两个 adapter 都把它映成同一个码 `INVALID_REQUEST`
+  （`llm-deepseek/src/transport.ts`、`llm-pi-ai/src/stream.ts` 的 `classifyPiAiError`），而 pi 自己根本不 key 这类码：
+  `toolsFallbackApplies` 是**负向 fail-open**，只用消息正则排除 auth/quota/transient。真正缺的接缝只有一条：本插件读到
+  `failure.code` 后把它拍进消息文本就丢了，而 dsh 自己的 `HarnessError` 契约要求按码路由、不要解析消息。现决定按请求形状码
+  回退（仅一趟里**首次**带工具的调用、一次性、其后整趟不带工具），并用脚本化流验证，不需要真有一条会拒 `tools` 的路由。
+  autolearn 的「先重试再读」同理：它不是契约性质，而是缺「是否解析成功」这一信号——`parseJsonObject` 本来就知道（不可解析
+  给 `undefined`），是 `parseAutolearn` 把这个区分丢掉了。探针
+  （`.agents/evidence/2026-10-05-autolearn-cut-parse-probe/`）：裸 JSON 的任何切点都解析不出（该重试的地方照旧重试），而
+  有围栏或尾部散文时的 137 个可解析切点**全部**携带完整正文，故「解析成功即内容完整」；危险的一半仍在工具调用路径
+  （adapter 会修复被截断的参数串），保持不变。
   **本仓自己的 `.agents/memory/MEMORY.md` 当时仍是自由格式**：迁移必须在**新代码活体**之后做（宿主重启前，跑着的
   旧构建仍会写自由格式并把它改回去），见 `CONTEXT.md`。
   **2026-10-05 补记**：该迁移**已完成**，前置条件已满足——四节 schema 落在当前宿主启动之前；现读该文件已是纯四节

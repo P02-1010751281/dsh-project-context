@@ -231,16 +231,21 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   carry. The schemas are strict **by construction** instead (every property required,
   `additionalProperties: false`, no `anyOf`, no `maxLength`/`maxItems`), which is what pi's
   `makeStrictJsonSchema` would otherwise have had to normalize.
-- **pi's sticky no-tools fallback (`callAux` + `call-policy`) is not ported — closed, not pending.**
-  A route that rejects the `tools` parameter fails the pass, backs off like any other failure, and
-  logs; pi retries once without tools and keeps them off for the rest of the pass. The harness does
-  expose the signal such a port would route on — `HarnessError.code` is the stable machine-routable
-  class, and core owns the retryable set (`EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`,
-  `TRANSPORT`), so pi's own "not auth / quota / transient" guard has a dsh spelling. What is missing
-  is an *observed* code: no reachable route here rejects `tools` (the one this repo runs on accepts
-  them, verified above), and `requestPluginTextWithMeta` flattens a finish-carried failure into
-  `plugin model call failed (<code>): <message>`, so a port would first have to stop discarding that
-  code. Keying a retry on a failure class never observed here is the blind port this list refuses.
+- **pi's sticky no-tools fallback (`callAux` + `call-policy`) is not ported — re-opened 2026-10-05,
+  decision in `docs/batch-b-residual-decisions.md` §2.** A route that rejects the `tools` parameter
+  fails the pass, backs off like any other failure, and logs; pi retries once without tools and keeps
+  them off for the rest of the pass. It was closed here as "what is missing is an *observed* code",
+  and that premise does not hold: a tools rejection is a provider 400, and both adapters this repo can
+  run on map a rejected request body to the same code — `INVALID_REQUEST`
+  (`llm-deepseek/src/transport.ts`, and `classifyPiAiError` in `llm-pi-ai/src/stream.ts`) — while pi
+  keys on no such class at all: `toolsFallbackApplies` is **fail-open** over a message-text regex
+  classifier that excludes only auth/quota/transient (`shared/call-policy.ts`). What the port really
+  needs is the one prerequisite this entry recorded correctly: `requestPluginTextWithMeta` reads
+  `failure.code` and then throws it away into `plugin model call failed (<code>): <message>`, and
+  dsh's own `HarnessError` contract says to route on the code, never by parsing the message. Decided:
+  the request-shape codes (`INVALID_REQUEST`, plus the generic `HTTP_400` / `HTTP_413` fallbacks) on
+  the first tools-carrying call of a pass, sticky off after — verified by a scripted stream, not by a
+  live rejection.
 - **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) IS
   implemented, as tier C.** `docs/batch-c-tier-c-design.md` owns the contract: a reply that would
   lose whole entries (`memoryLoss`'s `retryWorthy`) gets exactly one targeted retry on the same
@@ -263,18 +268,22 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   it rather than trusting this line: compare the 19387 socket holder's `ps -o lstart=` against
   `git log -1 --format=%cI -- src/project-memory/memory-schema.ts`, then read the file through the
   plugin's own parser instead of grepping for a heading.
-- **autolearn retries before it reads, unlike the memory pass — deliberate, and load-bearing.** On a
-  `max-tokens` finish the autolearn `ask()` discards the reply and re-asks, where the memory pass
-  reads first and only retries what it could not resolve. The reason is not just the repaired
-  tool-call argument string (that half is covered by `toolCallIsTruncated`): the autolearn **text**
-  path is fail-soft, so `parseAutolearn` reads an unparseable reply as `{skill: null,
-  need_sessions: []}` — the same decision a model that proposed nothing returns. Reading a cut reply
-  first would therefore report a truncated answer as "no skill was warranted" instead of retrying it.
-  The cost is recorded, not hidden: a *complete* decision that happens to carry a `max-tokens` finish
-  is asked for again. A probe across every truncation point of a brace-heavy reply (305 cuts) found
-  no cut that parses into a *partial* body — the first-`{`/last-`}` scan always leaves an unterminated
-  string — so the discarded reply is at worst complete, never half a procedure; the fail-soft parser,
-  not the body, is what makes read-first wrong here. `test/autolearn.test.mjs` pins it.
+- **autolearn retries before it reads, unlike the memory pass — deliberate today, decided to invert
+  2026-10-05 (`docs/batch-b-residual-decisions.md` §3, not yet implemented).** On a `max-tokens`
+  finish the autolearn `ask()` discards the reply and re-asks, where the memory pass reads first and
+  only retries what it could not resolve. The reason is not the repaired tool-call argument string
+  (that half is covered by `toolCallIsTruncated`): the autolearn **text** path is fail-soft, so
+  `parseAutolearn` reads an unparseable reply as `{skill: null, need_sessions: []}` — the same decision
+  a model that proposed nothing returns — and reading a cut reply first would report a truncated
+  answer as "no skill was warranted". That is a missing **signal**, not a property of the contract:
+  `parseJsonObject` already returns `undefined` for a reply that does not parse, and `parseAutolearn`
+  drops the distinction one call up. Probe over every cut point of three reply shapes
+  (`.agents/evidence/2026-10-05-autolearn-cut-parse-probe/`): a cut bare-JSON reply **never** parses
+  — so the retry still fires exactly where it must — while every cut landing in the fence or the
+  trailing prose (137 of 137 in those shapes) carries the **complete** body, because a raw
+  `JSON.parse` cannot accept a half-emitted value. The dangerous half stays the tool-call path, and
+  that is unchanged. `test/autolearn.test.mjs` pins the current behaviour; that change extends the
+  case rather than deleting it.
 - **The truncation guard keys on the finish reason, and that is all dsh has.** `toolCallIsTruncated`
   refuses a call when the finish reason is `max-tokens` **or empty** (a stream with no terminal
   event). It cannot detect a repaired call that arrives labelled `stop`; both shipped adapters label
