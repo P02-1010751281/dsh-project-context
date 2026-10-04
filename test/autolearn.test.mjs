@@ -17,7 +17,7 @@ import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
 import { MAX_SKILL_DESCRIPTION_CHARS } from "../lib/project-autolearn/skill.js";
-import { parseAutolearn } from "../lib/project-autolearn/parse.js";
+import { parseAutolearnReply } from "../lib/project-autolearn/parse.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
@@ -721,14 +721,14 @@ test("the admission rules are one predicate, shared by the pass and the approve 
 
 test("the name, candidate-evidence and candidate-exists branches are reachable through the pass", async () => {
 	// `rejectionReason`'s name rule reads as caller-guaranteed, but only `/autolearn approve|reject`
-	// validate their argument; the pass path takes whatever the model returned (`parseAutolearn` only
+	// validate their argument; the pass path takes whatever the model returned (`parseAutolearnReply` only
 	// requires `typeof name === "string"`, then trims it). The first case drives that path end to end
 	// through the real parser: the rule is only load-bearing if a *model answer* can carry a non-kebab
 	// name this far, and an assertion that started at `saveProposedSkill` would not notice a future
 	// `parse.ts` that filtered names and silently turned the rule into dead code.
 	const body = `## Steps\n\n${"Run the release checklist. ".repeat(12)}`;
-	const modelAnswer = parseAutolearn(JSON.stringify({ skill: { name: "Not Kebab", description: "a workflow", body, evidence: [], candidate: false } }));
-	assert.equal(modelAnswer.skill?.name, "Not Kebab", "parseAutolearn must not filter the name");
+	const modelAnswer = parseAutolearnReply(JSON.stringify({ skill: { name: "Not Kebab", description: "a workflow", body, evidence: [], candidate: false } }));
+	assert.equal(modelAnswer.skill?.name, "Not Kebab", "the parser must not filter the name");
 	assert.deepEqual(await saveProposedSkill(await project(), modelAnswer.skill, new Set()), { rejected: "invalid kebab-case name" });
 
 	const cases = [
@@ -795,11 +795,11 @@ test("an autolearn reply cut off at the output cap is retried without the tool",
 });
 
 test("a cut text reply is retried, not read as \"nothing to propose\"", async () => {
-	// Half one of the pair. The text path is fail-soft: `parseAutolearn` reads an unparseable reply as
-	// `{skill: null}` — the same decision a model that proposed nothing returns — so reading this reply
-	// as a decision would report a truncated answer as "no skill was warranted". `parseAutolearnReply`
-	// is what tells the two apart, and an unreadable reply still gets the second call. Its sibling
-	// below pins the other half: a cut reply that *did* parse is not asked for again.
+	// Half one of the pair. `parseAutolearnReply` reports an unreadable reply as `undefined` and a
+	// considered "nothing to propose" as `{skill: null}`, so this cut reply is not a decision and still
+	// gets the second call. Folding the two back together — the fail-soft reading the pass used to rely
+	// on — would report a truncated answer as "no skill was warranted". Its sibling below pins the other
+	// half: a cut reply that *did* parse is not asked for again.
 	const root = await project({ sessions: ["session-a", "session-b"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
 	const agent = fakeAgent(root, { turns: 3 });

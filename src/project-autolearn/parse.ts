@@ -72,17 +72,6 @@ export function parseAutolearnReply(text: string): AutolearnDecision | undefined
 }
 
 /**
- * Parse the autolearn JSON contract the fail-soft way: an unreadable reply is the same decision a
- * model that proposed nothing returns.
- *
- * Kept as the reading entry for callers that have nothing better to do with an unreadable reply;
- * `parseAutolearnReply` is the one that reports which of the two happened.
- */
-export function parseAutolearn(text: string): AutolearnDecision {
-	return parseAutolearnReply(text) ?? { skill: null, needSessions: [] };
-}
-
-/**
  * Read a `record_skill` tool call's arguments.
  *
  * `undefined` means the arguments are unusable, which the caller must treat as a failed call —

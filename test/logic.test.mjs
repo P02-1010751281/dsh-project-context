@@ -35,7 +35,7 @@ import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/c
 import { pickToolCall, requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
 import { clip, clipText, replyHead, replyTokenRate, textOf, truncateMiddle } from "../lib/shared/text.js";
 import { approveCandidate, listCandidates, rejectCandidate } from "../lib/project-autolearn/candidate.js";
-import { parseAutolearn, parseAutolearnToolCall } from "../lib/project-autolearn/parse.js";
+import { parseAutolearnReply, parseAutolearnToolCall } from "../lib/project-autolearn/parse.js";
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/project-handoff/marker.js";
 import { watchHandoffSwitch } from "../lib/project-handoff/watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/project-context/archive.js";
@@ -603,19 +603,23 @@ test("the consolidation prompt states the context field types, not just their na
 	assert.match(prompt, /discarded/);
 });
 
-test("parseAutolearn separates a skill from a backtrack request", () => {	const direct = parseAutolearn(JSON.stringify({ skill: { name: "n", description: "d", body: "b" }, need_sessions: [] }));
+test("parseAutolearnReply separates a skill, a backtrack request and an unreadable reply", () => {
+	const direct = parseAutolearnReply(JSON.stringify({ skill: { name: "n", description: "d", body: "b" }, need_sessions: [] }));
 	assert.equal(direct.skill.name, "n");
 	assert.deepEqual(direct.needSessions, []);
 
-	const backlog = parseAutolearn('```json\n{"skill": null, "need_sessions": ["session-a", "", "session-b", "session-c", "session-d"]}\n```');
+	const backlog = parseAutolearnReply('```json\n{"skill": null, "need_sessions": ["session-a", "", "session-b", "session-c", "session-d"]}\n```');
 	assert.equal(backlog.skill, null);
 	assert.deepEqual(backlog.needSessions, ["session-a", "session-b", "session-c"]);
 
-	assert.deepEqual(parseAutolearn("not json"), { skill: null, needSessions: [] });
+	// The distinction the pass routes on: an unreadable reply is not a decision, so a caller that
+	// accepted it as "nothing to propose" could not tell a cut reply from a considered one.
+	assert.equal(parseAutolearnReply("not json"), undefined, "an unreadable reply reports no decision at all");
+	assert.deepEqual(parseAutolearnReply('{"skill": null}'), { skill: null, needSessions: [] }, "a parsed reply that proposed nothing is a decision");
 });
 
-test("parseAutolearn reads evidence, candidate and reason", () => {
-	const parsed = parseAutolearn(JSON.stringify({
+test("parseAutolearnReply reads evidence, candidate and reason", () => {
+	const parsed = parseAutolearnReply(JSON.stringify({
 		skill: { name: "n", description: " d ", body: " b ", evidence: ["a", "b"], candidate: true, reason: "why" },
 	}));
 	assert.equal(parsed.skill.name, "n");
