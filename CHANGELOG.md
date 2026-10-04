@@ -231,6 +231,23 @@
   `lib/`、掉 1 项（正是那条 cap 断言）；把 autolearn 规则改回 `below 3000 words` → 掉 1 项（两条 prompt 的
   边界断言）。全量门禁 0 错 / 0 错 / 261 pass 0 fail，`lib/` 变异标记 0。
 
+**project-memory（模型调用期间落地的外部编辑不再被回复覆盖）**
+
+- 修复（自 pi 移植，批 D）：**基于陈旧读取构建的回复照样被发布**。pass 先读 memory、再据此让模型写回复；写入
+  路径无条件追加那份回复。于是「模型调用期间有人手改了 `MEMORY.md`」这件事的结果是：编辑被**采纳**进 journal，
+  紧接着被同一次调用基于**编辑前**读取构建的渲染**覆盖**——「adopted」只意味着「进了历史」。现在 pass 把 prompt
+  的基线作为 `basisKey` 带走（`ConsolidationOutcome.basisKey`），写入时若盘上的 memory 已不是那份基线，回复
+  **不发布**：更新的字节留在原地并进 journal，下一次 pass 从它继续。两条拒绝路径都保留更新的字节，检查与追加
+  之间的窗口由导出的谓词 `nextRenderSupersedes` 关闭；`recordMemoryDocument` 返回
+  `{written:true} | {written:false, kept}`，调用方按**实际落地**而不是按尝试来认领（`wroteMemory` /
+  `wroteContext` 分开），`/context-update` 的回执因此新增 `stale` 与 `stale-context` 两种说法——**任何一条都
+  不再声称 memory 被重写**，日志也只点名真正更新的那份产物。不传 `basisKey` 的调用方（遗留 `.omp` 导入、既有
+  用例）行为与之前逐字节一致。
+  变异校验：把第一条拒绝恒关（`MUTANT_NO_STALE_REFUSAL`）→ `tsc` 0、marker 进 `lib/`、掉 1 项（模型调用期间
+  的编辑被覆盖那条）；让 `nextRenderSupersedes` 恒返回 false → 掉 1 项（谓词表）；把 `wroteMemory` 改回「只要
+  有回复就算写了」→ 掉 1 项（**收据**那条：被保留的 memory 不许被报成 `project memory and context updated`）。
+  全量门禁 0 错 / 0 错 / 265 pass 0 fail，`lib/` 变异标记 0。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**

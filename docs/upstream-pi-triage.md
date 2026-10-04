@@ -222,9 +222,21 @@ memory no longer matches, journals the newer bytes on both refusal paths, and re
 no receipt claims a write that did not happen.
 
 ```text
-grep -rn 'basisKey\|keepReason' src/        # = none
+grep -rn 'basisKey\|keepReason' src/        # = none (before the port below)
 grep -n 'adopts those' src/project-memory/load.ts   # dsh adopts; nothing refuses
 ```
+
+**Ported 2026-10-04 (batch D).** `ConsolidationOutcome` carries `basisKey` (the memory the prompt was
+built from); `recordMemoryDocument` refuses to publish a reply whose baseline no longer matches and
+returns `{written:true} | {written:false, kept}`, with the pre-append window closed by the exported
+`nextRenderSupersedes` predicate. Both refusal paths journal the newer bytes. The pass counts what
+landed, not what it attempted (`wroteMemory` / `wroteContext`), and the receipt gained `stale` /
+`stale-context` so no wording claims a memory write that did not happen. Deliberate deviations: dsh
+has no `normalizeMemoryReply`/`preserveMarker` split (one `normalizeMemoryDocument` does both jobs),
+so `preserveMarker` is not ported; `keepReason` becomes the two report values instead of a field, and
+`dd2adcc`'s extra refusal of the "shortened the existing memory" line collapses into the single
+`wrote && outcome.clipped` guard, which now fires only on a real write. Regression tests:
+`test/external-edit.test.mjs` (4 cases, three mutants killed).
 
 ### Rows that need care
 
