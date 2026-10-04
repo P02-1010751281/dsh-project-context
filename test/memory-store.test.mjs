@@ -25,9 +25,11 @@ import {
 	memoryJournalFile,
 	memoryTruncationMarker,
 	normalizeMemoryDocument,
+	normalizeMemoryWithDrop,
 	readMemoryJournal,
 	recordMemoryDocument,
 } from "../lib/project-memory/memory-store.js";
+import { memoryComparisonKey, memoryComparisonKeyWithDrop } from "../lib/project-memory/poison.js";
 import { MEMORY_LOCK_STALE_MS, MEMORY_LOCK_WAIT_MS, staleLockAge, withMemoryLock } from "../lib/shared/lock.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryDir, memoryFile } from "../lib/shared/project-state.js";
 import { consolidateProject } from "../lib/project-memory/index.js";
@@ -98,6 +100,84 @@ test("loadMemory decodes a stored JSON reply left by the old bug", async () => {
 	const kept = await loadMemory(root);
 	assert.equal(kept.poisoned, false, "a nested example must not be decoded");
 	assert.match(kept.text, /see the sample/);
+});
+
+test("the loader reports the characters its own cap kept back, on every read path", async () => {
+	// The read cap is applied inside `loadMemory`, before the consolidation pass sees the text, so the
+	// pass can only count it if the loader reports the cut. The count is the normalizer's own
+	// `dropped` — never a length difference against the raw bytes, which would report normalization's
+	// edits, and the stored-reply wrapper, as characters the model was not shown.
+	const body = Array.from({ length: 50 }, (_, i) => `- fact ${i} ${"字".repeat(100)}`).join("\n");
+	const stored = `# Project Memory\n\n${body}\n`;
+	const cap = MIN_MEMORY_CHARS;
+
+	// A plain render and no journal: the clip is the cap site, so it is the exact difference.
+	const plainRoot = await project();
+	await writeFile(memoryFile(plainRoot), stored, "utf8");
+	const plain = await loadMemory(plainRoot, cap);
+	assert.ok(plain.cappedDroppedChars > 0, `fixture: the stored document is over the cap (${stored.trimEnd().length} vs ${cap})`);
+	assert.equal(plain.text.length + plain.cappedDroppedChars, stored.trimEnd().length, "the cut is the exact difference on this path");
+	assert.equal(isMemoryTruncated(plain.text), false, "this path clips without writing a marker, which is why the count is the only trace");
+
+	// Inside the cap there is nothing to report.
+	const smallRoot = await project();
+	await writeFile(memoryFile(smallRoot), "# Project Memory\n\n- short\n", "utf8");
+	assert.equal((await loadMemory(smallRoot, cap)).cappedDroppedChars, 0, "a document inside the cap reports no cut");
+
+	// A stored reply is decoded — and capped — inside the decoder, so the count must be the decoder's
+	// own cut. A length difference against the raw reply would report its JSON wrapper as a loss.
+	const replyRoot = await project();
+	const reply = `\`\`\`json\n${JSON.stringify({ memory_markdown: "# Project Memory\n\n- durable fact\n", context: { title: "t" } })}\n\`\`\``;
+	await writeFile(memoryFile(replyRoot), reply, "utf8");
+	const decoded = await loadMemory(replyRoot, cap);
+	assert.equal(decoded.poisoned, true, "fixture: the bytes are a stored reply");
+	assert.match(decoded.text, /durable fact/);
+	assert.equal(decoded.cappedDroppedChars, 0, "nothing was cut, so the wrapper must not be reported as a cut");
+	assert.ok(reply.length - decoded.text.length > 40, "fixture: a length difference would be large and wrong here");
+
+	// And when the decoded field really is over the cap, its own cut is what comes back — the number
+	// the decoder's normalizer produced, not any difference against the reply's bytes.
+	const bigField = `# Project Memory\n\n${"字".repeat(30_000)}\n`;
+	const bigReply = JSON.stringify({ memory_markdown: bigField, context: { title: "t" } });
+	const bigRoot = await project();
+	await writeFile(memoryFile(bigRoot), bigReply, "utf8");
+	const big = await loadMemory(bigRoot, cap);
+	assert.equal(big.poisoned, true);
+	assert.equal(big.cappedDroppedChars, normalizeMemoryWithDrop(bigField, cap).dropped, "the decoded field's own cut");
+
+	// An external render newer than the journal: this path normalizes twice (decode, then normalize),
+	// so the count is the sum of the two cuts.
+	const externalRoot = await project();
+	await appendMemoryOp(memoryJournalFile(externalRoot), "replace", "# Project Memory\n\n- old fact\n");
+	await writeFile(memoryFile(externalRoot), stored, "utf8");
+	const future = new Date(Date.now() + 5_000);
+	await utimes(memoryFile(externalRoot), future, future);
+	const external = await loadMemory(externalRoot, cap);
+	assert.equal(external.source, memoryFile(externalRoot), "fixture: the newer external render wins");
+	assert.ok(external.cappedDroppedChars > 0, "the external render's cut is reported");
+	assert.ok(external.text.length <= cap, "and the returned document still honours the cap");
+
+	// The journal fold's own cut, for a journal whose records exceed the cap.
+	const foldRoot = await project();
+	await appendMemoryOp(memoryJournalFile(foldRoot), "replace", stored);
+	const folded = await loadMemory(foldRoot, cap);
+	assert.equal(folded.source, memoryJournalFile(foldRoot), "fixture: the fold is the source");
+	assert.equal(folded.cappedDroppedChars, normalizeMemoryWithDrop(stored, cap).dropped, "the fold's own cut");
+	assert.equal(isMemoryTruncated(folded.text), true, "the journal path does write the marker");
+
+	// The comparison key keeps its bytes while carrying the same cut: it is the write path's baseline,
+	// and one normalization is not a fixed point on this fixture, so a key that skipped the second
+	// normalization would come out different.
+	const render = `# Project Memory\n\n- ${"字".repeat(30_000)}\n`;
+	const once = normalizeMemoryDocument(render, cap);
+	assert.notEqual(normalizeMemoryDocument(once, cap), once, "fixture: a second normalization changes this document");
+	const poisonedRender = JSON.stringify({ memory_markdown: render, context: { title: "t" } });
+	const plainKey = memoryComparisonKeyWithDrop(render, cap);
+	assert.equal(plainKey.text, memoryComparisonKey(render, cap), "a plain render's key is unchanged");
+	assert.ok(plainKey.dropped > 0, "and its cut is reported");
+	const poisonedKey = memoryComparisonKeyWithDrop(poisonedRender, cap);
+	assert.equal(poisonedKey.text, memoryComparisonKey(poisonedRender, cap), "a stored reply's key is unchanged");
+	assert.equal(normalizeMemoryDocument(poisonedKey.text, cap), poisonedKey.text, "the second normalization the key applies is still applied");
 });
 
 test("recordMemoryDocument seeds the journal from the memory a project already has", async () => {

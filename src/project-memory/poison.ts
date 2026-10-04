@@ -9,7 +9,7 @@
  */
 
 import { MAX_MEMORY_CHARS } from "../shared/project-state.js";
-import { normalizeMemoryDocument } from "./document.js";
+import { type NormalizedMemory, normalizeMemoryWithDrop } from "./document.js";
 
 type JsonStringField = { value: string; complete: boolean; end: number };
 
@@ -118,6 +118,21 @@ function jsonObjectEnd(text: string, start: number): number {
  * @returns the decoded document, or `undefined` when the bytes are not a stored reply.
  */
 export function decodePoisonedMemory(current: string, limit: number = MAX_MEMORY_CHARS): string | undefined {
+	return decodePoisonedMemoryWithDrop(current, limit)?.text;
+}
+
+/**
+ * `decodePoisonedMemory`, plus what this decode's own cap cut.
+ *
+ * For a stored reply the cap is applied here and not at the caller: the decoded field is normalized
+ * (and capped) before it is returned, so a caller that only saw the string could not tell a fitting
+ * reply from a cut one. The read path needs that number to report the characters the model was not
+ * shown, so it comes back from the normalizer that did the cutting.
+ * @param current - the bytes read from a memory source.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
+ * @returns the document plus this call's own cut, or `undefined` when the bytes are not a stored reply.
+ */
+export function decodePoisonedMemoryWithDrop(current: string, limit: number = MAX_MEMORY_CHARS): NormalizedMemory | undefined {
 	const body = current.replace(/^#\s*Project Memory\s*/i, "").trim();
 	const objectAt = body.indexOf("{");
 	if (objectAt < 0) return undefined;
@@ -146,7 +161,7 @@ export function decodePoisonedMemory(current: string, limit: number = MAX_MEMORY
 	// A header-less value is accepted only for the canonical wrappers and only when it clearly is
 	// a document; an introducer line carries more false-positive risk, so it needs the header.
 	if (!hasHeader && (prosePrefix || decoded.length < MIN_DECODED_MEMORY_CHARS || !decoded.includes("\n"))) return undefined;
-	return normalizeMemoryDocument(field.value, limit);
+	return normalizeMemoryWithDrop(field.value, limit);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,5 +170,23 @@ export function decodePoisonedMemory(current: string, limit: number = MAX_MEMORY
 
 /** Comparison key for "does this render still equal what the journal folds to?" — both normalized. */
 export function memoryComparisonKey(render: string, limit: number = MAX_MEMORY_CHARS): string {
-	return normalizeMemoryDocument(decodePoisonedMemory(render.trim(), limit) ?? render, limit);
+	return memoryComparisonKeyWithDrop(render, limit).text;
+}
+
+/**
+ * `memoryComparisonKey`, plus what this key's own normalizations cut.
+ *
+ * The read path's external-render branch returns this key as the memory it will show the model, so
+ * the cap that applies to it is the one to report. Both normalizations the key already performs are
+ * kept: `normalizeMemoryDocument` is **not** idempotent on a capped document — a cut that leaves only
+ * the header re-renders two characters longer the second time — so skipping the second one would
+ * change the key's bytes, and that key is the write path's baseline.
+ * @param render - the rendered document as it sits on disk.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
+ * @returns the normalized key plus the characters the cap dropped (0 when it fit).
+ */
+export function memoryComparisonKeyWithDrop(render: string, limit: number = MAX_MEMORY_CHARS): NormalizedMemory {
+	const decoded = decodePoisonedMemoryWithDrop(render.trim(), limit);
+	const normalized = normalizeMemoryWithDrop(decoded?.text ?? render, limit);
+	return { text: normalized.text, dropped: (decoded?.dropped ?? 0) + normalized.dropped };
 }

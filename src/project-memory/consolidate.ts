@@ -43,9 +43,17 @@ type ResolvedReply = { kind: ConsolidateKind; sections?: MemorySections; result:
 export type ConsolidationOutcome = {
 	result: ConsolidationResult;
 	version: number;
-	/** True when the stored memory or context had to be shortened to fit the output budget. */
+	/**
+	 * True when the pass's view of a stored artifact was shortened — by the read cap that produced
+	 * `existing`, or by the output fit that produced `usedInput`. Both are pass-level facts, so this
+	 * is what the two diagnostic lines report; the receipt's own status is derived from the landed
+	 * counts instead, because a shortening can belong to an artifact that never landed.
+	 */
 	clipped: boolean;
-	/** Characters of the stored memory the input fit hid from the model; 0 when whole. */
+	/**
+	 * Characters of the stored memory the model was not shown: what the read cap kept back plus what
+	 * the input fit clipped. 0 only when the stored memory reached the model whole.
+	 */
 	memoryHiddenChars: number;
 	/**
 	 * Characters of the stored context the model was not shown: what the read cap kept back plus what
@@ -533,8 +541,11 @@ export function consolidateProjectState(
 		const outcome: ConsolidationOutcome = {
 			result,
 			version,
-			clipped: usedInput.clipped,
-			memoryHiddenChars: usedInput.memoryHiddenChars,
+			// A stored document over the cap is hidden by the read cap before the fit ever runs: the
+			// loader reports its own cut, so the pass can count what the model was not shown instead of
+			// reporting a clean read of a file it was only shown part of.
+			clipped: usedInput.clipped || existing.cappedDroppedChars > 0 || contextReadHiddenChars > 0,
+			memoryHiddenChars: usedInput.memoryHiddenChars + existing.cappedDroppedChars,
 			contextHiddenChars: usedInput.contextHiddenChars + contextReadHiddenChars,
 			basisKey: existing.text,
 			kind: resolved.kind,

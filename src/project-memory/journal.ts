@@ -9,7 +9,7 @@ import { mkdir, copyFile, open, readFile, readdir, rename, rm, stat } from "node
 import path from "node:path";
 import { MAX_MEMORY_CHARS, memoryDir, writeAtomic } from "../shared/project-state.js";
 import { MEMORY_BACKUP_MIN_AGE_MS } from "./backup.js";
-import { normalizeMemoryDocument } from "./document.js";
+import { type NormalizedMemory, normalizeMemoryWithDrop } from "./document.js";
 
 /** The append-only memory journal for one project. */
 export function memoryJournalFile(projectRoot: string): string {
@@ -103,13 +103,29 @@ export async function readMemoryJournal(file: string): Promise<{ entries: Memory
 
 /** Apply journal records in order: a replacement supersedes the document, an append extends it. */
 export function foldMemoryJournal(entries: readonly MemoryJournalEntry[], limit: number = MAX_MEMORY_CHARS): string {
+	return foldMemoryJournalWithDrop(entries, limit).text;
+}
+
+/**
+ * `foldMemoryJournal`, plus what this fold's own cap cut.
+ *
+ * The fold is where the read cap is applied to a journal-backed document, and a stored document can
+ * exceed it (a hand edit, or a `maxMemoryChars` lowered below what an earlier pass wrote). The read
+ * path has to report the characters the model was not shown, and only this normalizer knows how much
+ * of the *normalized* document the cap removed — a length difference taken against the raw records
+ * would fold normalization's own edits into the cap's count.
+ * @param entries - the journal records, in file order.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
+ * @returns the rendered document plus the characters this call's cap dropped (0 when it fit).
+ */
+export function foldMemoryJournalWithDrop(entries: readonly MemoryJournalEntry[], limit: number = MAX_MEMORY_CHARS): NormalizedMemory {
 	let document = "";
 	for (const entry of entries) {
 		const text = entry.text.trim();
 		if (!text) continue;
 		document = entry.op === "replace" ? text : document ? `${document}\n\n${text}` : text;
 	}
-	return document ? normalizeMemoryDocument(document, limit) : "";
+	return document ? normalizeMemoryWithDrop(document, limit) : { text: "", dropped: 0 };
 }
 
 /** Collapse an oversized journal into one replacement, archiving the previous bytes first. */

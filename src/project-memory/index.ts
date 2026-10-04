@@ -120,7 +120,7 @@ export type ConsolidateReport = {
 	memoryWritten: boolean;
 	/** True when this pass's context landed. */
 	contextWritten: boolean;
-	/** Characters of the landed memory the input fit hid from the model; 0 when whole or unwritten. */
+	/** Characters of the landed memory the model was not shown (the read cap plus the input fit). */
 	memoryHiddenChars: number;
 	/** Characters of the landed context the model was not shown (the read cap plus the input fit). */
 	contextHiddenChars: number;
@@ -304,11 +304,13 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			const wrote = wroteMemory || wroteContext;
 			if (wrote && outcome.clipped) {
 				// Always leave a trace: the log line below is hidden by `silent`, and a shortened
-				// rewrite is the symptom that used to precede a truncated, unparseable memory.
-				await logError(projectRoot, "memory", "consolidation shortened the existing memory or context to fit the model output budget");
+				// rewrite is the symptom that used to precede a truncated, unparseable memory. The
+				// wording names the read cap and the output budget because the hidden count folds both:
+				// naming only the output budget would be a wrong cause for an over-cap stored document.
+				await logError(projectRoot, "memory", "consolidation was given a shortened version of the existing memory or context (the read cap or the output budget)");
 			}
 			if (!options.silent && wrote) {
-				const note = outcome.clipped ? " (the rewrite also shortened the content to fit the output budget)" : "";
+				const note = outcome.clipped ? " (the pass ran on a shortened view of the existing content)" : "";
 				// Name what actually landed: a kept memory must not be reported as written.
 				const target = wroteMemory && wroteContext ? "project memory and context" : wroteMemory ? "project memory" : "project context";
 				ctx.logger.info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}${note}`);
@@ -329,7 +331,13 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				if (!wroteMemory) written.delete(projectRoot);
 				return { status: "lossy-refused", ...loss, refusedLoss };
 			}
-			return wrote ? { status: outcome.clipped ? "clipped" : "updated", ...loss } : cleanReport("unchanged");
+			// Only a shortening that landed may be reported as `clipped`. The pass-level `outcome.clipped`
+			// is true whenever the model's view was shortened, but the shortened artifact may be the one
+			// that did not land — then no count describes it and a status claiming a shortening would
+			// name a loss the stored files never suffered. Deriving the status from the landed counts
+			// makes the status and the receipt's numbers agree by construction.
+			const clippedLanded = loss.memoryHiddenChars > 0 || loss.contextHiddenChars > 0;
+			return wrote ? { status: clippedLanded ? "clipped" : "updated", ...loss } : cleanReport("unchanged");
 		} catch (error) {
 			// Release the claimed version when nothing was written: otherwise the next forced pass
 			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
@@ -437,10 +445,11 @@ export function apply(ctx: Context, rawConfig: unknown): void {
  * The reply distinguishes the states a silent fold would otherwise hide: a torn journal line, a
  * source that exists but cannot be read, and a stored reply from the old bug. It also reports the
  * character cap, which is the one degraded state the document itself cannot surface to the user:
- * the truncation marker is written into MEMORY.md, but nothing reads it back. Measured on this
- * repo at 41733 characters, the loaded document is capped at 31888 with 9621 dropped while every
- * other flag stays clean — so without the note the receipt calls a memory that lost a third of
- * itself perfectly healthy, and every later append lands past the cap and is dropped on write.
+ * a document the loader capped carries the truncation marker, and `cappedDroppedChars` reports the
+ * same cut directly — including on the no-journal read, which clips without writing a marker at all.
+ * Measured on this repo at 41733 characters, the loaded document is capped at 31888 with 9621 dropped
+ * while every other flag stays clean — so without the note the receipt calls a memory that lost a
+ * third of itself perfectly healthy, and every later append lands past the cap and is dropped on write.
  * @param memory - the loaded memory document and its status flags.
  * @param context - the paths and the cap this project is configured with.
  * @returns the command result.
@@ -449,7 +458,7 @@ export function memoryStatusReply(
 	memory: Awaited<ReturnType<typeof loadMemory>>,
 	context: { projectRoot: string; journal: string; maxMemoryChars: number },
 ): { kind: "success" | "error"; text: string } {
-	const capped = isMemoryTruncated(memory.text)
+	const capped = isMemoryTruncated(memory.text) || memory.cappedDroppedChars > 0
 		? ` Warning: MEMORY.md is at the ${context.maxMemoryChars}-character cap, so it is cut and new memory is dropped on write; raise maxMemoryChars or consolidate to shorten it.`
 		: "";
 	if (memory.unreadable) {
@@ -549,7 +558,10 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	if (report.status === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
 	const target = writtenTarget(report);
 	if (report.status === "clipped") {
-		const base = `${target} updated, but the existing content was shortened to fit the model output budget`;
+		// Mechanism-neutral on purpose: the landed hidden count covers the read cap (`maxMemoryChars`,
+		// `MAX_CONTEXT_CHARS`) as well as the output fit, so naming the output budget alone would be a
+		// wrong cause for an over-cap stored document.
+		const base = `${target} updated, but the pass was given a shortened version of the existing content`;
 		return { kind: "success", text: detail === "" ? `${base}.` : `${base}: ${detail}.` };
 	}
 	// A refused reply is not a write: the memory changed while the reply was being built, so the

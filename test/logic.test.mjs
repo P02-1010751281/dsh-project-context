@@ -1347,7 +1347,7 @@ test("the /memory update reply reflects what the consolidation pass did", () => 
 	assert.match(memoryUpdateReply(plainReport("updated")).text, /updated/);
 	assert.match(memoryUpdateReply(plainReport("deduped")).text, /already up to date/);
 	assert.match(memoryUpdateReply(plainReport("unchanged")).text, /no new memory/);
-	assert.match(memoryUpdateReply(plainReport("clipped")).text, /shortened to fit the model output budget/);
+	assert.match(memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 12 })).text, /shortened version of the existing content/);
 	assert.notEqual(memoryUpdateReply(plainReport("deduped")).text, memoryUpdateReply(plainReport("updated")).text, "a deduped no-op must not read as a successful rewrite");
 });
 
@@ -1358,23 +1358,29 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// text that was identical character for character.
 	const clean = memoryUpdateReply(plainReport("updated")).text;
 	assert.equal(clean, "Project memory and context updated.", "a clean pass keeps its exact wording");
+
+	// A `clipped` report always carries a landed hidden count, because the pass derives the status
+	// from the counts — a shortening that belonged to an artifact which did not land leaves every
+	// count at 0, and the pass reports `updated` instead (pinned end to end by "a shortening that did
+	// not land is never receipted as clipped"). What is pinned here is the sentence a zero-count
+	// report would get, so a reworded base is caught rather than silently accepted.
 	assert.equal(
 		memoryUpdateReply(plainReport("clipped")).text,
-		"Project memory and context updated, but the existing content was shortened to fit the model output budget.",
-		"a clipped receipt with no landed count keeps its exact wording",
+		"Project memory and context updated, but the pass was given a shortened version of the existing content.",
+		"the clipped sentence names a shortened input, not the output budget it may not have been",
 	);
 
 	const clipped = memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 1234, contextHiddenChars: 567 })).text;
 	assert.match(clipped, /1234 character\(s\) of the stored memory/);
 	assert.match(clipped, /567 character\(s\) of the stored context/);
 	assert.match(clipped, /the model was not shown 1234 character\(s\) of the stored memory and 567 character\(s\) of the stored context/);
-	assert.match(clipped, /shortened to fit the model output budget/, "the detail extends the existing sentence rather than replacing it");
+	assert.match(clipped, /shortened version of the existing content/, "the detail extends the existing sentence rather than replacing it");
 	assert.notEqual(clipped, memoryUpdateReply(plainReport("clipped")).text, "a lossy clipped pass must not read as a lossless one");
 
 	const dropped = memoryUpdateReply(plainReport("updated", { sectionDropped: 1, droppedItems: 12 })).text;
 	assert.match(dropped, /1 section\(s\) exceeded their budget and 12 whole entry\(ies\) were dropped/);
 	assert.notEqual(dropped, clean, "an entry-dropping pass must not read as a clean one");
-	assert.doesNotMatch(dropped, /shortened to fit the model output budget/, "drops are the render's loss, not the input fit's");
+	assert.doesNotMatch(dropped, /shortened version of the existing content/, "drops are the render's loss, not a shortened input");
 
 	const cut = memoryUpdateReply(plainReport("updated", { itemTruncated: 2 })).text;
 	assert.match(cut, /2 entry\(ies\) exceeded their section's per-item cap and were truncated/);
@@ -1407,10 +1413,13 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	assert.notEqual(contextClipped, clean);
 
 	// A pass that wrote only one artifact must say so: the old wording claimed both were updated even
-	// when the context was left unchanged.
+	// when the context was left unchanged. A `clipped` report always has a landed hidden count, so the
+	// reachable single-artifact clipped shape is the one below (the memory landed, and the account of
+	// what was shortened is in the detail); the zero-count variant is pinned above as a pure-function
+	// boundary and is never produced by a pass.
 	assert.equal(memoryUpdateReply(plainReport("updated", { contextWritten: false })).text, "Project memory updated.");
 	assert.equal(memoryUpdateReply(plainReport("updated", { memoryWritten: false })).text, "Project context updated.");
-	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false })).text, "Project memory updated, but the existing content was shortened to fit the model output budget.");
+	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false, memoryHiddenChars: 5 })).text, "Project memory updated, but the pass was given a shortened version of the existing content: the model was not shown 5 character(s) of the stored memory.");
 	// Tier C added a status but changed no existing one: a clean pass that wrote both artifacts still
 	// reads exactly as it did before the report carried any counts.
 	assert.equal(memoryUpdateReply(plainReport("updated")).text, "Project memory and context updated.");
@@ -1898,6 +1907,41 @@ test("counts describe only what landed, and a receipt never claims an artifact t
 	assert.equal(repeated.length, 2, `a third once-per-project gate would leave only one line, got ${JSON.stringify(repeated)}`);
 });
 
+test("a shortening that did not land is never receipted as clipped", async () => {
+	// R1: the pass derives `clipped` from the landed hidden counts, so a shortening that belonged to an
+	// artifact which did not land cannot read as a loss. Here the input fit hid characters of the
+	// MEMORY, the reply's memory was below the length floor so no memory landed, and the (fully shown)
+	// context did: the receipt must report a plain context update, leave the memory file untouched, and
+	// still record the pass-level shortening in errors.log.
+	const root = await memoryProject("dsh-unlanded-clip-", undefined);
+	const stored = `# Project Memory\n\n${"字".repeat(39_000)}\n`;
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
+	// Guard the fixture: this test proves nothing unless the fit really hides memory characters and
+	// the context is shown whole.
+	const fitted = fitMemoryInput(stored, "", 8192, {}, 32_768);
+	assert.ok(fitted.memoryHiddenChars > 0 && fitted.contextHiddenChars === 0, `fixture: the memory is the clipped artifact (${JSON.stringify(fitted)})`);
+
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: "x", context: { title: "t", summary: "s", key_points: ["k"], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated", `a shortening that never landed must not be reported as clipped (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, false, "the below-floor reply wrote no memory");
+	assert.equal(report.contextWritten, true, "the context landed");
+	assert.equal(report.memoryHiddenChars, 0, "no landed artifact lost characters");
+	assert.equal(report.contextHiddenChars, 0, "the context the model was shown whole");
+	assert.equal(memoryUpdateReply(report).text, "Project context updated.", "the receipt must not claim a shortening");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
+	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("shortened version of the existing memory"));
+	assert.equal(shortened.length, 1, `the pass-level shortening still leaves its own line, got ${JSON.stringify(shortened)}`);
+});
+
 test("the context read cap is counted as characters the model was not shown", async () => {
 	// `existingContext` is sliced to MAX_CONTEXT_CHARS before the fit ever sees it, so an over-cap
 	// stored context loses that much on every pass. The receipt has to count it, or it understates
@@ -1916,6 +1960,75 @@ test("the context read cap is counted as characters the model was not shown", as
 	assert.equal(report.contextWritten, true, JSON.stringify(report));
 	assert.ok(report.contextHiddenChars >= storedContext.length - MAX_CONTEXT_CHARS, `the read cap is counted (got ${report.contextHiddenChars})`);
 	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.contextHiddenChars} character\\(s\\) of the stored context`));
+	// The pass-level flag covers the read cap too, so the diagnostic line is not reserved for the
+	// output fit: a permanently over-cap stored context is worth a line on every pass.
+	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("shortened version of the existing memory"));
+	assert.equal(shortened.length, 1, `the context read cap leaves its own line, got ${JSON.stringify(shortened)}`);
+});
+
+test("the memory read cap is counted as characters the model was not shown", async () => {
+	// R2: `loadMemory` caps a stored document before the pass sees it (a hand edit, or a
+	// `maxMemoryChars` lowered below what an earlier pass wrote). The input fit cannot count that cut —
+	// it receives the already-capped text — so the loader reports its own cut and the pass folds it in.
+	const root = await memoryProject("dsh-memory-read-cap-", undefined);
+	const body = Array.from({ length: 100 }, (_, i) => `- fact ${i} ${"字".repeat(100)}`).join("\n");
+	const stored = `# Project Memory\n\n${body}\n`;
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
+	const cap = 8_000;
+	const loaded = await loadMemory(root, cap);
+	assert.ok(loaded.cappedDroppedChars > 0, `fixture: the loader cut the document (${loaded.text.length} of ${stored.trimEnd().length})`);
+	assert.equal(loaded.text.length + loaded.cappedDroppedChars, stored.trimEnd().length, "fixture: this read path clips without a marker, so the cut is the exact difference");
+	// Guard the other half: the fit must not clip, or the count below could be the fit's.
+	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, false, "fixture: the input fit is not the cap here");
+
+	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.memoryWritten, true, JSON.stringify(report));
+	assert.equal(report.memoryHiddenChars, loaded.cappedDroppedChars, "the read cap's own cut, counted exactly once");
+	assert.equal(report.status, "clipped", "a landed shortening is what `clipped` means");
+	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.memoryHiddenChars} character\\(s\\) of the stored memory`));
+	// The pass-level flag reaches the loader's cut as well, so the diagnostic line is not reserved for
+	// the output fit.
+	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("shortened version of the existing memory"));
+	assert.equal(shortened.length, 1, `the memory read cap leaves its own line, got ${JSON.stringify(shortened)}`);
+});
+
+test("the read cap and the input fit are counted separately, never substituted for each other", async () => {
+	// Both caps are reachable on one pass: the stored document is over `maxMemoryChars`, and what is
+	// left is over the model's output budget. Folding either into the other's place would understate
+	// what the model was not shown, so the two must add up to the stored-minus-sent difference.
+	const root = await memoryProject("dsh-double-cap-", undefined);
+	const body = Array.from({ length: 200 }, (_, i) => `- fact ${i} ${"字".repeat(200)}`).join("\n");
+	const stored = `# Project Memory\n\n${body}\n`;
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
+	const cap = 40_000;
+	const loaded = await loadMemory(root, cap);
+	assert.ok(loaded.cappedDroppedChars > 0, "fixture: the read cap cut the stored document");
+	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, true, "fixture: the fit cuts the already-capped text too");
+
+	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "fixture: no retry, so the one call carries the fitted input");
+	const sentMemory = /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(calls[0].messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
+	const fitHidden = loaded.text.length - sentMemory.length;
+	assert.ok(fitHidden > 0, "fixture: the fit really hid characters of the capped text");
+	assert.equal(
+		report.memoryHiddenChars,
+		loaded.cappedDroppedChars + fitHidden,
+		"the read cap and the input fit are two counts, and neither absorbs the other",
+	);
 });
 
 test("a clipped CONTEXT.md render reaches the receipt and logs on every pass", async () => {
@@ -2032,6 +2145,13 @@ test("the /memory reply reports a memory that is riding the character cap", () =
 	const healthy = memoryStatusReply({ text: "# Project Memory\n\n- a fact\n", source: ".agents/memory/MEMORY.md" }, context);
 	assert.doesNotMatch(healthy.text, /cap|dropped|truncat/i, "a memory inside the cap is reported as plain healthy");
 	assert.equal(healthy.text, "Project memory: .agents/memory/MEMORY.md");
+
+	// The loader's own cut raises the warning by itself: the no-journal read clips without writing a
+	// marker into the document, so a marker-only trigger stayed silent about exactly the read the
+	// count exists for.
+	const cutNoMarker = memoryStatusReply({ text: "# Project Memory\n\n- partial\n", source: ".agents/memory/MEMORY.md", cappedDroppedChars: 1200 }, context);
+	assert.equal(cutNoMarker.kind, "success");
+	assert.match(cutNoMarker.text, /32000-character cap/, "a cut the loader reports raises the warning even without a marker");
 
 	// No memory yet keeps its own wording and gains no warning.
 	const empty = memoryStatusReply({ text: "", source: ".agents/memory/MEMORY.md" }, context);

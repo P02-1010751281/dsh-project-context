@@ -9,8 +9,8 @@ import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { MAX_MEMORY_CHARS, legacyOmpDir, legacyPiDir, memoryFile, readOptional } from "../shared/project-state.js";
 import { clipToLineBoundary } from "./document.js";
-import { foldMemoryJournal, memoryJournalFile, newestMemoryArchive, newestMemoryArchiveSync, parseJournalEntries, readMemoryJournal } from "./journal.js";
-import { decodePoisonedMemory, memoryComparisonKey } from "./poison.js";
+import { foldMemoryJournal, foldMemoryJournalWithDrop, memoryJournalFile, newestMemoryArchive, newestMemoryArchiveSync, parseJournalEntries, readMemoryJournal } from "./journal.js";
+import { decodePoisonedMemory, decodePoisonedMemoryWithDrop, memoryComparisonKey, memoryComparisonKeyWithDrop } from "./poison.js";
 
 /** What one memory read produced, and how trustworthy it is. */
 export type LoadedMemory = {
@@ -21,7 +21,23 @@ export type LoadedMemory = {
 	unreadable?: boolean;
 	/** Unusable journal lines that were skipped (a torn tail from a crash, or a hand edit). */
 	damaged?: number;
+	/**
+	 * Characters this read's own cap kept back, 0 when the stored document reached the caller whole.
+	 *
+	 * A stored document can exceed the cap — a hand edit, or a `maxMemoryChars` lowered below what an
+	 * earlier pass wrote — and the cap is applied here, before the consolidation pass sees the text.
+	 * Without this count a pass re-emitting a nearly empty view of a large stored document reports a
+	 * clean read; the number is the normalizer's own cut, never a length difference against the raw
+	 * bytes, which would fold normalization's edits into the cap's count.
+	 */
+	cappedDroppedChars: number;
 };
+
+/** A clipped document plus the characters the clip kept back; the clip is the cap site on this path. */
+function clipWithDrop(text: string, limit: number): { text: string; dropped: number } {
+	const clipped = clipToLineBoundary(text, limit);
+	return { text: clipped, dropped: text.length - clipped.length };
+}
 
 /** Read one memory source, distinguishing "absent" from "exists but unreadable". */
 export async function readMemorySource(file: string): Promise<{ text: string; unreadable: boolean }> {
@@ -34,9 +50,15 @@ export async function readMemorySource(file: string): Promise<{ text: string; un
 
 /** Decode a stored reply found outside the `.agents/` layout (legacy `.pi`, OMP import). */
 function legacyMemory(text: string, source: string, limit: number): LoadedMemory {
-	const decoded = decodePoisonedMemory(text, limit);
-	if (decoded) return { text: clipToLineBoundary(decoded.trim(), limit), source, poisoned: true };
-	return { text: clipToLineBoundary(text, limit), source, poisoned: false };
+	const decoded = decodePoisonedMemoryWithDrop(text, limit);
+	if (decoded) {
+		// The decoder capped its own field, so its cut is the one that hid content; the clip below runs
+		// on the already-normalized text and can only trim whitespace at the cut, never content.
+		const clipped = clipWithDrop(decoded.text.trim(), limit);
+		return { text: clipped.text, source, poisoned: true, cappedDroppedChars: decoded.dropped + clipped.dropped };
+	}
+	const clipped = clipWithDrop(text, limit);
+	return { text: clipped.text, source, poisoned: false, cappedDroppedChars: clipped.dropped };
 }
 
 /**
@@ -51,31 +73,31 @@ export async function loadMemory(projectRoot: string, limit: number = MAX_MEMORY
 	const target = memoryFile(projectRoot);
 	const journal = memoryJournalFile(projectRoot);
 	const journalState = await readMemoryJournal(journal);
-	if (journalState.unreadable) return { text: "", source: journal, poisoned: false, unreadable: true };
+	if (journalState.unreadable) return { text: "", source: journal, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
 	// Content that yields no usable record means the journal cannot be reconstructed; report it
 	// instead of silently showing a render that the journal has already superseded.
-	if (journalState.entries.length === 0 && journalState.damaged > 0) return { text: "", source: journal, poisoned: false, unreadable: true };
+	if (journalState.entries.length === 0 && journalState.damaged > 0) return { text: "", source: journal, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
 	if (journalState.entries.length > 0) {
-		const folded = foldMemoryJournal(journalState.entries, limit);
-		if (!folded) return { text: "", source: journal, poisoned: false, unreadable: true };
+		const folded = foldMemoryJournalWithDrop(journalState.entries, limit);
+		if (!folded.text) return { text: "", source: journal, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
 		// Our own writes append to the journal and render afterwards, so a newer render proves
 		// nothing by itself. The render only wins when its content differs from the fold *and* it is
 		// newer than the journal: that is an external edit, and `recordMemoryDocument` adopts those
 		// bytes into the journal on the next write.
 		const renderRaw = await readOptional(target);
 		if (renderRaw.trim()) {
-			// Both sides are compared in normalized form: `foldMemoryJournal` returns a normalized
+			// Both sides are compared in normalized form: the fold returns a normalized
 			// document, so a raw trimmed render would never compare equal and the mtime would
 			// silently become the only rule (adopting our own output as if it were an edit).
-			const external = memoryComparisonKey(renderRaw, limit);
+			const external = memoryComparisonKeyWithDrop(renderRaw, limit);
 			const renderInfo = await stat(target).catch(() => undefined);
 			const journalInfo = await stat(journal).catch(() => undefined);
 			// An empty key means the render was cleared by hand; the journal stays authoritative.
-			if (external && external !== folded && renderInfo && journalInfo && renderInfo.mtimeMs > journalInfo.mtimeMs) {
-				return { text: external, source: target, poisoned: Boolean(decodePoisonedMemory(renderRaw.trim(), limit)), damaged: journalState.damaged };
+			if (external.text && external.text !== folded.text && renderInfo && journalInfo && renderInfo.mtimeMs > journalInfo.mtimeMs) {
+				return { text: external.text, source: target, poisoned: Boolean(decodePoisonedMemory(renderRaw.trim(), limit)), damaged: journalState.damaged, cappedDroppedChars: external.dropped };
 			}
 		}
-		return { text: folded, source: journal, poisoned: false, damaged: journalState.damaged };
+		return { text: folded.text, source: journal, poisoned: false, damaged: journalState.damaged, cappedDroppedChars: folded.dropped };
 	}
 	let raw = "";
 	try {
@@ -83,7 +105,7 @@ export async function loadMemory(projectRoot: string, limit: number = MAX_MEMORY
 	} catch (error) {
 		if ((error as { code?: string }).code !== "ENOENT") {
 			// The file exists but cannot be read: report it instead of claiming there is no memory.
-			return { text: "", source: target, poisoned: false, unreadable: true };
+			return { text: "", source: target, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
 		}
 	}
 	// No journal at all. A rotation archive is still evidence of what the document was — the previous
@@ -92,31 +114,35 @@ export async function loadMemory(projectRoot: string, limit: number = MAX_MEMORY
 	const archive = await newestMemoryArchive(projectRoot);
 	if (archive) {
 		const archived = await readMemoryJournal(archive);
-		const recovered = foldMemoryJournal(archived.entries, limit);
-		if (recovered) return { text: recovered, source: archive, poisoned: false, damaged: archived.damaged };
+		const recovered = foldMemoryJournalWithDrop(archived.entries, limit);
+		if (recovered.text) return { text: recovered.text, source: archive, poisoned: false, damaged: archived.damaged, cappedDroppedChars: recovered.dropped };
 	}
 	const current = raw.trim();
 	if (current) {
-		const decoded = decodePoisonedMemory(current, limit);
-		if (decoded) return { text: clipToLineBoundary(decoded.trim(), limit), source: target, poisoned: true };
-		return { text: clipToLineBoundary(current, limit), source: target, poisoned: false };
+		const decoded = decodePoisonedMemoryWithDrop(current, limit);
+		if (decoded) {
+			const clipped = clipWithDrop(decoded.text.trim(), limit);
+			return { text: clipped.text, source: target, poisoned: true, cappedDroppedChars: decoded.dropped + clipped.dropped };
+		}
+		const clipped = clipWithDrop(current, limit);
+		return { text: clipped.text, source: target, poisoned: false, cappedDroppedChars: clipped.dropped };
 	}
 
 	const legacyPi = path.join(legacyPiDir(projectRoot), "MEMORY.md");
 	const fromPi = await readMemorySource(legacyPi);
-	if (fromPi.unreadable) return { text: "", source: legacyPi, poisoned: false, unreadable: true };
+	if (fromPi.unreadable) return { text: "", source: legacyPi, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
 	const piText = fromPi.text.trim();
 	if (piText) return legacyMemory(piText, legacyPi, limit);
 
 	for (const name of ["MEMORY.md", "memory_summary.md", "learned.md"]) {
 		const fallback = path.join(legacyOmpDir(projectRoot), name);
 		const source = await readMemorySource(fallback);
-		if (source.unreadable) return { text: "", source: fallback, poisoned: false, unreadable: true };
+		if (source.unreadable) return { text: "", source: fallback, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
 		const text = source.text.trim();
 		if (text) return legacyMemory(text, fallback, limit);
 	}
 
-	return { text: "", source: target, poisoned: false };
+	return { text: "", source: target, poisoned: false, cappedDroppedChars: 0 };
 }
 
 /** Whether this path holds a record that no longer parses (used by callers that report damage). */
