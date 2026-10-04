@@ -1,13 +1,19 @@
-# pi → dsh port triage — CLOSED
+# pi → dsh port triage
 
-**Status: closed, all items landed or explicitly refused.** This file started as a read-only
-triage of the eight pi commits `dsh` had not taken (written at dsh `a6510a3`, pi `origin/HEAD`).
-It is kept as the record of **what was taken, what was refused, and why** — not as a plan: the
-plan is executed, and one of its recommendations was later overturned (see "Superseded").
+**First pass closed, second ported nothing, third found portable work.** This file started as a
+read-only triage of the eight pi commits `dsh` had not taken (written at dsh `a6510a3`, pi
+`origin/HEAD`). It is kept as the record of **what was taken, what was refused, and why** — not as a
+plan: the first pass's plan is executed, and one of its recommendations was later overturned (see
+"Superseded").
 
 **Second pass, 2026-10-03**: pi's `master` advanced past the first triage; the 22 commits in
-`3ee5794..8b300dc` were triaged separately and **ported nothing**. See "Second pass" at the end of
-this file for the per-commit dispositions and the read-now checks behind them.
+`3ee5794..8b300dc` were triaged separately and **ported nothing**. See "Second pass" below for the
+per-commit dispositions and the read-now checks behind them.
+
+**Third pass, 2026-10-04**: pi's `master` advanced again, to `6707376`. The 78 commits in
+`8b300dc..6707376` were classified, and this pass **does** find portable work — four batches, none
+started. See "Third pass" at the end of this file. The second pass's "ported nothing" stays true of
+*its own* range only; it is not a statement about pi today.
 
 The durable per-change record lives in [`CHANGELOG.md`](../CHANGELOG.md); this file only maps the
 upstream commits to what dsh did with them.
@@ -117,3 +123,115 @@ git grep -n 'saveConfig\|updateConfig\|syncConfig' -- src/              # no con
   predicate) is a different audit from pi's loss-surface R3. The two must not be cross-cited.
 - This pass changed no `src/` file, so it adds no `CHANGELOG.md` entry — the changelog records
   behaviour, and the map of what dsh did with upstream commits is this file's job.
+
+## Third pass — 2026-10-04 (78 commits after the second pass)
+
+The second pass stopped at `8b300dc`. pi's `master` has since reached `6707376`: **78 commits**, of
+which **22 are behavioural** (3 `feat`, 14 `fix`, 3 `test`, 1 `refactor`, 1 `chore`) and 56 are
+`docs`/process records. Unlike the second pass, this range **is not a no-op** — it carries four
+portable batches. The range is re-readable —
+`git -C /mnt/Data/Projects/pi-project-context log --oneline 8b300dc..6707376` — and the hashes below
+are fixed objects, where a `HEAD` pointer would not be. This pass changed no `src/` file: it maps
+the range and names the deltas; porting is a separate batch.
+
+| pi commit | subject | disposition |
+|---|---|---|
+| `6e3b371` | give CONTEXT.md a fixed schema, per-section budgets and a truncation marker | **PORTABLE (A)** |
+| `a3f8370` | fix the memory schema and pointerize entries | **PORTABLE (A)** |
+| `7ed538f` | reserve the schema blank lines and pin section descriptions | **PORTABLE (A)** |
+| `f81531f` | close the S1/S3 memory-schema review findings | **PORTABLE (A)** |
+| `cfa4b6f`, `7fa5e3a` | pin the schema overhead / cap scaling; pin the pointer rule | port **with** A (test-only) |
+| `a562d7e` | render consolidation output from structured sections | **PORTABLE (B, largest)** |
+| `d02e869` | damp auxiliary-call alerts and cap-truncation loss | **SPLIT**: (a) **PORTABLE (C)**; (b) **NOT-APPLICABLE** |
+| `024b3db` | state the enforced autolearn body bounds in the prompt | **PORTABLE (C)** |
+| `00bf797` | keep an external edit that lands while a reply is being built | **PORTABLE (D)** |
+| `dd2adcc` | refuse the clipped report line too | **PORTABLE (D)** |
+| `1f0672c` | keep an over-cap reply locally before the cap clips it | **ALREADY IN DSH** — the journal keeps the raw, uncapped text and rotation archives it |
+| `71922d8` | close the round-3 review findings | **PARTLY** — same conflation, opposite symptom (below) |
+| `f34c4a9` | align the condensation prompt with the cap wording | **NOT-APPLICABLE** — dsh has no cap-driven condensation prompt |
+| `2a38c5f`, `fd0cc9e` | empty-memory size and cap suggestion; share the cap wording | **NOT-APPLICABLE** — dsh's `/memory status` prints no size or percentage |
+| `a665f5d` | close the independent-review findings | **NOT-APPLICABLE** — pi's `call-policy` internals |
+| `1b01070` | keep the session archive cursor on the archive size | **NOT-APPLICABLE** (below) |
+| `7f0e803`, `3ffdc26` | close the session-log review findings; harden and bound the check | **NOT-APPLICABLE** — pi's `session-log.ts` internals |
+| `65b2699` | drive pi-ai's real strict resolver with the real tools | **NOT-APPLICABLE** unless B lands |
+| 56 `docs(...)` commits | pi's own architecture notes, design-review rounds and release evidence | **NOT-APPLICABLE** |
+
+### What is actually portable
+
+**A — CONTEXT.md's fixed schema, per-section budgets and truncation marker.** dsh hardcodes the
+three headings *inside* the render closure in `src/project-memory/context-doc.ts`, so the renderer
+and the consolidation prompt are two independent copies of the same layout and can drift. It fits
+the cap by shedding list items and then returns `document.slice(0, MAX_CONTEXT_CHARS)` — a bare
+slice with **no marker**, so a clipped CONTEXT.md is indistinguishable from a complete one, which is
+the exact failure mode `MEMORY.md` already guards against. pi drives the prompt and the renderer from
+one `CONTEXT_SECTIONS` table, reserves the fixed layout plus the marker with
+`contextSchemaOverheadChars()`, divides `cap − overhead` by per-section shares, and reads the marker
+only from the document's **last non-empty line** so a model-authored lookalike inside a section is
+never mistaken for a real clip.
+
+```text
+grep -n 'slice(0, MAX_CONTEXT_CHARS)' src/project-memory/context-doc.ts   # dsh's unmarked cut
+grep -rn 'contextSectionBudgets\|isContextTruncated\|contextSchemaOverhead' src/   # = none
+```
+
+**B — structured sections through a tool.** dsh parses a JSON reply
+(`parseConsolidation`, `src/shared/reply-json.ts`). pi fills per-section entries through a
+strict-ready `record_memory` tool and renders the stored document from them, so the schema no longer
+has to guarantee the character cap. This is the largest item (33 files, ~2180 insertions), carries
+BREAKING command renames on pi's side, and needs its own batch and its own review.
+
+**C — prompt bounds that are not the enforced bounds.** Both dsh prompts still state a *word* hint
+where the code enforces *characters*:
+
+```text
+sed -n '61p' src/project-memory/consolidate.ts    # "Keep memory concise and below 6000 words"
+sed -n '14p' src/project-autolearn/prompt.ts      # "Keep any skill body below 3000 words"
+grep -n 'MAX_SKILL_BODY_CHARS\|MAX_SKILL_DESCRIPTION_CHARS' src/project-autolearn/skill.ts
+```
+
+`d02e869`'s message is why this is not cosmetic: a reply can satisfy the hint and still be cut at
+`maxMemoryChars`, and whatever sat at the end is lost. pi replaced both with the enforced values
+(character ranges, and the description cap the validator actually applies).
+
+**D — a reply built from a memory that has since changed is published anyway.** dsh *adopts* an
+external edit into the journal (`load.ts`), and then the pass writes the render it built from the
+**pre-edit** read — so the edit is reverted, and "adopted" only ever meant "entered the history".
+pi carries the text the prompt was built from as `basisKey`, refuses to publish when the stored
+memory no longer matches, journals the newer bytes on both refusal paths, and reports
+`keepReason: "stale"`; `dd2adcc` extends that refusal to the "shortened the existing memory" line so
+no receipt claims a write that did not happen.
+
+```text
+grep -rn 'basisKey\|keepReason' src/        # = none
+grep -n 'adopts those' src/project-memory/load.ts   # dsh adopts; nothing refuses
+```
+
+### Rows that need care
+
+- **`1b01070` is not dsh's bug.** pi's cursor held a *source* byte offset captured before the read,
+  so a writer appending in between made the next refresh re-append and duplicate entries. dsh's
+  cursor is an **event count** plus a stamp of the artifact it wrote
+  (`appendableAt` requires size **and** inode **and** mtime to match), and it appends serialized
+  events, never a source byte range. `grep -rn 'readRange\|sourceSize' src/` = none.
+- **`1f0672c` is already covered by a different mechanism.** dsh's journal stores each record's raw
+  `text` *before* any cap, and `rotateMemoryJournalIfNeeded` folds with the limit only while
+  archiving the full journal first ("copy, do not rename"). So the pre-clip bytes survive in the
+  journal, and past rotation in `memory-log-*.jsonl`. Residual, not a defect to fix now: those
+  archives are subject to reclamation, so the copy is best-effort rather than guaranteed.
+- **`71922d8` is the same conflation with the opposite symptom.** pi's defect was that the
+  fresh-reply marker strip was also applied to legacy imports, silently promoting a capped memory to
+  "complete". dsh has one `normalizeMemoryDocument` that **preserves** the previous marker on both
+  paths: right for the import path, but a fresh consolidation reply that now fits keeps a stale
+  "truncated, N dropped" marker. Verify that symptom on a real capped project before porting the
+  split.
+- **The auxiliary-call policy half of `d02e869` and all of `a665f5d` have no dsh counterpart.**
+  `grep -rn 'failedUntil\|backoff\|consecutive' src/project-autolearn/` = none, and autolearn has no
+  notice site at all, so pi's six-toasts-in-a-row symptom has no dsh surface. Repeated failures per
+  settle and one `errors.log` record per attempt were **not** measured here.
+
+**Honest limits of the third pass.** The classification came from reading the pi diffs and the dsh
+modules each one lands in, plus the checks above — not from a full semantic diff of the two trees, so
+a behaviour pi changed inside a module dsh implements differently can still hide in that gap. Batch
+B's size and the command renames were read from `a562d7e`'s message and file list, not from a
+line-by-line reading of its 2180 insertions. Every "PORTABLE" row above is a claim that dsh lacks the
+behaviour, backed by a check that returns nothing; no row claims the port is small.
