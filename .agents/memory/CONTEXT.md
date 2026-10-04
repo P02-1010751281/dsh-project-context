@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-10-04T16:45:00+08:00
+Last updated: 2026-10-04T16:37:43+08:00
 
 ## Summary
 
@@ -13,15 +13,16 @@ Batch B's code is live and the four-section memory migration is repaired. The us
 - MEMORY.md is now the fixed four-section schema written in English, gate-clean per the Summary. It was rebuilt from the committed 13-section document because the `/memory update` output had already lost sections. The two intermediate states survive as local backups: `MEMORY.md.memory-backup-2026-10-04T06-14-31-397Z-*` is the pre-migration 13-section document and `...06-40-52-507Z-*` the first (bullet-less) migration output.
 - English is the reason the migration changed language: a CJK document at the 32000-character cap cannot round-trip (its own rate is 1 token per character against ASCII's 0.4), so `fitMemoryInput` clips it; under the plugin's rate heuristic English is the only shape that fits the cap and the output budget at once.
 - MEMORY.md must stay inside every per-section share *and* under the 800-character per-entry cap, or the next write silently drops or clips entries. Verify with the archived probe rather than by counting characters.
-- rewind state: still installed in the `web` profile (`^0.15.1`, 3 lock references, `node_modules` present, `bundles` includes it) and still declared at `/etc/nixos/home-manager/user/programs/dsh.nix:19`.
-- The user maintains the 2026-10-02 decision to delete rewind and will remove the declaration line themselves; the local half must wait for that, or the next HM activation restores the plugin again.
+- rewind is disposed on both halves. The user removed the declaration from `/etc/nixos/home-manager/user/programs/dsh.nix` (file mtime 2026-10-04 16:36:57; the whole-line grep is now empty), and the `web` profile was then cleaned with the store-pinned pnpm 11.27.0 (PATH's is a different major and rewrites the lock): deps 15, `bundles` 16 with no rewind row, lock 0 references, `node_modules/dsh-rewind-plugin` gone. The `desktop` profile never declared or installed it.
+- Backups of the pre-cleanup manifests: `~/.dsh/profiles/web/{package.json,pnpm-lock.yaml}.bak-2026-10-04-rewind-local-half` and `/tmp/rewind-local-half-2026-10-04-rewind-local-half/`; the lock diff was removals only (61 lines out, 0 in, nothing but rewind's importer and package entries).
+- Why no HM activation can restore it now, read from source rather than inferred: `/etc/nixos/modules/home-manager/programs/dsh.nix` builds its activation as one ensure command per `cfg.plugins` entry, guarded by `if [ ! -d "$profile_dir/node_modules/${name}" ]` — ensure-missing-only, it never deletes — and that module only ever targets the `web` profile (desktop is hard-rejected). With the entry gone from the list, the activation has no command that mentions it. The empirical confirmation is the user's next `home-manager switch`, which no agent may run.
 - A concurrent session wrote a new untracked skill at `.agents/skills/pi-upstream-triage-pass/` (mtime 2026-10-04 14:04:50). This session read it, checked frontmatter, section coherence and absence of credentials, and staged it.
 - `pnpm test` was 293 pass / 0 fail at `fe4a212`; no `src/` file changed in this session, so the code gate is unchanged.
 
 ## Open tasks
 
-- rewind local half: once the user confirms the declaration line is gone from `/etc/nixos/home-manager/user/programs/dsh.nix`, back up, `pnpm remove` under the store-pinned pnpm (PATH's pnpm is a different major and rewrites the lock), hand-clear the `dsh.profile.bundles` entry, then re-verify that a config-unchanged HM activation no longer restores it.
-- User ruling wanted on the two loss mechanisms this session found (both logged, neither silent in the log): keep them as process discipline (keep MEMORY.md inside its shares and small enough not to clip), or change the code — for example surface the clip and the drops in the `/memory update` receipt itself, or refuse to write a memory the model cannot re-emit.
+- rewind: only the empirical check is left. The next `home-manager switch` the user runs should leave `node_modules/dsh-rewind-plugin` absent; the activation generates no command for it because it is no longer in `cfg.plugins` (source-verified above). No agent action here, and nothing was restarted — the change is in the `web` profile only, whose host was not running (only 127.0.0.1:19387, the desktop profile, was listening).
+- Batch C ruling wanted, plan delivered: three scope tiers with acceptance criteria were laid out in session (tier A "receipt names the loss", tier B "refuse a lossy write", tier C "refuse plus one targeted retry") on top of the two mechanisms. Open sub-decisions: which tier, and whether to archive the plan as `docs/batch-c-loss-receipt-brief.md`. Nothing was implemented; no `src/` file was touched.
 - Batch B residuals recorded and deliberately not fixed: the autolearn `max-tokens` retry-before-read asymmetry; pi's `callAux` no-tool fallback and `needsCondense` second call were not ported; a call that was fixed but labelled `stop` still cannot be identified.
 - Out-of-repo residuals: upstream dsh core splitting `discovery.ts`'s `capacity()` into declared window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold` `!model || usage.tokens === null` and its truncated-retry guard coverage.
 - Keep watching memory headroom through the API (`loadMemory` plus `isMemoryTruncated`, and the archived probe's per-section costs), never through a written character count.
