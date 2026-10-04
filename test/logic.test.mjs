@@ -36,7 +36,7 @@ import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/c
 import { pickToolCall, requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
 import { clip, clipText, replyHead, replyTokenRate, textOf, truncateMiddle } from "../lib/shared/text.js";
 import { approveCandidate, listCandidates, rejectCandidate } from "../lib/project-autolearn/candidate.js";
-import { parseAutolearn } from "../lib/project-autolearn/parse.js";
+import { parseAutolearn, parseAutolearnToolCall } from "../lib/project-autolearn/parse.js";
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/project-handoff/marker.js";
 import { watchHandoffSwitch } from "../lib/project-handoff/watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/project-context/archive.js";
@@ -623,6 +623,35 @@ test("parseAutolearn reads evidence, candidate and reason", () => {
 	assert.deepEqual(parsed.skill.evidence, ["a", "b"]);
 	assert.equal(parsed.skill.candidate, true);
 	assert.equal(parsed.skill.reason, "why");
+});
+
+test("parseAutolearnToolCall reads the record_skill shape and treats an empty name as no proposal", () => {
+	// The tool schema requires every property, so "nothing to propose" is an empty name (a `null`
+	// skill cannot be expressed without an `anyOf`, which strict schemas reject).
+	assert.deepEqual(
+		parseAutolearnToolCall({ skill: { name: "", description: "", body: "", evidence: [], candidate: false, reason: "" }, need_sessions: [] }),
+		{ skill: null, needSessions: [] },
+	);
+	// A model returning the text shape out of habit still reads.
+	assert.deepEqual(parseAutolearnToolCall({ skill: null, need_sessions: ["a", " ", "b"] }), { skill: null, needSessions: ["a", "b"] });
+
+	const parsed = parseAutolearnToolCall({ skill: { name: "n", description: " d ", body: " b ", evidence: ["e"], candidate: true, reason: "r" }, need_sessions: ["s"] });
+	assert.equal(parsed.skill.name, "n");
+	assert.equal(parsed.skill.description, "d");
+	assert.equal(parsed.skill.candidate, true);
+	assert.deepEqual(parsed.skill.evidence, ["e"]);
+	assert.deepEqual(parsed.needSessions, ["s"]);
+
+	// The name is not filtered here, or the kebab-case admission rule would be unreachable from a
+	// model answer (the pass path takes whatever the model returned).
+	assert.equal(parseAutolearnToolCall({ skill: { name: "Not Kebab", description: "d", body: "b" } }).skill.name, "Not Kebab");
+
+	// Unusable arguments are `undefined` — an error — never "the model proposed nothing".
+	assert.equal(parseAutolearnToolCall(undefined), undefined);
+	assert.equal(parseAutolearnToolCall("nope"), undefined);
+	assert.equal(parseAutolearnToolCall({ skill: [1] }), undefined);
+	assert.equal(parseAutolearnToolCall({ skill: { name: 5 } }), undefined);
+	assert.equal(parseAutolearnToolCall({ skill: { name: "n" } }), undefined);
 });
 
 test("candidates list, approve and reject", async () => {

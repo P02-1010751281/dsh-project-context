@@ -9,7 +9,8 @@ import { type Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
-import { requestPluginText, resolveModelMetadata, resolveTarget } from "../shared/model-call.js";
+import { type CompletionOutcome, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget } from "../shared/model-call.js";
+import { parseToolArguments } from "../shared/reply-json.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, reasoningReserveTokens } from "../shared/output-budget.js";
 import { MAX_CONTEXT_CHARS, MAX_SKILL_BODY_CHARS, cachedProjectRoot, contextFile, fileMtimeMs, getProjectRoot, getProjectRootSync, logError, logsDir, memoryFile, readOptional, safeSessionId } from "../shared/project-state.js";
 import { loadMemory } from "../project-memory/memory-store.js";
@@ -18,8 +19,9 @@ import { readSessionIndex } from "../project-context/session-index.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import { saveProposedSkill } from "./candidate.js";
 import { archivedSessionIds, collectSkillInventory, inventoryText } from "./inventory.js";
-import { parseAutolearn } from "./parse.js";
+import { type AutolearnDecision, parseAutolearn, parseAutolearnToolCall } from "./parse.js";
 import { backtrackPrompt, basePrompt } from "./prompt.js";
+import { RECORD_SKILL_TOOL } from "./schema.js";
 import { type LearnedSkill } from "./skill.js";
 
 export interface AutolearnOptions {
@@ -155,7 +157,42 @@ export function autolearnProjectSkills(
 			// command is the user asking for the call.
 			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false, skipped: "no archived session grounds a new skill; no model call was made" };
 
-			const first = parseAutolearn(await requestPluginText(ctx, target, maxTokens, basePrompt(projectRoot, memory.text, contextText, indexText, skillsText), options.signal));
+			/** One decision call. `withTools` is false for the retry, which asks for the text shape. */
+			const call = (prompt: string, withTools: boolean): Promise<CompletionOutcome> =>
+				requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, withTools ? { tools: [RECORD_SKILL_TOOL] } : {});
+
+			/** Read one reply: the tool call first, the text JSON shape second. */
+			const decideFrom = (completion: CompletionOutcome, allowTools: boolean): AutolearnDecision => {
+				if (allowTools) {
+					// Throws when the reply called another tool and carried no text: that is an error, not a
+					// decision, and returning one would hide it behind "the model proposed nothing".
+					const argsText = pickToolCall(completion.toolCalls, RECORD_SKILL_TOOL.name, completion.text);
+					if (argsText !== undefined) {
+						const parsed = parseToolArguments(argsText);
+						const fromTool = parsed === undefined ? undefined : parseAutolearnToolCall(parsed);
+						if (fromTool !== undefined) return fromTool;
+						// The expected tool was called with arguments this pass cannot read and left no text:
+						// an error, not "the model returned nothing".
+						if (completion.text.trim() === "") throw new Error(`the ${RECORD_SKILL_TOOL.name} call carried unusable arguments and no text`);
+					}
+				}
+				return parseAutolearn(completion.text);
+			};
+
+			/**
+			 * One decision attempt. A reply cut off at the output cap is never accepted, even when it
+			 * carries a tool call: the adapter repairs a truncated arguments string into a shape-valid
+			 * object, so a repaired call would store a half-written skill body as if it were complete.
+			 * One text-only retry, then the retry's own answer decides.
+			 */
+			const ask = async (prompt: string): Promise<AutolearnDecision> => {
+				const completion = await call(prompt, true);
+				if (completion.stopReason !== "max-tokens") return decideFrom(completion, true);
+				const retryPrompt = `${prompt}\n\nYour previous response was cut off by the output limit. Retry this same decision now without the tool: return exactly one complete JSON object, condensing the skill body so it fits; no prose, Markdown code fence, ellipsis, or unfinished value.`;
+				return decideFrom(await call(retryPrompt, false), false);
+			};
+
+			const first = await ask(basePrompt(projectRoot, memory.text, contextText, indexText, skillsText));
 			// Record the gate at the material stamp this pass actually distilled: a newer write is
 			// then still newer than the gate, so a pass that ran while consolidation was writing
 			// re-opens on the next idle instead of masking that memory until it is written again.
@@ -184,7 +221,7 @@ export function autolearnProjectSkills(
 				// Every requested id was missing or empty: that is the same as "no evidence" —
 				// no second call, and the first look's `null` skill stands.
 				if (extracts.length > 0) {
-					skill = parseAutolearn(await requestPluginText(ctx, target, maxTokens, backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n")), options.signal)).skill;
+					skill = (await ask(backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n")))).skill;
 				}
 			}
 

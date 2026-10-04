@@ -119,9 +119,18 @@ function fakeContext(replies, { modelLimit } = {}) {
 			stream(options) {
 				const reply = replies[calls.length];
 				calls.push(options);
-				const text = typeof reply === "function" ? reply(options) : (reply ?? '{"skill": null}');
+				const scripted = typeof reply === "function" ? reply(options) : (reply ?? '{"skill": null}');
 				return (async function* generate() {
-					yield { type: "text-delta", text };
+					// A scripted decision may be the tool-call form; stream it the way the adapter really
+					// sends it (the first delta names the tool, `block-end` carries the assembled call).
+					if (typeof scripted === "object" && scripted !== null) {
+						yield { type: "tool-call-delta", index: 0, id: "call-1", name: scripted.toolCall.name, argumentsDelta: "" };
+						yield { type: "tool-call-delta", index: 0, id: "call-1", argumentsDelta: scripted.toolCall.arguments };
+						yield { type: "block-end", index: 0, block: { type: "tool-call", id: "call-1", name: scripted.toolCall.name, arguments: scripted.toolCall.arguments } };
+						yield { type: "finish", reason: scripted.reason ?? { kind: "tool-calls" } };
+						return;
+					}
+					yield { type: "text-delta", text: scripted };
 				})();
 			},
 		},
@@ -737,6 +746,58 @@ test("the name, candidate-evidence and candidate-exists branches are reachable t
 	await writeFile(path.join(memoryDir(root), "skill-candidates", "draft-workflow.md"), `---\nname: draft-workflow\ndescription: "a workflow"\n---\n\n${body}\n`);
 	const outcome = await saveProposedSkill(root, { name: "draft-workflow", description: "a workflow", body, evidence: ["session-a"], candidate: true }, new Set(["session-a"]));
 	assert.deepEqual(outcome, { rejected: 'candidate "draft-workflow" already exists' });
+});
+
+test("autolearn prefers record_skill, and its call becomes the proposal", async () => {
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const args = JSON.stringify({
+		skill: { name: "tool-steps", description: "a workflow", body: BODY, evidence: ["session-a", "session-b"], candidate: false, reason: "why" },
+		need_sessions: [],
+	});
+	const ctx = fakeContext([{ toolCall: { name: "record_skill", arguments: args } }]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 1, "a tool call needs no retry");
+	assert.deepEqual(ctx.calls[0].tools?.map((tool) => tool.name), ["record_skill"], "the first call offers the tool");
+	assert.match(promptOf(ctx.calls[0]), /Prefer calling the record_skill tool/);
+	assert.equal(outcome?.skill?.name, "tool-steps", "the proposal came from the tool call");
+	assert.equal(outcome?.candidate, false);
+	assert.match(await readFile(path.join(skillsDir(root), "tool-steps", "SKILL.md"), "utf8"), /^---\nname: tool-steps\n/);
+});
+
+test("an autolearn reply cut off at the output cap is retried without the tool", async () => {
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const ctx = fakeContext([
+		// The adapter repairs a cut arguments string into a shape-valid object, so a repaired call must
+		// never be stored as if its body were complete.
+		{ toolCall: { name: "record_skill", arguments: '{"skill":{"name":"cut' }, reason: { kind: "max-tokens" } },
+		'{"skill": null}',
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 2, "the truncated call is retried rather than accepted");
+	assert.equal(ctx.calls[1].tools, undefined, "the retry asks for the JSON text shape, so it drops the tool");
+	assert.match(promptOf(ctx.calls[1]), /cut off by the output limit/);
+	assert.equal(outcome?.skill, null);
+});
+
+test("a record_skill call with unusable arguments and no text fails the pass", async () => {
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	// A shape-valid JSON object whose `skill` member this pass cannot read, and no text to fall back to.
+	const ctx = fakeContext([{ toolCall: { name: "record_skill", arguments: '{"skill":{"name":5}}' } }]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(outcome, undefined, "an unusable call is not a decision that proposed nothing");
+	assert.equal(ctx.calls.length, 1, "no retry: the answer itself is unusable, not cut off");
 });
 
 test("the learn-state write takes the cross-process lock", async () => {

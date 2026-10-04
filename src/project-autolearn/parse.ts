@@ -1,34 +1,83 @@
 /**
  * Reading the model's reply into proposals, and the backtrack budget the pass may spend.
+ *
+ * Two entries produce the same decision: the `record_skill` tool call (the preferred one) and the
+ * JSON text reply (the fallback), so both read through the same shaping helpers.
  */
 
 import { parseJsonObject } from "../shared/reply-json.js";
-import { type LearnedSkill, type ProposedSkill } from "./skill.js";
+import { type ProposedSkill } from "./skill.js";
 
 /** At most three archives, 16 KB each: enough for concrete steps without a huge prompt. */
 const MAX_BACKTRACK_SESSIONS = 3;
 
+/** One autolearn decision: the proposal (or none) and the archives it wants read before deciding. */
+export type AutolearnDecision = { skill: ProposedSkill | null; needSessions: string[] };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Read the `need_sessions` member: string ids, trimmed, blanks dropped, capped at the budget. */
+function readNeedSessions(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => item.trim())
+		.filter((item) => item.length > 0)
+		.slice(0, MAX_BACKTRACK_SESSIONS);
+}
+
+/**
+ * Shape one `skill` member: a proposal, `null` for "nothing to propose", or `undefined` when the
+ * shape is wrong.
+ *
+ * An empty (or whitespace) `name` is the tool contract's "nothing to propose", and the other fields
+ * are then ignored — which is what lets the tool schema require every property without an `anyOf`.
+ * A non-empty name still is not filtered here: `saveProposedSkill` owns the kebab-case rule, and
+ * filtering it at parse time would make that rule unreachable from a model answer.
+ */
+function shapeProposedSkill(raw: Record<string, unknown>): ProposedSkill | null | undefined {
+	if (typeof raw.name !== "string") return undefined;
+	const name = raw.name.trim();
+	if (name === "") return null;
+	if (typeof raw.description !== "string" || typeof raw.body !== "string") return undefined;
+	return {
+		name,
+		description: raw.description.replace(/\s+/g, " ").trim(),
+		body: raw.body.trim(),
+		evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((item): item is string => typeof item === "string").map((item) => item.trim()) : [],
+		candidate: raw.candidate === true,
+		reason: typeof raw.reason === "string" ? raw.reason.replace(/\s+/g, " ").trim().slice(0, 500) : "",
+	};
+}
+
 /** Parse the autolearn JSON contract: either a skill, or a request to read archives. */
-export function parseAutolearn(text: string): { skill: ProposedSkill | null; needSessions: string[] } {
+export function parseAutolearn(text: string): AutolearnDecision {
 	const parsed = parseJsonObject(text);
 	if (!parsed) return { skill: null, needSessions: [] };
-	const needSessions = Array.isArray(parsed.need_sessions)
-		? parsed.need_sessions
-			.filter((item): item is string => typeof item === "string")
-			.map((item) => item.trim())
-			.filter((item) => item.length > 0)
-			.slice(0, MAX_BACKTRACK_SESSIONS)
-		: [];
-	const raw = parsed.skill && typeof parsed.skill === "object" ? parsed.skill as Partial<LearnedSkill> & { evidence?: unknown; candidate?: unknown; reason?: unknown } : null;
-	const skill = raw && typeof raw.name === "string" && typeof raw.description === "string" && typeof raw.body === "string"
-		? {
-			name: raw.name.trim(),
-			description: raw.description.replace(/\s+/g, " ").trim(),
-			body: raw.body.trim(),
-			evidence: Array.isArray(raw.evidence) ? raw.evidence.filter((item): item is string => typeof item === "string").map((item) => item.trim()) : [],
-			candidate: raw.candidate === true,
-			reason: typeof raw.reason === "string" ? raw.reason.replace(/\s+/g, " ").trim().slice(0, 500) : "",
-		}
-		: null;
+	// The text path keeps its historical verdict: a malformed `skill` member is "nothing to
+	// propose", not an unusable reply.
+	const raw = isRecord(parsed.skill) ? parsed.skill : null;
+	const skill = raw === null ? null : shapeProposedSkill(raw) ?? null;
+	return { skill, needSessions: readNeedSessions(parsed.need_sessions) };
+}
+
+/**
+ * Read a `record_skill` tool call's arguments.
+ *
+ * `undefined` means the arguments are unusable, which the caller must treat as a failed call —
+ * falling back to the text path, or failing loudly when there is no text — never as a decision that
+ * proposed nothing.
+ */
+export function parseAutolearnToolCall(value: unknown): AutolearnDecision | undefined {
+	if (!isRecord(value)) return undefined;
+	const needSessions = readNeedSessions(value.need_sessions);
+	const raw = value.skill;
+	// `null` and a missing member are the text shape, which a model may still return out of habit.
+	if (raw === null || raw === undefined) return { skill: null, needSessions };
+	if (!isRecord(raw)) return undefined;
+	const skill = shapeProposedSkill(raw);
+	if (skill === undefined) return undefined;
 	return { skill, needSessions };
 }
