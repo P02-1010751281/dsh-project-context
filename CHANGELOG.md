@@ -329,6 +329,31 @@
   修复后三个变异体（去掉渲染层判定 / 空 finish 不拒 / 重试条件退回只认 `max-tokens`）各自杀死对应新钉子。
   全量门禁 0 错 / 0 错 / 293 pass 0 fail，`lib/` 变异标记 0。
 
+**project-autolearn / project-memory（批 B 两条残余：请求形状码回退 + 接受可解析的截断回复）**
+
+- 修复：**路由拒绝 `tools` 参数时只重试一次、且不带工具**。此前该失败与其他失败一样退避并记录，整趟作废。现在
+  `src/shared/model-call.ts` 把 finish 里的 `failure.code` 保留在抛出的错误上（以前它只进消息文本，而 dsh 自己的
+  `HarnessError` 契约要求按码路由、不要解析消息），`callWithToolsFallback` 只在**请求形状码**（`INVALID_REQUEST`、
+  `HTTP_400`、`HTTP_413`）上花掉那一次无工具重试。选这个码集不是猜：provider 400 在两个可走的 adapter 里都映成
+  `INVALID_REQUEST`（`llm-deepseek/src/transport.ts` 的状态映射、`llm-pi-ai/src/stream.ts` 的 `classifyPiAiError`），
+  而 pi 的 `toolsFallbackApplies` 其实是**负向 fail-open**（只用消息正则排除 auth/quota/transient）——dsh 有稳定的码，
+  就不必把那套消息正则搬进来。两个 pass 的调用点都走这条共享函数；记忆侧的退避**只记一次**失败（成对的一次调用不烧
+  两个槽）。
+  **有意偏离 pi**：pi 的 `callAux` 带 `toolsAttempted` / `toolsDisabled` 的**整趟粘性开关**，因为它的 pass 会发多次带
+  工具的调用；本插件的两个 pass 各只发一次，所以这里是**每次调用**的回退、不带状态——一个永无第二次读取的开关就是
+  不可测的死代码。
+- 修复：**被 `max-tokens` 截断、但文本里的 JSON 对象已闭合的 autolearn 回复不再被丢弃重问**。`parseAutolearnReply`
+  把「回复里没有可解析的对象」与「解析成功但没提议」分开（前者 `undefined`，后者 `{skill: null}`）；这个区分此前被
+  `parseAutolearn` 的 fail-soft 折叠掉，于是整个回复必须先丢再读。现在：**无法解析的截断回复照旧重问**（这半边正是
+  fail-soft 陷阱本身，必须保住），**能解析的直接采纳**——对象在截断前就闭合了，所以每个成员都是完整发出的，原始
+  `JSON.parse` 不可能接受半截值。探针（`.agents/evidence/2026-10-05-autolearn-cut-parse-probe/`）对三种回复形状的
+  **每一个切点**验证：裸 JSON 的任何切点都解析不出（该重问的地方照旧重问），有围栏/尾部散文的 137 个切点**全部**携带
+  完整正文。**工具调用那一半完全不变**：adapter 会把被截断的参数串修复成形，所以 `toolCallIsTruncated` 仍旧拒绝。
+- 变异校验（三个变异体，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：去掉解析信号（`max-tokens` 一律重问）
+  → 只掉「可解析的截断回复被采纳」一条；把请求形状码集换成永不相交的值 → 只掉两条**正向**回退用例（两个 pass 的接线
+  各一条，证明接线承重）；把成员判据换成「任何带码的失败都回退」→ 只掉 auth 负向用例（证明「请求形状」这个判据承重）。
+  裁定与源码依据在 `docs/batch-b-residual-decisions.md`。
+
 **project-memory（丢失回执：五处丢失点名）**
 
 - 修复：**有一次整理丢掉了内容，回执读起来跟一次干净整理逐字相同**。合并整理的丢失都发生在**写入之前或写入当刻**，
