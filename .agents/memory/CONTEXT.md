@@ -1,100 +1,32 @@
 # Project Context
 
-Last updated: 2026-10-04T20:07:16+08:00
+Last updated: 2026-10-04T12:42:21.622Z
 
 ## Summary
 
-Batch C tier A ("the receipt names the loss") is implemented, gate-green and pushed, and the desktop
-host was restarted after it, so tier A is live rather than on disk. A consolidation pass can lose
-project memory in five reachable places, all of them before or at the write, so the stored
-document cannot show any of them:
-the input fit (`fitMemoryInput`, `src/shared/conversation.ts`) clips the stored memory and context
-head-and-tail to fit the model's output budget; the section render (`renderMemoryDocument`,
-`src/project-memory/sections.ts`) drops whole entries that overflow a section's budget; the stored
-context is sliced to `MAX_CONTEXT_CHARS` before the fit sees it; the context render
-(`renderContextDocument`) clips its own sections; and the write path (`normalizeMemoryDocument`)
-caps the document once more — which is the only trace an opaque, non-four-section reply's loss ever
-had. None of the five reached the `/memory update` receipt, because `ConsolidateReport` was a string
-union and `MemoryInput.clipped` a bare boolean, so a pass that dropped twelve entries produced a
-receipt identical, character for character, to a clean one. Tier A makes `ConsolidateReport` a
-report object with two written flags and six loss counts, adds per-artifact hidden-character counts to
-`MemoryInput` and `ConsolidationOutcome`, words the receipt by mechanism and only for artifacts that
-landed, and removes the three "logged once per project" gates so every lossy write or unusable
-context leaves its own `errors.log` line. It changes no behaviour: a lossy pass still writes. An
-independent adversarial review falsified the first version's narrower claim on three paths (including
-one that was completely silent) and all of them are closed; the review's dispositions and the two
-accepted residuals are in `docs/batch-c-loss-receipt-brief.md`, and the reproduction with recorded
-numbers is in `.agents/evidence/2026-10-04-memory-loss-receipt/`. The desktop host was restarted after
-this change and tier A is live: re-derive loaded-versus-not from the socket holder's start against
-`git log -1 --format=%cI -- src/`, never from a recorded pid or start time.
+This session continues session-357df90f via handoff. It closed the handoff's last user-side item (rewind stays disposed), observed tier A's receipt in a real pass for the first time, fixed a log line that claimed the opposite of what it reported, and repaired the two memory documents after that pass lost content. Rewind: the home-manager switch that followed the declaration removal had already happened, so the check was decidable in-session — the live generation's own `activate` script names no rewind while still carrying every other declared plugin's ensure-missing command, and both profiles are clean. Tier A in the real pass: the 2026-10-04 20:20 pass wrote both artifacts and was lossy, and the receipt named the mechanism clause by clause; each loss left its own `errors.log` line, because the three per-project gates are gone. A second attempt died on a TRANSPORT error and its failure receipt was honest (nothing had been written); a third hit the stale guard, which refused the memory write while the context landed and was clipped. The defect fixed: the section render's loss log opened with `MEMORY.md was rendered within its per-section budgets`, although that branch runs only when a section overflowed or an entry was truncated, so the prefix contradicted the rest of its own line and read as a clean render; it now opens with `MEMORY.md was rendered lossily`. The repair: MEMORY.md was rebuilt through the plugin's own `renderMemoryDocument` (a control line proved the renderer reproduces the stored file byte for byte) with the two renderer-dropped entries restored verbatim, the entry the per-item cap had cut mid-word rewritten whole, and the two model-omitted Index pointers restored; it re-renders with zero drops. What stays thin is structural: Invariants and Pitfalls sit within a few characters of their share, and tier B, which would refuse a lossy write instead of only reporting it, is not implemented.
 
 ## Key points
 
-- Tier A landed: `ConsolidateReport` is `{status, memoryWritten, contextWritten, memoryHiddenChars,
-  contextHiddenChars, contextDroppedChars, memoryWriteDroppedChars, sectionDropped, droppedItems,
-  itemTruncated}` with `ConsolidateStatus` the old string union. The counts describe only what landed
-  (a refused memory write zeroes the memory-side counts, an unwritten context zeroes the context-side
-  ones), the receipt names only the artifacts that actually landed, and a clean pass that wrote both
-  produces the byte-identical wording it produced before the change, so "the sentence did not change"
-  still means "nothing was lost".
-- The three per-project log gates (`memorySectionClipLogged`, `contextClipLogged`,
-  `contextUnusableLogged`) are gone, and the write-path cap logs at all: a project that stays over
-  budget or keeps sending an unusable context loses content every pass, so reporting only the first
-  occurrence silenced the rest. Two counter-honesty fixes ride along: `itemTruncated` no longer counts
-  an entry the same render then drops whole, and a reply below the 40-character floor is logged.
-- Tier B (refuse a lossy write) and tier C (refuse after one targeted retry) are deliberately **not**
-  implemented. B risks self-lock (this repo's memory rides near the 32000-character cap) and C needs
-  the retry contract designed; A is their prerequisite because it computes the counts they would use.
-- Accepted residuals, both documented with the review's reproduction in
-  `docs/batch-c-loss-receipt-brief.md`: `clipped` with all counts zero is reachable when the hidden
-  artifact did not land (inventing a count there would be the misattribution this repo warns about),
-  and the memory-side loader cap is not counted (a hand-edited over-cap `MEMORY.md` is reported by
-  `/memory status` and the stored marker, not by the receipt).
-- Mutation rounds: five mutants across two rounds, each compiling with 0 errors, landing its marker in
-  `lib/`, and killing exactly its own new test; `src/` was restored from a `sha256sum`-verified `/tmp`
-  copy and rebuilt to 0 markers. One first attempt was voided because it left an import unreferenced
-  (`tsc` `TS6133`), which is not a valid red.
-- Gate numbers are not recorded here: run `pnpm typecheck` / `pnpm build` / `pnpm test` and read the
-  counts fresh (`pnpm test` now includes the nine cases added by tier A).
-- MEMORY.md is the fixed four-section schema written in English, and it must stay inside every
-  per-section share *and* under the 800-character per-entry cap or the next write silently drops or
-  clips entries. Verify with `.agents/evidence/2026-10-04-memory-four-section-migration/probe.mjs`,
-  never by counting characters: the mechanism that lost content is invisible in the stored file.
-- rewind is disposed on both halves. The user removed the declaration from
-  `/etc/nixos/home-manager/user/programs/dsh.nix` (`grep -rn --include='*.nix' rewind /etc/nixos` is
-  empty — scan only `*.nix`, since this repo's own session logs otherwise swamp the result), and the
-  `web` profile was cleaned with the store-pinned pnpm (PATH's is a different major and rewrites
-  `pnpm-lock.yaml`): the rewind dependency row, its `bundles` row, its lock references and
-  `node_modules/dsh-rewind-plugin` are all gone, and the lock diff was removals only. Why no
-  activation can bring it back is read from source, not inferred: the HM module builds one
-  ensure-missing command per `cfg.plugins` entry and never deletes, and it only targets the `web`
-  profile — with the entry gone there is no command mentioning it. That reading is confirmed
-  empirically, not just structurally: the first switch after the removal has already run and is the
-  live generation, and its own activation script names no rewind while still ensuring every other
-  declared plugin — require
-  `grep -c rewind "$(readlink -f ~/.local/state/home-manager/gcroots/current-home)/activate"` to be 0
-  and the same file to carry the other plugins' `dsh plugin --profile web add` lines. Pre-cleanup
-  manifests are kept at
-  `~/.dsh/profiles/web/{package.json,pnpm-lock.yaml}.bak-2026-10-04-rewind-local-half` and
-  `/tmp/rewind-local-half-2026-10-04-rewind-local-half/`.
+- Session: continuation of session-357df90f. This session pushed five commits — the rewind closure, the render-loss wording fix with its two regression cases, and two documentation syncs — and the tip equals origin/main (read `git rev-parse HEAD origin/main` instead of recording a hash). The last `src/`-touching commit is the wording fix. Gates must be read fresh rather than quoted: `pnpm typecheck` reports 0 errors and `node --test` reports every case passing.
+- Rewind closure, all read live: the `/etc/nixos` commit that removed the `dsh-rewind-plugin` declaration records `nh home switch 284→285` in its message; `home-manager/user/programs/dsh.nix`'s mtime precedes that activation; the live generation's own `activate` script matches rewind 0 times while still carrying the other declared plugins' `dsh plugin --profile web add` ensure-missing lines; and both the `web` and `desktop` profiles show no dependency row, no `dsh.profile.bundles` row, no lock reference and no `node_modules/dsh-rewind-plugin`. Source semantics: `modules/home-manager/programs/dsh.nix` builds one ensure-missing command per `cfg.plugins` entry, never deletes, and only targets `web`.
+- What the rewind closure rules out, and how to re-check it: no future activation can reinstall that plugin, because the ensure-missing command set is generated only from currently declared entries and the declaration is gone. Do not re-check by watching `node_modules` mtimes — grep the live generation's own `activate` script for the name (it must be 0) via `readlink -f ~/.local/state/home-manager/gcroots/current-home`, and confirm the same file still carries the other entries' commands.
+- Tier A was observed in a real pass on 2026-10-04: the 20:20 pass wrote both MEMORY.md and CONTEXT.md and was lossy, and the receipt named the mechanism clause by clause instead of reading like a clean update — two sections over budget with two whole entries dropped, one entry truncated at the per-item cap, and 59 characters clipped from CONTEXT.md. Each loss left its own `errors.log` line, which is what removing the three per-project gates bought. The older string-union report would have produced a receipt identical to a clean pass's.
+- The other two pass outcomes in the same window are intended wordings rather than defects: a second attempt died with a plugin model call TRANSPORT error and its failure receipt was honest because nothing had been written, and a third attempt hit the `stale` guard, which refused the memory write while the context landed (and was clipped again).
+- The defect fixed: the section render's loss log opened with `MEMORY.md was rendered within its per-section budgets`, but that branch runs only when `sectionDropped > 0 || itemTruncated > 0`, so the prefix contradicted the rest of its own line. It now opens with `MEMORY.md was rendered lossily`, matching the receipt's wording for the same event. Two end-to-end cases pin it — the section-drop shape and the truncation-only shape, the latter also pinning that the description after the colon is never empty. Mutants: reverting the prefix reddens both; deleting the truncation clause reddens only the second.
+- The memory repair: MEMORY.md was rebuilt through the plugin's own `renderMemoryDocument` rather than by hand-editing its format, with a control line first — rendering the parsed document has to reproduce the stored file byte for byte, and the script refused to write a render that reported any drop. The two entries the renderer had dropped were restored verbatim, the entry the per-item cap had cut mid-word was rewritten whole under 800 characters, and the two Index pointers the model had omitted were restored. It now re-renders with `sectionDropped 0 / droppedItems 0 / itemTruncated 0` and `isMemoryTruncated` false.
+- Headroom after the repair, read from `memorySectionBudgets(32000)`: Project has room, Index has real room, but Invariants and Pitfalls sit within a small number of characters of their share — so any future entry in those sections is paid for by a merge or a drop in the same section. That is structural rather than a mistake: the document rides near the 32000-character cap, which is exactly the pressure tier B exists to relieve.
+- Concurrent-writer method that settled whether another session was editing: a fresh memory-doc mtime with a clean `git status --short` is normally the last commit's own write, and a session directory's mtime only moves on create or delete, so activity has to be judged from the files inside it; idleness was proved with an mtime window plus `git status --short` reporting zero changes.
+- Untracked-skill check: 20 directories under `.agents/skills/` against 20 tracked `SKILL.md` via `git ls-files`, compared by name rather than by count, both before staging and after the commit. A directory without a tracked `SKILL.md` is the tracking boundary's only silent failure mode, because skills cannot be regenerated from a clone.
 
 ## Open tasks
 
-- Tier A is live on the desktop host, but its new receipt has not been observed in a real pass:
-  `/memory update` is user-only, and no consolidation write has landed since the restart — check by
-  comparing `.agents/memory/memory.jsonl`'s mtime with the socket holder's start, not by quoting
-  either. A clean pass is byte-identical to the old wording by design, so only a lossy pass or the
-  new `errors.log` line would show the difference. Re-derive loaded-versus-not with `ss -ltnp | grep
-  19387`, then `ps -o lstart= -p <pid>` versus `git log -1 --format=%cI -- src/`, and `lib/` clean
-  against a fresh `tsc` compile into a temp dir.
-- Tier B and tier C remain unimplemented by ruling, so a lossy consolidation pass still writes; the
-  residual is recorded in `CHANGELOG.md` and `docs/batch-c-loss-receipt-brief.md` rather than fixed.
-  If C is wanted later, it starts from tier A unchanged.
-- Batch B residuals recorded and deliberately not fixed: the autolearn `max-tokens` retry-before-read
-  asymmetry; pi's `callAux` no-tool fallback and `needsCondense` second call were not ported; a call
-  that was fixed but labelled `stop` still cannot be identified.
-- Out-of-repo residuals: upstream dsh core splitting `discovery.ts`'s `capacity()` into declared
-  window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold`
-  `!model || usage.tokens === null` and its truncated-retry guard coverage.
-- Keep watching memory headroom through the API (`loadMemory` plus `isMemoryTruncated`, and the
-  archived probes' per-section costs), never through a written character count.
+- Memory headroom is the standing risk: Invariants and Pitfalls are close to their per-section shares, so a consolidation that adds an entry there loses one, and the renderer reports that only through its counts. Watch it through the API (`loadMemory` plus `isMemoryTruncated`, and the archived probe's per-section costs), never through a written character count, and pay for any addition with a merge or a drop in the same section.
+- `/memory update`'s clean path is byte-identical to the old wording by design, so it cannot by itself prove that tier A ran: pair the receipt with the `errors.log` lines and with `.agents/memory/memory.jsonl`'s mtime against the socket holder's start, and never quote either value.
+- Tier B (refuse a lossy write) and tier C (refuse after one targeted retry) remain unimplemented by ruling: B risks self-lock because this repo's memory rides near the cap, and C needs the retry contract designed. Tier A is their prerequisite because it produces the counts they would consume; the residual is recorded in `CHANGELOG.md` and `docs/batch-c-loss-receipt-brief.md` rather than fixed.
+- Two accepted tier A residuals must not be presented as fixed: `clipped` with all counts zero is reachable when the hidden artifact is not the one that landed, and the memory-side loader cap is not counted (a hand-edited over-cap MEMORY.md is reported by `/memory status` and the stored marker).
+- Batch B residuals, recorded and deliberately not fixed: the autolearn `max-tokens` retry-before-read asymmetry; pi's `callAux` no-tool fallback and `needsCondense` second call were not ported; a call that was fixed but labelled `stop` still cannot be identified.
+- Out-of-repo residuals: dsh core splitting `discovery.ts`'s `capacity()` into declared window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold` `!model || usage.tokens === null` and its truncated-retry guard coverage.
+- Standing guard for the next session: no profile edits, no host restarts and no `/etc/nixos` changes without the user naming them; the desktop restart script and `/memory update` are user-only.
+
+<!-- latest-session-title: Tier A receipt observed in a real pass; the render-loss log line corrected; memory repaired after a lossy pass -->
