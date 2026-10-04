@@ -1467,6 +1467,12 @@ const FITTING_TEXT_REPLY = JSON.stringify({
 	context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
 });
 
+/** One over-long entry that fits its own section: retry-worthy, but never refusal-worthy. */
+const ITEM_CAP_ARGS = JSON.stringify({
+	memory: { project: [], invariants: [], pitfalls: [], index: ["x".repeat(1000)] },
+	context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+});
+
 test("tier C: a reply that would be stored lossily is refused after one retry, and the stored memory stays byte-identical", async () => {
 	// End-to-end over the real write path. The reply's Project section floods its share at this cap, so
 	// the renderer would drop entries before anything landed; tier C asks once for a smaller document
@@ -1728,6 +1734,80 @@ test("tier C: a refusal releases the pass claim, so a forced re-run re-reports i
 	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
 	assert.equal(second.status, "lossy-refused", `a refusal must not be reported as deduped (got ${JSON.stringify(second)})`);
 	assert.equal(calls.length, 2, "the cached pass makes no new model call inside forceDedupeMs");
+});
+
+test("tier C: a loss retry that fails for its own reason does not hide the refusal it was avoiding", async () => {
+	// The retry exists to avoid a refusal, not to decide one: the first reply's own loss already says
+	// whether it may be stored. A transport error there used to reject the pass, so the report read
+	// `failed` — a decision the pass had already made vanished into an infrastructure error, and the
+	// refusal's own counts went with it.
+	const root = await memoryProject("dsh-tierc-retry-failure-", "# Project Memory\n\n## Project\n- original\n");
+	const before = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } }],
+		throwOnCall: 2, // the loss retry itself
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 2, "the retry was attempted exactly once");
+	assert.equal(report.status, "lossy-refused", `the first reply's refusal must outlive the retry failure (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, false, "nothing was written");
+	assert.ok(report.refusedLoss?.sectionDropped > 0, "the refused loss is still named apart from the landed counts");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), before, "the stored memory is byte-identical");
+	const lines = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("targeted loss retry failed"));
+	assert.equal(lines.length, 1, `the retry's own failure leaves its own line, got ${JSON.stringify(lines)}`);
+	assert.match(lines[0], /retry transport error on call 2/, "the line names the call failure");
+	assert.match(memoryUpdateReply(report).text, /was kept unchanged/, "the refusal receipt is what the user sees");
+});
+
+test("tier C: a loss retry that fails for its own reason does not discard a storable first reply", async () => {
+	// The other shape of the same rule: the first reply only truncates one entry to its per-item cap,
+	// which this pass accepts, so the retry is an improvement attempt. Its failure must not turn a
+	// storable memory into no memory at all.
+	const root = await memoryProject("dsh-tierc-retry-failure-item-");
+	const reply = JSON.stringify({
+		memory: { project: [], invariants: [], pitfalls: [], index: ["x".repeat(1000)] },
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: reply }, reason: { kind: "tool-calls" } }],
+		throwOnCall: 2,
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 2);
+	assert.equal(report.status, "updated", `the truncation-only first reply still lands (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, true, "a failed improvement retry does not throw the memory away");
+	assert.equal(report.itemTruncated, 1, "the accepted per-item truncation is reported");
+	assert.equal(report.refusedLoss, undefined, "no refusal happened");
+});
+
+test("tier C: an aborted loss retry still fails the pass instead of landing the first reply", async () => {
+	// The one retry failure that is not the retry's own: the caller cancelled the pass. Continuing would
+	// let the caller write artifacts after that cancel, so the abort keeps failing the pass — the same
+	// thing an abort during the first call does.
+	const root = await memoryProject("dsh-tierc-retry-abort-");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: ITEM_CAP_ARGS }, reason: { kind: "tool-calls" } }],
+		throwOnCall: 2,
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true, signal: AbortSignal.abort() });
+
+	assert.equal(calls.length, 2);
+	assert.equal(report.status, "failed", `an abort is not the retry's own failure (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, false, "nothing is written after a cancel");
+	assert.equal(report.contextWritten, false);
 });
 
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
@@ -4025,7 +4105,7 @@ test("extra headroom is held back from the input the pass sends", () => {
 });
 
 /** A consolidation pass over a temp project with a scripted `ctx.llm.stream`. */
-async function consolidationFixture({ root, replies, modelInfo }) {
+async function consolidationFixture({ root, replies, modelInfo, throwOnCall }) {
 	const calls = [];
 	const warnings = [];
 	const ctx = {
@@ -4035,6 +4115,13 @@ async function consolidationFixture({ root, replies, modelInfo }) {
 			stream(options) {
 				calls.push(options);
 				const reply = replies[Math.min(calls.length - 1, replies.length - 1)];
+				// `throwOnCall` models a model call that dies for its own reason (a transport error):
+				// the nth call throws where the adapter would have thrown instead of streaming.
+				if (throwOnCall === calls.length) {
+					return (async function* generate() {
+						throw new Error(`retry transport error on call ${calls.length}`);
+					})();
+				}
 				return (async function* generate() {
 					if (reply.usage) yield { type: "usage", usage: reply.usage };
 					// A reply may carry a tool call instead of (or as well as) text. The stream is

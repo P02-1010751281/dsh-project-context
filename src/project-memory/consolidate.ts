@@ -10,7 +10,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
+import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
 import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
 import { type CompletionOutcome, type PluginTool, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
@@ -456,9 +456,25 @@ export function consolidateProjectState(
 		// nothing to shrink, and calling it a refusal would name the cap as the blocker when the
 		// semantic gate is what stops the write.
 		if (loss.retryWorthy && !replyIsSemanticallyEmpty(resolved, render)) {
-			attempt = await call(usedInput, [memoryLossRetryRule(loss.overage, loss.writeCapDroppedChars)], undefined);
-			const retryResolved = read(attempt, false);
-			const retryRender = retryResolved === undefined ? undefined : renderOf(retryResolved);
+			// The retry exists to avoid a refusal, not to decide one: the first reply's own loss already
+			// says whether it may be stored. A retry that dies for its own reason — a transport error, an
+			// unreadable reply — must therefore not erase that decision. Reporting `failed` would hide a
+			// refusal this pass had already made, and would throw away a first reply that was storable
+			// (a per-item truncation is a loss the pass accepts, so its retry is an improvement only).
+			// An abort is the one exception: that is the caller cancelling the pass, not the retry
+			// failing, and carrying on would let the caller write artifacts after that cancel.
+			let retryResolved: ResolvedReply | undefined;
+			let retryRender: MemoryRender | undefined;
+			try {
+				const retryAttempt = await call(usedInput, [memoryLossRetryRule(loss.overage, loss.writeCapDroppedChars)], undefined);
+				retryResolved = read(retryAttempt, false);
+				retryRender = retryResolved === undefined ? undefined : renderOf(retryResolved);
+			} catch (error: unknown) {
+				if (options.signal?.aborted) throw error;
+				// One line per occurrence, like every other loss: the model call really did fail, and a
+				// refusal that follows must not read as if the retry had answered and been too large.
+				await logError(projectRoot, "memory", `the targeted loss retry failed for its own reason, so the first reply's loss decides this pass: ${diagnosticMessage(error)}`);
+			}
 			// Only a retry that actually carries a memory replaces the first reply. One that parses to
 			// nothing — an empty stream, or a tool call the JSON-text prompt cannot read — would turn a
 			// real but oversized memory into "no new memory", and the semantic-empty gate would then skip
@@ -474,7 +490,8 @@ export function consolidateProjectState(
 					loss = retryLoss;
 				}
 			}
-			// Either way the refusal is judged on the narrower rule in `memoryLoss`.
+			// Either way the refusal is judged on the narrower rule in `memoryLoss`, and on the first
+			// reply whenever the retry did not answer at all.
 			memoryLossyRefused = loss.refuses;
 		}
 		const semanticEmpty = replyIsSemanticallyEmpty(resolved, render);
