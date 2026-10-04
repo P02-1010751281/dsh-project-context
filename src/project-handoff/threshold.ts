@@ -134,13 +134,13 @@ export function thresholdRefusalText(
 		// bounded at 200_000 (`config.ts`), so at a 1M window `keep >= 149_001` puts the floor past the
 		// 157_000 knee (measured: 149_000 resolves, 149_001 refuses). A reported envelope can reach it too.
 		// Neither the window nor the target is a lever here — the window is the *opposite* lever (the curve
-		// approaches 157K from above, so a wider window lowers the knee) and `/handoff target` never enters
-		// the floor. The setting that clears it *today* is an explicit ratio, which is not checked against
-		// the knee at all because the agreed fence lets an explicit setting override the quality ceiling
-		// that governs the auto composition — exactly what {@link thresholdOverrideText} already tells a
-		// user whose `/handoff target` the knee overrode. Say *that*, not where the resulting trigger
-		// lands: below the `knee(W)` / `0.4W` crossing (≈488K at the current constants) a 0.4 trigger sits
-		// under the knee, so "auto can start past it" is false in a reachable band (checked at W=450K:
+		// approaches 157K from above, so a wider window lowers the knee) and `/handoff budget summary` never
+		// enters the floor. The setting that clears it *today* is an explicit ratio, which is not checked
+		// against the knee at all because the agreed fence lets an explicit setting override the quality
+		// ceiling that governs the auto composition — exactly what {@link thresholdOverrideText} already
+		// tells a user whose `/handoff budget summary` the knee overrode. Say *that*, not where the resulting
+		// trigger lands: below the `knee(W)` / `0.4W` crossing (≈488K at the current constants) a 0.4 trigger
+		// sits under the knee, so "auto can start past it" is false in a reachable band (checked at W=450K:
 		// knee 303500, 0.4 trigger 180000). It must not mention the safety margin either: that term did
 		// not bind here, and naming it would misattribute the refusal.
 		const knee = qualityLimit(contextWindow);
@@ -154,7 +154,7 @@ export function thresholdRefusalText(
 				? `lower \`keep\` (the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever — raising it lowers the knee)`
 				: `no \`keep\` value clears this: the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever (raising it lowers the knee)`
 			: "lower `keep` (the window is the wrong lever — raising it lowers the knee)";
-		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff 0.4 is not checked against the knee, which is what blocks auto here`;
+		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff threshold 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
 	if (reason === "summarizer-floor") {
 		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep) is the lever, not this window alone`;
@@ -247,9 +247,10 @@ function capacityLimit(room: HandoffRoom): number {
 /**
  * A manually-set threshold that a guardrail overrode, and which one. The threshold has two sources —
  * what the model actually supports (the quality layer, then the usable window) and what the user set by
- * hand (`/handoff target`, or a fixed `/handoff 0.4` ratio) — and the guardrail owns the trigger. A
- * manual setting the guardrail cannot honour must therefore be **named**, not silently ignored: a user
- * who raises `/handoff target` and sees nothing change has been sent to a control that does nothing.
+ * hand (`/handoff budget summary`, or a fixed `/handoff threshold 0.4` ratio) — and the guardrail owns
+ * the trigger. A manual setting the guardrail cannot honour must therefore be **named**, not silently
+ * ignored: a user who raises `/handoff budget summary` and sees nothing change has been sent to a control
+ * that does nothing.
  */
 export interface ThresholdOverride {
 	/** Which manual setting was overridden, as the receipt names it. */
@@ -328,5 +329,5 @@ export function thresholdOverrideText(override: ThresholdOverride, config: Plugi
 	const guardrail = override.by === "quality"
 		? `the model's quality knee allows ${override.tokens} at this window`
 		: `only ${override.tokens} tokens fit this ${contextWindow}-token window after the ${WINDOW_RESERVE_TOKENS}-token request reserve and the ${SAFETY_MARGIN_TOKENS}-token safety margin`;
-	return `handoff target ${config.handoffTargetTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff target, or use /handoff 0.4 for a fixed ratio`;
+	return `handoff budget summary ${config.handoffTargetTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff budget summary, or use /handoff threshold 0.4 for a fixed ratio`;
 }

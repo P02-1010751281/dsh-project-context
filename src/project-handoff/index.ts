@@ -51,7 +51,7 @@
  *     and a previous continuation prompt in the carried tail is replaced by a one-line
  *     marker so it cannot read as a fresh instruction.
  *
- * Commands: /handoff [status|now|on|off|auto|<ratio>|target <tokens>|keep <tokens>|thinking off|session|pending defer|wait|lang auto|zh|en]
+ * Commands: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|thinking off|session|pending defer|wait|lang auto|zh|en]
  */
 
 // Type-only: pulls the commands service Context merge (ctx.commands).
@@ -149,8 +149,8 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "handoff",
-		description: "Hand off this session to a fresh one (status|now|on|off|auto|ratio|target|keep|thinking|pending|lang)",
-		input: { hint: "status | now | on|off | auto | 0.4 | target 64k | keep 20k | thinking off|session | pending defer|wait | lang auto|zh|en" },
+		description: "Hand off this session to a fresh one (status|now|on|off|threshold|budget|thinking|pending|lang)",
+		input: { hint: "status | now | on|off | threshold auto|0.4 | budget summary 64k | budget recent 20k | thinking off|session | pending defer|wait | lang auto|zh|en" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const args = rawInput.trim();
 			if (args === "" || args === "now" || args === "force") return runManual(ctx, agent.session, entry, signal);

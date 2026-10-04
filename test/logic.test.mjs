@@ -15,11 +15,12 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { apply } from "../lib/project-handoff/index.js";
+import { apply as applyContext } from "../lib/project-context/index.js";
 import { pendingRetire } from "../lib/project-handoff/state.js";
 import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
 import { createChildSession, seedChildSession } from "../lib/project-handoff/child.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "../lib/project-handoff/classify.js";
-import { parseRatio, parseTokenCount, runManual, settingPatch, statusText } from "../lib/project-handoff/command.js";
+import { USAGE, parseRatio, parseTokenCount, runManual, settingPatch, statusText } from "../lib/project-handoff/command.js";
 import { pendingQuestion, textAsksQuestion } from "../lib/project-handoff/conversation.js";
 import { turnStartedAfter } from "../lib/project-handoff/guard.js";
 import { continuation } from "../lib/project-handoff/summary.js";
@@ -1345,6 +1346,67 @@ test("the memory command carries status and update, and the removed /context-upd
 	assert.match(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), /a second durable fact/, "the forced pass really wrote");
 });
 
+test("the bare /session-log reads, `write` writes, and `now` is retired", async () => {
+	// The bare command was the one read path with a write side effect: it wrote the session's
+	// artifacts. `write` owns that now, and the retired spelling is told which name to use instead of
+	// quietly doing nothing — the same hard cut `/context-update` got, no alias.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-session-log-command-"));
+	const commands = new Map();
+	// `applyContext` publishes the shared settings namespace, which is module-level state: the effect's
+	// disposer must run at the end of the test or every later `effectivePluginConfig` caller in this
+	// process sees this project's defaults instead of its own config.
+	const disposers = [];
+	const ctx = {
+		on: () => () => undefined,
+		effect: (fn) => {
+			const dispose = fn();
+			if (typeof dispose === "function") disposers.push(dispose);
+			return () => undefined;
+		},
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+	};
+	applyContext(ctx, {});
+	try {
+		const command = commands.get("session-log");
+		assert.ok(command, "the plugin registers /session-log");
+		assert.match(command.input.hint, /write \| import /, "the hint names the write verb");
+
+		const session = fakeEventSession(
+			[{ type: "user/message", seq: 0, data: { source: { kind: "user" }, content: [{ type: "text", text: "one" }] } }],
+			"session-log-read",
+			root,
+		);
+		const dir = path.join(root, ".agents", "memory", "session-logs", "session-log-read");
+
+		// Bare: reads. It prints the log directory and the index and teaches the write verb, and writes nothing.
+		const read = await command.handler({ agent: { session }, rawInput: "" });
+		assert.equal(read.kind, "success");
+		assert.match(read.text, /Session logs: /);
+		assert.match(read.text, /Session index: /);
+		assert.match(read.text, /\/session-log write/);
+		assert.equal(existsSync(dir), false, "the bare command writes no archive");
+
+		// `now` is retired rather than aliased: it must not act, and it names the new spelling.
+		const retired = await command.handler({ agent: { session }, rawInput: "now" });
+		assert.equal(retired.kind, "error");
+		assert.match(retired.text, /retired/);
+		assert.match(retired.text, /\/session-log write/);
+		assert.equal(existsSync(dir), false, "a retired spelling writes no archive");
+
+		// `write` performs exactly what `now` did, Markdown rendering included.
+		const written = await command.handler({ agent: { session }, rawInput: "write" });
+		assert.equal(written.kind, "success", JSON.stringify(written));
+		assert.match(written.text, /Session log written: /);
+		assert.ok(written.text.endsWith("session-log-read"), written.text);
+		assert.match(await readFile(path.join(dir, "session.jsonl"), "utf8"), /one/);
+		assert.ok(existsSync(path.join(dir, "session.md")), "write renders the Markdown too");
+		releaseSessionQueue(session);
+	} finally {
+		for (const dispose of disposers) dispose();
+	}
+});
+
 /**
  * A consolidation report for a status, with every loss count zero unless a case overrides it.
  * The written flags default to what that status means: a clean `updated`/`clipped` pass wrote both
@@ -2436,11 +2498,23 @@ test("resolvePluginConfig, settingPatch and the pending-question check behave", 
 	assert.deepEqual(settingPatch("thinking session"), { patch: { handoffSummaryThinking: "session" } });
 	assert.deepEqual(settingPatch("pending wait"), { patch: { handoffPendingQuestion: "wait" } });
 	assert.equal(settingPatch("pending sometimes"), undefined);
-	assert.deepEqual(settingPatch("target 64k"), { patch: { handoffTargetTokens: 64_000 } });
-	assert.match(settingPatch("target 1k").error, /8000–200000/);
-	assert.deepEqual(settingPatch("keep 0"), { patch: { handoffKeepTokens: 0 } });
-	assert.match(settingPatch("keep 300k").error, /0–200000/);
-	assert.deepEqual(settingPatch("0.5"), { patch: { handoffAdaptive: false, handoffThresholdRatio: 0.5 } });
+	assert.deepEqual(settingPatch("threshold auto"), { patch: { handoffAdaptive: true } });
+	assert.deepEqual(settingPatch("threshold 0.5"), { patch: { handoffAdaptive: false, handoffThresholdRatio: 0.5 } });
+	assert.deepEqual(settingPatch("threshold 50%"), { patch: { handoffAdaptive: false, handoffThresholdRatio: 0.5 } });
+	assert.match(settingPatch("threshold 0.96").error, /threshold needs auto or a ratio/);
+	assert.deepEqual(settingPatch("budget summary 64k"), { patch: { handoffTargetTokens: 64_000 } });
+	assert.match(settingPatch("budget summary 1k").error, /8000–200000/);
+	assert.deepEqual(settingPatch("budget recent 0"), { patch: { handoffKeepTokens: 0 } });
+	assert.match(settingPatch("budget recent 300k").error, /0–200000/);
+	assert.match(settingPatch("budget").error, /budget needs summary or recent/);
+	// One fact, one spelling: the retired spellings must not act, and the usage line names the new one.
+	assert.equal(settingPatch("auto"), undefined);
+	assert.equal(settingPatch("0.5"), undefined);
+	assert.equal(settingPatch("target 64k"), undefined);
+	assert.equal(settingPatch("keep 0"), undefined);
+	assert.match(USAGE, /threshold auto\|<ratio>/);
+	assert.match(USAGE, /budget summary <tokens>\|budget recent <tokens>/);
+	assert.doesNotMatch(USAGE, /\|auto\||target <tokens>|keep <tokens>/);
 	assert.equal(settingPatch("status"), undefined);
 
 	assert.equal(textAsksQuestion("Done. What next?"), true);
@@ -2460,6 +2534,44 @@ test("resolvePluginConfig, settingPatch and the pending-question check behave", 
 	assert.match(pendingQuestion(asking), /Which branch/);
 	const answered = { ...asking, deriveMessages: () => [...asking.deriveMessages(), { role: "user", content: [{ type: "text", text: "main" }] }] };
 	assert.equal(pendingQuestion(answered), undefined);
+});
+
+test("the /handoff command routes the new verbs and rejects the retired spellings", async () => {
+	// The surface is the contract: `threshold` owns how the threshold is decided and `budget` owns the
+	// two token amounts, so each fact has one name. A retired spelling must not act — it comes back as
+	// the usage line that names the verb which does.
+	const commands = new Map();
+	const writes = [];
+	const ctx = {
+		on: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		get: (service) => (service === "settings" ? { update: async (namespace, patch) => { writes.push({ namespace, patch }); } } : undefined),
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model" });
+	const command = commands.get("handoff");
+	assert.match(command.input.hint, /threshold auto\|0\.4/, "the hint names the threshold verb");
+	assert.match(command.input.hint, /budget summary 64k/, "the hint names the budget verbs");
+	assert.doesNotMatch(command.input.hint, /target 64k|keep 20k|\| auto \|/, "the hint teaches no retired spelling");
+	const call = (rawInput) => command.handler({ agent: { session: { id: "session-handoff-cmd", header: {} } }, rawInput, signal: new AbortController().signal });
+
+	for (const retired of ["auto", "0.5", "target 64k", "keep 20k"]) {
+		const reply = await call(retired);
+		assert.equal(reply.kind, "error", `"${retired}" must not act`);
+		assert.match(reply.text, /Usage: \/handoff/);
+		assert.match(reply.text, /threshold auto/, `"${retired}" is told which verb owns the fact`);
+		assert.match(reply.text, /budget summary/, `"${retired}" is told which verb owns the fact`);
+	}
+	assert.deepEqual(writes, [], "no retired spelling reached the settings service");
+
+	assert.equal((await call("threshold auto")).kind, "success");
+	assert.deepEqual(writes.at(-1).patch, { handoffAdaptive: true });
+	assert.equal((await call("threshold 0.6")).kind, "success");
+	assert.deepEqual(writes.at(-1).patch, { handoffAdaptive: false, handoffThresholdRatio: 0.6 });
+	assert.equal((await call("budget summary 64k")).kind, "success");
+	assert.deepEqual(writes.at(-1).patch, { handoffTargetTokens: 64_000 });
+	assert.equal((await call("budget recent 20k")).kind, "success");
+	assert.deepEqual(writes.at(-1).patch, { handoffKeepTokens: 20_000 });
 });
 
 test("the session log appends incrementally and rebuilds after an external rewrite", async () => {
@@ -2854,7 +2966,7 @@ test("the status receipt names the term that refused the threshold, not always t
 	// render all of them as "threshold unavailable at this window", which is a *false* claim in two
 	// of the three: the window can be roomy and the threshold still refuses on the summarize
 	// minimum, on the reported envelope + keep, or on the 4K safety margin applied a second time.
-	// A user told "at this window" swaps models or raises `/handoff target` and nothing changes.
+	// A user told "at this window" swaps models or raises `/handoff budget summary` and nothing changes.
 	const signal = new AbortController().signal;
 	const session = {
 		id: "session-refusal-000000000000",
@@ -2927,12 +3039,12 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.notEqual(resolveThreshold(oneLess, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), undefined);
 	assert.doesNotMatch(kneeSqueezed, /is the lever, not this window alone/, "the margin sentence must not be reused");
 	assert.doesNotMatch(kneeSqueezed, /safety margin/, "the margin is not what bound here");
-	// The knee cannot be lifted by `/handoff target` (the orchestrator deliberately keeps the configured
-	// target off the trigger line), and the floor's envelope term is not a setting either — only `keep` is.
-	// The setting that clears this refusal today is an explicit ratio, since the agreed fence lets an
-	// explicit setting override the quality ceiling that governs the auto composition. The override receipt
-	// already names it; this refusal must not leave the user at a dead lever.
-	assert.match(kneeSqueezed, /\/handoff 0\.4 is not checked against the knee/, "the refusal names the control that clears it");
+	// The knee cannot be lifted by `/handoff budget summary` (the orchestrator deliberately keeps the
+	// configured target off the trigger line), and the floor's envelope term is not a setting either —
+	// only `keep` is. The setting that clears this refusal today is an explicit ratio, since the agreed
+	// fence lets an explicit setting override the quality ceiling that governs the auto composition. The
+	// override receipt already names it; this refusal must not leave the user at a dead lever.
+	assert.match(kneeSqueezed, /\/handoff threshold 0\.4 is not checked against the knee/, "the refusal names the control that clears it");
 	// …but it must not say where that trigger *lands*. Below the `knee(W)` / `0.4W` crossing (≈488K at the
 	// current constants) a 0.4 trigger sits **under** the knee, so an earlier wording ("so auto can start
 	// past it") was a false placement claim in a reachable band. Pin one point in that band, so the ban is
@@ -3071,8 +3183,9 @@ test("the receipt names whether the harness envelope was read, because the thres
 
 test("a guardrail override of the manual threshold is warned about, not silent", async () => {
 	// The threshold has two sources: the guardrail (the quality layer, then the usable window) and the
-	// manual setting (`/handoff target`, or a fixed `/handoff 0.95` ratio). The guardrail owns the
-	// trigger, so a manual setting it cannot honour must be **named**: otherwise `/handoff target 200k`
+	// manual setting (`/handoff budget summary`, or a fixed `/handoff threshold 0.95` ratio). The guardrail
+	// owns the trigger, so a manual setting it cannot honour must be **named**: otherwise
+	// `/handoff budget summary 200k`
 	// on a 1M window renders "adaptive target 200000" beside a threshold of 157000 with no explanation,
 	// and the user keeps turning a control that cannot move the number.
 	const signal = new AbortController().signal;
@@ -3194,7 +3307,7 @@ test("a manual handoff on a conversation that fits the carried window is refused
 	const reply = await runManual(ctx, session, entry, new AbortController().signal);
 	assert.equal(reply.kind, "error");
 	assert.match(reply.text, /nothing to hand off/);
-	assert.match(reply.text, /keep 0/, "the reply names the escape hatch");
+	assert.match(reply.text, /budget recent 0/, "the reply names the escape hatch");
 	assert.equal(created.length, 0);
 	assert.equal(modelCalls, 0);
 });

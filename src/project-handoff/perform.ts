@@ -49,14 +49,14 @@ export function handoffArtifacts(args: {
  * The span a handoff summarizes, or an error when there is none. Two cases reach this: a session
  * with no messages at all, and — with the default `handoffKeepTokens` — a short conversation that
  * fits entirely inside the carried-over window. Both would otherwise pay for a model call and seed
- * the child with a fabricated summary; the error names the `keep 0` escape for the second case.
+ * the child with a fabricated summary; the error names the `budget recent 0` escape for the second case.
  * The automatic path cannot reach it (it refuses a span below `MIN_SUMMARIZE_TOKENS` first).
  * Exported so a test can pin the guard instead of only the happy path.
  * @param older - the rendered conversation before the kept tail.
  */
 export function assertHandoffSummarizable(older: string): void {
 	if (older.trim().length === 0) {
-		throw new Error("nothing to hand off: every message is inside the carried-over window; run `/handoff keep 0` to summarize the whole conversation");
+		throw new Error("nothing to hand off: every message is inside the carried-over window; run `/handoff budget recent 0` to summarize the whole conversation");
 	}
 }
 

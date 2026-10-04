@@ -7,7 +7,7 @@
  * it back for skills is autolearn (`project-autolearn`); pointing a fresh
  * session at it is handoff (`project-handoff`).
  *
- * Commands: /context, /session-log (with `import <archive…>` for backfill)
+ * Commands: /context, /session-log (bare = read state, `write` = write now, `import <archive…>` = backfill)
  */
 
 import type { Context } from "@deepseek-ai/cordis";
@@ -79,7 +79,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	// (`MAX_INDEX_ENTRIES` in project-autolearn). The other three plugins refuse a child on their own
 	// lifecycle points; this one now does too.
 	//
-	// Non-goal: the explicit `/session-log now` and `import` commands stay ungated — an explicit
+	// Non-goal: the explicit `/session-log write` and `import` commands stay ungated — an explicit
 	// command is the user asking, which is also how `archiveEnabled: false` is documented — so a child
 	// whose owner runs one still writes its own directory and index line.
 	ctx.on("session/event", (session, event) => {
@@ -108,7 +108,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.on("session/disposed", (session) => {
 		// Either refusal still drops the queue entry: the per-session cursors are populated by
-		// writing, which no automatic path can do once refused — but the ungated `/session-log now`
+		// writing, which no automatic path can do once refused — but the ungated `/session-log write`
 		// command writes under the very same session key, and without this the cursor would outlive
 		// the session.
 		if (!isTopLevel(session)) return releaseSessionQueue(session);
@@ -133,13 +133,24 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "session-log",
-		description: "Write the current session log, or backfill ended sessions from archives (import <path…>)",
-		input: { hint: "import <session.jsonl|archive.zip|dir>…" },
+		description: "Show the session log location and index; `write` writes the current session's artifacts, `import <path…>` backfills ended sessions",
+		input: { hint: "write | import <session.jsonl|archive.zip|dir>…" },
 		handler: async ({ agent, rawInput }) => {
 			const args = rawInput.trim();
-			if (args === "" || args === "now") {
+			// The bare command is the "what is my state" habit, so it reads; `write` writes. `now` was the
+			// old spelling of the write and is retired rather than kept as an alias (one fact, one spelling),
+			// so it gets told which name to use instead of quietly doing nothing.
+			if (args === "now") return { kind: "error", text: "`/session-log now` was retired; use `/session-log write`." };
+			if (args === "write") {
 				const result = await writeSessionArtifacts(agent.session);
 				return { kind: "success", text: `Session log written: ${result.dir}` };
+			}
+			if (args === "") {
+				const projectRoot = await getProjectRoot(projectCwd(agent.session));
+				return {
+					kind: "success",
+					text: `Session logs: ${logsDir(projectRoot)}\nSession index: ${sessionIndexFile(projectRoot)}\nWrite now: /session-log write`,
+				};
 			}
 			const files = await resolveImportTargets(args.replace(/^import\s+/, "").trim(), projectCwd(agent.session));
 			if (files.length === 0) return { kind: "error", text: "No archives found. Usage: /session-log import <session.jsonl|archive.zip|dir>…" };

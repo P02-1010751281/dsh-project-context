@@ -39,31 +39,43 @@ export function parseTokenCount(input: string): number | undefined {
 export function settingPatch(args: string): { patch?: Record<string, unknown>; error?: string } | undefined {
 	if (args === "on") return { patch: { handoffEnabled: true } };
 	if (args === "off") return { patch: { handoffEnabled: false } };
-	if (args === "auto") return { patch: { handoffAdaptive: true } };
 	const thinking = /^thinking\s+(off|session)$/.exec(args);
 	if (thinking) return { patch: { handoffSummaryThinking: thinking[1] } };
 	const pending = /^pending\s+(defer|wait)$/.exec(args);
 	if (pending) return { patch: { handoffPendingQuestion: pending[1] } };
 	const language = /^lang\s+(auto|zh|en)$/.exec(args);
 	if (language) return { patch: { handoffLanguage: language[1] } };
-	const target = /^target\s+(\S+)$/.exec(args);
-	if (target) {
-		const tokens = parseTokenCount(target[1]);
-		if (tokens === undefined || tokens < 8_000 || tokens > 200_000) return { error: "target needs 8000–200000 tokens (e.g. target 64k)" };
-		return { patch: { handoffTargetTokens: tokens } };
+	// One name for the fact "how the threshold is decided": `threshold auto`, or a ratio. The bare
+	// ratio and the bare `auto` are retired rather than aliased — a second spelling is what let the two
+	// drift apart, and an old spelling must not act.
+	const threshold = /^threshold\s+(\S+)$/.exec(args);
+	if (threshold) {
+		if (threshold[1] === "auto") return { patch: { handoffAdaptive: true } };
+		const ratio = parseRatio(threshold[1]);
+		if (ratio === undefined) return { error: "threshold needs auto or a ratio between 0.1 and 0.95 (e.g. threshold 0.4)" };
+		return { patch: { handoffAdaptive: false, handoffThresholdRatio: ratio } };
 	}
-	const keep = /^keep\s+(\S+)$/.exec(args);
-	if (keep) {
-		const tokens = parseTokenCount(keep[1]);
-		if (tokens === undefined || tokens > 200_000) return { error: "keep needs 0–200000 tokens (e.g. keep 20k, keep 0)" };
+	// `budget summary|recent`, because the two amounts size different things and `target`/`keep` did not
+	// say which was which: `summary` is what each summary asks for, `recent` is what is carried
+	// verbatim. The bounds do not move — only the names do.
+	const budget = /^budget\s+(summary|recent)\s+(\S+)$/.exec(args);
+	if (budget) {
+		const tokens = parseTokenCount(budget[2]);
+		if (budget[1] === "summary") {
+			if (tokens === undefined || tokens < 8_000 || tokens > 200_000) return { error: "budget summary needs 8000–200000 tokens (e.g. budget summary 64k)" };
+			return { patch: { handoffTargetTokens: tokens } };
+		}
+		if (tokens === undefined || tokens > 200_000) return { error: "budget recent needs 0–200000 tokens (e.g. budget recent 20k, budget recent 0)" };
 		return { patch: { handoffKeepTokens: tokens } };
 	}
-	const ratio = parseRatio(args);
-	if (ratio !== undefined) return { patch: { handoffAdaptive: false, handoffThresholdRatio: ratio } };
+	// A verb used without its argument names its own sub-verbs rather than falling through to the whole
+	// usage line, so the receipt says which spelling is missing.
+	if (/^budget\b/.test(args)) return { error: "budget needs summary or recent: budget summary <tokens> | budget recent <tokens>" };
+	if (/^threshold\b/.test(args)) return { error: "threshold needs auto or a ratio between 0.1 and 0.95 (e.g. threshold 0.4)" };
 	return undefined;
 }
 
-export const USAGE = "Usage: /handoff [status|now|on|off|auto|<ratio>|target <tokens>|keep <tokens>|thinking off|session|pending defer|wait|lang auto|zh|en]";
+export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|thinking off|session|pending defer|wait|lang auto|zh|en]";
 
 /** Persist one settings patch through the mounted settings service. */
 export async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined> {

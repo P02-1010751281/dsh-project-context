@@ -410,9 +410,9 @@ test("an unsettled continuable background subagent defers the automatic handoff"
 });
 
 test("an empty span is refused instead of summarized into a fabricated handoff", () => {
-	// Whitespace-only covers the empty session; the message names the `keep` escape because a short
-	// conversation that fits the carried window reaches the same guard.
-	assert.throws(() => assertHandoffSummarizable("   \n\t "), /nothing to hand off.*keep 0/);
+	// Whitespace-only covers the empty session; the message names the `budget recent 0` escape because a
+	// short conversation that fits the carried window reaches the same guard.
+	assert.throws(() => assertHandoffSummarizable("   \n\t "), /nothing to hand off.*budget recent 0/);
 	assert.doesNotThrow(() => assertHandoffSummarizable("## user\nhello"));
 });
 
