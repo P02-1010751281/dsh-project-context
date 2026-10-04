@@ -1,12 +1,13 @@
 # Project Context
 
-Last updated: 2026-10-04T16:53:52+08:00
+Last updated: 2026-10-04T19:55:35+08:00
 
 ## Summary
 
-Batch C tier A ("the receipt names the loss") is implemented, gate-green and pushed, and batch B is
-still what the desktop host is actually running. A consolidation pass can lose project memory in five
-reachable places, all of them before or at the write, so the stored document cannot show any of them:
+Batch C tier A ("the receipt names the loss") is implemented, gate-green and pushed, and the desktop
+host was restarted after it, so tier A is live rather than on disk. A consolidation pass can lose
+project memory in five reachable places, all of them before or at the write, so the stored
+document cannot show any of them:
 the input fit (`fitMemoryInput`, `src/shared/conversation.ts`) clips the stored memory and context
 head-and-tail to fit the model's output budget; the section render (`renderMemoryDocument`,
 `src/project-memory/sections.ts`) drops whole entries that overflow a section's budget; the stored
@@ -23,9 +24,9 @@ context leaves its own `errors.log` line. It changes no behaviour: a lossy pass 
 independent adversarial review falsified the first version's narrower claim on three paths (including
 one that was completely silent) and all of them are closed; the review's dispositions and the two
 accepted residuals are in `docs/batch-c-loss-receipt-brief.md`, and the reproduction with recorded
-numbers is in `.agents/evidence/2026-10-04-memory-loss-receipt/`. The running desktop host (pid 4539,
-started 2026-10-04 16:02:06) predates this change, so the new receipt is **on disk, not yet live**
-until the user restarts the host in their own terminal.
+numbers is in `.agents/evidence/2026-10-04-memory-loss-receipt/`. The desktop host was restarted after
+this change and tier A is live: re-derive loaded-versus-not from the socket holder's start against
+`git log -1 --format=%cI -- src/`, never from a recorded pid or start time.
 
 ## Key points
 
@@ -72,11 +73,12 @@ until the user restarts the host in their own terminal.
 
 ## Open tasks
 
-- Tier A is on disk but not live: the desktop host serving 127.0.0.1:19387 was started before this
-  change, so `/memory update` still returns the old receipt until the user restarts the host in their
-  own terminal (the restart script is user-only; an agent may run only `--dry-run` / `--verify-only`).
-  Verify loaded-versus-not from the socket holder's start time against `git log -1 --oneline -- src/`,
-  and confirm afterwards with `lib/` diffing clean against a fresh `tsc` compile.
+- Tier A is live on the desktop host, but its new receipt has not been seen in a real pass: `/memory
+  update` is user-only and has not run since the restart, and a clean pass is byte-identical to the old
+  wording by design, so only a lossy pass or the new `errors.log` line would show the difference.
+  Re-derive loaded-versus-not rather than quoting a pid or start time: `ss -ltnp | grep 19387`, then
+  `ps -o lstart= -p <pid>` versus `git log -1 --format=%cI -- src/`, and `lib/` clean against a fresh
+  `tsc` compile into a temp dir.
 - rewind: only the empirical check is left, and only the user can run it. After their next
   `home-manager switch`, `node_modules/dsh-rewind-plugin` should still be absent, because the
   activation generates no command for an entry that is no longer declared. No agent action.
