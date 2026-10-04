@@ -1486,6 +1486,39 @@ test("a pass that drops entries reports the loss in its receipt and logs a truth
 	}
 });
 
+test("a per-item truncation with no section overflow still logs a complete loss line", async () => {
+	// The same branch's other shape: one entry over the per-item cap that still fits its own section.
+	// The section-drop test filters on `exceeded their budget`, so this line — which carries only the
+	// truncation clause — is invisible to it, and it is also the shape that would expose a prefix left
+	// dangling with an empty description after the colon.
+	const root = await memoryProject("dsh-memory-item-cap-log-");
+	const reply = JSON.stringify({
+		memory: { project: [], invariants: [], pitfalls: [], index: ["x".repeat(1000)] },
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: reply }, reason: { kind: "tool-calls" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.equal(report.status, "updated", `fixture: a clipped item is not an input clip (got ${JSON.stringify(report)})`);
+	assert.equal(report.itemTruncated, 1, "fixture: the single over-long entry is clipped and kept");
+	assert.equal(report.sectionDropped, 0, "fixture: its section does not overflow");
+
+	const lines = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("per-item cap"));
+	assert.equal(lines.length, 1, `the truncation-only line is logged once, got ${JSON.stringify(lines)}`);
+	assert.match(
+		lines[0],
+		/MEMORY\.md was rendered lossily: 1 entry\(ies\) exceeded their section's per-item cap and were truncated$/,
+		`the line names what landed, got ${lines[0]}`,
+	);
+	assert.doesNotMatch(lines[0], /exceeded their budget/, "no section overflowed, so the line must not claim one");
+});
+
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
 	// The stored context is over the read cap, so characters of it really are hidden from the model;
 	// the reply's context shape is unusable, so CONTEXT.md is left unchanged. Reporting the hidden
