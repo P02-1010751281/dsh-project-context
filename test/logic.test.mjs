@@ -31,7 +31,7 @@ import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate } f
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation } from "../lib/shared/reply-json.js";
 import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/conversation.js";
-import { requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
+import { pickToolCall, requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
 import { clip, clipText, replyHead, replyTokenRate, textOf, truncateMiddle } from "../lib/shared/text.js";
 import { approveCandidate, listCandidates, rejectCandidate } from "../lib/project-autolearn/candidate.js";
 import { parseAutolearn } from "../lib/project-autolearn/parse.js";
@@ -3556,6 +3556,88 @@ test("requestPluginText and its meta variant keep the error and abort semantics"
 			`the meta variant must throw for ${kind} too`,
 		);
 	}
+});
+
+test("a plugin call forwards the tools it was offered, and only then", async () => {
+	// The wiring this repo owns: `requestPluginTextWithMeta` used to drop `tools` on the floor, so a
+	// caller could not offer one at all. A call that offers none must still send the same request.
+	const seen = [];
+	const ctx = {
+		llm: {
+			stream: (options) => {
+				seen.push(options);
+				return (async function* generate() {
+					yield { type: "finish", reason: { kind: "stop" } };
+				})();
+			},
+		},
+	};
+	const target = { provider: "p", model: "m" };
+	const tool = { name: "record_memory", description: "d", parameters: { type: "object", properties: {}, additionalProperties: false } };
+
+	const plain = await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined);
+	assert.equal("tools" in seen[0], false, "a call with no tools sends no tools key at all");
+	assert.equal("toolCalls" in plain, false, "a reply with no call carries no toolCalls key");
+
+	await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { tools: [tool] });
+	assert.deepEqual(seen[1].tools, [tool], "the offered tool reaches the request");
+
+	await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { tools: [] });
+	assert.equal("tools" in seen[2], false, "an empty tool list is the same request as no tools");
+});
+
+test("tool-call deltas assemble per block, and block-end wins", async () => {
+	// Measured on the live route (see .agents/evidence/2026-10-04-record-memory-tool-probe): the first
+	// delta of a block carries the tool name and an empty fragment, the rest carry fragments with
+	// `name` absent, and `block-end` carries the join. Both shapes must reach the caller.
+	const streamOf = (chunks) => ({
+		llm: {
+			stream: () =>
+				(async function* generate() {
+					for (const chunk of chunks) yield chunk;
+				})(),
+		},
+	});
+	const target = { provider: "p", model: "m" };
+	const run = (chunks) =>
+		requestPluginTextWithMeta(streamOf(chunks), target, 16, "prompt", undefined, { tools: [{ name: "record_memory", description: "d", parameters: {} }] });
+
+	const deltasOnly = await run([
+		{ type: "tool-call-delta", index: 1, id: "call_1", name: "record_memory", argumentsDelta: "" },
+		{ type: "tool-call-delta", index: 1, id: "call_1", argumentsDelta: '{"a"' },
+		{ type: "tool-call-delta", index: 1, id: "call_1", argumentsDelta: ":1}" },
+		{ type: "finish", reason: { kind: "tool-calls" } },
+	]);
+	assert.deepEqual(deltasOnly.toolCalls, [{ name: "record_memory", arguments: '{"a":1}' }], "fragments join, and the name survives from the first delta");
+	assert.equal(deltasOnly.stopReason, "tool-calls");
+
+	const assembled = await run([
+		{ type: "tool-call-delta", index: 1, id: "call_1", name: "record_memory", argumentsDelta: '{"a"' },
+		{ type: "block-end", index: 1, block: { type: "tool-call", id: "call_1", name: "record_memory", arguments: '{"a":1}' } },
+		{ type: "finish", reason: { kind: "tool-calls" } },
+	]);
+	assert.deepEqual(assembled.toolCalls, [{ name: "record_memory", arguments: '{"a":1}' }], "the assembled block is authoritative");
+
+	// Blocks come back in index order, a nameless block is dropped, and a non-tool block is ignored.
+	const mixed = await run([
+		{ type: "tool-call-delta", index: 2, id: "c2", name: "second", argumentsDelta: "{}" },
+		{ type: "tool-call-delta", index: 0, id: "c0", name: "first", argumentsDelta: "{}" },
+		{ type: "block-end", index: 3, block: { type: "text", text: "not a call" } },
+		{ type: "finish", reason: { kind: "tool-calls" } },
+	]);
+	assert.deepEqual(mixed.toolCalls?.map((call) => call.name), ["first", "second"], "stream order by index, tool blocks only");
+});
+
+test("pickToolCall separates the fail-open text path from having nothing to fall back to", () => {
+	const other = [{ name: "other", arguments: "{}" }];
+	assert.equal(pickToolCall([{ name: "record_memory", arguments: '{"a":1}' }], "record_memory", ""), '{"a":1}', "the accepted call's raw arguments come back");
+	assert.equal(pickToolCall(other, "record_memory", "prose reply"), undefined, "another tool plus text falls open to the text parser");
+	assert.equal(pickToolCall(undefined, "record_memory", ""), undefined, "no calls at all is the text parser's business");
+	assert.throws(
+		() => pickToolCall(other, "record_memory", "   "),
+		/model called other without text; expected record_memory/,
+		"another tool and no text is an error, not an empty memory",
+	);
 });
 
 test("a handoff retires the session it replaced, and never mid-turn", async () => {
