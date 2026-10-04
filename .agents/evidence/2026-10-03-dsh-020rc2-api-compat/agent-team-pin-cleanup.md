@@ -194,3 +194,21 @@ rather than part of the approved plan. Recorded here as an open item.
   its own `0.2.0-rc.2` copies with exact `0.2.0-rc.2` peers, so the same holds after the switch.
 - **Not done: neither profile was booted.** No `skipping profile bundle` line was observed and the
   agent-team tools were not exercised; §5 remains the post-switch checklist.
+
+## 2026-10-04 note — two statements above are now out of date
+
+Appended by a later session (2026-10-04); nothing above was rewritten.
+
+- **§7 Correction 2 is wrong on both counts.** (1) Provenance: the `overrides:` block lived in
+  **`pnpm-workspace.yaml`**, with the lockfile only mirroring it — not "lives in a generated lockfile"
+  (the sibling mechanism is visible today in `~/.dsh/profiles/web/pnpm-workspace.yaml`). The direct
+  pre-image is gone, so this is inference rather than a direct capture. (2) "was **not removed**" no
+  longer holds: the block was removed in the 2026-10-03 cleanup, and neither profile carries the key now.
+  Re-check: `grep -n '^overrides:' ~/.dsh/profiles/*/pnpm-workspace.yaml ~/.dsh/profiles/*/pnpm-lock.yaml`
+  (the surviving hits are web's cua-driver pair, which is **intentional**). The memory-side statement
+  lives in `.agents/memory/CONTEXT.md` under the `0.2.0-rc.2` bullet.
+- **The resolution conclusion no longer rests on a static check alone.** Both profiles'
+  `dsh --profile <p> --dump-config` resolved all three agent-team packages with no
+  `skip`/`incompatible` wording, measured on the switched `0.2.0-rc.2` line. This is composition
+  resolution, not a boot: the bullet above stays literally true, and what is still unexercised is
+  actually invoking the agent-team tools.
