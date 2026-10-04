@@ -468,11 +468,11 @@
 - 修复：**`clipped` 会指着一个没落盘的东西说「内容被缩短了」**（档 A 残余一）。状态原本由**趟级**的
   `outcome.clipped`（= 上次发送的 fit 是否裁过）推导，而回执里的计数只描述**真的落了盘**的产出物：当被裁的是没落盘的
   那一个时，回执就变成「状态 `clipped` + 所有计数为 0」，句子还把缩短归到落盘的那个文件上。真实复现（在 `lib/` 上跑真
-  `consolidateProject`、临时项目根）：存了 39017 字符 `MEMORY.md`（在 40000 读取上限内），fit 从 memory 里裁掉 7266
+  `consolidateProject`、临时项目根）：存了 39018 字符 `MEMORY.md`（在 40000 读取上限内），fit 从 memory 里裁掉 7266
   字符，回复的 memory 低于 40 字符下限所以没落盘，context 落盘——状态 `clipped`、六个计数全 0、回执
   `Project context updated, but the existing content was shortened to fit the model output budget.`，而被缩短的
   `MEMORY.md` **一个字节都没动**。现在状态由**落地计数**推导（`loss.memoryHiddenChars > 0 ||
-  loss.contextHiddenChars > 0`），状态与回执数字按构造成立；没落盘的那次缩短仍由 `errors.log` 与（非 silent 时的）
+  loss.contextHiddenChars > 0`），状态与回执数字按构造成立；没落盘的那次缩短仍由 `errors.log` 与（非 silent 且确有落盘时的）
   info 行承载，措辞改为中性的「consolidation was given a shortened version of the existing memory or context (the read
   cap or the output budget)」——因为下面那条让同一个数同时覆盖读取上限与输出预算，只写「to fit the model output
   budget」就是错因。**副作用（有意）**：已被计数的 context 读取上限（`MAX_CONTEXT_CHARS`）此前落在 `updated` 上，
@@ -499,6 +499,19 @@
   `sha256sum -c` 校验过的 `/tmp` 副本恢复 `src/`；收尾 `sha256sum -c` 全绿、重建后 `lib/` 标记 0。
 - 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`node --test`
   **321 pass / 0 fail**。
+- 闭环复核（只读、另一次独立审核，对 26k 组输入做 `foldMemoryJournal` / `decodePoisonedMemory` /
+  `memoryComparisonKey` 的逐字节差分与 20k 组 cap 不变量模糊测试）**证伪了两条主张**，都已收口：
+  ① 那条趟级缩短的 `errors.log` 行原本仍受 `wrote` 门控，于是「没落盘时也留一行」只在下述情形之外成立——
+  存了超限 `MEMORY.md`、回复的 memory 低于下限**且** context 形状不可用（两个产出物都没落盘）时，状态是
+  `unchanged`、日志 0 行，被藏起来的字符在任何用户可见面上都没有痕迹。现在该行只看 `outcome.clipped`，不看
+  `wrote`（`silent` 也不影响它），并新增一条端到端用例钉住「一趟没落盘但被缩短的 pass 仍留一行」。
+  ② 记录里三处失真：本轮新加的 Invariants 行与一份设计稿把「计数一律不是原始字节差」写成绝对句，而无 journal
+  的裸渲染分支**就是** `clipToLineBoundary` 的长度差（那里没有规范化，差就是这一刀）；档 A 简报第 108-109 行与
+  档 C 设计稿第 13 节的「七种 status 在零计数时逐字不变」是**当时**的结论，本轮之后对 `clipped` 已不成立，现按
+  dated addendum 标注；CHANGELOG 自己的复现数字 39017 更正为 39018（夹具 `trimEnd` 后的长度）。
+  测试：新增 1 条（上述 `unchanged` 情形）+ 1 条状态断言（context 侧析取项）；变异校验 **2 个**变异体全部杀死对应用例
+  （日志门控改回 `wrote &&`、状态去掉 context 析取项）。门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build`
+  通过（`lib/client.js` 28376 字节）、`node --test` **322 pass / 0 fail**。
 
 ### v0.2.1（2026-09-26）
 

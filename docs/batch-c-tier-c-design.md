@@ -200,7 +200,9 @@ combinations plus 400 fuzz passes), byte-identical refusal with no backup or jou
 refusals), the three-call bound with no repeat of the loss retry, the empty-retry guard across every
 reply shape, the landed-counts contract and `refusedLoss`'s exclusivity, `memorySectionOverage`
 mirroring the renderer (40,438 rows, 0 mismatches), the retry prompt carrying no reply content, and
-byte-identical wording for every pre-existing status.
+byte-identical wording for every pre-existing status. **2026-10-05**: that last claim is narrowed by
+§14 — the zero-count `clipped` wording changed with the tier-A residual closure, while the other six
+statuses are untouched.
 
 A second, read-only **closure review** of the committed range (`e9559bb..9fe8917`) re-probed every
 finding and confirmed F1–F6 and all the load-bearing claims closed, with no new defect
@@ -246,15 +248,19 @@ mutation round, gate), and this section records only what it changes about *this
   describes only what landed. When the shortened artifact was the one that did not land, the receipt
   said "clipped" with no count and blamed the artifact that did land. It is now derived from the landed
   counts (`loss.memoryHiddenChars > 0 || loss.contextHiddenChars > 0`), so status and numbers agree by
-  construction. The pass-level fact is not lost: `outcome.clipped` still drives the `errors.log` line
-  and the informational note on every pass that landed something, with mechanism-neutral wording
+  construction. The pass-level fact is not lost: `outcome.clipped` drives the `errors.log` line on
+  *every* clipped pass — the line is deliberately not gated on a write, because a pass that landed
+  nothing (a below-floor memory plus an unusable context) hid those characters just the same — and the
+  informational note, on every pass that landed something. Both use mechanism-neutral wording
   ("a shortened version of the existing memory or context (the read cap or the output budget)").
 - **R2 — the memory-side loader cap.** `loadMemory` applies `maxMemoryChars` before the pass sees the
   text; its cut was counted nowhere, so a pass re-rendering a nearly empty view of an over-cap stored
   document read as a clean `updated`. `LoadedMemory` now carries `cappedDroppedChars`, taken from the
   normalizer that did the cutting (`foldMemoryJournalWithDrop` / `decodePoisonedMemoryWithDrop` /
-  `memoryComparisonKeyWithDrop`), never from a difference against the raw bytes: `normalizeMemoryDocument`
-  is **not** idempotent on a capped document, and a stored reply's JSON wrapper is not memory. The pass
+  `memoryComparisonKeyWithDrop`), so it never spans normalization — the raw-render and legacy clip
+  branches normalize nothing, and there the `clipToLineBoundary` difference *is* that cap's cut.
+  Taking a difference across normalization would be wrong twice over: `normalizeMemoryDocument` is
+  **not** idempotent on a capped document, and a stored reply's JSON wrapper is not memory. The pass
   folds it into `outcome.memoryHiddenChars` (the read cap and the input fit are added, never
   substituted), and `/memory status`'s cap warning now fires on the count as well as on the marker, so
   the no-journal read — which clips without writing a marker — is no longer silent.

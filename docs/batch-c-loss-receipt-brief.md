@@ -108,6 +108,10 @@ three reachable paths and found three dishonest or under-stated counts:
 The review also confirmed, mechanically, the claims it could not falsify: all seven statuses produce
 byte-identical wording to the pre-change function when counts are zero; the report describes the
 **retry** fit rather than the first fit; and `probe.mjs` reproduces `out.json` byte for byte.
+**2026-10-05**: the first of those no longer holds for `clipped` — its zero-count wording changed with
+the tier-A residual closure (the status is now derived from the landed counts, so a zero-count clipped
+report cannot come from a pass); the other six statuses are untouched and `updated` with zero counts
+is still byte-identical. See `docs/batch-c-tier-c-design.md` §14.
 
 ## 6. Deliberately not done
 
@@ -128,8 +132,10 @@ byte-identical wording to the pre-change function when counts are zero; the repo
   **Addendum 2026-10-05 — closed.** It is counted, and the objection in the last sentence is met
   rather than worked around: the number comes from the normalizer that applied the cap
   (`normalizeMemoryWithDrop`'s own `dropped`, surfaced through `foldMemoryJournalWithDrop` /
-  `decodePoisonedMemoryWithDrop` / `memoryComparisonKeyWithDrop`), never from a length difference
-  against the raw bytes, and the pass adds it to `memoryHiddenChars` alongside the input fit's own
+  `decodePoisonedMemoryWithDrop` / `memoryComparisonKeyWithDrop`), so it never spans normalization —
+  the raw-render and legacy clip branches apply no normalization at all, and there the
+  `clipToLineBoundary` difference *is* that cap's cut — and the pass adds it to `memoryHiddenChars`
+  alongside the input fit's own
   count. Measured on this repo (cap 5000, hand-edited 6337-character `MEMORY.md`): the no-journal read
   clips to 4860 characters **without writing a marker**, which is why `/memory status` was silent about
   it; both read paths now report 1477 hidden characters, the pass receipt names them, and the status
