@@ -1942,6 +1942,36 @@ test("a shortening that did not land is never receipted as clipped", async () =>
 	assert.equal(shortened.length, 1, `the pass-level shortening still leaves its own line, got ${JSON.stringify(shortened)}`);
 });
 
+test("a clipped pass that landed nothing still leaves its own line", async () => {
+	// The line is the trace for the shortening the status no longer carries, so it must not depend on
+	// a write: with a below-floor memory and an unusable context nothing lands at all, the pass reports
+	// `unchanged`, and the hidden characters would otherwise vanish from every surface.
+	const root = await memoryProject("dsh-nothing-landed-clip-", undefined);
+	const stored = `# Project Memory\n\n${"字".repeat(39_000)}\n`;
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "# Project Context\n\n## Summary\n\nold summary\n", "utf8");
+	// Guard the fixture: the fit hides memory characters, and the non-empty context keeps the fallback
+	// from writing one.
+	assert.ok(fitMemoryInput(stored, "", 8192, {}, 32_768).memoryHiddenChars > 0, "fixture: the input fit hides memory characters");
+
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: "x", context: { title: "t", summary: 42, key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "unchanged", `fixture: nothing landed (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, false);
+	assert.equal(report.contextWritten, false);
+	assert.equal(memoryUpdateReply(report).text, "Consolidation ran but produced no new memory or context.");
+	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("shortened version of the existing memory"));
+	assert.equal(shortened.length, 1, `a pass that landed nothing still leaves the line, got ${JSON.stringify(shortened)}`);
+});
+
 test("the context read cap is counted as characters the model was not shown", async () => {
 	// `existingContext` is sliced to MAX_CONTEXT_CHARS before the fit ever sees it, so an over-cap
 	// stored context loses that much on every pass. The receipt has to count it, or it understates
@@ -1959,6 +1989,7 @@ test("the context read cap is counted as characters the model was not shown", as
 
 	assert.equal(report.contextWritten, true, JSON.stringify(report));
 	assert.ok(report.contextHiddenChars >= storedContext.length - MAX_CONTEXT_CHARS, `the read cap is counted (got ${report.contextHiddenChars})`);
+	assert.equal(report.status, "clipped", "a landed read-cap shortening is what `clipped` means, for the context side too");
 	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.contextHiddenChars} character\\(s\\) of the stored context`));
 	// The pass-level flag covers the read cap too, so the diagnostic line is not reserved for the
 	// output fit: a permanently over-cap stored context is worth a line on every pass.

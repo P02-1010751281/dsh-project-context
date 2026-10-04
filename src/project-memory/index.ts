@@ -120,9 +120,13 @@ export type ConsolidateReport = {
 	memoryWritten: boolean;
 	/** True when this pass's context landed. */
 	contextWritten: boolean;
-	/** Characters of the landed memory the model was not shown (the read cap plus the input fit). */
+	/**
+	 * Characters of the stored memory the model was not shown (the read cap plus the input fit),
+	 * reported only when this pass's memory landed. The document the count describes is the *stored*
+	 * one the pass read, not the one it wrote.
+	 */
 	memoryHiddenChars: number;
-	/** Characters of the landed context the model was not shown (the read cap plus the input fit). */
+	/** Characters of the stored context the model was not shown (the read cap plus the input fit), reported only when the context landed. */
 	contextHiddenChars: number;
 	/** Characters the landed CONTEXT.md render dropped to fit its section budgets. */
 	contextDroppedChars: number;
@@ -302,8 +306,12 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			}
 
 			const wrote = wroteMemory || wroteContext;
-			if (wrote && outcome.clipped) {
-				// Always leave a trace: the log line below is hidden by `silent`, and a shortened
+			// Not gated on `wrote`: this line is the trace for the pass-level shortening the receipt's
+			// status deliberately does not carry, and a pass that landed nothing (a below-floor memory,
+			// an unusable context) hid those characters just the same. Gating it on a write would make
+			// "the log line carries the non-landing case" true only sometimes.
+			if (outcome.clipped) {
+				// Always leave a trace: the info line below is hidden by `silent`, and a shortened
 				// rewrite is the symptom that used to precede a truncated, unparseable memory. The
 				// wording names the read cap and the output budget because the hidden count folds both:
 				// naming only the output budget would be a wrong cause for an over-cap stored document.
@@ -445,8 +453,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
  * The reply distinguishes the states a silent fold would otherwise hide: a torn journal line, a
  * source that exists but cannot be read, and a stored reply from the old bug. It also reports the
  * character cap, which is the one degraded state the document itself cannot surface to the user:
- * a document the loader capped carries the truncation marker, and `cappedDroppedChars` reports the
- * same cut directly — including on the no-journal read, which clips without writing a marker at all.
+ * a marker records that the document was capped *at some point* (it is carried forward), while
+ * `cappedDroppedChars` describes what **this** read's cap kept back — including on the no-journal
+ * read, which clips without writing a marker at all. Either one is enough to warn.
  * Measured on this repo at 41733 characters, the loaded document is capped at 31888 with 9621 dropped
  * while every other flag stays clean — so without the note the receipt calls a memory that lost a
  * third of itself perfectly healthy, and every later append lands past the cap and is dropped on write.
