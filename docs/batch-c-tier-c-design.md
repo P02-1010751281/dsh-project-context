@@ -59,7 +59,8 @@ write cap is the only trace of.
 ## 4. Refusal contract
 
 - **Condition**: the final render is still lossy, or the loss retry threw and the first reply was
-  already lossy.
+  already refusable — whole entries lost, or over the write cap. A first reply whose only loss is a
+  per-item truncation is excluded, because that one still lands (§2, §13).
 - **Memory**: `recordMemoryDocument` is not called; no backup is taken; the stored `MEMORY.md` stays
   byte-identical (pinned by a sha256 before/after in the test).
 - **Context**: unchanged — it still lands when usable. The two artifacts are separate and the split
@@ -196,7 +197,7 @@ byte-identical wording for every pre-existing status.
 A second, read-only **closure review** of the committed range (`e9559bb..9fe8917`) re-probed every
 finding and confirmed F1–F6 and all the load-bearing claims closed, with no new defect
 (48-case receipt differential, 10045-case normalizer differential, `lib/` matching a fresh `tsc`). Its
-remaining notes are accepted rather than fixed:
+remaining notes are kept here with their dispositions — all three closed, the last two on 2026-10-04:
 
 - a refusal cached inside `forceDedupeMs` still answers with the refusal if the cap is raised within
   that window — the receipt no longer promised a fresh consolidation, and the window is 15 s.
@@ -206,13 +207,17 @@ remaining notes are accepted rather than fixed:
   the last real decision beats claiming "already up to date" for a memory that was never written.
 - a throw from the **loss retry itself** is reported as `failed`, not as a refusal. §4's second clause
   was written before implementation: nothing is written either way and the memory is kept, so `failed`
-  is the honest label for a retry that failed for its own reason. **closed 2026-10-04**: §4's clause was
-  the right one. The retry is an improvement attempt, so its own failure now leaves the first reply's
-  loss in charge — whole entries lost stays `lossy-refused` with its `refusedLoss`, a per-item
-  truncation lands as before — and the retry's failure leaves its own `errors.log` line, so a refusal
-  that follows does not read as "the retry answered and was still too large". An abort is the one
-  exception and still fails the pass, because carrying on would let the caller write artifacts after a
-  cancel.
+  is the honest label for a retry that failed for its own reason. **closed 2026-10-04**: §4's clause
+  was right in its consequence, with one precision the implementation settled — §4's "already lossy"
+  means "already refusable", because a first reply whose only loss is a per-item truncation still lands.
+  The retry is an improvement attempt, so its own failure now leaves the first reply's loss in charge —
+  whole entries lost stays `lossy-refused` with its `refusedLoss`, a per-item truncation lands as before
+  — and the retry's failure leaves its own `errors.log` line, so a refusal that follows does not read as
+  "the retry answered and was still too large". The one exception is a caller-cancelled pass: the
+  caller's **own** `options.signal` being aborted still fails the pass, because carrying on would let it
+  write artifacts after that cancel. A stream that merely *reports* `aborted` is not that exception —
+  `model-call.ts` throws the same shape without consulting the signal, so it stays a retry failure and
+  the first reply's loss decides.
 - `DEFAULT_CONFIG.maxMemoryChars` no longer trails the profiles: **closed 2026-10-04** by raising
   `MAX_MEMORY_CHARS` 32000 → 40000, the one constant the default and every fallback default read, so a
   profile relying on the bundle insert (e.g. `ctxdev`) gets the same headroom the desktop and web
