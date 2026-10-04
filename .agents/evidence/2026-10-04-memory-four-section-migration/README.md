@@ -15,6 +15,11 @@ which the plugin logged:
 | 14:14:31 | `consolidation shortened the existing memory or context to fit the model output budget` | `fitMemoryInput` had clipped the stored memory head-and-tail before the model saw it, so the model could only re-emit the head and the tail |
 | 14:40:52 | `MEMORY.md was rendered within its per-section budgets: 1 section(s) exceeded their budget and 12 whole entry(ies) were dropped` | `renderMemoryDocument` dropped whole entries that overflowed a section's share; those entries never reached the file |
 
+> Wording correction (2026-10-04): the second line's prefix claimed the render stayed inside its
+> budgets, which contradicts the rest of that same line. The log now opens with
+> `MEMORY.md was rendered lossily: …` (`src/project-memory/index.ts`, pinned by
+> `test/logic.test.mjs`). The table above keeps the log's verbatim text as it was at the time.
+
 Both lines are in `.agents/memory/errors.log`. Neither is silent *in the log* — but the stored file
 afterwards looks healthy, which is the trap: the drop happens **before** the write, so re-rendering the
 stored document reports zero losses and proves nothing about what was lost. (The render counters are

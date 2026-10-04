@@ -352,6 +352,15 @@
   从 hash 校验过的 `/tmp` 副本恢复 `src/` 后重建，`lib/` 变异标记 0。
   门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`pnpm test`
   **302 pass / 0 fail**（新增 9 条用例）。
+- 修复：**记「丢内容」的日志行自称一切都还在预算内**。分节渲染的丢弃/截断日志此前写作
+  `MEMORY.md was rendered within its per-section budgets: …`，可它**只在** `sectionDropped > 0 ||
+  itemTruncated > 0` 时产生——前缀与同一行的后半句所述正好相反，读者会把它读成「这次渲染没超预算」，
+  而回执对同一事件的措辞（`the rewrite was lossy`）是对的。现在前缀改为 `MEMORY.md was rendered lossily:`。
+  真实复现：2026-10-04 的一次 `/memory update` 写出 `… 2 section(s) exceeded their budget and 2 whole
+  entry(ies) were dropped; 1 entry(ies) exceeded their section's per-item cap and were truncated`。
+  该前缀此前没有任何用例钉住，现在由 `test/logic.test.mjs` 的真实落盘用例断言：每行必须点名丢失、且
+  不得自称还在预算内。变异校验：前缀改回原句 → 该用例红。门禁（现跑现读）：`pnpm typecheck` 0 错、
+  `pnpm build` 通过、`node --test` **302 pass / 0 fail**。
 
 ### v0.2.1（2026-09-26）
 

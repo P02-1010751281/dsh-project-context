@@ -17,7 +17,7 @@ description: "Migrate or rebuild the tracked .agents/memory/MEMORY.md into the f
 A stored document that re-renders clean proves nothing about what was lost — check the counters against the intended full content. Two sites, each with its per-pass log line in `.agents/memory/errors.log` and, since tier A, its count in the `/memory update` receipt (`memoryHiddenChars` for the fit, `sectionDropped`/`droppedItems` for the render):
 
 - `fitMemoryInput` (`src/shared/conversation.ts`) clips the stored memory head-and-tail to fit the model output cap, so the model never sees the middle of the old document — log line `consolidation shortened the existing memory or context to fit the model output budget`.
-- `renderMemoryDocument` drops whole entries that overflow a section's budget — log line `MEMORY.md was rendered within its per-section budgets: N section(s) exceeded their budget and M whole entry(ies) were dropped`.
+- `renderMemoryDocument` drops whole entries that overflow a section's budget — log line `MEMORY.md was rendered lossily: N section(s) exceeded their budget and M whole entry(ies) were dropped`. The prefix used to claim the render stayed inside those budgets, which is the opposite of what the rest of the line reports; do not quote the old wording as current.
 
 The model's raw reply is not journalled, so the reply itself cannot be re-read, but the pre-write documents can: `.agents/memory/memory.jsonl` is the append-only journal of whole documents (`journal.ts`) and `backup.ts` keeps the last few byte copies (`MEMORY.md.memory-backup-*`). The last known-good committed copy is the other source for a rebuild: `git show <pre-migration-commit>:.agents/memory/MEMORY.md` (e.g. `git show HEAD:.agents/memory/MEMORY.md` when the migration is the tip).
 
