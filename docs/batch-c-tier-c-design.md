@@ -199,11 +199,20 @@ finding and confirmed F1–F6 and all the load-bearing claims closed, with no ne
 remaining notes are accepted rather than fixed:
 
 - a refusal cached inside `forceDedupeMs` still answers with the refusal if the cap is raised within
-  that window — the receipt no longer promises a fresh consolidation, and the window is 15 s;
+  that window — the receipt no longer promised a fresh consolidation, and the window is 15 s.
+  **closed 2026-10-04**: the cached outcome is keyed on the cap it was decided under, so a forced pass
+  under a new cap re-runs instead of answering the refusal receipt's own lever with the old verdict. The
+  throttled path is deliberately not keyed — it must never spend a surprise model call, and re-reporting
+  the last real decision beats claiming "already up to date" for a memory that was never written.
 - a throw from the **loss retry itself** is reported as `failed`, not as a refusal. §4's second clause
   was written before implementation: nothing is written either way and the memory is kept, so `failed`
-  is the honest label for a retry that failed for its own reason. The implemented rule is the one this
-  document's §13 records.
+  is the honest label for a retry that failed for its own reason. **closed 2026-10-04**: §4's clause was
+  the right one. The retry is an improvement attempt, so its own failure now leaves the first reply's
+  loss in charge — whole entries lost stays `lossy-refused` with its `refusedLoss`, a per-item
+  truncation lands as before — and the retry's failure leaves its own `errors.log` line, so a refusal
+  that follows does not read as "the retry answered and was still too large". An abort is the one
+  exception and still fails the pass, because carrying on would let the caller write artifacts after a
+  cancel.
 - `DEFAULT_CONFIG.maxMemoryChars` no longer trails the profiles: **closed 2026-10-04** by raising
   `MAX_MEMORY_CHARS` 32000 → 40000, the one constant the default and every fallback default read, so a
   profile relying on the bundle insert (e.g. `ctxdev`) gets the same headroom the desktop and web
