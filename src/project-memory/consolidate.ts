@@ -25,6 +25,11 @@ export type ConsolidationOutcome = {
 	version: number;
 	/** True when the stored memory or context had to be shortened to fit the output budget. */
 	clipped: boolean;
+	/**
+	 * The memory this pass's prompt was built from, byte for byte. The write path refuses a reply
+	 * whose baseline no longer matches what is stored: publishing it would overwrite a newer edit.
+	 */
+	basisKey: string;
 };
 
 export interface ConsolidationOptions {
@@ -221,7 +226,7 @@ export function consolidateProjectState(
 			contextUnusableLogged.add(projectRoot);
 			await logError(projectRoot, "memory", "consolidation reply carried a context whose shape is unusable (summary must be a string and key_points/open_tasks arrays of strings); CONTEXT.md was left unchanged");
 		}
-		const outcome: ConsolidationOutcome = { result, version, clipped: usedInput.clipped };
+		const outcome: ConsolidationOutcome = { result, version, clipped: usedInput.clipped, basisKey: existing.text };
 		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
 		return outcome;
 	})().finally(() => {

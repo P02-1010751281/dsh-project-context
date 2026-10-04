@@ -85,7 +85,7 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/context-update` reply can be truthful. */
-export type ConsolidateReport = "updated" | "clipped" | "unchanged" | "deduped" | "failed";
+export type ConsolidateReport = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context";
 
 /** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
 /** One consolidation pass. Exported so the version-claim/backoff behaviour is testable. */
@@ -103,26 +103,33 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// writes below are in flight must see it as done, not run a second time.
 			written.set(projectRoot, outcome.version);
 
+			let memoryKeptStale = false;
 			if (memoryChanged) {
 				// Always keep the bytes on disk right now, whatever this pass believed earlier; the
 				// lock keeps another process from replacing them mid-write, and the journal is the
-				// source of truth (this pass appends its document, then MEMORY.md is rendered).
-				const kept = await withMemoryLock(memoryFile(projectRoot), async () => {
+				// source of truth (this pass appends its document, then MEMORY.md is rendered). The
+				// reply is refused when the memory moved on since the prompt was built, so the write
+				// path is asked with the baseline it must still match — and the claim below follows
+				// what actually landed, not what was attempted.
+				const snapshot = await withMemoryLock(memoryFile(projectRoot), async () => {
 					const backup = await backupMemoryBeforeWrite(memoryFile(projectRoot));
-					await recordMemoryDocument(projectRoot, memoryText, config.maxMemoryChars);
-					return backup;
+					const result = await recordMemoryDocument(projectRoot, memoryText, config.maxMemoryChars, { basisKey: outcome.basisKey });
+					return { backup, written: result.written };
 				});
-				wroteMemory = true;
-				if (kept.poisoned) {
-					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${kept.path ?? "(none)"}`);
+				wroteMemory = snapshot.written;
+				memoryKeptStale = !snapshot.written;
+				if (snapshot.written && snapshot.backup.poisoned) {
+					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${snapshot.backup.path ?? "(none)"}`);
 				}
 			}
 
 			const existing = await readOptional(contextFile(projectRoot));
 			const update = outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
+			let wroteContext = false;
 			if (update) {
 				const contextDocument = renderContextDocument(update, { updatedAt: new Date().toISOString() });
 				await writeAtomic(contextFile(projectRoot), contextDocument);
+				wroteContext = true;
 				const dropped = contextTruncationDropped(contextDocument);
 				if (dropped !== undefined && !contextClipLogged.has(projectRoot)) {
 					// The marker is the durable trace; say it once per project per process, the way the
@@ -142,7 +149,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 					: `memory journal has ${damage.damaged} unusable line(s); they were skipped`);
 			}
 
-			const wrote = memoryChanged || update !== undefined;
+			const wrote = wroteMemory || wroteContext;
 			if (wrote && outcome.clipped) {
 				// Always leave a trace: the log line below is hidden by `silent`, and a shortened
 				// rewrite is the symptom that used to precede a truncated, unparseable memory.
@@ -150,8 +157,11 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			}
 			if (!options.silent && wrote) {
 				const note = outcome.clipped ? " (the rewrite also shortened the content to fit the output budget)" : "";
-				ctx.logger.info(`dsh-project-context: project memory and context updated: ${memoryFile(projectRoot)}${note}`);
+				// Name what actually landed: a kept memory must not be reported as written.
+				const target = wroteMemory && wroteContext ? "project memory and context" : wroteMemory ? "project memory" : "project context";
+				ctx.logger.info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}${note}`);
 			}
+			if (memoryKeptStale) return wroteContext ? "stale-context" : "stale";
 			return wrote ? (outcome.clipped ? "clipped" : "updated") : "unchanged";
 		} catch (error) {
 			// Release the claimed version when nothing was written: otherwise the next forced pass
@@ -307,5 +317,9 @@ export function contextUpdateReply(report: ConsolidateReport): { kind: "success"
 	if (report === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
 	if (report === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
 	if (report === "clipped") return { kind: "success", text: "Project memory and context updated, but the existing content was shortened to fit the model output budget." };
+	// A refused reply is not a write: the memory changed while the reply was being built, so the
+	// newer bytes stay effective. Neither wording may claim that memory was rewritten.
+	if (report === "stale") return { kind: "success", text: "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /context-update again to consolidate from it." };
+	if (report === "stale-context") return { kind: "success", text: "Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective." };
 	return { kind: "success", text: "Project memory and context updated." };
 }
