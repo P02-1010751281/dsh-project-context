@@ -366,6 +366,67 @@
   注：`5b32867` 的提交信息把变异轮结果写成「302 pass / 1 fail」，正确是 **301 pass / 1 fail**（当时全量
   只有 302 条、且没有新增用例）；该提交已推送，按本仓库「不重写历史」的规矩以本处更正代替 amend。
 
+**project-memory（档 C：拒绝有损写入 + 一次定向重试）**
+
+- 变更：**会丢内容的整理不再落盘：先做一次定向重试，仍会丢就拒绝写入、存量 `MEMORY.md` 原样保留**。档 A 只把
+  丢失报出来（回执 + `errors.log`），写入照旧；档 C 把它变成不写。触发面是「会整条丢」的那几处：分节渲染整条丢
+  （`sectionDropped` / `droppedItems`）、以及不透明回复（不是四节 bullet 文档）超出 `maxMemoryChars` 的写入上限。
+  **单条被裁到 per-item 上限（`itemTruncated`）只重试、不拒绝**：超过 `min(800, budget − 3)` 的合法条目在格式里没有
+  任何合法形态能塞进去，拒绝它等于永久拒绝该项目。**输入适配裁切（机制①）只报告不拒绝**（用户裁定）：模型没看到
+  的那段字符，重试也补不回来，拒绝只会把每次 `clipped` 变成记忆停更。
+- 重试契约：每趟最多**一次**损失重试，总模型调用 ≤ 3（首投带 `record_memory` 工具 → 既有 `max-tokens` 重试 →
+  损失重试），且损失重试**绝不链式**再重试；它不带工具、用上一次同一条 `usedInput`（不重新 fit——否则两次调用所
+  见的输入都变了，重试的损失就无法归因到回复本身）。提示词由新导出的 `memoryLossRetryRule(overage, writeCapDropped)`
+  生成，**只报节名与数字、不带任何内容**；数字来自新导出的 `memorySectionOverage`，它按 `renderMemoryDocument` 的
+  同一套算术算（`itemCap = max(1, min(800, budget − 3))`、每条 `min(len, itemCap) + 3`、装不下则整条丢），而不是
+  另估一套——估偏了会要求模型去改一个错的量，比不重试更糟。
+- 拒绝契约：不调 `recordMemoryDocument`、不写备份、`MEMORY.md` 逐字节不变；context 仍照旧落盘（两个产出物分开，
+  `stale-context` 已是同一套语义）；新状态 `lossy-refused` 只在「有损回复被拒」时出现；**释放 version claim**，
+  否则拒绝之后的一次强制整理会答 `deduped`——那是「写过了」的答案，对没落盘的记忆是假话；被拒回复的丢失**单列**
+  在 `refusedLoss`（`sectionDropped` / `droppedItems` / `writeCapDroppedChars`），不并进「只描述落盘内容」的那组
+  计数（后者在一次拒绝后全为 0），回执与 `errors.log` 从它取数，每次拒绝各留一行、不按项目去重；拒绝之后又发生
+  失败（如 context 写入抛错）时，回执仍点名这次拒绝，而不是退回一句普通 error。
+- 前提是 cap 提额：`maxMemoryChars` 32000 → 40000（desktop 与 web 两层 profile，活值经运行中宿主自己的
+  `settings.describe` 读到 `40000`，不是从文件推断）。到 40000 时各节预算 Project 7984 / Invariants 15969 /
+  Pitfalls 9981 / Index 5988，对当前 30953 字符文档余量 2355 / **3255** / 2083 / 1343——Invariants 从 55 变成
+  3255，档 B/C 的**自锁前提**才解除（贴上限时每次整理都有损，拒绝写入等于记忆永远停更）。设计、自锁分析与验收
+  判据在 `docs/batch-c-tier-c-design.md`。**已知缺口（点名不修）**：`DEFAULT_CONFIG.maxMemoryChars` 仍是 32000，
+  走 bundle 插入、未在自己 profile 里写这个键的 profile（如 `ctxdev`）用的是默认值，对这个项目的记忆仍只有 55 字符
+  Invariants 余量。
+- 独立对抗审核复现并修掉的三处（审核报告 `/tmp/dsh-tier-c-review.md`，10 条：1 阻断 / 3 应修 / 6 备注）：
+  **①阻断**：拒绝判定当时读的是**标记行**而不是真裁切——`writeCapDroppedChars` 由
+  `memoryTruncationDropped(normalizeMemoryDocument(reply, cap))` 得出，而 `normalizeMemoryDocument` 在正文没超限时
+  也会把输入里**旧**的标记原样附回，于是「装得下但带着历史标记」的回复被判为有损并按旧标记的数字报数（该数字可
+  大于 cap，所以提高 `maxMemoryChars` 也逃不掉）——对一个曾经被裁过的项目等于永久拒绝。现在裁切量由裁切本身导出
+  （`normalizeMemoryWithDrop` 返回 `{text, dropped}`），两条调用点（pass 的判据、写入路径的计数）都改用它；
+  `memoryTruncationDropped` 只用于读**存量文件**的标记。**②**：拒绝回执当时不读 `detail`，同一次整理里落盘的
+  context 丢失会被说成干净，现在按 `stale-context` 的同一规矩点名。**③**：重试如果**更差**（本可落盘的首投被换成
+  会被拒的回复）不得采纳，否则等于「要个更小的文档」把整次记忆更新搭进去。另修两处误归因：无条目回复交给语义空门
+  而不是报成拒绝（cap 不是那个阻断原因）；以及 `.agents/evidence` 级的一次失败不得抹掉已做出的拒绝决定。
+  实现中另发现并修掉一处：损失重试不带工具时，模型若再回工具调用，其文本流为空、`parseConsolidation("")` 会把
+  它读成「不透明但无内容」的回复；采纳它等于**用空回复替换真实但超量的回复**，语义空门随后静默跳过写入而回执报
+  普通更新。现在只有**语义非空**的重试回复才替换首投。
+- 机制⑤在「落盘」这条路上现在**结构性不可达**：分节渲染的输出按构造 ≤ cap，超上限的不透明回复会被拒，所以
+  `memoryWriteDroppedChars` 不再可能对一次真正落盘的写入非零（审核以 168 组形状×cap 与 400 次随机整理复核为 0）。
+  该分支、计数与日志**保留**作为不变量自身的警报（渲染与 cap 若再度分叉它们仍会响），拒绝时报的数字改放在
+  `refusedLoss.writeCapDroppedChars`；原先断言「被裁文档落盘」的那条用例改写成断言「拒绝 + 文件未动」。
+- 测试：新增 10 条、改写 3 条既有用例到新契约（原「有损也落盘」→拒绝；原「写入上限被计数」→拒绝；原「落盘后失败
+  仍保留已落盘损失」改用单条截断这条唯一还会落盘的损失形态）。新增覆盖：`memorySectionOverage` 镜像渲染器；一次
+  重试修好（并检查重试提示词只带节名/数字、不带上一版内容）；重试上限恰好三条调用；拒绝且字节不变 + 每次各一行
+  日志；同一回复在小 cap 被拒、在 40000 落盘；历史标记不当作本次丢失；更差的重试不采纳；无条目回复归语义空门；
+  拒绝之后的失败仍点名拒绝；拒绝释放 claim（用 `forceDedupeMs` 窗口把 `deduped` 与 `lossy-refused` 区分开）。
+  **干净路径逐字不变**（`Project memory and context updated.`）。
+- 变异校验：**10 个**变异体各自杀死对应用例，且全部通过有效性三关（`tsc` 0 错、标记进 `lib/`、行为在探针上确实改变）：
+  M1 `retryWorthy: false`（去掉重试触发）→ 19 条红；M2 `refuses: false`（去掉拒绝）→ 15 条；M3 把 `itemTruncated`
+  并入 `refuses` → `per-item` 那条红；M4 去掉「重试须语义非空」→ 13 条；M5 让 `normalizeMemoryWithDrop` 把历史标记
+  当成丢失 → 新增的「历史标记」那条红；M6 拆掉拒绝分支的 `written.delete` → 「拒绝释放 claim」那条红；M7 令
+  `memorySectionOverage` 的 `itemCap` 取整节预算（不再镜像渲染器）→ 镜像那条红；M8 让落盘计数不过 `wroteMemory`
+  过滤 → 拒绝用例红；M9 无条件采纳重试 → 「更差的重试」那条红；M10 去掉 refusal 的跨失败携带 → 「拒绝后的失败」
+  那条红。每个变异体跑完立刻从 `sha256sum -c` 校验过的 `/tmp` 副本恢复该文件；收尾 `sha256sum -c` 全绿、重建后
+  `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`node --test`
+  **312 pass / 0 fail**。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**

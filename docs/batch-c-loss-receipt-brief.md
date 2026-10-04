@@ -113,6 +113,11 @@ byte-identical wording to the pre-change function when counts are zero; the repo
 
 - Tier B's refusal and tier C's targeted retry, per the ruling. A lossy pass still writes; that
   residual is recorded in `CHANGELOG.md` and `CONTEXT.md` rather than fixed.
+  **Addendum 2026-10-04: tier C is now implemented** (`docs/batch-c-tier-c-design.md`). It was unblocked by
+  the per-project cap going 32000 → 40000 — read live from the running desktop host's own
+  `settings.describe`, not from a file — which took the Invariants headroom from 55 to 3255 characters and
+  removed the self-lock this section ruled against. Tier B alone stays unimplemented and is now moot: C is
+  B plus the one retry that decides whether a refusal was necessary.
 - The memory-side loader cap is **not** counted: a hand-edited over-cap `MEMORY.md` is truncated by
   `loadMemory` before the pass sees it, and the stored marker plus the `/memory status` warning are
   its only traces. Counting it would mix the loader's normalization with the cap, so it is left as a
