@@ -1551,6 +1551,25 @@ test("a consolidation route that refuses the tools parameter is retried once wit
 	assert.equal(report.status, "updated", `the tools-free answer is the one that lands (got ${JSON.stringify(report)})`);
 });
 
+test("only a request-shape refusal buys the tools-free retry on the memory side too", async () => {
+	// The autolearn pass has the paired negative; without this one a memory-side over-reach — falling
+	// back on any code-carrying failure — would have been caught only by the autolearn case.
+	const root = await memoryProject("dsh-memory-tools-negative-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ reason: { kind: "error", failure: { message: "invalid api key", code: "AUTH" } } },
+			{ text: FITTING_TEXT_REPLY },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "an auth failure is not re-asked without tools");
+	assert.equal(report.status, "failed", `the pass reports the failure rather than papering over it (got ${JSON.stringify(report)})`);
+});
+
 test("a per-item truncation with no section overflow still logs a complete loss line", async () => {
 	// The same branch's other shape: one entry over the per-item cap that still fits its own section.
 	// The section-drop test filters on `exceeded their budget`, so this line — which carries only the
