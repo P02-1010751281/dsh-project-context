@@ -164,8 +164,10 @@ is implemented as tier C and the decision in `docs/batch-c-tier-c-design.md` sta
 
 ## 6. Implementation — what landed, and where it deviates
 
-Landed in two commits (code + tests; no client code, so the client bundle is unchanged). The second
-one corrects the first: a self-review found the state-free helper below rested on a false premise.
+Landed across the batch's own code and test commits (`git log --oneline` since the decision commit;
+no client code, so the client bundle is unchanged). Two of them correct earlier ones: a self-review
+found the state-free helper below rested on a false premise, and the fail-soft parser wrapper lost its
+last caller once `ask()` read through the reporting function.
 
 - **R2**: `failure.code` now rides on the error `requestPluginTextWithMeta` throws (own property, the
   message byte-identical to what the plugin always threw), and `callWithToolsFallback` retries a
@@ -190,12 +192,13 @@ one corrects the first: a self-review found the state-free helper below rested o
   defined on top of it and keeps its old contract (pinned by `test/logic.test.mjs`). `ask()` accepts a
   `max-tokens` reply whose text parsed and still re-asks for one that did not; the tool-call half is
   untouched.
-- **Mutation-checked** (four valid mutants, each 0 `tsc` errors, marker present in `lib/`, and exactly
+- **Mutation-checked** (five valid mutants, each 0 `tsc` errors, marker present in `lib/`, and exactly
   the named cases turning red): removing the parse signal reddens only the parseable-cut case;
   emptying the request-shape set reddens the three fallback-dependent cases; replacing the membership
   test with "any code-bearing failure" reddens only the auth negative, which is what pins the
-  discrimination; and removing the pass switch reddens only the backtrack case, which is what shows the
-  state is reachable rather than ceremony.
+  discrimination; removing the pass switch reddens only the backtrack case, which is what shows the
+  state is reachable rather than ceremony; and dropping the code from the thrown error reddens the new
+  seam assertion plus those same three fallback cases.
 - Gate when the batch was pushed: `pnpm typecheck` 0 errors, `node --test` 328 pass / 0 fail (323
   before, +5), `lib/` identical to a fresh `tsc` compile except `client.js` (28376 bytes, unchanged —
   no client code moved).
