@@ -205,7 +205,12 @@ export async function requestPluginTextWithMeta(
 			}
 		}
 	}
-	if (failure) throw new Error(`plugin model call failed (${failure.code}): ${failure.message}`);
+	// The code is the harness's machine-routable failure class (`HarnessError.code`), and it has to
+	// survive this boundary: a caller that must tell "this request was rejected on its shape" — a
+	// provider 400, which is how a route that does not accept `tools` answers — from a quota or an
+	// outage has nothing else to route on, and dsh's own contract forbids parsing the message. The
+	// message itself stays exactly what this plugin has always thrown.
+	if (failure) throw Object.assign(new Error(`plugin model call failed (${failure.code}): ${failure.message}`), { code: failure.code });
 	const collected = [...toolCalls.entries()]
 		.sort(([left], [right]) => left - right)
 		.map(([, call]) => call)
@@ -216,6 +221,45 @@ export async function requestPluginTextWithMeta(
 		reasoningTokens,
 		...(collected.length === 0 ? {} : { toolCalls: collected }),
 	};
+}
+
+/**
+ * The failure codes that mean the *request* was refused on its shape, rather than the account, the
+ * route or the connection failing.
+ *
+ * A tools rejection is a provider 400, and both adapters this plugin can reach publish the same code
+ * for a refused request body — `INVALID_REQUEST` (`llm-deepseek`'s status map and `llm-pi-ai`'s
+ * `classifyPiAiError`) — while an adapter without such a map falls back to `HTTP_<status>`. Nothing
+ * else is retried: a quota, a credential failure or a dropped stream does not become a tools problem
+ * by being asked again without tools.
+ */
+const REQUEST_SHAPE_CODES = new Set(["INVALID_REQUEST", "HTTP_400", "HTTP_413"]);
+
+/** The harness failure code an error carries (`HarnessError.code`), or undefined when it carries none. */
+export function failureCodeOf(error: unknown): string | undefined {
+	const code = (error as { code?: unknown } | null | undefined)?.code;
+	return typeof code === "string" && code !== "" ? code : undefined;
+}
+
+/**
+ * One auxiliary model call that may be refused because it carries `tools`, retried once without them.
+ *
+ * pi's `callAux` keeps a per-pass sticky switch (`toolsAttempted` / `toolsDisabled`) because its
+ * passes issue several tools-carrying calls. Each pass here makes exactly one, so the fallback is per
+ * call and carries no state: a switch no later call could read again would be untestable dead logic.
+ * @param offersTools - whether this call carries tools at all.
+ * @param call - runs the request with tools (`true`) or without them (`false`).
+ * @returns the first outcome, or the tools-free retry's when the refusal was a request-shape one.
+ */
+export async function callWithToolsFallback<T>(offersTools: boolean, call: (withTools: boolean) => Promise<T>): Promise<T> {
+	if (!offersTools) return call(false);
+	try {
+		return await call(true);
+	} catch (error: unknown) {
+		const code = failureCodeOf(error);
+		if (code === undefined || !REQUEST_SHAPE_CODES.has(code)) throw error;
+		return await call(false);
+	}
 }
 
 /**

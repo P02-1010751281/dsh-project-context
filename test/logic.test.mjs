@@ -1525,6 +1525,28 @@ test("tier C: a reply that would be stored lossily is refused after one retry, a
 	}
 });
 
+test("a consolidation route that refuses the tools parameter is retried once without it", async () => {
+	// The shared fallback is wired in both passes, so this pins the memory side's own call site: the
+	// first (tools-carrying) call is the one that may be refused, and the retry must really drop the
+	// tool rather than repeat the request the route already rejected.
+	const root = await memoryProject("dsh-memory-tools-fallback-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ reason: { kind: "error", failure: { message: "this route does not accept the tools parameter", code: "INVALID_REQUEST" } } },
+			{ text: FITTING_TEXT_REPLY },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 2, "the refused tools call is retried once");
+	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offered the tool");
+	assert.equal(calls[1].tools, undefined, "the retry drops the tool");
+	assert.equal(report.status, "updated", `the tools-free answer is the one that lands (got ${JSON.stringify(report)})`);
+});
+
 test("a per-item truncation with no section overflow still logs a complete loss line", async () => {
 	// The same branch's other shape: one entry over the per-item cap that still fits its own section.
 	// The section-drop test filters on `exceeded their budget`, so this line — which carries only the

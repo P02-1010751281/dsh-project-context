@@ -9,7 +9,7 @@ import { type Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
+import { type CompletionOutcome, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { parseToolArguments } from "../shared/reply-json.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, reasoningReserveTokens } from "../shared/output-budget.js";
 import { MAX_CONTEXT_CHARS, MAX_SKILL_BODY_CHARS, cachedProjectRoot, contextFile, fileMtimeMs, getProjectRoot, getProjectRootSync, logError, logsDir, memoryFile, readOptional, safeSessionId } from "../shared/project-state.js";
@@ -19,7 +19,7 @@ import { readSessionIndex } from "../project-context/session-index.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import { saveProposedSkill } from "./candidate.js";
 import { archivedSessionIds, collectSkillInventory, inventoryText } from "./inventory.js";
-import { type AutolearnDecision, parseAutolearn, parseAutolearnToolCall } from "./parse.js";
+import { type AutolearnDecision, parseAutolearnReply, parseAutolearnToolCall } from "./parse.js";
 import { backtrackPrompt, basePrompt } from "./prompt.js";
 import { RECORD_SKILL_TOOL } from "./schema.js";
 import { type LearnedSkill } from "./skill.js";
@@ -159,10 +159,12 @@ export function autolearnProjectSkills(
 
 			/** One decision call. `withTools` is false for the retry, which asks for the text shape. */
 			const call = (prompt: string, withTools: boolean): Promise<CompletionOutcome> =>
-				requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, withTools ? { tools: [RECORD_SKILL_TOOL] } : {});
+				callWithToolsFallback(withTools, (useTools) =>
+					requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, useTools ? { tools: [RECORD_SKILL_TOOL] } : {}),
+				);
 
 			/** Read one reply: the tool call first, the text JSON shape second. */
-			const decideFrom = (completion: CompletionOutcome, allowTools: boolean): AutolearnDecision => {
+			const decideFrom = (completion: CompletionOutcome, allowTools: boolean): AutolearnDecision | undefined => {
 				if (allowTools) {
 					// Throws when the reply called another tool and carried no text: that is an error, not a
 					// decision, and returning one would hide it behind "the model proposed nothing".
@@ -176,32 +178,37 @@ export function autolearnProjectSkills(
 						if (completion.text.trim() === "") throw new Error(`the ${RECORD_SKILL_TOOL.name} call carried unusable arguments and no text`);
 					}
 				}
-				return parseAutolearn(completion.text);
+				return parseAutolearnReply(completion.text);
 			};
 
+			/** The fail-soft text path's value for a reply that carried no readable decision. */
+			const NOTHING_PROPOSED: AutolearnDecision = { skill: null, needSessions: [] };
+
 			/**
-			 * One decision attempt. A reply cut off at the output cap is never accepted, even when it
-			 * carries a tool call: the adapter repairs a truncated arguments string into a shape-valid
-			 * object, so a repaired call would store a half-written skill body as if it were complete.
-			 * One text-only retry, then the retry's own answer decides.
+			 * One decision attempt. A reply cut off at the output cap is never accepted when it carries a
+			 * tool call: the adapter repairs a truncated arguments string into a shape-valid object, so a
+			 * repaired call would store a half-written skill body as if it were complete.
 			 *
-			 * Deliberately unlike the memory pass, which reads the reply first and only retries when it
-			 * cannot be resolved. The tool-call half is covered by `toolCallIsTruncated` either way; the
-			 * reason the whole reply is discarded before reading is the **text** path's fail-soft
-			 * contract: `parseAutolearn` reads an unparseable reply as `{skill: null, need_sessions: []}`,
-			 * which is the same decision a model that proposed nothing returns. Reading a cut reply first
-			 * would therefore report a truncated answer as "no skill was warranted" instead of retrying
-			 * it. The cost — a complete decision that coincides with a `max-tokens` finish is asked for
-			 * again — is the cheaper error here, and pi's autolearn makes the same choice.
-			 * `test/autolearn.test.mjs` pins the cut-text case; a probe over every truncation point of a
-			 * brace-heavy reply found no cut that parses into a partial body, so the wasted call is the
-			 * only thing at stake, never half a procedure.
+			 * The **text** half is different, and this pass no longer discards the whole reply to protect
+			 * it. `parseAutolearnReply` reports whether the reply's JSON object parsed at all, and a cut
+			 * reply that parsed closed its object before the cut, so every member was emitted whole — a
+			 * raw `JSON.parse` cannot accept a half-written value (probe over every cut point of three
+			 * reply shapes: `.agents/evidence/2026-10-05-autolearn-cut-parse-probe/`, no cut ever parsed
+			 * into a partial body). So a cut reply is accepted when it parsed and re-asked when it did
+			 * not, which keeps the fail-soft trap closed — reading an *unreadable* cut reply as
+			 * `{skill: null}` would report a truncated answer as "no skill was warranted" — without
+			 * spending a second call on a decision that already arrived complete.
+			 * `test/autolearn.test.mjs` pins both halves: the unreadable cut is retried, the parseable
+			 * one is not.
 			 */
 			const ask = async (prompt: string): Promise<AutolearnDecision> => {
 				const completion = await call(prompt, true);
-				if (!toolCallIsTruncated(completion) && completion.stopReason !== "max-tokens") return decideFrom(completion, true);
+				if (!toolCallIsTruncated(completion)) {
+					const decision = decideFrom(completion, true);
+					if (completion.stopReason !== "max-tokens" || decision !== undefined) return decision ?? NOTHING_PROPOSED;
+				}
 				const retryPrompt = `${prompt}\n\nYour previous response was cut off by the output limit. Retry this same decision now without the tool: return exactly one complete JSON object, condensing the skill body so it fits; no prose, Markdown code fence, ellipsis, or unfinished value.`;
-				return decideFrom(await call(retryPrompt, false), false);
+				return decideFrom(await call(retryPrompt, false), false) ?? NOTHING_PROPOSED;
 			};
 
 			const first = await ask(basePrompt(projectRoot, memory.text, contextText, indexText, skillsText));

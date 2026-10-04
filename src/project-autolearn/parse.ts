@@ -52,15 +52,34 @@ function shapeProposedSkill(raw: Record<string, unknown>): ProposedSkill | null 
 	};
 }
 
-/** Parse the autolearn JSON contract: either a skill, or a request to read archives. */
-export function parseAutolearn(text: string): AutolearnDecision {
+/**
+ * Parse the autolearn JSON contract, keeping the distinction between "the reply carried no readable
+ * object" and "it parsed and proposed nothing".
+ *
+ * The distinction is the signal a caller needs to accept a reply cut at the output cap: the cut text
+ * parsed, so the object closed before the cut and every member was emitted whole (a raw `JSON.parse`
+ * cannot accept a half-written value) — while an unreadable reply must still be re-asked rather than
+ * read as a decision. `undefined` means unreadable; `{skill: null}` means the model proposed nothing.
+ */
+export function parseAutolearnReply(text: string): AutolearnDecision | undefined {
 	const parsed = parseJsonObject(text);
-	if (!parsed) return { skill: null, needSessions: [] };
+	if (!parsed) return undefined;
 	// The text path keeps its historical verdict: a malformed `skill` member is "nothing to
 	// propose", not an unusable reply.
 	const raw = isRecord(parsed.skill) ? parsed.skill : null;
 	const skill = raw === null ? null : shapeProposedSkill(raw) ?? null;
 	return { skill, needSessions: readNeedSessions(parsed.need_sessions) };
+}
+
+/**
+ * Parse the autolearn JSON contract the fail-soft way: an unreadable reply is the same decision a
+ * model that proposed nothing returns.
+ *
+ * Kept as the reading entry for callers that have nothing better to do with an unreadable reply;
+ * `parseAutolearnReply` is the one that reports which of the two happened.
+ */
+export function parseAutolearn(text: string): AutolearnDecision {
+	return parseAutolearnReply(text) ?? { skill: null, needSessions: [] };
 }
 
 /**

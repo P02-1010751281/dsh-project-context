@@ -795,10 +795,11 @@ test("an autolearn reply cut off at the output cap is retried without the tool",
 });
 
 test("a cut text reply is retried, not read as \"nothing to propose\"", async () => {
-	// The text path is fail-soft: `parseAutolearn` reads an unparseable reply as `{skill: null}`, the
-	// same decision a model that proposed nothing returns. Reading a `max-tokens` reply first (the
-	// memory pass's shape) would therefore report a truncated answer as "no skill was warranted"
-	// instead of retrying it — which is why the pass discards the reply before reading it at all.
+	// Half one of the pair. The text path is fail-soft: `parseAutolearn` reads an unparseable reply as
+	// `{skill: null}` — the same decision a model that proposed nothing returns — so reading this reply
+	// as a decision would report a truncated answer as "no skill was warranted". `parseAutolearnReply`
+	// is what tells the two apart, and an unreadable reply still gets the second call. Its sibling
+	// below pins the other half: a cut reply that *did* parse is not asked for again.
 	const root = await project({ sessions: ["session-a", "session-b"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
 	const agent = fakeAgent(root, { turns: 3 });
@@ -812,6 +813,69 @@ test("a cut text reply is retried, not read as \"nothing to propose\"", async ()
 	assert.equal(ctx.calls.length, 2, "a cut text reply is retried rather than read as a decision");
 	assert.match(promptOf(ctx.calls[1]), /cut off by the output limit/, "the retry says why it is asking again");
 	assert.equal(outcome?.skill, null, "the retry's own answer decides");
+});
+
+test("a cut text reply whose object closed is accepted without a second call", async () => {
+	// Half two. The cut landed after the JSON object closed — in the prose the model appended — so every
+	// member arrived whole and the decision is already there. Reading it is safe for a structural reason:
+	// a raw `JSON.parse` cannot accept a half-written value, so "the object parsed" implies "nothing
+	// inside it was truncated". The probe over every cut point of three reply shapes
+	// (`.agents/evidence/2026-10-05-autolearn-cut-parse-probe/`) found no cut that parses into a partial
+	// body, and a cut pure-JSON reply never parses at all.
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const decision = JSON.stringify({
+		skill: { name: "cut-but-complete", description: "a workflow", body: BODY, evidence: ["session-a", "session-b"], candidate: false, reason: "why" },
+		need_sessions: [],
+	});
+	const ctx = fakeContext([
+		{ text: `${decision}\n\nThat is the decision, and this commentary is what the output cap interrupted`, reason: { kind: "max-tokens" } },
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 1, "a parseable cut reply is not asked for again");
+	assert.equal(outcome?.skill?.name, "cut-but-complete", "the cut reply's own decision is used");
+	assert.match(await readFile(path.join(skillsDir(root), "cut-but-complete", "SKILL.md"), "utf8"), /^---\nname: cut-but-complete\n/);
+});
+
+test("a route that refuses the tools parameter is retried once without it", async () => {
+	// A tools rejection is a provider 400, which both shipped adapters report as the request-shape code
+	// `INVALID_REQUEST` — the one class `callWithToolsFallback` spends a second call on.
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const refusal = { reason: { kind: "error", failure: { message: "this route does not accept the tools parameter", code: "INVALID_REQUEST" } } };
+	const ctx = fakeContext([
+		(options) => (options.tools === undefined ? '{"skill": null}' : refusal),
+		'{"skill": null}',
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 2, "the refused call is retried once");
+	assert.deepEqual(ctx.calls[0].tools?.map((tool) => tool.name), ["record_skill"], "the first call offered the tool");
+	assert.equal(ctx.calls[1].tools, undefined, "the retry drops the tool");
+	assert.equal(promptOf(ctx.calls[1]), promptOf(ctx.calls[0]), "the retry re-sends the same prompt, only without the tool");
+	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false }, "the tools-free answer decides the pass");
+});
+
+test("only a request-shape refusal buys the tools-free retry", async () => {
+	// Same finish shape, same in-band delivery, different code: this is the discrimination the fallback
+	// rests on, so an auth failure must fail the pass instead of being re-asked without tools.
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const ctx = fakeContext([
+		{ reason: { kind: "error", failure: { message: "invalid api key", code: "AUTH" } } },
+		'{"skill": null}',
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 1, "an auth failure is not re-asked without tools");
+	assert.equal(outcome, undefined, "the pass reports the failure rather than papering over it");
 });
 
 test("a record_skill call with unusable arguments and no text fails the pass", async () => {
