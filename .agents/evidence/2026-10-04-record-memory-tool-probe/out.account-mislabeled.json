@@ -1,0 +1,24 @@
+{
+  "startedAt": "2026-10-04T03:59:07.996Z",
+  "provider": "deepseek-official",
+  "model": "deepseek-flash",
+  "providersSeen": [
+    "deepseek-official",
+    "deepseek-account"
+  ],
+  "firedAt": "2026-10-04T03:59:08.183Z",
+  "chunks": [
+    {
+      "type": "finish",
+      "reason": {
+        "kind": "error",
+        "failure": {
+          "message": "Sign in to DeepSeek to use the account provider. The request destination must allow account authentication.",
+          "code": "ACCOUNT_SIGN_IN_REQUIRED"
+        }
+      }
+    }
+  ],
+  "completedAt": "2026-10-04T03:59:08.186Z",
+  "error": null
+}

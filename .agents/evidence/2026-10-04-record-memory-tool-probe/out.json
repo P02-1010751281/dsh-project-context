@@ -1,0 +1,283 @@
+{
+  "startedAt": "2026-10-04T03:59:58.606Z",
+  "routes": [
+    "deepseek-account",
+    "deepseek-official"
+  ],
+  "providersSeen": [
+    "deepseek-official",
+    "deepseek-account"
+  ],
+  "attempts": [
+    {
+      "route": "deepseek-account",
+      "attempt": 1,
+      "at": "2026-10-04T03:59:58.794Z",
+      "failure": {
+        "message": "Sign in to DeepSeek to use the account provider. The request destination must allow account authentication.",
+        "code": "ACCOUNT_SIGN_IN_REQUIRED"
+      },
+      "chunkTypes": [
+        "finish"
+      ]
+    },
+    {
+      "route": "deepseek-account",
+      "attempt": 2,
+      "at": "2026-10-04T04:00:00.485Z",
+      "failure": null,
+      "chunkTypes": [
+        "block-start",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "reasoning-delta",
+        "block-end",
+        "block-start",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "tool-call-delta",
+        "block-end",
+        "usage",
+        "finish"
+      ]
+    }
+  ],
+  "result": {
+    "route": "deepseek-account",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "reasoning"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "reasoning-delta"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "reasoning",
+          "text": "The user wants me to call probe_echo with value \"ok\". Do not reply with text. So I just make the tool call."
+        }
+      },
+      {
+        "type": "block-start",
+        "index": 1,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": "probe_echo",
+        "argumentsDelta": ""
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "{"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "\""
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "value"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "\""
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": ": "
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "\""
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "ok"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "\""
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+        "name": null,
+        "argumentsDelta": "}"
+      },
+      {
+        "type": "block-end",
+        "index": 1,
+        "block": {
+          "type": "tool-call",
+          "id": "call_00_1dyS4nxoGK59ZuzBe07V2933",
+          "name": "probe_echo",
+          "arguments": "{\"value\": \"ok\"}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 320,
+          "outputTokens": 68,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "totalTokens": 388
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ],
+    "failure": null
+  },
+  "completedAt": "2026-10-04T04:00:00.485Z",
+  "fatal": null
+}

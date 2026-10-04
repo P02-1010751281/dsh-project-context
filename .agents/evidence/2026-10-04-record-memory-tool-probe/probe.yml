@@ -1,0 +1,4 @@
+# Extra overlay layered after the profile's own patches; inserted plugin lives beside this file.
+- insert:
+    - id: record-memory-tool-probe
+      name: ./probe.mjs

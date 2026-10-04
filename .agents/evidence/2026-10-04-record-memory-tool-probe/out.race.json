@@ -1,0 +1,19 @@
+{
+  "startedAt": "2026-10-04T03:56:20.893Z",
+  "provider": "deepseek-account",
+  "model": "deepseek-flash",
+  "chunks": [
+    {
+      "type": "finish",
+      "reason": {
+        "kind": "error",
+        "failure": {
+          "message": "no adapter registered for provider \"deepseek-account\"",
+          "code": "NO_ADAPTER"
+        }
+      }
+    }
+  ],
+  "completedAt": "2026-10-04T03:56:20.921Z",
+  "error": null
+}
