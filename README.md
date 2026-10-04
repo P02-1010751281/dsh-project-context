@@ -34,7 +34,7 @@ session.jsonl（唯一权威）──► session.md（全量渲染，人读）�
 | 阶段 | 插件（子路径） | 触发 | 产物 |
 |---|---|---|---|
 | ① 存档 | `project-context`（主入口，`/context`、`/session-log`） | 事件驱动（见下）；`/session-log` | `session.jsonl`、`session.md`、`INDEX.md` |
-| ② 整理 | `project-memory`（`/memory`、`/context-update`） | idle / disposed + 节流；命令 | `CONTEXT.md` + `MEMORY.md`（每轮注入） |
+| ② 整理 | `project-memory`（`/memory`、`/memory update`） | idle / disposed + 节流；命令 | `CONTEXT.md` + `MEMORY.md`（每轮注入） |
 | ③ 沉淀 | `project-autolearn`（`/autolearn`） | 材料有更新 且（累计轮 ≥ `autolearnTurns`(20) 或距上次 ≥ `autolearnIntervalMs`(30min)）且项目内至少有一个真实存档 | `.agents/skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
 | ④ 交接 | `project-handoff`（`/handoff`） | 上下文占用越过阈值 **且没有仍在运行的后台子代理**，且触发它的 `turn/end` 之后本会话未再开新轮；命令 | 新会话 + `HANDOFF.md` |
 
@@ -96,7 +96,7 @@ src/
 │   ├── zip.ts              #    dsh 导出 zip 的目录、deflate 条目与 session.jsonl 读取
 │   └── import.ts           #    回填入口：单会话 / 单文件 / 整目录，幂等
 ├── project-memory/         # ② 整理（"dsh-project-context/memory"）
-│   ├── index.ts            #    插件入口：整理 pass 编排、/context-update、/memory 回执
+│   ├── index.ts            #    插件入口：整理 pass 编排、/memory update、/memory 回执
 │   ├── memory-store.ts     #    记忆子系统对外门面（不变量文档 + 公共 API 再导出）
 │   ├── journal.ts          #    追加日志：解析 / 折叠 / 轮转 / 归档
 │   ├── record.ts           #    一次写入：采纳外部编辑、追加、重建渲染、legacy 导入
@@ -267,7 +267,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | 命令 | 行为 |
 |---|---|
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径 |
-| `/context-update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |
+| `/memory update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |
 | `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/memory` | 显示项目记忆路径与状态 |

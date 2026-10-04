@@ -7,7 +7,7 @@
  * model context as dynamic runtime context. Skill distillation is a separate
  * feature (`project-autolearn`), and the raw archive is `project-context`.
  *
- * Commands: /memory, /context-update
+ * Commands: /memory (status | update)
  */
 
 import type { Context } from "@deepseek-ai/cordis";
@@ -86,7 +86,7 @@ interface ConsolidateOptions {
 	signal?: AbortSignal | undefined;
 }
 
-/** What one consolidation attempt did, so the `/context-update` reply can be truthful. */
+/** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
 export type ConsolidateReport = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context";
 
 /** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
@@ -257,8 +257,15 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "memory",
-		description: "Show this project's memory location and status",
-		handler: async ({ agent }) => {
+		description: "Show this project's memory location and status, or 'update' to consolidate now",
+		input: { hint: "update" },
+		handler: async ({ agent, rawInput, signal }) => {
+			const verb = (rawInput ?? "").trim().toLowerCase();
+			if (verb === "update") {
+				const report = await consolidateProject(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
+				return memoryUpdateReply(report);
+			}
+			if (verb !== "") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory (status) | /memory update` };
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			const config = effectivePluginConfig(entry);
 			const memory = await loadMemory(projectRoot, config.maxMemoryChars);
@@ -267,15 +274,6 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				journal: memoryJournalFile(projectRoot),
 				maxMemoryChars: config.maxMemoryChars,
 			});
-		},
-	});
-
-	ctx.commands.register({
-		name: "context-update",
-		description: "Consolidate project memory and context for the current session",
-		handler: async ({ agent, signal }) => {
-			const report = await consolidateProject(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
-			return contextUpdateReply(report);
 		},
 	});
 }
@@ -320,20 +318,20 @@ export function memoryStatusReply(
 }
 
 /**
- * The `/context-update` reply for one pass result. The pass swallows its own
+ * The `/memory update` reply for one pass result. The pass swallows its own
  * error (it is also logged to `errors.log`), so the reply must not claim success
  * for a failure or for a deduped no-op. Exported for tests.
  * @param report - what the consolidation attempt did.
  * @returns the command result.
  */
-export function contextUpdateReply(report: ConsolidateReport): { kind: "success" | "error"; text: string } {
+export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" | "error"; text: string } {
 	if (report === "failed") return { kind: "error", text: "Project memory update failed; see .agents/memory/errors.log." };
 	if (report === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
 	if (report === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
 	if (report === "clipped") return { kind: "success", text: "Project memory and context updated, but the existing content was shortened to fit the model output budget." };
 	// A refused reply is not a write: the memory changed while the reply was being built, so the
 	// newer bytes stay effective. Neither wording may claim that memory was rewritten.
-	if (report === "stale") return { kind: "success", text: "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /context-update again to consolidate from it." };
+	if (report === "stale") return { kind: "success", text: "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };
 	if (report === "stale-context") return { kind: "success", text: "Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective." };
 	return { kind: "success", text: "Project memory and context updated." };
 }

@@ -28,7 +28,6 @@ import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runt
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate, memorySectionRule } from "../lib/project-memory/consolidate.js";
-import { consolidateProject } from "../lib/project-memory/index.js";
 import { memorySectionBudgets } from "../lib/project-memory/memory-schema.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation, parseContextMember, parseToolArguments } from "../lib/shared/reply-json.js";
@@ -56,7 +55,7 @@ import {
 } from "../lib/shared/project-state.js";
 import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-context/session-log.js";
 import { effectivePluginConfig, publishProjectContextSettings } from "../lib/shared/settings.js";
-import { contextUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
+import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
 
 function message(role, text) {
@@ -1280,16 +1279,56 @@ test("the handoff watcher releases its subscriptions when the plugin unloads", (
 	assert.deepEqual(harness.opened, [], "a disposed watcher stops scanning");
 });
 
-test("the /context-update reply reflects what the consolidation pass did", () => {
+test("the memory command carries status and update, and the removed /context-update is gone", async () => {
+	// The command surface is part of the port: `/context-update` was renamed to `/memory update` and
+	// deleted with no alias, so this pins both the routing and the absence of the old name.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-memory-command-"));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n\n## Index\n");
+	const commands = new Map();
+	const ctx = {
+		on: () => () => undefined,
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		systemPrompt: { context: () => undefined },
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: () => (async function* generate() {
+				yield { type: "text-delta", text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- p1\n- a second durable fact\n\n## Invariants\n- i1\n\n## Pitfalls\n\n## Index\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }) };
+			})(),
+		},
+	};
+	applyMemory(ctx, { provider: "test-provider", model: "test-model" });
+	assert.deepEqual([...commands.keys()], ["memory"], "the plugin registers exactly one command, with no /context-update alias");
+	const agent = { session: { id: "session-cmd", header: { cwd: root, createdAt: Date.now() }, snapshotEvents: () => [], deriveMessages: () => [], requestHeader: () => undefined } };
+	const command = commands.get("memory");
+
+	const status = await command.handler({ agent, rawInput: "" });
+	assert.equal(status.kind, "success");
+	assert.match(status.text, /Project memory:/);
+
+	const unknown = await command.handler({ agent, rawInput: "frobnicate" });
+	assert.equal(unknown.kind, "error");
+	assert.match(unknown.text, /\/memory update/, "the usage names the verb that exists");
+
+	const updated = await command.handler({ agent, rawInput: "update" });
+	assert.equal(updated.kind, "success", JSON.stringify(updated));
+	assert.match(updated.text, /updated/i);
+	assert.match(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), /a second durable fact/, "the forced pass really wrote");
+});
+
+test("the /memory update reply reflects what the consolidation pass did", () => {
 	// The pass swallows its own failure, so the reply is the only signal the user gets.
-	assert.equal(contextUpdateReply("failed").kind, "error");
-	assert.match(contextUpdateReply("failed").text, /errors\.log/);
-	assert.equal(contextUpdateReply("updated").kind, "success");
-	assert.match(contextUpdateReply("updated").text, /updated/);
-	assert.match(contextUpdateReply("deduped").text, /already up to date/);
-	assert.match(contextUpdateReply("unchanged").text, /no new memory/);
-	assert.match(contextUpdateReply("clipped").text, /shortened to fit the model output budget/);
-	assert.notEqual(contextUpdateReply("deduped").text, contextUpdateReply("updated").text, "a deduped no-op must not read as a successful rewrite");
+	assert.equal(memoryUpdateReply("failed").kind, "error");
+	assert.match(memoryUpdateReply("failed").text, /errors\.log/);
+	assert.equal(memoryUpdateReply("updated").kind, "success");
+	assert.match(memoryUpdateReply("updated").text, /updated/);
+	assert.match(memoryUpdateReply("deduped").text, /already up to date/);
+	assert.match(memoryUpdateReply("unchanged").text, /no new memory/);
+	assert.match(memoryUpdateReply("clipped").text, /shortened to fit the model output budget/);
+	assert.notEqual(memoryUpdateReply("deduped").text, memoryUpdateReply("updated").text, "a deduped no-op must not read as a successful rewrite");
 });
 
 test("the /memory reply reports a memory that is riding the character cap", () => {
