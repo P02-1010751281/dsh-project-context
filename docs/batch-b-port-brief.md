@@ -102,7 +102,7 @@ the character cap").
 - dsh's finish reason for a cut reply is **`max-tokens`**, pi's is `length`; copying pi's string
   silently disables the retry path.
 - Do not touch the `isTopLevel` gates, and leave handoff's `retireIfPending` before its gate.
-- `.agents/memory/MEMORY.md` sits at the cap: measure with `loadMemory(root, 32000)` +
+- `.agents/memory/MEMORY.md` sits at the cap: measure with `loadMemory(root, MAX_MEMORY_CHARS)` +
   `isMemoryTruncated(doc.text)`, never with `wc -c` or a grep for the marker. A format migration that
   grows the document is silently truncated on the next plugin write.
 - A new config key costs **six** edits (config, settings, `client/card-fields.ts`,

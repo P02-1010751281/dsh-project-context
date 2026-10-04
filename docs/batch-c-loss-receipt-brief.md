@@ -118,6 +118,9 @@ byte-identical wording to the pre-change function when counts are zero; the repo
   `settings.describe`, not from a file — which took the Invariants headroom from 55 to 3255 characters and
   removed the self-lock this section ruled against. Tier B alone stays unimplemented and is now moot: C is
   B plus the one retry that decides whether a refusal was necessary.
+  **Addendum 2026-10-04, later the same day — the default layer followed**: `MAX_MEMORY_CHARS` 32000 → 40000,
+  so a profile that relies on the bundle insert (e.g. `ctxdev`) gets the same headroom and no longer inherits
+  the old self-lock this section measured.
 - The memory-side loader cap is **not** counted: a hand-edited over-cap `MEMORY.md` is truncated by
   `loadMemory` before the pass sees it, and the stored marker plus the `/memory status` warning are
   its only traces. Counting it would mix the loader's normalization with the cap, so it is left as a

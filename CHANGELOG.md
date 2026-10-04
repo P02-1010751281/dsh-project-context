@@ -390,9 +390,17 @@
   `settings.describe` 读到 `40000`，不是从文件推断）。到 40000 时各节预算 Project 7984 / Invariants 15969 /
   Pitfalls 9981 / Index 5988，对当前 30953 字符文档余量 2355 / **3255** / 2083 / 1343——Invariants 从 55 变成
   3255，档 B/C 的**自锁前提**才解除（贴上限时每次整理都有损，拒绝写入等于记忆永远停更）。设计、自锁分析与验收
-  判据在 `docs/batch-c-tier-c-design.md`。**已知缺口（点名不修）**：`DEFAULT_CONFIG.maxMemoryChars` 仍是 32000，
-  走 bundle 插入、未在自己 profile 里写这个键的 profile（如 `ctxdev`）用的是默认值，对这个项目的记忆仍只有 55 字符
-  Invariants 余量。
+  判据在 `docs/batch-c-tier-c-design.md`。原先记为「点名不修的缺口」的默认值层，已于同日由用户点名补上：
+  `MAX_MEMORY_CHARS` 32000 → 40000。它是 `DEFAULT_CONFIG.maxMemoryChars` **和所有兜底默认参数**共同读的那一个
+  常量（`src/shared/limits.ts`），所以只改 `DEFAULT_CONFIG` 一个字段会造出两个不同的「默认值」、在省略 limit 的
+  调用点上静默裁掉多出来的内容，因此抬的是常量本身。于是走 bundle 插入、未在自己 profile 里写这个键的 profile
+  （如 `ctxdev`）也拿到与 desktop/web 相同的余量。回归用例放进既有的「默认 cap 就是文档里那个数」那条：650 行
+  （33689 字符）的文档在默认 cap 下**不再**被裁（旧的 32000 默认会裁它），800 行的仍按整行裁并报 `40000`。
+  变异校验：把常量退回 32000 → 编译 0 错、标记进 `lib/`、行为确实改变（同一输入由「未截断」变成「截断」），
+  杀掉 3 条具名断言（`logic.test.mjs` 的默认值断言、`memory-store.test.mjs` 的常量断言、以及「默认 cap 保住旧
+  32000 会裁掉的文档」这条行为断言）；从 hash 校验过的 `/tmp` 副本恢复后重建，`lib/` 标记 0。门禁（现跑现读）：
+  `pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节，locales 里 32000→40000 等长）、
+  `node --test` **312 pass / 0 fail**。
 - 独立对抗审核复现并修掉的三处（审核报告 `/tmp/dsh-tier-c-review.md`，10 条：1 阻断 / 3 应修 / 6 备注）：
   **①阻断**：拒绝判定当时读的是**标记行**而不是真裁切——`writeCapDroppedChars` 由
   `memoryTruncationDropped(normalizeMemoryDocument(reply, cap))` 得出，而 `normalizeMemoryDocument` 在正文没超限时

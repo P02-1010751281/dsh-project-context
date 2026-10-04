@@ -4,7 +4,8 @@
 §11). Tier A landed in `038557b` (see `docs/batch-c-loss-receipt-brief.md`); tiers B and C were scoped in
 §2 of that brief and deliberately not implemented. The prerequisite that unblocked C is now in place: the
 per-project cap was raised 32000 → 40000, read live from the running host's own
-`settings.describe` (`ns: project-context`, `maxMemoryChars: 40000`), which leaves
+`settings.describe` (`ns: project-context`, `maxMemoryChars: 40000`) — and the default layer followed the
+same day by raising `MAX_MEMORY_CHARS`, so the headroom is no longer profile-only — which leaves
 Project 2355 / Invariants 3255 / Pitfalls 2083 / Index 1343 characters of headroom at a 30953-character
 document. Without that headroom, a refusing tier self-locks (§5).
 
@@ -182,7 +183,7 @@ full report is `/tmp/dsh-tier-c-review.md` (throwaway, not a repo artifact).
 | a **worse** retry replaced a first reply that would have landed | asking for a smaller document cost the memory entirely | fixed: a retry that would be refused does not replace a storable first reply |
 | a body-less over-cap reply was reported as a refusal | the semantic gate was the real blocker, not the cap | fixed: the gate owns that reply; no retry, no refusal |
 | a refusal's counts vanished on a later throw | `failed` hid a decision the pass had already made | fixed: the refusal is carried across the landed-loss reset and named in the `failed` receipt |
-| `DEFAULT_CONFIG.maxMemoryChars` is still 32000 | a profile that relies on the bundle insert (e.g. `ctxdev`) keeps the old headroom | **recorded, not changed**: it is a profile/config decision, out of this batch's scope |
+| `DEFAULT_CONFIG.maxMemoryChars` was still 32000 | a profile that relies on the bundle insert (e.g. `ctxdev`) kept the old headroom | **closed 2026-10-04**, by the user's own naming: `MAX_MEMORY_CHARS` — the single constant that `DEFAULT_CONFIG.maxMemoryChars` and every fallback default read — went 32000 → 40000, so the default and the two profiles agree |
 | test gaps: `retryWorthy`'s `itemTruncated` clause and the refusal's `written.delete` were unpinned; three new assertions were vacuous | the guards could be reverted without reddening anything | fixed: both are now pinned by named tests and the vacuous assertions are gone (all of it is in the mutation round) |
 
 The reviewers could not falsify: `memoryWriteDroppedChars > 0` on a landed write (168 shape×cap
@@ -203,8 +204,10 @@ remaining notes are accepted rather than fixed:
   was written before implementation: nothing is written either way and the memory is kept, so `failed`
   is the honest label for a retry that failed for its own reason. The implemented rule is the one this
   document's §13 records.
-- `DEFAULT_CONFIG.maxMemoryChars` stays 32000; only the desktop and web profiles carry 40000, so a
-  profile relying on the bundle insert keeps the old headroom.
+- `DEFAULT_CONFIG.maxMemoryChars` no longer trails the profiles: **closed 2026-10-04** by raising
+  `MAX_MEMORY_CHARS` 32000 → 40000, the one constant the default and every fallback default read, so a
+  profile relying on the bundle insert (e.g. `ctxdev`) gets the same headroom the desktop and web
+  profiles carry.
 
 - **D1** retry input: the same `usedInput` (default) vs a re-fit.
 - **D2** mechanism 1 (`usedInput.clipped`): report only (default) vs also refuse.
