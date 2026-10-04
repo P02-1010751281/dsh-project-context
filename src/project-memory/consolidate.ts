@@ -97,7 +97,7 @@ const activeConsolidation = new Map<string, Promise<ConsolidationOutcome | undef
 
 const throttle = new Map<string, ConsolidationState>();
 
-const lastOutcome = new Map<string, { version: number; at: number; outcome: ConsolidationOutcome }>();
+const lastOutcome = new Map<string, { version: number; at: number; cap: number; outcome: ConsolidationOutcome }>();
 
 /**
  * The fixed instructions of the consolidation prompt. Exported so a test can assert the shape
@@ -342,9 +342,16 @@ export function consolidateProjectState(
 		// Otherwise a fresh session would need `previous session turns + consolidateTurns` before learning.
 		const baseline = previous?.session === sessionId ? previous.turns : 0;
 		const cached = lastOutcome.get(projectRoot);
+		// A cached outcome describes the cap it was decided under. Raising `maxMemoryChars` changes what
+		// the very same reply would lose, so a forced pass under a new cap has to re-run instead of
+		// re-answering with a refusal the old cap produced — "Raise maxMemoryChars, or retry the pass
+		// later" is the refusal's own lever, and the forced pass is where the user turns it. The throttled
+		// path below is not keyed on the cap: it must never spend a surprise model call, and re-reporting
+		// the last real decision beats claiming "already up to date" for a memory that was never written.
+		const cachedForCap = cached !== undefined && cached.cap === config.maxMemoryChars ? cached : undefined;
 		const throttled = !force && (turns - baseline < config.consolidateTurns || Date.now() - (previous?.at ?? 0) < config.consolidateIntervalMs);
 		if (throttled) return cached?.outcome;
-		if (force && cached && Date.now() - cached.at < config.forceDedupeMs) return cached.outcome;
+		if (force && cachedForCap && Date.now() - cachedForCap.at < config.forceDedupeMs) return cachedForCap.outcome;
 
 		const existing = await loadMemory(projectRoot, config.maxMemoryChars);
 		// The pass continues with whatever is readable, but a broken source must stay diagnosable:
@@ -528,7 +535,7 @@ export function consolidateProjectState(
 			memoryWriteCapDroppedChars: loss.writeCapDroppedChars,
 			memoryLossyRefused,
 		};
-		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
+		lastOutcome.set(projectRoot, { version, at: Date.now(), cap: config.maxMemoryChars, outcome });
 		return outcome;
 	})().finally(() => {
 		// Failures reject; the caller logs them and returns a truthful "failed".

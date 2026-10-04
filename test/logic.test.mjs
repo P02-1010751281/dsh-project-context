@@ -1810,6 +1810,31 @@ test("tier C: an aborted loss retry still fails the pass instead of landing the 
 	assert.equal(report.contextWritten, false);
 });
 
+test("tier C: raising maxMemoryChars inside forceDedupeMs re-runs the pass instead of re-reporting the refusal", async () => {
+	// The refusal's own lever is "Raise maxMemoryChars, or retry the pass later". A cached decision was
+	// taken under the old cap, so serving it after the cap changed answered the new cap with the old
+	// verdict — the user's fix could not take effect inside the window.
+	const root = await memoryProject("dsh-tierc-cap-raise-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } },
+			{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } },
+			{ text: FITTING_TEXT_REPLY, reason: { kind: "stop" } },
+		],
+	});
+	const small = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 60_000 });
+	const big = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 60_000 });
+
+	const first = await consolidateProject(ctx, small, agent, { force: true, silent: true });
+	const raised = await consolidateProject(ctx, big, agent, { force: true, silent: true });
+
+	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
+	assert.equal(calls.length, 3, "the raised cap makes a real model call inside the window");
+	assert.equal(raised.status, "updated", `the old cap's refusal must not answer the new cap (got ${JSON.stringify(raised)})`);
+	assert.equal(raised.memoryWritten, true, "the reply that fits the new cap lands");
+});
+
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
 	// The stored context is over the read cap, so characters of it really are hidden from the model;
 	// the reply's context shape is unusable, so CONTEXT.md is left unchanged. Reporting the hidden
