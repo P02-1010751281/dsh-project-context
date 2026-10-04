@@ -603,6 +603,31 @@
 - 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`node --test`
   **333 pass / 0 fail**（新增 3 条）。裁定与验收标准 D1–D6 在 `docs/batch-d-autolearn-supersede-brief.md` §4/§5。
 
+**project-handoff / project-context（批 E：命令面一名一义）**
+
+- 修复：**同一个事实有一个以上的拼法，于是它们能各自漂移**。`/handoff auto` 与裸 `/handoff 0.4` 都在设「阈值怎么定」，
+  `target`/`keep` 又没说清哪个数字量的是什么。现在一个事实一个拼法，**硬切、不留别名**（沿用本仓 `/context-update` → `/memory update`
+  的先例）：`threshold auto` / `threshold 0.4`（或 `threshold 60%`）独占阈值来源，裸 `auto` 与裸比例**不再生效**，回一行点名
+  `threshold` 的用法；`budget summary <tokens>` = 每次摘要要的量（`handoffTargetTokens`），`budget recent <tokens>` = 逐字带走的
+  近端对话（`handoffKeepTokens`）。**边界一个都没动**：summary 仍是 8000–200000 且例句仍是 64k，recent 仍是 0–200000，
+  `budget recent 0` 仍等于只带摘要；`target`/`keep` 不再生效，回一行点名 `budget`。
+- 修复：**裸 `/session-log` 是唯一带写副作用的读路径**。它现在只读——打印会话日志目录与索引路径，并说明用 `/session-log write`
+  写出；`write` 做的正是 `now` 做过的（JSONL + Markdown + 索引刷新）。`now` **退役**而不是留作别名，回一行指名新拼法；
+  `import <path…>` 一字未动（含它那条「找不到档案」的提示文案）。
+- 所有「教命令」的面一起搬，包括**运行期回执里点到杆杆的那几句**——护栏拒绝句与覆盖回执、`nothing to hand off` 的逃生口提示、
+  两个 `input.hint`、`USAGE`、设置卡提示（`archiveEnabled` 关掉后写的是 `write`）。**没有改任何配置键名**，所以
+  `cordis.patch.yml` 与设置卡字段一律不动（`0399e04` 的 legacy-config 迁移在本仓无对应物，ruling §4 已写明）。
+- 注：本节更早的条目里三处 `/session-log now`（描述「未设闸的显式写命令」）是**当时**的写法，按本仓先例（`/context-update` 那两处
+  也是这样留着的）不改写历史；它们指的就是现在拼作 `write` 的那个命令。
+- 变异校验（**五个**变异体，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：让裸比例重新生效 → 两条断言红；去掉 `budget`
+  正则并让 `target`/`keep` 复活 → 同样两条红；让裸 `/session-log` 重新写出（回到旧 handler 形状）→ 只掉会话日志那条；
+  把 `USAGE` 换回旧串 → 两条红；把 handoff 的 `input.hint` 换回旧串 → 只掉 handoff 命令那条。收尾从 `sha256sum -c` 校验过的
+  `/tmp` 副本恢复 `src/`、重建后 `lib/` 标记 0。
+- 遗留（**未改，留给裁定**）：`/handoff force` 是 `now` 的第三个拼法，但 ruling §1 没点它、pi 的同一批也明确留着它的同义词，
+  所以本轮**原样保留**并在 ruling 里记一条备注；哪天要按「一名一义」收口，它是一行改动。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 字节，客户端提示改了一处）、
+  `node --test` **335 pass / 0 fail**（新增 2 条）。裁定与验收标准 E1–E5 在 `docs/batch-e-command-surface-ruling.md`。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**

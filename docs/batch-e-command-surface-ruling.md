@@ -1,17 +1,18 @@
 # Batch E ruling — the command surface, one name per fact
 
-**Status: ruled 2026-10-05, not started.** The fourth pi triage pass
-(`docs/upstream-pi-triage.md` §"Fourth pass") marked this portable from `0399e04` at `f6bea1d`. This file
-records the rulings; the rename itself is unimplemented, so `src/` still carries the old grammar.
+**Status: implemented 2026-10-05** (code and tests in `4b7bfb8`; §5 records what the implementation had to
+add beyond these rulings). The fourth pi triage pass (`docs/upstream-pi-triage.md` §"Fourth pass") marked
+this portable from `0399e04` at `f6bea1d`. §1 below describes the **pre-change** grammar and is kept as the
+record of what was renamed.
 
-Read the current grammar before touching it:
+The grammar before the change, for reference:
 
 ```sh
 D=/mnt/Data/Projects/dsh-project-context
-sed -n '39,66p' $D/src/project-handoff/command.ts          # settingPatch + USAGE
-sed -n '150,166p' $D/src/project-handoff/index.ts          # the /handoff command itself
-sed -n '120,158p' $D/src/project-context/index.ts          # /context and /session-log
-git -C /mnt/Data/Projects/pi-project-context show 0399e04  # pi's change, tests included
+git -C $D show 4b7bfb8^:src/project-handoff/command.ts | sed -n '39,66p'   # settingPatch + USAGE
+git -C $D show 4b7bfb8^:src/project-handoff/index.ts  | sed -n '150,166p'  # the /handoff command itself
+git -C $D show 4b7bfb8^:src/project-context/index.ts  | sed -n '120,158p'  # /context and /session-log
+git -C /mnt/Data/Projects/pi-project-context show 0399e04                  # pi's change, tests included
 ```
 
 ## 1. What the surface does today
@@ -76,3 +77,26 @@ path and folded them into flat keys once; our settings live in the shared namesp
 `PluginSettingsSchema`, `src/shared/config.ts` has no legacy term, and `src/shared/migrate.ts` migrates
 directory layouts rather than config shapes. The umbrella command pi retired does not exist here, so
 `89cadee`'s naming fix has nothing to rename either.
+
+## 5. What the implementation had to add beyond these rulings (2026-10-05)
+
+1. **Runtime receipts name levers too.** E5 lists `USAGE`, the command `input.hint`, the README's table and
+   the memory/context pointers, but three *runtime* strings also teach a spelling: `thresholdRefusalText`'s
+   knee sentence ("… a fixed ratio — `/handoff 0.4` is not checked against the knee …"),
+   `thresholdOverrideText` ("handoff target … — lower `/handoff target` …") and
+   `assertHandoffSummarizable`'s escape hatch ("run `/handoff keep 0`"). All three moved with their tests,
+   because a receipt that names a retired spelling is the same defect as a README that does.
+2. **The settings-card hint moved too.** `field.archiveEnabledHint` said `/session-log 仍可用` while the write
+   it points at is now the `write` verb; it names `write` in both locales. That is a client change, so
+   `pnpm build` moved `lib/client.js` (28376 → 28388 bytes).
+3. **An incomplete verb names its own sub-verbs.** `budget` with no argument or a wrong one answers
+   `budget needs summary or recent: …` rather than falling through to the whole usage line, since `budget`
+   has two sub-verbs to choose between; a bare `threshold` gets the ratio sentence. Both are reachable from
+   the command handler and pinned by the command-level test.
+4. **`/handoff force` was deliberately left alone.** It is a third spelling of `now`, but ruling §1's table
+   does not mention it and pi's own `0399e04` explicitly kept its synonyms ("the already-pinned
+   language/run/force synonyms are untouched"). Retiring it would apply ruling 1 beyond what was ruled, so
+   it stays and this note records the decision — it is a one-line change if the hard cut should cover it.
+5. **`keep` as a *setting* name survives.** The refusal's lever sentence still says "lower `keep`", because
+   there `keep` names the `handoffKeepTokens` setting rather than a command spelling, and pi's port left the
+   same sentence alone. Only spellings actually typed at `/handoff` moved.

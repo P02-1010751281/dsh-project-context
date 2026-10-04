@@ -163,7 +163,7 @@ scripts/
 | agent `idle` / `disposed` | 追加 JSONL + 追加 `session.md` + upsert `INDEX.md` |
 | `session/disposed` | 收尾写出 + 释放进程内游标 |
 | `session/flush` | 等待进行中的写入（上限 90s），保证落盘 |
-| `/session-log` | 手动立即写出（含索引刷新） |
+| `/session-log write` | 手动立即写出（含索引刷新） |
 
 - `session.jsonl`：首行 header，之后每个 dsh 事件一行。进程内按游标增量
   append，长会话不重写整份；每次写入记下目标文件的 **inode + 字节数 +
@@ -242,7 +242,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `archiveEnabled` | `true` | 关掉后不再自动写会话存档与索引（`/session-log` 仍可用） |
+| `archiveEnabled` | `true` | 关掉后不再自动写会话存档与索引（`/session-log write` 仍可用） |
 | `autoConsolidate` | `true` | 关掉后不再自动整理（命令仍可用） |
 | `consolidateTurns` | `6` | 较上次整理新增的用户消息数达到后在 idle 触发 |
 | `consolidateIntervalMs` | `300000` | 自动整理最小间隔 |
@@ -268,15 +268,16 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 |---|---|
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径 |
 | `/memory update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |
-| `/session-log` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
+| `/session-log` | 只读：显示会话日志目录与索引路径，并提示用 `/session-log write` 立即写出 |
+| `/session-log write` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/memory` | 显示项目记忆路径与状态 |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
 | `/handoff` | 立即交接：摘要当前会话并另开新会话继续 |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除） |
 | `/handoff on` / `off` | 开关自动交接 |
-| `/handoff auto` / `0.4` / `60%` | 切自适应；给比例则切固定比例 |
-| `/handoff target 64k` / `keep 20k` | 自适应移交量 / 保留量（`keep 0` = 只带摘要）；target 是被护栏约束的**请求**，被压掉时 `/handoff status` 点名 |
+| `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` | 切自适应；给比例则切固定比例。裸 `auto` 与裸比例已退役，不再生效 |
+| `/handoff budget summary 64k` / `budget recent 20k` | 每次摘要的移交量 / 逐字保留的近端对话（`budget recent 0` = 只带摘要）；summary 是被护栏约束的**请求**，被压掉时 `/handoff status` 点名 |
 | `/handoff thinking off\|session` | 切换摘要 thinking |
 | `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
 | `/handoff lang auto\|zh\|en` | 交接语言：自动判定或固定中文 / 英文 |
@@ -343,7 +344,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
   没有 host 侧的通知服务，UI 里不会主动弹提示，`/handoff status`
   是唯一可见面；要看当时的上下文占用也用它，要强制移交用 `/handoff now`（手动路径的回执是可见的）。
   没有可摘要的更早消息时（空会话，或整段对话都落在 `handoffKeepTokens` 原文窗口内）直接拒绝，手动
-  `/handoff now` 回一条错误说明而不是伪造摘要，并提示用 `/handoff keep 0`
+  `/handoff now` 回一条错误说明而不是伪造摘要，并提示用 `/handoff budget recent 0`
   摘要整段对话。交接**跟随对话语言**（`handoffLanguage`，含摘要指令、六个段落标题与首条消息）；
   重放中**上一轮交接提示会被替换成一行标记**，不再把陈旧的交接提示原样带进孙会话。
   带入的"最近对话原文"是把消息渲染成文本（`## user` / `## assistant` /
