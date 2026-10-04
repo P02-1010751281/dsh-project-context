@@ -145,7 +145,7 @@ test("memorySectionOverage mirrors the renderer, so a retry prompt names the rea
 	assert.equal(manyRows.length, 1);
 	assert.equal(manyRows[0].heading, "Project");
 	assert.equal(manyRows[0].droppedEntries, manyRender.droppedItems, "the drop count is the renderer's own");
-	assert.equal(manyRows[0].truncatedEntries, manyRender.itemTruncated);
+	assert.equal(manyRows[0].truncatedEntries, 0, "every entry here is short, so none is truncated");
 	assert.ok(manyRows[0].over > 0, "a flooded section is over its budget, not merely truncated");
 
 	// The clipped-then-dropped shape: the entry is cut to the cap and then rejected whole, which the
@@ -153,7 +153,8 @@ test("memorySectionOverage mirrors the renderer, so a retry prompt names the rea
 	const clippedThenDropped = { project: ["p".repeat(500), "q".repeat(900)], invariants: [], pitfalls: [], index: [] };
 	const ctdRender = renderMemoryDocument(clippedThenDropped, 4000);
 	const ctdRows = memorySectionOverage(clippedThenDropped, 4000);
-	assert.equal(ctdRows[0].droppedEntries, ctdRender.droppedItems);
+	assert.equal(ctdRender.droppedItems, 1, "fixture: the renderer drops exactly one entry here");
+	assert.equal(ctdRows[0].droppedEntries, ctdRender.droppedItems, "and the overage agrees with the renderer");
 	assert.equal(ctdRows[0].truncatedEntries, 0, "the clipped-then-dropped entry is not counted as truncated");
 	assert.ok(ctdRows[0].over > 0);
 });

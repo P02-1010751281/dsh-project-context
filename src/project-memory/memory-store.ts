@@ -30,7 +30,7 @@
  */
 
 export { backupMemoryBeforeWrite } from "./backup.js";
-export { isMemoryTruncated, memoryTruncationDropped, memoryTruncationMarker, normalizeMemoryDocument, normalizeMemoryWithDrop } from "./document.js";
+export { isMemoryTruncated, memoryTruncationMarker, normalizeMemoryDocument, normalizeMemoryWithDrop } from "./document.js";
 export { appendMemoryOp, foldMemoryJournal, memoryJournalFile, readMemoryJournal } from "./journal.js";
 export { loadMemory, loadMemorySync, readMemoryDamage, type LoadedMemory } from "./load.js";
 export { importLegacyMemory, recordMemoryDocument } from "./record.js";

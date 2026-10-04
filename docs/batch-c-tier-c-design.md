@@ -176,7 +176,7 @@ full report is `/tmp/dsh-tier-c-review.md` (throwaway, not a repo artifact).
 
 | finding | what it was | disposition |
 |---|---|---|
-| blocking: the refusal was decided by a **marker line**, not by a real cut | `normalizeMemoryDocument` re-appends a marker the *input* already carried even when the body fits, and the count was parsed back out of it — so a fitting reply carrying an old marker was refused for a cut that never happened, with a number that could exceed the cap (unescapable by raising `maxMemoryChars`) | fixed: `normalizeMemoryWithDrop` returns `{text, dropped}` from the cut itself; both callers (the pass's trigger, the write path's count) use it. `memoryTruncationDropped` now reads stored documents only |
+| blocking: the refusal was decided by a **marker line**, not by a real cut | `normalizeMemoryDocument` re-appends a marker the *input* already carried even when the body fits, and the count was parsed back out of it — so a fitting reply carrying an old marker was refused for a cut that never happened, with a number that could exceed the cap (unescapable by raising `maxMemoryChars`) | fixed: `normalizeMemoryWithDrop` returns `{text, dropped}` from the cut itself; both callers (the pass's trigger, the write path's count) use it, and `memoryTruncationDropped` — the parser whose contract invited the defect — is deleted now that it has no caller |
 | the refusal receipt ignored `detail` | a context loss that landed in the same pass was reported as clean | fixed: the refusal names it, like `stale-context` |
 | the claim release does not make the next forced pass re-run | inside `forceDedupeMs` the pass is cached, so an immediate re-run only re-reports; the receipt promised a fresh consolidation | fixed in wording (`Raise maxMemoryChars, or retry the pass later`); the release itself is kept and now pinned by a test that separates `deduped` from `lossy-refused` |
 | a **worse** retry replaced a first reply that would have landed | asking for a smaller document cost the memory entirely | fixed: a retry that would be refused does not replace a storable first reply |
@@ -191,6 +191,20 @@ refusals), the three-call bound with no repeat of the loss retry, the empty-retr
 reply shape, the landed-counts contract and `refusedLoss`'s exclusivity, `memorySectionOverage`
 mirroring the renderer (40,438 rows, 0 mismatches), the retry prompt carrying no reply content, and
 byte-identical wording for every pre-existing status.
+
+A second, read-only **closure review** of the committed range (`e9559bb..9fe8917`) re-probed every
+finding and confirmed F1–F6 and all the load-bearing claims closed, with no new defect
+(48-case receipt differential, 10045-case normalizer differential, `lib/` matching a fresh `tsc`). Its
+remaining notes are accepted rather than fixed:
+
+- a refusal cached inside `forceDedupeMs` still answers with the refusal if the cap is raised within
+  that window — the receipt no longer promises a fresh consolidation, and the window is 15 s;
+- a throw from the **loss retry itself** is reported as `failed`, not as a refusal. §4's second clause
+  was written before implementation: nothing is written either way and the memory is kept, so `failed`
+  is the honest label for a retry that failed for its own reason. The implemented rule is the one this
+  document's §13 records.
+- `DEFAULT_CONFIG.maxMemoryChars` stays 32000; only the desktop and web profiles carry 40000, so a
+  profile relying on the bundle insert keeps the old headroom.
 
 - **D1** retry input: the same `usedInput` (default) vs a re-fit.
 - **D2** mechanism 1 (`usedInput.clipped`): report only (default) vs also refuse.
