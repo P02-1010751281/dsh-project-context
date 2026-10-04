@@ -49,6 +49,7 @@
 
 ## Upstream pi port batch (CLOSED)
 - 该批次**已关闭**：完整的「移植了什么 / 明确拒绝了什么 / 为什么」在 `docs/upstream-pi-triage.md`（自称是记录、不是计划）与 `CHANGELOG.md`，逐条映射不再抄进记忆。仍有效的只剩下面两条陷阱：
+- **二次分诊（2026-10-03）零移植**：pi `3ee5794..8b300dc` 的 22 个提交里，行为修复**要么已在 dsh、要么是 pi 独有机制**——已在 dsh 的有 `shapeRejection` 同一谓词、`thresholdRefusal`/override 回执、`safeSessionId` 的 8-hex digest、journal `handle.sync()`、索引跨进程锁 + 携带式 dropped 计数、rotation「copy, do not rename」+ `newestMemoryArchive`、migration 的 `superseded`；pi 独有的两个（配置文件镜像 / staged-settings marker）对应 dsh 走宿主 `settings.update` 与 `parentModelSelection`，**本仓无对应物可修**；其余是 pi 自己拆模块与文档。表格 + 11 条可复跑的判定命令在 `docs/upstream-pi-triage.md` 的「Second pass」。教训：pi 的修复常是「向 dsh 收敛」，**先比对本仓是否已有，再谈移植**；`R3` 这个名字两侧指不同审计，别交叉引用。
 - Transfer trap: dsh 的 finish reason 是 `max-tokens`、pi 的是 `length`——照抄 pi 的字符串会**静默关掉重试路径**。
 - 新增一个 config key 的代价：host 字段 + settings schema + 卡片 spec + 投影 + 渲染行 + 两套 locale；`settings-form.test.mjs` 会扫描每个 schema key，漏改 `client/` 就红。
 
