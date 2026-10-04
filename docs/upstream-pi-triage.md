@@ -203,6 +203,16 @@ grep -n 'MAX_SKILL_BODY_CHARS\|MAX_SKILL_DESCRIPTION_CHARS' src/project-autolear
 `maxMemoryChars`, and whatever sat at the end is lost. pi replaced both with the enforced values
 (character ranges, and the description cap the validator actually applies).
 
+**Ported 2026-10-04 (batch C).** The consolidation cap is now built per pass by
+`memoryBudgetRule(maxMemoryChars, currentChars)` — the cap is per project, so a fixed number in the
+static rules would be a second source of truth — and the autolearn rules interpolate
+`MAX_SKILL_BODY_CHARS` / `MAX_SKILL_DESCRIPTION_CHARS` (dsh has no `MIN_SKILL_BODY_CHARS`, so only the
+upper bounds are stated). Regression tests: `test/prompt-bounds.test.mjs` (3 cases, two mutants
+killed). **Considered and deliberately not changed:**
+`src/project-handoff/summary.ts`'s "Keep it under 900 words" — the handoff document has no enforced
+character bound at all, so that line is style guidance rather than a contradicted bound. The pi
+reference does not cover it either.
+
 **D — a reply built from a memory that has since changed is published anyway.** dsh *adopts* an
 external edit into the journal (`load.ts`), and then the pass writes the render it built from the
 **pre-edit** read — so the edit is reverted, and "adopted" only ever meant "entered the history".

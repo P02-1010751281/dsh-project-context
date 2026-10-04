@@ -215,6 +215,22 @@
   计数、兜底摘要计数）；把标记改成从**第一个**非空行读 → 掉 2 项（尾行策略那条 + 超预算渲染的标记判定）。
   全量门禁 `pnpm typecheck`/`pnpm build`/`pnpm test` = 0 错 / 0 错 / 258 pass 0 fail，`lib/` 变异标记 0。
 
+**project-memory / project-autolearn（prompt 里写的是被强制执行的边界）**
+
+- 修复（自 pi 移植，批 C）：**两个 prompt 都在说「词」，而代码按「字符」执法**。consolidation 规则写
+  `below 6000 words`，autolearn 规则写 `below 3000 words`；而写入路径分别在 `maxMemoryChars` 字符处截断
+  memory、在 `MAX_SKILL_BODY_CHARS`/`MAX_SKILL_DESCRIPTION_CHARS` 字符处截断技能正文与描述。一条回复完全
+  可以满足词数提示却仍在字符处被切——按 pi 那条提交的话说，被切掉的是**文末的内容**，而模型无从知道。现在
+  consolidation 的 cap 由 `memoryBudgetRule(maxMemoryChars, currentChars)` 按**每个项目真实的 cap 与当前体量**
+  生成（硬上限是字符数、不是词数，超出的内容写入时被丢弃），autolearn 的两条规则直接写
+  `MAX_SKILL_BODY_CHARS` 与 `MAX_SKILL_DESCRIPTION_CHARS` 的数值（并说明两者都会在写入时被截断）。
+  顺带**核过并明确不动**：`project-handoff/summary.ts` 的 `Keep it under 900 words` 不属于这一类——handoff
+  文档**没有**任何字符上限（唯一约束是模型输出预算，且被切的回复是响亮失败），所以那句是风格指引而非被代码
+  反驳的边界；已在 `test/prompt-bounds.test.mjs` 的文件头记录为非目标。
+  变异校验：把 `memoryBudgetRule` 改回词数提示（保留两个参数引用，避开 `TS6133` 的伪红）→ `tsc` 0、marker 进
+  `lib/`、掉 1 项（正是那条 cap 断言）；把 autolearn 规则改回 `below 3000 words` → 掉 1 项（两条 prompt 的
+  边界断言）。全量门禁 0 错 / 0 错 / 261 pass 0 fail，`lib/` 变异标记 0。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**
