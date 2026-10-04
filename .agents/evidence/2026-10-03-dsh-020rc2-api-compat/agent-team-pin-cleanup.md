@@ -201,8 +201,12 @@ Appended by a later session (2026-10-04); nothing above was rewritten.
 
 - **§7 Correction 2 is wrong on both counts.** (1) Provenance: the `overrides:` block lived in
   **`pnpm-workspace.yaml`**, with the lockfile only mirroring it — not "lives in a generated lockfile"
-  (the sibling mechanism is visible today in `~/.dsh/profiles/web/pnpm-workspace.yaml`). The direct
-  pre-image is gone, so this is inference rather than a direct capture. (2) "was **not removed**" no
+  (the sibling mechanism is visible today in `~/.dsh/profiles/web/pnpm-workspace.yaml`). The pre-image
+  **is** directly captured, not inferred: `/tmp/prof-backup-20261003-180508/{ctxdev,headless}/pnpm-workspace.yaml`
+  (copied 2026-10-03 18:05, before the cleanup) still carries the block, and `diff` against today's
+  61-byte file is exactly those seven lines — the four pins §7 quotes, plus the header comment
+  `# 固定 experimental Agent Teams 传递依赖到与 dsh 核心一致的 0.1.6-alpha.1`. `/tmp` is volatile, so the
+  comment is quoted here for durability. (2) "was **not removed**" no
   longer holds: the block was removed in the 2026-10-03 cleanup, and neither profile carries the key now.
   Re-check: `grep -n '^overrides:' ~/.dsh/profiles/*/pnpm-workspace.yaml ~/.dsh/profiles/*/pnpm-lock.yaml`
   (the surviving hits are web's cua-driver pair, which is **intentional**). The memory-side statement
