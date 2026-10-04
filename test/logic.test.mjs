@@ -29,7 +29,7 @@ import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate } from "../lib/project-memory/consolidate.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
-import { parseConsolidation } from "../lib/shared/reply-json.js";
+import { parseConsolidation, parseContextMember, parseToolArguments } from "../lib/shared/reply-json.js";
 import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/conversation.js";
 import { pickToolCall, requestPluginText, requestPluginTextWithMeta } from "../lib/shared/model-call.js";
 import { clip, clipText, replyHead, replyTokenRate, textOf, truncateMiddle } from "../lib/shared/text.js";
@@ -543,6 +543,51 @@ test("a context with the wrong shape is refused instead of hollowed out", () => 
 	const empty = parseConsolidation(JSON.stringify({ ...base, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }));
 	assert.deepEqual(empty.context.key_points, []);
 	assert.equal(empty.contextUnusable, undefined);
+});
+
+test("the context shape rule lives in one place, shared by the reply and the tool call", () => {
+	const usable = { title: "t", summary: "s", key_points: ["k"], open_tasks: ["o"] };
+	assert.deepEqual(parseContextMember(usable), usable);
+	assert.equal(parseContextMember(undefined), undefined);
+	assert.equal(parseContextMember(null), undefined);
+	assert.equal(parseContextMember("not an object"), undefined);
+	for (const value of [
+		{ title: "t", summary: "s", key_points: "a, b, c", open_tasks: ["o"] },
+		{ title: "t", summary: "s", key_points: [1, 2], open_tasks: ["o"] },
+		{ title: "t", summary: "s", key_points: null, open_tasks: ["o"] },
+		{ title: "t", summary: "s", open_tasks: "o" },
+		{ title: "t", key_points: ["k"], open_tasks: ["o"] },
+	]) {
+		assert.equal(parseContextMember(value), undefined, JSON.stringify(value));
+	}
+	// Every verdict the reply parser reports must be the one the shared rule makes, or the tool path
+	// would accept a context the text path refuses (and the two entries would drift).
+	for (const raw of [null, "not an object", { summary: 1 }, { summary: "s", key_points: "x", open_tasks: [] }, usable]) {
+		const viaReply = parseConsolidation(JSON.stringify({ memory_markdown: "m", context: raw }));
+		assert.deepEqual(viaReply.context, parseContextMember(raw), JSON.stringify(raw));
+		// The flag is only present when the context was present but unusable; absent and null are
+		// the model saying nothing and must not read as an error.
+		const expectedUnusable = parseContextMember(raw) === undefined && raw !== null ? true : undefined;
+		assert.equal(viaReply.contextUnusable, expectedUnusable, JSON.stringify(raw));
+	}
+	// A `context` key the reply omits entirely is the model saying nothing: not an error.
+	const absent = parseConsolidation(JSON.stringify({ memory_markdown: "m" }));
+	assert.equal(absent.context, undefined);
+	assert.equal(absent.contextUnusable, undefined);
+	assert.deepEqual(parseContextMember({ title: "t", summary: "s", key_points: [], open_tasks: [] }), { title: "t", summary: "s", key_points: [], open_tasks: [] });
+});
+
+test("parseToolArguments decodes the streamed argument text and refuses a non-object", () => {
+	assert.deepEqual(parseToolArguments('{"memory":{"project":["p"],"invariants":[],"pitfalls":[],"index":[]}}'), {
+		memory: { project: ["p"], invariants: [], pitfalls: [], index: [] },
+	});
+	// The same tolerant reader the text path uses: a fence or surrounding prose still decodes.
+	assert.deepEqual(parseToolArguments('```json\n{"a":1}\n```'), { a: 1 });
+	assert.deepEqual(parseToolArguments('prose {"a":1} tail'), { a: 1 });
+	// Not an object at all: the caller must treat this as an unusable call, never as an empty one.
+	assert.equal(parseToolArguments("[1,2]"), undefined);
+	assert.equal(parseToolArguments(""), undefined);
+	assert.equal(parseToolArguments("not json"), undefined);
 });
 
 test("the consolidation prompt states the context field types, not just their names", () => {

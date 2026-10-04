@@ -101,22 +101,12 @@ export function parseConsolidation(text: string): ConsolidationResult | undefine
 		// A `context` key that is absent or null is the model saying nothing: not an error. Any
 		// other non-object, or an object that cannot yield a complete update, is unusable and is
 		// reported rather than silently dropped.
-		if (raw === undefined || raw === null) return { memory: parsed.memory_markdown };
-		if (typeof raw !== "object") return { memory: parsed.memory_markdown, contextUnusable: true };
-		const context = raw as Partial<ContextUpdate>;
-		const keyPoints = readContextList(context.key_points);
-		const openTasks = readContextList(context.open_tasks);
-		if (typeof context.summary !== "string" || keyPoints === null || openTasks === null) {
-			return { memory: parsed.memory_markdown, contextUnusable: true };
-		}
+		const context = parseContextMember(raw);
+		const contextUnusable = context === undefined && raw !== undefined && raw !== null;
 		return {
 			memory: parsed.memory_markdown,
-			context: {
-				title: typeof context.title === "string" ? context.title : "Untitled session",
-				summary: context.summary,
-				key_points: keyPoints ?? [],
-				open_tasks: openTasks ?? [],
-			},
+			...(context === undefined ? {} : { context }),
+			...(contextUnusable ? { contextUnusable: true } : {}),
 		};
 	}
 	// A reply that failed to parse can still carry the memory field intact.
@@ -125,4 +115,42 @@ export function parseConsolidation(text: string): ConsolidationResult | undefine
 	// Older or less capable models may still return Markdown directly.
 	if (!looksLikeJsonReply(text)) return { memory: text };
 	return undefined;
+}
+
+/**
+ * Validate one `context` member, whether it came from the JSON reply or from a tool call's
+ * arguments. `undefined` means the member could not be used — absent, null, a non-object, or an
+ * object that cannot yield a complete update.
+ *
+ * The caller has to tell "absent" from "unusable" apart to decide whether to log a notice, and it
+ * does that by looking at the raw value: this function deliberately collapses both to `undefined`
+ * so the shape rule lives in exactly one place.
+ */
+export function parseContextMember(value: unknown): ContextUpdate | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (typeof value !== "object") return undefined;
+	const context = value as Partial<ContextUpdate>;
+	const keyPoints = readContextList(context.key_points);
+	const openTasks = readContextList(context.open_tasks);
+	if (typeof context.summary !== "string" || keyPoints === null || openTasks === null) return undefined;
+	return {
+		title: typeof context.title === "string" ? context.title : "Untitled session",
+		summary: context.summary,
+		key_points: keyPoints ?? [],
+		open_tasks: openTasks ?? [],
+	};
+}
+
+/**
+ * Decode the raw JSON argument text a tool call carried.
+ *
+ * dsh's adapter streams a tool call's arguments as text (`tool-call-delta` fragments, joined
+ * authoritatively by `block-end`), where the pi sibling's plumbing hands back an already-parsed
+ * object; so the decode happens here, through the same tolerant reader the text path uses. An
+ * undefined result means the text was not a JSON object at all, which the caller treats as an
+ * unusable call rather than an empty one.
+ */
+export function parseToolArguments(text: string): Record<string, unknown> | undefined {
+	const parsed = parseJsonObject(text);
+	return parsed === undefined || Array.isArray(parsed) ? undefined : parsed;
 }
