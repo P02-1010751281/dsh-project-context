@@ -21,14 +21,17 @@ import { contextSectionBudgets } from "./context-schema.js";
 import { memorySectionBudgets } from "./memory-schema.js";
 import {
 	type MemoryRender,
+	type MemorySectionOverage,
 	type MemorySections,
 	RECORD_MEMORY_TOOL,
 	isHeadingOnlyDocument,
+	memorySectionOverage,
 	renderMemoryDocument,
 	sectionsFromMarkdown,
 	sectionsFromToolCall,
 	sectionsSemanticallyEmpty,
 } from "./sections.js";
+import { normalizeMemoryWithDrop } from "./document.js";
 
 /** Which entry produced the memory this pass would write. */
 export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque";
@@ -67,6 +70,17 @@ export type ConsolidationOutcome = {
 	droppedItems: number;
 	/** Entries clipped to their section's per-item cap. */
 	itemTruncated: number;
+	/**
+	 * Characters of this reply the memory cap would drop on write, measured here rather than at the
+	 * write so the loss can be retried and refused like any other. The write path measures the landed
+	 * value separately; this one describes the reply tier C decided about.
+	 */
+	memoryWriteCapDroppedChars: number;
+	/**
+	 * True when tier C refused this reply: it would have been stored lossily and the one targeted
+	 * retry did not fix it, so the write must not happen and the stored memory stays effective.
+	 */
+	memoryLossyRefused: boolean;
 };
 
 export interface ConsolidationOptions {
@@ -135,6 +149,82 @@ export function memorySectionRule(maxMemoryChars: number): string {
  */
 export function memoryBudgetRule(maxMemoryChars: number, currentChars: number): string {
 	return `memory_markdown must stay at or under ${maxMemoryChars} characters (the stored memory is currently about ${currentChars}). That is a hard cap in characters, not words: content past it is dropped on write, so condense and merge instead of appending.`;
+}
+
+/** The one retry a cut-off reply is allowed. Kept as a constant so a wording regression is visible. */
+const TRUNCATED_REPLY_RULE =
+	"Your previous reply was cut off by the model output limit. Retry this same consolidation now without the tool: return exactly one complete JSON object with string memory_markdown and object context, keeping memory_markdown shorter.";
+
+/**
+ * The targeted retry a complete-but-lossy reply is allowed (tier C).
+ *
+ * The reply was usable and the model simply over-filled a section, which a second, specific
+ * instruction can fix — that is the whole difference between tier C and tier B. The rule names
+ * sections and counts only: the previous reply is not an input to it, so it can neither leak a
+ * section's text into the prompt nor invite a rewrite from memory.
+ *
+ * @param overage - what each section would give up, from `memorySectionOverage`.
+ * @param writeCapDroppedChars - characters the memory cap would drop from the reply, 0 when it fits.
+ */
+export function memoryLossRetryRule(overage: readonly MemorySectionOverage[], writeCapDroppedChars: number): string {
+	const lines: string[] = [];
+	for (const row of overage) {
+		const parts: string[] = [];
+		if (row.over > 0) parts.push(`needs about ${row.over} character(s) beyond its ${row.budget}-character budget`);
+		if (row.droppedEntries > 0) parts.push(`${row.droppedEntries} entry(ies) would have been dropped whole`);
+		if (row.truncatedEntries > 0) parts.push(`${row.truncatedEntries} entry(ies) exceeded the ${row.itemCap}-character per-item cap`);
+		if (parts.length > 0) lines.push(`- ${row.heading}: ${parts.join("; ")}`);
+	}
+	if (writeCapDroppedChars > 0) {
+		lines.push(`- the memory_markdown you returned was about ${writeCapDroppedChars} character(s) over the memory cap`);
+	}
+	return [
+		"Your previous reply was complete but would have lost content when stored, so it was not stored:",
+		...lines,
+		"Retry this same consolidation without the tool: return exactly one complete JSON object with string memory_markdown and object context, and bring every section inside its budget by merging duplicates within a section and dropping the least durable entries.",
+	].join("\n");
+}
+
+/** What storing this reply right now would lose. */
+type ReplyLoss = {
+	sectionDropped: number;
+	droppedItems: number;
+	itemTruncated: number;
+	writeCapDroppedChars: number;
+	overage: MemorySectionOverage[];
+	/** Something would be lost, so a targeted retry is worth one call. */
+	retryWorthy: boolean;
+	/** A whole entry (or the write cap) would be lost: that is what tier C refuses to store. */
+	refuses: boolean;
+};
+
+/**
+ * Measure one resolved reply against the cap it would be stored under.
+ *
+ * A section render reports its own drops; an opaque reply never reaches the renderer, so the write cap
+ * is the only place its loss exists — measuring it here is what lets that loss share the one retry
+ * instead of only being logged after the fact.
+ *
+ * The refusal is deliberately narrower than the retry: an entry cut to the per-item cap may be fixed by
+ * rewording, but a legitimate entry longer than that cap has no legal form inside it, so refusing on
+ * truncation alone would refuse the project forever.
+ */
+function memoryLoss(resolved: ResolvedReply, render: MemoryRender | undefined, cap: number): ReplyLoss {
+	const sectionDropped = render?.sectionDropped ?? 0;
+	const droppedItems = render?.droppedItems ?? 0;
+	const itemTruncated = render?.itemTruncated ?? 0;
+	const writeCapDroppedChars =
+		render === undefined ? normalizeMemoryWithDrop(resolved.result.memory.trim(), cap).dropped : 0;
+	const wholeEntriesLost = sectionDropped > 0 || droppedItems > 0 || writeCapDroppedChars > 0;
+	return {
+		sectionDropped,
+		droppedItems,
+		itemTruncated,
+		writeCapDroppedChars,
+		overage: resolved.sections === undefined ? [] : memorySectionOverage(resolved.sections, cap),
+		retryWorthy: wholeEntriesLost || itemTruncated > 0,
+		refuses: wholeEntriesLost,
+	};
 }
 
 export function fallbackUpdate(session: Session): ContextUpdate {
@@ -278,11 +368,11 @@ export function consolidateProjectState(
 		// when even that cannot hold both. An over-long memory is what used to truncate the reply and
 		// leave an unparseable document behind.
 		const fitted = fitMemoryInput(existing.text, existingContext, config.maxTokens, auxModel, config.maxOutputTokens);
-		const promptFor = (input: MemoryInput, retry: boolean): string => [
+		const promptFor = (input: MemoryInput, extra: readonly string[]): string => [
 			...CONSOLIDATION_PROMPT_RULES,
 			memorySectionRule(config.maxMemoryChars),
 			memoryBudgetRule(config.maxMemoryChars, input.text.length),
-			...(retry ? ["Your previous reply was cut off by the model output limit. Retry this same consolidation now without the tool: return exactly one complete JSON object with string memory_markdown and object context, keeping memory_markdown shorter."] : []),
+			...extra,
 			"",
 			`Project root: ${projectRoot}`,
 			"",
@@ -302,9 +392,9 @@ export function consolidateProjectState(
 		/** The input of the call actually sent last: a retry may have sent less than the first fit. */
 		let usedInput = fitted;
 		/** One call, recording the attempt before a failure so a persistent error backs off. */
-		const call = async (input: MemoryInput, retry: boolean, tools: readonly PluginTool[] | undefined): Promise<CompletionOutcome> => {
+		const call = async (input: MemoryInput, extra: readonly string[], tools: readonly PluginTool[] | undefined): Promise<CompletionOutcome> => {
 			try {
-				return await requestConsolidationText(ctx, agent, config, promptFor(input, retry), options.signal, input.maxTokens, tools);
+				return await requestConsolidationText(ctx, agent, config, promptFor(input, extra), options.signal, input.maxTokens, tools);
 			} catch (error: unknown) {
 				throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
 				throw error;
@@ -320,7 +410,7 @@ export function consolidateProjectState(
 			}
 		};
 
-		let attempt = await call(fitted, false, [RECORD_MEMORY_TOOL]);
+		let attempt = await call(fitted, [], [RECORD_MEMORY_TOOL]);
 		// A cut-off tool call is never accepted: the adapter repairs a truncated arguments string into
 		// a shape-valid object, so "there is a tool call" is not evidence that its contents arrived.
 		// A *text* reply that stopped at the cap is the old case. Both are retried: the untrusted call
@@ -333,7 +423,7 @@ export function consolidateProjectState(
 			// for the JSON text shape, which a tool call could not satisfy. dsh reports this as
 			// `max-tokens` (pi calls it `length`); matching the wrong string would never retry.
 			usedInput = fitMemoryInput(existing.text, existingContext, config.maxTokens, auxModel, config.maxOutputTokens, RETRY_OUTPUT_HEADROOM_TOKENS);
-			attempt = await call(usedInput, true, undefined);
+			attempt = await call(usedInput, [TRUNCATED_REPLY_RULE], undefined);
 			resolved = read(attempt, false);
 		}
 		if (!resolved) {
@@ -347,8 +437,49 @@ export function consolidateProjectState(
 			}
 			throw new Error(`consolidation reply was not a usable JSON object\n${replyHead(attempt.text, MAX_CONSOLE_REPLY_CHARS)}`);
 		}
-		const render: MemoryRender | undefined = resolved.sections === undefined ? undefined : renderMemoryDocument(resolved.sections, config.maxMemoryChars);
+		const renderOf = (reply: ResolvedReply): MemoryRender | undefined =>
+			reply.sections === undefined ? undefined : renderMemoryDocument(reply.sections, config.maxMemoryChars);
+		let render = renderOf(resolved);
+		let loss = memoryLoss(resolved, render, config.maxMemoryChars);
+		/**
+		 * Tier C: one targeted retry for a reply that was complete but would have been stored lossily,
+		 * then a refusal instead of a lossy write if the retry does not fix it.
+		 *
+		 * The bound is deliberately hard: this is the last model call of the pass, never chained into
+		 * another. A retry that is itself cut off, unparseable or still lossy ends the pass — an
+		 * unbounded fix-up loop would spend a model call per attempt on a document that cannot fit.
+		 * The retry re-sends the input the previous call used, so the only thing that changed between
+		 * the two replies is the instruction, and the retry's loss stays attributable to the reply.
+		 */
+		let memoryLossyRefused = false;
+		// A reply with no entries at all is the empty-skeleton gate's case, not tier C's: there is
+		// nothing to shrink, and calling it a refusal would name the cap as the blocker when the
+		// semantic gate is what stops the write.
+		if (loss.retryWorthy && !replyIsSemanticallyEmpty(resolved, render)) {
+			attempt = await call(usedInput, [memoryLossRetryRule(loss.overage, loss.writeCapDroppedChars)], undefined);
+			const retryResolved = read(attempt, false);
+			const retryRender = retryResolved === undefined ? undefined : renderOf(retryResolved);
+			// Only a retry that actually carries a memory replaces the first reply. One that parses to
+			// nothing — an empty stream, or a tool call the JSON-text prompt cannot read — would turn a
+			// real but oversized memory into "no new memory", and the semantic-empty gate would then skip
+			// the write while the receipt reported a plain update.
+			if (retryResolved !== undefined && !replyIsSemanticallyEmpty(retryResolved, retryRender)) {
+				const retryLoss = memoryLoss(retryResolved, retryRender, config.maxMemoryChars);
+				// Ask for a smaller document, but never at the price of the memory: a retry that would be
+				// refused does not replace a first reply that would have landed (an entry cut to its
+				// per-item cap is a loss this pass accepts).
+				if (!(retryLoss.refuses && !loss.refuses)) {
+					resolved = retryResolved;
+					render = retryRender;
+					loss = retryLoss;
+				}
+			}
+			// Either way the refusal is judged on the narrower rule in `memoryLoss`.
+			memoryLossyRefused = loss.refuses;
+		}
 		const semanticEmpty = replyIsSemanticallyEmpty(resolved, render);
+		// The gate above owns a reply with no entries; a refusal must not claim the cap stopped it.
+		if (semanticEmpty) memoryLossyRefused = false;
 		const result: ConsolidationResult = { ...resolved.result, memory: render === undefined ? resolved.result.memory : render.text };
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
@@ -374,9 +505,11 @@ export function consolidateProjectState(
 			basisKey: existing.text,
 			kind: resolved.kind,
 			semanticEmpty,
-			sectionDropped: render?.sectionDropped ?? 0,
-			droppedItems: render?.droppedItems ?? 0,
-			itemTruncated: render?.itemTruncated ?? 0,
+			sectionDropped: loss.sectionDropped,
+			droppedItems: loss.droppedItems,
+			itemTruncated: loss.itemTruncated,
+			memoryWriteCapDroppedChars: loss.writeCapDroppedChars,
+			memoryLossyRefused,
 		};
 		lastOutcome.set(projectRoot, { version, at: Date.now(), outcome });
 		return outcome;

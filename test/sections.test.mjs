@@ -16,6 +16,7 @@ import test from "node:test";
 import {
 	isHeadingOnlyDocument,
 	isMemoryEntryEmpty,
+	memorySectionOverage,
 	normalizeMemoryEntry,
 	RECORD_MEMORY_TOOL,
 	renderMemoryDocument,
@@ -118,6 +119,43 @@ test("renderMemoryDocument enforces the cap per section: clip an item, drop a fl
 	assert.equal(clippedThenDropped.itemTruncated, 0, "the dropped entry is not also reported as truncated");
 	assert.ok(clippedThenDropped.text.includes("p".repeat(500)), "the kept entry is in the document");
 	assert.ok(!clippedThenDropped.text.includes("q".repeat(100)), "the dropped entry is not");
+});
+
+test("memorySectionOverage mirrors the renderer, so a retry prompt names the real overage", () => {
+	// The tier-C retry tells the model how much to cut. That number has to come from the rule that
+	// stores the document: an estimate that drifts asks for the wrong amount, which is worse than not
+	// retrying. Each fixture here is one the renderer's own test already pins.
+	const clean = { project: ["p1"], invariants: ["i1", "i2"], pitfalls: ["q1"], index: ["x1"] };
+	assert.deepEqual(memorySectionOverage(clean, MAX_MEMORY_CHARS), [], "a document that fits reports no overage");
+
+	const big = { project: [], invariants: [], pitfalls: [], index: ["x".repeat(803)] };
+	const bigRender = renderMemoryDocument(big, 4000);
+	const bigRows = memorySectionOverage(big, 4000);
+	assert.equal(bigRows.length, 1, "only the offending section comes back");
+	assert.equal(bigRows[0].heading, "Index");
+	assert.equal(bigRows[0].droppedEntries, 0, "no entry would be dropped");
+	assert.equal(bigRows[0].truncatedEntries, bigRender.itemTruncated, "the over-long entry is the truncation");
+	assert.equal(bigRows[0].over, 0, "a single entry always fits its section, so nothing is over budget");
+	assert.ok(bigRows[0].itemCap > 0 && bigRows[0].itemCap < 803, `the entry was cut to the section's own item cap, got ${bigRows[0].itemCap}`);
+	assert.equal(bigRows[0].budget, memorySectionBudgets(4000).find((section) => section.heading === "Index").chars, "the budget in the prompt is the section's real share");
+
+	const many = { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] };
+	const manyRender = renderMemoryDocument(many, 4000);
+	const manyRows = memorySectionOverage(many, 4000);
+	assert.equal(manyRows.length, 1);
+	assert.equal(manyRows[0].heading, "Project");
+	assert.equal(manyRows[0].droppedEntries, manyRender.droppedItems, "the drop count is the renderer's own");
+	assert.equal(manyRows[0].truncatedEntries, manyRender.itemTruncated);
+	assert.ok(manyRows[0].over > 0, "a flooded section is over its budget, not merely truncated");
+
+	// The clipped-then-dropped shape: the entry is cut to the cap and then rejected whole, which the
+	// renderer reports as a drop and not as a truncation. The overage must agree.
+	const clippedThenDropped = { project: ["p".repeat(500), "q".repeat(900)], invariants: [], pitfalls: [], index: [] };
+	const ctdRender = renderMemoryDocument(clippedThenDropped, 4000);
+	const ctdRows = memorySectionOverage(clippedThenDropped, 4000);
+	assert.equal(ctdRows[0].droppedEntries, ctdRender.droppedItems);
+	assert.equal(ctdRows[0].truncatedEntries, 0, "the clipped-then-dropped entry is not counted as truncated");
+	assert.ok(ctdRows[0].over > 0);
 });
 
 test("renderMemoryDocument fits 2000 random caps (the budget holds by construction)", () => {

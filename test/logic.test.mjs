@@ -1411,6 +1411,10 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	assert.equal(memoryUpdateReply(plainReport("updated", { contextWritten: false })).text, "Project memory updated.");
 	assert.equal(memoryUpdateReply(plainReport("updated", { memoryWritten: false })).text, "Project context updated.");
 	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false })).text, "Project memory updated, but the existing content was shortened to fit the model output budget.");
+	// Tier C added a status but changed no existing one: a clean pass that wrote both artifacts still
+	// reads exactly as it did before the report carried any counts.
+	assert.equal(memoryUpdateReply(plainReport("updated")).text, "Project memory and context updated.");
+	assert.doesNotMatch(memoryUpdateReply(plainReport("updated")).text, /refus|kept unchanged/i, "a clean pass never reads like a refusal");
 
 	// A failure that happened after a write landed must not hide what landed.
 	const partial = memoryUpdateReply(plainReport("failed", { memoryWritten: true, contextWritten: false, sectionDropped: 1, droppedItems: 4 })).text;
@@ -1445,44 +1449,64 @@ test("fitMemoryInput reports the hidden characters per artifact, and clipped sta
 	assert.equal(clean.contextHiddenChars, 0);
 });
 
-test("a pass that drops entries reports the loss in its receipt and logs a truthful line on every occurrence", async () => {
-	// End-to-end over the real write path: the reply's Project section floods its share, so the
-	// renderer drops entries before anything lands and the stored document afterwards shows none of
-	// it. The receipt must name the drop rather than read as a clean update, and the log must fire on
-	// every lossy write — it used to be gated to once per project, which silenced every later loss.
-	const root = await memoryProject("dsh-memory-loss-receipt-");
-	const flooded = JSON.stringify({
-		memory: { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] },
-		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
-	});
-	const { ctx, agent } = await consolidationFixture({
+/** A `record_memory` call whose Project section floods its share at a small cap. */
+const FLOODED_MEMORY_ARGS = JSON.stringify({
+	memory: { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] },
+	context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+});
+
+/** The same flood as a plain text reply, the shape the retry prompt asks for. */
+const FLOODED_TEXT_REPLY = JSON.stringify({
+	memory_markdown: `# Project Memory\n\n## Project\n${Array.from({ length: 400 }, (_, index) => `- short entry ${index}`).join("\n")}\n`,
+	context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+});
+
+/** A four-section document that fits any cap this file uses. */
+const FITTING_TEXT_REPLY = JSON.stringify({
+	memory_markdown: "# Project Memory\n\n## Project\n- one kept entry\n",
+	context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+});
+
+test("tier C: a reply that would be stored lossily is refused after one retry, and the stored memory stays byte-identical", async () => {
+	// End-to-end over the real write path. The reply's Project section floods its share at this cap, so
+	// the renderer would drop entries before anything landed; tier C asks once for a smaller document
+	// and then refuses to write rather than storing the loss. A stored document cannot show any of that
+	// afterwards, so the receipt and the log are the only traces — and the log must fire on every
+	// occurrence, because it used to be gated to once per project, silencing every later loss.
+	const root = await memoryProject("dsh-memory-loss-refusal-", "# Project Memory\n\n## Project\n- original\n");
+	const before = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	const { calls, ctx, agent } = await consolidationFixture({
 		root,
-		replies: [{ toolCall: { name: "record_memory", arguments: flooded }, reason: { kind: "tool-calls" } }],
+		replies: [{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } }],
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
 	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
-	assert.equal(first.status, "updated", `fixture: a drop is not an input clip (got ${JSON.stringify(first)})`);
-	assert.equal(first.memoryHiddenChars, 0, "fixture: nothing was hidden from the model here");
-	assert.equal(first.sectionDropped, 1, "the flooded Project section lost entries");
-	assert.ok(first.droppedItems > 0, "the drop count reaches the report");
-	assert.match(memoryUpdateReply(first).text, /whole entry\(ies\) were dropped/, "the receipt names the drop");
-	assert.notEqual(memoryUpdateReply(first).text, memoryUpdateReply(plainReport("updated")).text, "a lossy pass cannot read as a clean one");
+	assert.equal(calls.length, 2, "one targeted retry, and no more");
+	assert.equal(first.status, "lossy-refused", `a lossy reply must not land (got ${JSON.stringify(first)})`);
+	assert.equal(first.memoryWritten, false, "nothing was written");
+	assert.equal(first.sectionDropped, 0, "a refused reply dropped nothing from the stored file");
+	assert.equal(first.droppedItems, 0, "and its entries are not counted as dropped either");
+	assert.ok(first.refusedLoss.sectionDropped > 0, "the refused loss is reported apart from the landed counts");
+	assert.ok(first.refusedLoss.droppedItems > 0);
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), before, "the stored memory is byte-identical");
+	assert.equal(first.contextWritten, true, "the context is a separate artifact and still lands");
 
-	// A second lossy pass must land as well, so the log assertion below is about repetition and not
-	// about the second pass being deduped.
+	const receipt = memoryUpdateReply(first).text;
+	assert.match(receipt, /was kept unchanged/, "the receipt says the memory was kept");
+	assert.match(receipt, /one targeted retry did not fix it/);
+	assert.match(receipt, /whole entry\(ies\) would have been dropped/, "the refusal names what it avoided");
+	assert.notEqual(receipt, memoryUpdateReply(plainReport("updated")).text, "a refusal cannot read as a clean pass");
+
+	// The version claim is released on a refusal, so a second forced pass really re-runs.
 	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
-	assert.equal(second.status, "updated", `the second pass landed (got ${JSON.stringify(second)})`);
-	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+	assert.equal(second.status, "lossy-refused", `the second pass is not deduped away (got ${JSON.stringify(second)})`);
+	const refusals = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
-		.filter((line) => line.includes("exceeded their budget"));
-	assert.equal(logged.length, 2, `each lossy write leaves its own line, got ${JSON.stringify(logged)}`);
-	// The line must not claim the render stayed inside the very budgets it is reporting exceeded: it
-	// used to open with "MEMORY.md was rendered within its per-section budgets", which reads as a clean
-	// render while naming drops — the opposite of what the receipt says for the same event.
-	for (const line of logged) {
-		assert.match(line, /MEMORY\.md was rendered lossily:/, `the log must name the loss, got ${line}`);
-		assert.doesNotMatch(line, /within its per-section budgets/, `the log must not claim the budgets held, got ${line}`);
+		.filter((line) => line.includes("would have been stored lossily"));
+	assert.equal(refusals.length, 2, `each refusal leaves its own line, got ${JSON.stringify(refusals)}`);
+	for (const line of refusals) {
+		assert.match(line, /the stored memory was kept unchanged/, `the line must say what happened, got ${line}`);
 	}
 });
 
@@ -1496,13 +1520,14 @@ test("a per-item truncation with no section overflow still logs a complete loss 
 		memory: { project: [], invariants: [], pitfalls: [], index: ["x".repeat(1000)] },
 		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
 	});
-	const { ctx, agent } = await consolidationFixture({
+	const { calls, ctx, agent } = await consolidationFixture({
 		root,
 		replies: [{ toolCall: { name: "record_memory", arguments: reply }, reason: { kind: "tool-calls" } }],
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.equal(calls.length, 2, "a per-item truncation is retry-worthy even though it is not refusal-worthy");
 	assert.equal(report.status, "updated", `fixture: a clipped item is not an input clip (got ${JSON.stringify(report)})`);
 	assert.equal(report.itemTruncated, 1, "fixture: the single over-long entry is clipped and kept");
 	assert.equal(report.sectionDropped, 0, "fixture: its section does not overflow");
@@ -1517,6 +1542,192 @@ test("a per-item truncation with no section overflow still logs a complete loss 
 		`the line names what landed, got ${lines[0]}`,
 	);
 	assert.doesNotMatch(lines[0], /exceeded their budget/, "no section overflowed, so the line must not claim one");
+});
+
+test("tier C: one targeted retry fixes a lossy reply, and the retry names the overage without carrying content", async () => {
+	const root = await memoryProject("dsh-tierc-retry-fixes-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } },
+			{ text: FITTING_TEXT_REPLY, reason: { kind: "stop" } },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 2, "the first reply was lossy, so exactly one retry happened");
+	assert.equal(calls[1].tools, undefined, "the retry asks for the JSON text shape, not another tool call");
+	const retryPrompt = JSON.stringify(calls[1].messages);
+	assert.match(retryPrompt, /would have lost content when stored/, "the retry says why it is being asked again");
+	assert.match(retryPrompt, /beyond its \d+-character budget/, "and how far the section is over");
+	assert.doesNotMatch(retryPrompt, /short entry 7\b/, "the retry names counts, never the previous reply's content");
+	assert.equal(report.status, "updated", JSON.stringify(report));
+	assert.equal(report.memoryWritten, true, "the retry's document fits, so it lands");
+	assert.equal(report.sectionDropped, 0, "nothing was dropped");
+	assert.equal(report.refusedLoss, undefined, "a stored reply has no refused loss to report");
+	assert.match(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), /- one kept entry/);
+});
+
+test("tier C: the loss retry is the pass's last call — three at most, never chained", async () => {
+	// First reply cut off by the output cap -> the existing max-tokens retry -> a lossy reply -> the one
+	// loss retry -> still lossy. Three calls, then the refusal: an unbounded fix-up loop would spend a
+	// model call per attempt on a document that cannot fit.
+	const root = await memoryProject("dsh-tierc-bound-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ toolCall: { name: "record_memory", arguments: '{"memory":{"project":["p' }, reason: { kind: "max-tokens" } },
+			{ text: FLOODED_TEXT_REPLY, reason: { kind: "stop" } },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 3, "the truncation retry, the loss retry, and then no more");
+	assert.equal(report.status, "lossy-refused", JSON.stringify(report));
+	assert.equal(report.memoryWritten, false, "the still-lossy retry is not stored");
+});
+
+test("tier C: the refusal is cap-driven, which is what keeps a refusing tier from self-locking", async () => {
+	// One reply, two caps: refused under a small one and stored under the live 40000-char one. That is
+	// the whole self-lock argument — the refusal follows the budgets, so raising the cap is the lever
+	// that decides whether this repo's own memory can still be updated at all.
+	const reply = JSON.stringify({
+		memory: { project: Array.from({ length: 120 }, (_, index) => `entry number ${index}`), invariants: [], pitfalls: [], index: [] },
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const run = async (cap) => {
+		const root = await memoryProject(`dsh-tierc-cap-${cap}-`, "# Project Memory\n\n## Project\n- original\n");
+		const { calls, ctx, agent } = await consolidationFixture({
+			root,
+			replies: [{ toolCall: { name: "record_memory", arguments: reply }, reason: { kind: "tool-calls" } }],
+		});
+		const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
+		return { calls, root, report: await consolidateProject(ctx, config, agent, { force: true, silent: true }) };
+	};
+
+	const small = await run(4000);
+	assert.equal(small.report.status, "lossy-refused", JSON.stringify(small.report));
+	assert.equal(small.calls.length, 2, "the small cap retried once and then refused");
+	assert.equal(await readFile(path.join(small.root, ".agents", "memory", "MEMORY.md"), "utf8"), "# Project Memory\n\n## Project\n- original\n");
+
+	const large = await run(40_000);
+	assert.equal(large.report.status, "updated", JSON.stringify(large.report));
+	assert.equal(large.calls.length, 1, "the same reply fits the raised cap, so nothing was retried");
+	assert.match(await readFile(path.join(large.root, ".agents", "memory", "MEMORY.md"), "utf8"), /- entry number 119/);
+});
+
+test("tier C: a cap marker the reply already carried is not this pass's loss", async () => {
+	// A project that was ever capped stores MEMORY.md WITH the plugin's own marker, and the model
+	// re-emits it inside <existing-memory>. Deciding the refusal from that LINE rather than from a real
+	// cut refused a fitting reply with a count the cap never dropped — and because the number came from
+	// the old marker it could exceed the cap, so raising maxMemoryChars could not escape the refusal.
+	const root = await memoryProject("dsh-tierc-stale-marker-", "# Project Memory\n\n## Project\n- original\n");
+	const reply = JSON.stringify({
+		memory_markdown: "# Project Memory\n\nA durable prose fact about the project.\n\n_[memory truncated at 4000 characters: 2788 dropped]_",
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "nothing was cut, so nothing was retried");
+	assert.equal(report.status, "updated", JSON.stringify(report));
+	assert.equal(report.memoryWritten, true, "a fitting reply is stored");
+	assert.equal(report.memoryWriteDroppedChars, 0, "no character of THIS reply was dropped by the cap");
+	assert.equal(report.refusedLoss, undefined);
+	assert.match(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), /A durable prose fact about the project\./);
+});
+
+test("tier C: a retry that would be worse never costs a reply that could have landed", async () => {
+	// The first reply only cuts one entry to its per-item cap, which this pass accepts and stores; the
+	// retry comes back with a flooded section that must be refused. Adopting it would turn a storable
+	// reply into a refused one, so the worse retry is discarded and the first reply lands.
+	const root = await memoryProject("dsh-tierc-worse-retry-", "# Project Memory\n\n## Project\n- original\n");
+	const firstReply = JSON.stringify({
+		memory: { project: [], invariants: [], pitfalls: [], index: ["x".repeat(1000)] },
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ toolCall: { name: "record_memory", arguments: firstReply }, reason: { kind: "tool-calls" } },
+			{ text: FLOODED_TEXT_REPLY, reason: { kind: "stop" } },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 2, "the first reply was lossy, so the retry happened");
+	assert.equal(report.status, "updated", JSON.stringify(report));
+	assert.equal(report.memoryWritten, true, "the truncation-only first reply lands instead of being refused");
+	assert.equal(report.itemTruncated, 1);
+	assert.equal(report.refusedLoss, undefined);
+	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	assert.ok(stored.includes("x".repeat(100)), "the first reply's entry is what got stored");
+});
+
+test("tier C: a reply carrying no entries is the empty-skeleton gate's case, not a refusal", async () => {
+	// A body-less document is over the cap like any other, but there is nothing to shrink and the
+	// semantic gate is what stops the write. Reporting a refusal would name the cap as the blocker.
+	const root = await memoryProject("dsh-tierc-empty-", "# Project Memory\n\n## Project\n- original\n");
+	const reply = JSON.stringify({
+		memory_markdown: `# Project Memory\n${"#".repeat(4200)}`,
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "a body-less reply is not worth a retry");
+	assert.equal(report.refusedLoss, undefined, "the cap is not named as what stopped the write");
+	assert.equal(report.memoryWritten, false);
+	assert.equal(report.status, "updated", "the context still landed");
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /carried no entries/);
+});
+
+test("a failure after a refusal does not hide the refusal", async () => {
+	const root = await memoryProject("dsh-tierc-refusal-failure-", "# Project Memory\n\n## Project\n- original\n");
+	// The context write fails after the refusal was decided: CONTEXT.md is a directory here.
+	await mkdir(path.join(root, ".agents", "memory", "CONTEXT.md"), { recursive: true });
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "failed", JSON.stringify(report));
+	assert.equal(report.memoryWritten, false);
+	assert.equal(report.contextWritten, false);
+	assert.ok(report.refusedLoss !== undefined, "the refusal survives into the failure");
+	assert.match(memoryUpdateReply(report).text, /The memory was not written: the reply would have been stored lossily/);
+});
+
+test("tier C: a refusal releases the pass claim, so a forced re-run re-reports instead of saying deduped", async () => {
+	const root = await memoryProject("dsh-tierc-claim-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: FLOODED_MEMORY_ARGS }, reason: { kind: "tool-calls" } }],
+	});
+	// A real dedupe window: the pass itself is cached, so a second forced pass returns the cached
+	// outcome. Without the claim release the report would answer `deduped` for a memory that never
+	// landed, which is the claim that matters; the model call count stays 2 either way.
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 60_000 });
+
+	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
+	assert.equal(second.status, "lossy-refused", `a refusal must not be reported as deduped (got ${JSON.stringify(second)})`);
+	assert.equal(calls.length, 2, "the cached pass makes no new model call inside forceDedupeMs");
 });
 
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
@@ -1596,12 +1807,16 @@ test("a clipped CONTEXT.md render reaches the receipt and logs on every pass", a
 	assert.equal(logged.length, 2, `each clipped render leaves its own line, got ${JSON.stringify(logged)}`);
 });
 
-test("a reply the memory cap truncates on write is counted, logged and receipted", async () => {
-	// Opaque (not a four-section bullet document) replies never reach the section renderer, so the
-	// write cap is the only place this loss is recorded at all — and it used to leave no trace.
+test("an over-cap opaque reply is refused instead of landing a capped document", async () => {
+	// Opaque (not a four-section bullet document) replies never reach the section renderer, so the write
+	// cap used to be the only place this loss was recorded at all — and it landed a capped document with
+	// a truncation marker. Tier C now measures that loss in the pass, retries it once and refuses it,
+	// which is why `memoryWriteDroppedChars` can no longer be non-zero on a landed write: the branch is
+	// kept as the invariant's own alarm, and the refused number is what the receipt and log carry.
 	const root = await memoryProject("dsh-memory-write-cap-", "# Project Memory\n\n## Project\n- original\n");
+	const storedBefore = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
 	const prose = `# Project Memory\n\n${"a prose memory paragraph. ".repeat(400)}`;
-	const { ctx, agent } = await consolidationFixture({
+	const { calls, ctx, agent } = await consolidationFixture({
 		root,
 		replies: [{ text: JSON.stringify({ memory_markdown: prose, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
@@ -1609,11 +1824,15 @@ test("a reply the memory cap truncates on write is counted, logged and receipted
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.ok(report.memoryWriteDroppedChars > 0, `the write cap dropped characters (got ${JSON.stringify(report)})`);
-	assert.match(memoryUpdateReply(report).text, /character\(s\) of the reply exceeded the memory cap and were dropped on write/);
-	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
-	assert.equal(isMemoryTruncated(stored), true, "the stored memory carries the truncation marker");
-	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /was capped at 4000 characters on write/);
+	assert.equal(calls.length, 2, "the write-cap loss gets the one retry too");
+	assert.match(JSON.stringify(calls[1].messages), /over the memory cap/, "and the retry names the cap");
+	assert.equal(report.status, "lossy-refused", JSON.stringify(report));
+	assert.equal(report.memoryWriteDroppedChars, 0, "no capped document landed at all");
+	assert.ok(report.refusedLoss.writeCapDroppedChars > 0, `the refused reply's own cap loss is what is reported (got ${JSON.stringify(report)})`);
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), storedBefore, "the stored memory is untouched");
+	assert.doesNotMatch(storedBefore, /a prose memory paragraph/, "fixture check: the refused reply is not what was stored");
+	assert.match(memoryUpdateReply(report).text, /character\(s\) of the reply exceeded the memory cap/);
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /exceeded the 4000-character memory cap/);
 });
 
 test("a reply below the length floor is logged instead of discarded silently", async () => {
@@ -1637,13 +1856,15 @@ test("a failure after the memory landed keeps the landed loss in the receipt", a
 	const root = await memoryProject("dsh-memory-partial-land-", "# Project Memory\n\n## Project\n- original\n");
 	// Make the context write fail: CONTEXT.md is a directory, so the atomic replace cannot land.
 	await mkdir(path.join(root, ".agents", "memory", "CONTEXT.md"), { recursive: true });
-	const flooded = JSON.stringify({
-		memory: { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] },
+	// A whole-entry drop no longer lands at all (tier C refuses it), so the loss that has to survive
+	// into the failed report is the other one: an entry cut to its section's per-item cap and kept.
+	const reply = JSON.stringify({
+		memory: { project: [], invariants: [], pitfalls: [], index: ["x".repeat(1000)] },
 		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
 	});
 	const { ctx, agent } = await consolidationFixture({
 		root,
-		replies: [{ toolCall: { name: "record_memory", arguments: flooded }, reason: { kind: "tool-calls" } }],
+		replies: [{ toolCall: { name: "record_memory", arguments: reply }, reason: { kind: "tool-calls" } }],
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
@@ -1652,8 +1873,10 @@ test("a failure after the memory landed keeps the landed loss in the receipt", a
 	assert.equal(report.status, "failed", JSON.stringify(report));
 	assert.equal(report.memoryWritten, true, "the memory landed before the failure");
 	assert.equal(report.contextWritten, false);
-	assert.ok(report.droppedItems > 0, "the landed loss survives into the failed report");
-	assert.match(memoryUpdateReply(report).text, /The memory had already landed, with this loss/);
+	assert.equal(report.itemTruncated, 1, "the landed truncation survives into the failed report");
+	const receipt = memoryUpdateReply(report).text;
+	assert.match(receipt, /The memory had already landed, with this loss/);
+	assert.match(receipt, /per-item cap/, "the surviving loss names its mechanism");
 });
 
 test("the /memory reply reports a memory that is riding the character cap", () => {

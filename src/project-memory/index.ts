@@ -34,7 +34,7 @@ import {
 	readTextCachedSync,
 	writeAtomic,
 } from "../shared/project-state.js";
-import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, memoryTruncationDropped, normalizeMemoryDocument, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
+import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
 import { withMemoryLock } from "../shared/lock.js";
 
 export const name = "project-memory";
@@ -83,7 +83,23 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused";
+
+/**
+ * What a refused reply would have lost, kept apart from the landed counts on purpose.
+ *
+ * A refusal stores nothing, so every count that describes landed content is 0 — folding the refused
+ * reply's numbers into those fields would report a loss the stored file never suffered. They are still
+ * what the user needs to act on, so they ride in their own field instead.
+ */
+export type RefusedLoss = {
+	/** Sections that would have lost at least one entry to their budget. */
+	sectionDropped: number;
+	/** Entries that would have been dropped whole. */
+	droppedItems: number;
+	/** Characters the memory cap would have dropped from the reply itself. */
+	writeCapDroppedChars: number;
+};
 
 /**
  * What one consolidation attempt did, plus the loss it caused.
@@ -122,6 +138,11 @@ export type ConsolidateReport = {
 	droppedItems: number;
 	/** Entries of the landed memory cut to their section's per-item cap and kept. */
 	itemTruncated: number;
+	/**
+	 * What a refused reply would have lost. Set only by `lossy-refused`, and never folded into the
+	 * landed counts above: tier C refuses the write, so the stored document lost none of it.
+	 */
+	refusedLoss?: RefusedLoss;
 };
 
 /** The no-loss half of a report: nothing landed and nothing was dropped. */
@@ -161,11 +182,38 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			const memoryText = outcome.result.memory.trim();
 			// A reply that carried no entries renders as a bare four-heading skeleton: it is over the
 			// length floor but is not a memory, so the pass's gate must win over the length heuristic.
-			const memoryChanged = !outcome.semanticEmpty && memoryText.length >= 40;
-			if (!memoryChanged && !outcome.semanticEmpty && memoryText.length > 0) {
+			// A refused reply is excluded for the opposite reason: it is a real memory this plugin
+			// deliberately did not store, and writing it would be the silent loss the refusal exists to
+			// prevent.
+			const memoryRefused = outcome.memoryLossyRefused;
+			const memoryChanged = !memoryRefused && !outcome.semanticEmpty && memoryText.length >= 40;
+			if (!memoryChanged && !memoryRefused && !outcome.semanticEmpty && memoryText.length > 0) {
 				// The length floor discards a short reply with no other trace at all: a tiny but real
 				// memory must not vanish while the receipt still reports the pass as clean.
 				await logError(projectRoot, "memory", `the consolidation reply carried a ${memoryText.length}-character memory, below the ${40}-character floor; the stored memory was kept unchanged`);
+			}
+			/** What a refused reply would have lost, named per refusal and never counted as landed. */
+			let refusedLoss: RefusedLoss | undefined;
+			if (memoryRefused) {
+				refusedLoss = {
+					sectionDropped: outcome.sectionDropped,
+					droppedItems: outcome.droppedItems,
+					writeCapDroppedChars: outcome.memoryWriteCapDroppedChars,
+				};
+				// Not gated per project: a project whose replies keep overflowing is refused every pass,
+				// and reporting only the first refusal would leave every later one silent.
+				const parts: string[] = [];
+				if (refusedLoss.sectionDropped > 0) {
+					parts.push(`${refusedLoss.sectionDropped} section(s) exceeded their budget and ${refusedLoss.droppedItems} whole entry(ies) would have been dropped`);
+				}
+				if (refusedLoss.writeCapDroppedChars > 0) {
+					parts.push(`${refusedLoss.writeCapDroppedChars} character(s) of the reply exceeded the ${config.maxMemoryChars}-character memory cap`);
+				}
+				await logError(projectRoot, "memory", `the consolidation reply would have been stored lossily (${parts.join("; ")}), and the one targeted retry did not fix it; the stored memory was kept unchanged`);
+				// Carry it now: the memory write just below can throw (the lock, the journal), and a failure
+				// must not hide a decision this pass already made. The landed-loss reset further down
+				// carries it across again.
+				loss = { ...loss, refusedLoss };
 			}
 			// Claim the version before the first await: another pass reaching this point while the
 			// writes below are in flight must see it as done, not run a second time.
@@ -189,8 +237,9 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				memoryKeptStale = !snapshot.written;
 				// The write path caps the document once more: an opaque reply never reaches the section
 				// renderer, and an oversized one lands with a truncation marker instead. Nothing else
-				// reports that, so the count comes from the same normalizer the write used.
-				memoryWriteDroppedChars = snapshot.written ? memoryTruncationDropped(normalizeMemoryDocument(memoryText, config.maxMemoryChars)) ?? 0 : 0;
+				// reports that, so the count comes from the same normalizer the write used — its own cut,
+				// not the marker line, which may describe a cap an earlier pass applied.
+				memoryWriteDroppedChars = snapshot.written ? normalizeMemoryWithDrop(memoryText, config.maxMemoryChars).dropped : 0;
 				if (memoryWriteDroppedChars > 0) {
 					await logError(projectRoot, "memory", `MEMORY.md was capped at ${config.maxMemoryChars} characters on write: ${memoryWriteDroppedChars} character(s) of the reply were dropped`);
 				}
@@ -212,6 +261,9 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// What landed is recorded as soon as it lands: a later throw must not erase it.
 			loss = {
 				...NO_LOSS,
+				// A refusal decided above outlives this reset: it describes what did NOT land, and a throw
+				// after this point must not turn that decision into a plain failure.
+				...(refusedLoss === undefined ? {} : { refusedLoss }),
 				memoryWritten: wroteMemory,
 				memoryHiddenChars: wroteMemory ? outcome.memoryHiddenChars : 0,
 				memoryWriteDroppedChars: wroteMemory ? memoryWriteDroppedChars : 0,
@@ -267,6 +319,13 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				contextDroppedChars: wroteContext ? contextDroppedChars : 0,
 			};
 			if (memoryKeptStale) return { status: wroteContext ? "stale-context" : "stale", ...loss };
+			if (memoryRefused) {
+				// A refusal is a terminal outcome of this pass but not a write, so the claim is released
+				// on the catch block's own rule: a later forced pass must really re-run instead of
+				// answering "already up to date" for a memory that never landed.
+				if (!wroteMemory) written.delete(projectRoot);
+				return { status: "lossy-refused", ...loss, refusedLoss };
+			}
 			return wrote ? { status: outcome.clipped ? "clipped" : "updated", ...loss } : cleanReport("unchanged");
 		} catch (error) {
 			// Release the claimed version when nothing was written: otherwise the next forced pass
@@ -431,6 +490,27 @@ function memoryLossDetail(report: ConsolidateReport): string {
 	return parts.join("; ");
 }
 
+/**
+ * The refused reply's own loss, as a clause that starts mid-sentence, or `""` when this pass refused
+ * nothing.
+ *
+ * It is a separate field from `memoryLossDetail` on purpose: every count in that one describes what
+ * landed, and a refused reply landed nothing. Sharing a field would have to break one contract or the
+ * other, which is exactly how a refusal would end up reading like a lossy write.
+ */
+function refusedLossCause(report: ConsolidateReport): string {
+	const refused = report.refusedLoss;
+	if (refused === undefined) return "";
+	const parts: string[] = [];
+	if (refused.sectionDropped > 0) {
+		parts.push(`${refused.sectionDropped} section(s) exceeded their budget and ${refused.droppedItems} whole entry(ies) would have been dropped`);
+	}
+	if (refused.writeCapDroppedChars > 0) {
+		parts.push(`${refused.writeCapDroppedChars} character(s) of the reply exceeded the memory cap`);
+	}
+	return parts.length === 0 ? "the reply would have been stored lossily" : `the reply would have been stored lossily (${parts.join("; ")})`;
+}
+
 /** Name the artifact(s) a pass wrote, so no receipt claims one that did not land. */
 function writtenTarget(report: ConsolidateReport): string {
 	if (report.memoryWritten && report.contextWritten) return "Project memory and context";
@@ -450,10 +530,15 @@ function writtenTarget(report: ConsolidateReport): string {
  */
 export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" | "error"; text: string } {
 	const detail = memoryLossDetail(report);
+	const refused = refusedLossCause(report);
 	if (report.status === "failed") {
 		const base = "Project memory update failed; see .agents/memory/errors.log.";
 		// A write that landed before the failure is not part of the failure; say which one survived.
-		if (!report.memoryWritten && !report.contextWritten) return { kind: "error", text: base };
+		if (!report.memoryWritten && !report.contextWritten) {
+			// A refusal decided before the failure is not the failure either: the memory was kept on
+			// purpose, and dropping that from the receipt would report the pass as a plain error.
+			return { kind: "error", text: refused === "" ? base : `${base} The memory was not written: ${refused}, and the one targeted retry did not fix it.` };
+		}
 		const what = report.memoryWritten && report.contextWritten ? "The memory and the context" : report.memoryWritten ? "The memory" : "The context";
 		return { kind: "error", text: `${base} ${what} had already landed${detail === "" ? "" : `, with this loss: ${detail}`}.` };
 	}
@@ -472,6 +557,17 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		// named; the memory's own counts stay 0 because that document was refused.
 		const base = "Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.";
 		return { kind: "success", text: detail === "" ? base : `${base} ${detail}.` };
+	}
+	if (report.status === "lossy-refused") {
+		// A refusal is neither a failure nor a write: the stored memory is byte-identical, and the reply
+		// is named through its own counts so the operator can act (usually by raising `maxMemoryChars`).
+		// The memory-side landed counts are all 0 by contract; `detail` can still carry a context loss
+		// that landed in the same pass, and leaving it out would report that context as clean.
+		const base = `Project memory was kept unchanged: ${refused} and the one targeted retry did not fix it.`;
+		const context = report.contextWritten ? ` The context was updated${detail === "" ? "" : `, with this loss: ${detail}`}.` : "";
+		// The pass itself is cached for `forceDedupeMs`, so an immediate re-run can only re-report this
+		// refusal; the lever that actually gives the reply room is the cap.
+		return { kind: "success", text: `${base}${context} Raise maxMemoryChars, or retry the pass later, to give the reply more room.` };
 	}
 	return { kind: "success", text: detail === "" ? `${target} updated.` : `${target} updated, but the rewrite was lossy: ${detail}.` };
 }

@@ -149,6 +149,70 @@ export function renderMemoryDocument(sections: MemorySections, cap: number): Mem
 	return { text, sectionDropped, droppedItems, itemTruncated };
 }
 
+/**
+ * What one section would give up if it were rendered now, in the renderer's own units.
+ *
+ * The tier-C retry prompt names sections and numbers and never content, so those numbers have to come
+ * from the rule that actually stores the document. A second, drifting estimate would ask the model to
+ * fix the wrong amount — worse than not retrying at all.
+ */
+export type MemorySectionOverage = {
+	heading: string;
+	/** The section's share of the cap, in characters. */
+	budget: number;
+	/** The per-item cap this section's entries were clipped to. */
+	itemCap: number;
+	/** Characters the entries need beyond the budget after each is clipped to the per-item cap. */
+	over: number;
+	/** Entries the renderer would drop whole at this size. */
+	droppedEntries: number;
+	/** Entries the renderer would cut to the per-item cap and keep. */
+	truncatedEntries: number;
+};
+
+/**
+ * What each section would lose if it were rendered now, computed with `renderMemoryDocument`'s exact
+ * arithmetic: the same per-item cap, the same `- ` overhead, the same whole-entry drop.
+ *
+ * Only sections that would actually lose something are returned, so an empty result means every
+ * section fits. A section whose only problem is an over-long entry comes back with `over: 0` and a
+ * non-zero `truncatedEntries`: it needs rewording, not merging.
+ */
+export function memorySectionOverage(sections: MemorySections, cap: number): MemorySectionOverage[] {
+	const rows: MemorySectionOverage[] = [];
+	for (const budget of memorySectionBudgets(cap)) {
+		const entries = toEntries(sections[sectionKey(budget.heading)] ?? []);
+		if (entries.length === 0) continue;
+		// Mirrors the renderer's own floor branch (unreachable while MIN_MEMORY_CHARS is 4000): the
+		// heading is kept and every entry is lost.
+		if (budget.chars < MIN_SECTION_BUDGET_CHARS) {
+			rows.push({ heading: budget.heading, budget: budget.chars, itemCap: 0, over: 0, droppedEntries: entries.length, truncatedEntries: 0 });
+			continue;
+		}
+		const itemCap = Math.max(1, Math.min(MAX_LIST_ITEM_CHARS, budget.chars - BULLET_OVERHEAD_CHARS));
+		let demand = 0;
+		let spent = 0;
+		let droppedEntries = 0;
+		let truncatedEntries = 0;
+		for (const entry of entries) {
+			const clipped = clipToLineBoundary(entry, itemCap);
+			const cost = clipped.length + BULLET_OVERHEAD_CHARS;
+			demand += cost;
+			if (spent + cost > budget.chars) {
+				droppedEntries += 1;
+				continue;
+			}
+			spent += cost;
+			if (clipped !== entry) truncatedEntries += 1;
+		}
+		const over = demand - budget.chars;
+		if (over > 0 || truncatedEntries > 0) {
+			rows.push({ heading: budget.heading, budget: budget.chars, itemCap, over: Math.max(0, over), droppedEntries, truncatedEntries });
+		}
+	}
+	return rows;
+}
+
 /** An ATX heading: one or more `#` followed by whitespace or end of line. `#1 rule` is not one. */
 const ATX_HEADING_RE = /^#{1,}(?:\s.*)?$/;
 

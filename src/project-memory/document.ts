@@ -85,6 +85,31 @@ function isHighSurrogate(code: number): boolean {
  * @returns one canonical `# Project Memory` document, at most `limit` characters.
  */
 export function normalizeMemoryDocument(value: string, limit: number = MAX_MEMORY_CHARS): string {
+	return normalizeMemoryWithDrop(value, limit).text;
+}
+
+/** A normalized document plus what this normalization itself cut. */
+export type NormalizedMemory = {
+	text: string;
+	/**
+	 * Characters this call's cut dropped, 0 when the document fit. Never read from the marker line:
+	 * a marker the input already carried records an **earlier** cap (it is deliberately carried
+	 * forward, so a stored document keeps saying it was once capped), and reporting it as this call's
+	 * loss is how a fitting reply gets refused for a cut that never happened.
+	 */
+	dropped: number;
+};
+
+/**
+ * `normalizeMemoryDocument`, with the count of what the cap actually dropped.
+ *
+ * The tier-C refusal and the received-loss receipt both need that number, and both used to get it by
+ * parsing the output's marker line — which is a record of the *first* cap a document suffered, not of
+ * this one. Two callers need the number, so it is returned here rather than re-derived.
+ * @param value - the document as a model or a legacy source produced it.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
+ */
+export function normalizeMemoryWithDrop(value: string, limit: number = MAX_MEMORY_CHARS): NormalizedMemory {
 	const cleaned = value
 		.replace(/^```(?:markdown)?\s*/i, "")
 		.replace(/\s*```$/, "")
@@ -97,13 +122,13 @@ export function normalizeMemoryDocument(value: string, limit: number = MAX_MEMOR
 	const previous = lines.find((line) => isMemoryTruncationLine(line))?.trim();
 	const body = lines.filter((line) => !isMemoryTruncationLine(line)).join("\n").trim();
 	const document = `${MEMORY_HEADER}${body}`;
-	if (document.length <= limit) return `${document}${previous ? `\n\n${previous}` : ""}`.trimEnd() + "\n";
+	if (document.length <= limit) return { text: `${document}${previous ? `\n\n${previous}` : ""}`.trimEnd() + "\n", dropped: 0 };
 	// Reserve the marker's room, then re-cut with the count that cut produced: one correction is
 	// enough, because a larger dropped count can only make the marker longer and the budget is
 	// recomputed from the marker actually emitted.
 	let kept = clipToLineBoundary(document, Math.max(0, limit - markerRoom(document.length, limit))).trimEnd();
 	kept = clipToLineBoundary(document, Math.max(0, limit - memoMarkerLength(document.length, kept.length, limit))).trimEnd();
-	return `${kept}\n\n${memoryTruncationMarker(document.length - kept.length, limit)}\n`;
+	return { text: `${kept}\n\n${memoryTruncationMarker(document.length - kept.length, limit)}\n`, dropped: document.length - kept.length };
 }
 
 /** Worst-case marker length for a still-unknown count: every digit of the document's own length. */
