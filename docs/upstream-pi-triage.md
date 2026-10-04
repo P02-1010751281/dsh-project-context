@@ -392,3 +392,131 @@ a behaviour pi changed inside a module dsh implements differently can still hide
 B's size and the command renames were read from `a562d7e`'s message and file list, not from a
 line-by-line reading of its 2180 insertions. Every "PORTABLE" row above is a claim that dsh lacks the
 behaviour, backed by a check that returns nothing; no row claims the port is small.
+
+## Fourth pass — 2026-10-05 (56 commits after the third pass)
+
+The third pass stopped at `6707376`. pi's `master` has since reached `f6bea1d` — **56 commits**, covering
+pi's v0.2.2, v0.2.3, v0.3.0 and v0.3.1. `v0.3.1` peels to `12c6390`, which is *inside* the range three
+commits below the tip, so the newest tag is not the newest commit: state which one you mean.
+
+**Read the checkout honestly.** This checkout's working tree is still at `6707376`; `origin/master` is
+`f6bea1d`. Every pi read behind this section is `git -C $P show f6bea1d:<path>` or `git grep <pattern>
+f6bea1d -- <path>` — never the working tree, which is a revision behind and would answer with the
+pre-change files.
+
+Unlike the third pass, this range is mostly pi's own record-keeping: **6 commits touch code or tests, 50
+touch only docs, skills, audits or evidence.** It is not a no-op, but its portable work is small:
+
+| batch | what | pi reference | dsh target | ruling needed |
+| --- | --- | --- | --- | --- |
+| **D** | autolearn may supersede a skill the pipeline itself generated — **brief: `docs/batch-d-autolearn-supersede-brief.md`** | `2d562ce` + `extensions/project-context/autolearn/{skill,candidate,inventory,prompt,pass}.ts` at `f6bea1d`; design in `12c6390`, `6f533ef` | `src/project-autolearn/{skill,candidate,inventory,prompt,pass}.ts` | yes — it changes what a learned skill *is*, and our skills are tracked |
+| **E** | one name per fact on the command surface: `/handoff` `threshold` (merges `auto` + bare ratio) and `budget summary\|recent` (replaces `target`/`keep`); bare `/session-log` read-only, `write` writes | `0399e04`; design in `13feb8a`, `23dc5b3`, `811ebec`, `463ee07` | `src/project-handoff/index.ts`, `src/project-context/index.ts` | yes — user-visible verb renames |
+| **F** | the cross-project boundary as a prompt rule plus a caption inside `<recent-conversation>` | `4f26ddd` (`extensions/project-context/memory/prompt.ts`) | `src/project-memory/consolidate.ts` (`CONSOLIDATION_PROMPT_RULES`, the conversation block) | small; one caveat below |
+
+The `0399e04` **legacy-config** half has no counterpart here and is not portable as written: pi had three
+pre-unification file shapes read on the hot path (`docs/configuration` at `463ee07`), while our settings
+live in the shared namespace's `PluginSettingsSchema` and `src/shared/config.ts` has no legacy term
+(`git grep -in legacy -- src/shared/config.ts` → nothing). `src/shared/migrate.ts` migrates *directory
+layouts* (a legacy `.omp`/`.pi` tree), not config shapes. The "a parameter lives with the layer that
+owns what it changes" principle is already how our settings card is arranged.
+
+Batch F's caveat is ours, not pi's: this repo deliberately keeps pointers to other projects in memory
+(who owns the `/etc/nixos` delivery line, what the pi checkout is for), and pi's rule keeps exactly that
+legal — "naming another project is fine only to record who owns an open item" — so the port must forbid
+another repo's *state and measurements*, not the ownership pointers we already keep.
+
+### The six commits that carry code or tests
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `2d562ce` | feat(autolearn): let the pipeline supersede a skill it generated, and only one of those | **PORT-WORTHY** — batch D — provenance marker plus supersede/merge in `src/project-autolearn/{skill,candidate,inventory,prompt,pass}.ts` |
+| `0399e04` | feat(commands,config)!: one command per layer, budget verbs, and a one-time legacy config migration | **PORT-WORTHY (parts)** — batch E — `/handoff` verb convergence and the bare `/session-log` read/write split; its legacy-config half is PI-ONLY (their file shapes, not our settings card) |
+| `89cadee` | fix(commands): give each fact one name on the command surface | **PI-ONLY** — the umbrella command whose first line collided with `/context` does not exist here; `/context` is our only printer of the context-file path |
+| `4f26ddd` | fix(memory): state the cross-project boundary as a rule and at the conversation block | **PORT-WORTHY** — batch F — one prompt rule plus one conversation-block caption in `src/project-memory/consolidate.ts` |
+| `bc8c21e` | fix(memory): render the memory status from one shared formatter | **ALREADY IN DSH** — one owner already: `memoryStatusReply` (`src/project-memory/index.ts`), one definition and one call site, so there is no second entry point to drift |
+| `e3585ce` | fix(tests): discover pi's managed self-install tree | **PI-ONLY** — pi's own test harness discovering pi's managed self-install tree |
+
+### The 50 commits that touch only docs, skills, audits or evidence
+
+They are pi's own process records; the default disposition is PI-ONLY and none of them needs a port. The
+tags name the ones that are design input for a batch above, or evidence for the rule the batch lands.
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `f6bea1d` | docs(memory): refresh the memory render for the autolearn supersede boundary | PI-ONLY (record) — design input for batch D |
+| `6f533ef` | docs(fix-note,evidence): record why autolearn may now supersede its own skills and how it is scoped | PI-ONLY (record) — design input for batch D |
+| `12c6390` | docs(architecture,configuration): describe how a learned skill is identified and superseded | PI-ONLY (record) — design input for batch D |
+| `e118782` | docs(fix-note): correct the autolearn non-goal - the field facts exist, the decisions do not | PI-ONLY (record) — design input for batch D |
+| `89bdded` | chore(skills): record the two release-slice rules this v0.3.0 cut had to learn | PI-ONLY (record) |
+| `480e145` | docs(fix-note): record the command-surface convergence fix | PI-ONLY (record) — design input for batch E |
+| `fb766ed` | docs(memory): refresh the memory render for the v0.3.0 surface | PI-ONLY (record) |
+| `f962cd8` | docs(design): drop the draft labels the frozen revision still carried | PI-ONLY (record) |
+| `392732f` | docs(evidence): freeze the command-surface design at v0.3.0 and record the release | PI-ONLY (record) — design input for batch E |
+| `4f1e26b` | chore(skills): merge the retire/rename procedure into the surface audit and clean the prompt-rule skill | PI-ONLY (record) |
+| `463ee07` | docs(configuration,handoff): write the v0.3.0 surface, the budget verbs and the flat-only read path | PI-ONLY (record) — design input for batch E |
+| `fa2efec` | docs(design): fold in the five answers and assess the legacy config chains | PI-ONLY (record) — design input for batch E |
+| `18798fd` | docs(design): keep the umbrella toggle as a bare batch and refuse a command-level master switch | PI-ONLY (record) — design input for batch E |
+| `811ebec` | docs(design): one command per layer, shrink the handoff verbs, drop the umbrella toggle | PI-ONLY (record) — design input for batch E |
+| `13feb8a` | docs(design): write the full layered command contract, the naming fix and the /context split | PI-ONLY (record) — design input for batch E |
+| `23dc5b3` | docs(design): reassign the command surface by data-flow layer (revision 2) | PI-ONLY (record) — design input for batch E |
+| `eb85b30` | docs(design): draft the command-surface convergence and the home for the path lookup | PI-ONLY (record) — design input for batch E |
+| `cc0b489` | docs(evidence): record the v0.2.3 boundary fix and its release evidence | PI-ONLY (record) |
+| `9feadab` | docs(configuration): correct the /context overlap and record the one-name rule | PI-ONLY (record) — design input for batch E |
+| `df5dfb1` | docs(skills): tighten the boundary-guard pattern so it stops matching http codes | PI-ONLY (record) |
+| `dce7ae2` | docs(skills): take the measurement literals out of the boundary guard and drop a rotted test count | PI-ONLY (record) |
+| `e63aa9c` | docs(skills): review the autolearn-promoted status-renderer skill and de-duplicate its guard | PI-ONLY (record) |
+| `0d086e4` | docs(evidence): v0.2.2 release evidence (tag, dual push, pin commit, installed HEAD) | PI-ONLY (record) |
+| `663a177` | docs(memory): refresh the memory render and record the shared status formatter | PI-ONLY (record) |
+| `e18f198` | docs(configuration): record how the six commands relate | PI-ONLY (record) — design input for batch E |
+| `3ef875e` | docs(skills): fold the learned skill-inventory skill into curated-surface-hygiene | PI-ONLY (record) |
+| `37a150b` | docs(evidence): record the memory-status dedup and its mutation check | PI-ONLY (record) — evidence for bc8c21e, already in dsh |
+| `3488e39` | docs(audits): addendum 3 section 8 records why the tracked autolearn candidate is gone | PI-ONLY (record) — why pi's tracked autolearn candidate is gone |
+| `045697b` | docs(memory): refresh the memory render and correct the post-consolidation counts | PI-ONLY (record) |
+| `beedf32` | docs(skills): consolidate the skill set from 19 to 14 and clear the stale pointers | ALREADY IN DSH — one owner per restated rule and a staged corpus is `.agents/skills/dsh-skill-corpus-consolidation/SKILL.md` |
+| `6d49e2c` | docs(memory): refresh the memory render and re-apply the external-state boundary again | PI-ONLY (record) — evidence the boundary leak recurs, feeds batch F |
+| `ad78038` | docs(skills): point the skill bodies at the current module paths | PI-ONLY (record) |
+| `7322e7c` | docs(skills): drop the last sibling value from the complexity-audit skill | PI-ONLY (record) |
+| `ef14394` | docs(skills): finish the example de-identification in the divergence skill | PI-ONLY (record) |
+| `015b025` | docs(skills): drop machine-bound paths and stale counts from the skill bodies | PI-ONLY (record) |
+| `e2a18da` | docs: link the changelog from the top-level readme | ALREADY IN DSH — `README.md` points at `CHANGELOG.md`, which is the release skill's step 2 |
+| `362c4de` | docs(memory): refresh the memory render and re-apply the external-state boundary | PI-ONLY (record) — evidence the boundary leak recurs, feeds batch F |
+| `268a53f` | docs(memory): keep consumer-repo state in the audit, not in project memory | PI-ONLY (record) — evidence the boundary leak recurs, feeds batch F |
+| `02a1a11` | docs: wrap long lines, add a CHANGELOG, and keep incidents out of the reference docs | PI-ONLY (record) |
+| `0efd022` | docs(skills): shorten the routing descriptions | PI-ONLY (record) |
+| `66cddc0` | docs: stop the documentation index from naming a stale current issue | PI-ONLY (record) |
+| `7b245b3` | docs(memory): refresh the memory render | PI-ONLY (record) |
+| `9d8c677` | docs: sweep the last stale lock-attribution sites and document render durability | ALREADY IN DSH — render durability is `.agents/skills/dsh-memory-doc-loss-repair/`'s headline rule; the lock half is pi-internal |
+| `14ad27a` | docs(audits): hand the two sibling-repo follow-ups back to their own projects | PI-ONLY (record) — hands pi's two sibling-repo follow-ups back |
+| `af1f9d3` | docs(memory): refresh the memory render | PI-ONLY (record) |
+| `8697d94` | docs(memory): refresh the memory render | PI-ONLY (record) |
+| `12ca850` | docs(audits): record a second field incident where pi's own re-render dropped merged content | PI-ONLY (record) |
+| `8d6162a` | docs(memory): refresh the memory render | PI-ONLY (record) |
+| `47598f8` | docs(skills): add the audit-claim-verification skill approved by the autolearn pass | ALREADY IN DSH — same scope as `.agents/skills/dsh-artifact-claim-verification/` |
+| `9c5a548` | docs(audits): record the closing dispositions for the parked audit items | PI-ONLY (record) |
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P log --oneline 6707376..f6bea1d | wc -l                                  # 56
+git -C $P log --oneline 6707376..f6bea1d -- 'extensions/**' 'tests/**'            # the six above
+git -C $P log --all --oneline --not master                                        # empty: the checkout is behind, not diverted
+git -C $P show f6bea1d:extensions/project-context/autolearn/skill.ts              # batch D's marker
+git -C $P show 4f26ddd -- extensions/project-context/memory/prompt.ts             # batch F's two lines
+D=/mnt/Data/Projects/dsh-project-context
+git -C $D grep -n 'existing.has(skill.name)' -- src/project-autolearn/candidate.ts # dsh refuses every existing name
+git -C $D grep -rn 'another repository\|cross-project' -- src/project-memory/      # empty: batch F does not exist here
+git -C $D grep -n 'name: "handoff"' -A 3 -- src/project-handoff/index.ts           # our verbs, incl. auto|ratio|target|keep
+git -C $D grep -n 'name: "memory"\|memoryStatusReply' -- src/project-memory/index.ts  # one status owner already
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a
+semantic diff of the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`)
+is not owned here. pi's corpus and skills are pi-only by construction: its release-slice rules
+(`89bdded`), its boundary-guard regex fixes (`df5dfb1`, `dce7ae2`) and its description budget (`0efd022`,
+pi caps a description because it injects it into every session prompt; ours is
+`MAX_SKILL_DESCRIPTION_CHARS = 1024`) describe pi's own surface. Two traps from the earlier passes stand:
+pi's finish reason is `length` where dsh's is `max-tokens`, and pi's `R3` table is pi's design-review
+audit, not this repo's R3 batch — do not cross-cite either.
