@@ -174,6 +174,16 @@ grep -n 'slice(0, MAX_CONTEXT_CHARS)' src/project-memory/context-doc.ts   # dsh'
 grep -rn 'contextSectionBudgets\|isContextTruncated\|contextSchemaOverhead' src/   # = none
 ```
 
+**Ported 2026-10-04 (batch A).** `src/project-memory/context-schema.ts` now owns the section table,
+the reserved-overhead budget maths and the last-non-empty-line marker reader; `context-doc.ts`
+renders from that table, and the consolidation prompt builds its section list from the same one, so
+the two cannot drift. Deliberate deviations: the two test-only pins `cfa4b6f`/`7fa5e3a` were **not**
+ported — they pin pi's *memory* schema (`memory/schema.ts`, its Project/Invariants/Pitfalls/Index
+table), and dsh's memory document is free-form, so those tests would have nothing to assert; the
+surrogate guard `a665f5d` added to pi's `clipToLineBoundary` **was** ported, because the per-item and
+title trims now run through it and a half pair cannot be re-encoded. Regression tests:
+`test/context-schema.test.mjs` (15 cases, two mutants killed).
+
 **B — structured sections through a tool.** dsh parses a JSON reply
 (`parseConsolidation`, `src/shared/reply-json.ts`). pi fills per-section entries through a
 strict-ready `record_memory` tool and renders the stored document from them, so the schema no longer

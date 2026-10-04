@@ -191,6 +191,30 @@
   `controller.prompt` 迁到 agents 收件箱，它们的调用序列断言（`["create", "seed"]`）因此**同时钉住
   `perform.ts` 走的是哪条投递路径**——那些 fixture 的 controller 已不再提供 `prompt`，改回去会当场红。
 
+**project-memory（CONTEXT.md 的固定 schema 与截断标记）**
+
+- 修复（自 pi 移植，批 A）：**被裁的 `CONTEXT.md` 与完整的一份无法区分**。渲染器先按「丢列表项」逼近
+  `MAX_CONTEXT_CHARS`，仍超就返回 `document.slice(0, MAX_CONTEXT_CHARS)`——一次裸 `slice`，没有任何标记；而
+  `MEMORY.md` 早就有 `_[memory truncated at <limit> characters: <dropped> dropped]_`。于是「这一节被裁掉了」
+  这件事只存在于某个人的记忆里。现在布局与预算都由一张表驱动（`src/project-memory/context-schema.ts` 的
+  `CONTEXT_SECTIONS`）：固定占位（表头、时间戳行、三个标题、trailing comment、最坏情况的标记）先由
+  `contextSchemaOverheadChars()` 预留，余量按每节 share 分（Summary 0.4 且仍受 `MAX_SUMMARY_CHARS` 硬顶、
+  Key points 0.35、Open tasks 0.25），每节按**行边界**裁剪并把真实掉落量累加进
+  `_[context truncated: <dropped> characters dropped]_` 追加在文末。
+  标记只从**最后一个非空行**读（`contextTruncationDropped`）：渲染器永远把标记追加在最后，所以某一节里
+  一句长得像标记的模型输出不会被误判成真裁剪。掉落量包含**每一处**损失——超预算裁掉整项、单条超过
+  `MAX_LIST_ITEM_CHARS` 的 trim、以及 `MAX_LIST_ENTRIES` 条目的截断——所以标记报的是真损失而不是预算损失；
+  兜底摘要（`fallbackUpdate`）也不再预先 `clip`，它的损失同样由标记报出。
+  同一张表还生成 consolidation prompt 里的节清单与预算（`- ## <heading>: <description> (about <chars>
+  characters)`），渲染器与 prompt 从此不可能各写一份而漂移；prompt 另加一条**禁止把截断标记写回产物**的
+  规则（模型抄走标记会让一份短的渲染看起来像被裁过）。裁剪发生时，pass 另按项目记一次
+  `CONTEXT.md was clipped (…)` 日志，点名是三条 clamp 里的哪一类。
+  顺带：`clipToLineBoundary` 现在不会留下**孤立高代理项**（半对 surrogate 无法再被 provider 编码），单条
+  800 字符的 trim 与 160 字符的标题 trim 都走它。
+  变异校验：让渲染恒不追加标记 → `tsc` 0、marker 进 `lib/`、掉 4 项（summary 精确计数、列表计数、逐条 trim
+  计数、兜底摘要计数）；把标记改成从**第一个**非空行读 → 掉 2 项（尾行策略那条 + 超预算渲染的标记判定）。
+  全量门禁 `pnpm typecheck`/`pnpm build`/`pnpm test` = 0 错 / 0 错 / 258 pass 0 fail，`lib/` 变异标记 0。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**
