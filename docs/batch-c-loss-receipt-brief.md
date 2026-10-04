@@ -101,7 +101,7 @@ three reachable paths and found three dishonest or under-stated counts:
 | a failure after a landed write reported its loss as 0 | counts contract | fixed: landed loss carried into the `failed` report |
 | `itemTruncated` counted an entry the same render then dropped whole | counter honesty | fixed: counted only once kept |
 | a reply below the 40-character floor vanished with no trace | silence | fixed: logged |
-| `clipped` with all counts zero is reachable (the loss belonged to an artifact that did not land) | boundary | accepted and documented: the base sentence is accurate, and inventing a count for an artifact that did not land would be the misattribution this repo warns about |
+| `clipped` with all counts zero is reachable (the loss belonged to an artifact that did not land) | boundary | accepted and documented: the base sentence is accurate, and inventing a count for an artifact that did not land would be the misattribution this repo warns about. **Closed 2026-10-05**: the status is now derived from the landed counts, so the combination is unreachable; the pass-level fact still reaches `errors.log`. See `docs/batch-c-tier-c-design.md` §14 and `CHANGELOG.md` |
 | doc framing said "two mechanisms" and "the stored document cannot show them" | docs | fixed: five mechanisms, each named, with the write-path one's marker acknowledged |
 | test gap: the zeroing filter and the reinstated gates were not pinned | tests | fixed: the new end-to-end tests kill those mutants |
 
@@ -125,6 +125,15 @@ byte-identical wording to the pre-change function when counts are zero; the repo
   `loadMemory` before the pass sees it, and the stored marker plus the `/memory status` warning are
   its only traces. Counting it would mix the loader's normalization with the cap, so it is left as a
   stated residual instead of a guessed number.
+  **Addendum 2026-10-05 — closed.** It is counted, and the objection in the last sentence is met
+  rather than worked around: the number comes from the normalizer that applied the cap
+  (`normalizeMemoryWithDrop`'s own `dropped`, surfaced through `foldMemoryJournalWithDrop` /
+  `decodePoisonedMemoryWithDrop` / `memoryComparisonKeyWithDrop`), never from a length difference
+  against the raw bytes, and the pass adds it to `memoryHiddenChars` alongside the input fit's own
+  count. Measured on this repo (cap 5000, hand-edited 6337-character `MEMORY.md`): the no-journal read
+  clips to 4860 characters **without writing a marker**, which is why `/memory status` was silent about
+  it; both read paths now report 1477 hidden characters, the pass receipt names them, and the status
+  warning fires on the count. See `docs/batch-c-tier-c-design.md` §14 and `CHANGELOG.md`.
 - The empty-skeleton gate is untouched. A drop still does not block a write — tier A only makes drops
   visible, it does not make them fatal.
 - No new configuration key and no change to the retry contract.

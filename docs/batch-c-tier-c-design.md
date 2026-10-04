@@ -123,11 +123,19 @@ write cap is the only trace of.
 A6 (self-lock check) and A7 (retry bound and retry-failure wording) from the tier-A brief are C6/C3
 here. A7's wording half is C2's receipt.
 
+**2026-10-05 — C5's literal form is narrowed by §14.** The zero-count `clipped` combination became
+unreachable (the status is derived from the landed counts), and a landed read-cap loss now reports
+`clipped` where it used to report `updated`. C5's intent — a clean pass that wrote both artifacts with
+no loss reads exactly as before — still holds: `updated` with zero counts is byte-identical, and that
+is what the §14 round re-pinned.
+
 ## 8. Non-goals
 
 - No new configuration key; the retry bound is a constant.
 - The memory-side loader cap stays uncounted (stated residual from tier A).
+  **Superseded 2026-10-05** — closed, see §14.
 - `clipped` with all counts zero stays reachable and documented.
+  **Superseded 2026-10-05** — closed, see §14.
 - The empty-skeleton gate is untouched.
 
 ## 9. Files in scope
@@ -226,4 +234,35 @@ remaining notes are kept here with their dispositions — all three closed, the 
 - **D1** retry input: the same `usedInput` (default) vs a re-fit.
 - **D2** mechanism 1 (`usedInput.clipped`): report only (default) vs also refuse.
 - **D3** status name: `lossy-refused` (default) vs another spelling.
+
+## 14. Addendum 2026-10-05 — the two tier-A residuals closed
+
+Both non-goals §8 listed as "stated residual from tier A" are now fixed, at the user's naming. The
+work is a separate batch: `CHANGELOG.md`'s `未发布` carries the full entry (reproduction, tests,
+mutation round, gate), and this section records only what it changes about *this* design.
+
+- **R1 — `clipped` with all landed counts zero.** The status was derived from the pass-level
+  `outcome.clipped` (whether the last input sent had been clipped), while every count in the receipt
+  describes only what landed. When the shortened artifact was the one that did not land, the receipt
+  said "clipped" with no count and blamed the artifact that did land. It is now derived from the landed
+  counts (`loss.memoryHiddenChars > 0 || loss.contextHiddenChars > 0`), so status and numbers agree by
+  construction. The pass-level fact is not lost: `outcome.clipped` still drives the `errors.log` line
+  and the informational note on every pass that landed something, with mechanism-neutral wording
+  ("a shortened version of the existing memory or context (the read cap or the output budget)").
+- **R2 — the memory-side loader cap.** `loadMemory` applies `maxMemoryChars` before the pass sees the
+  text; its cut was counted nowhere, so a pass re-rendering a nearly empty view of an over-cap stored
+  document read as a clean `updated`. `LoadedMemory` now carries `cappedDroppedChars`, taken from the
+  normalizer that did the cutting (`foldMemoryJournalWithDrop` / `decodePoisonedMemoryWithDrop` /
+  `memoryComparisonKeyWithDrop`), never from a difference against the raw bytes: `normalizeMemoryDocument`
+  is **not** idempotent on a capped document, and a stored reply's JSON wrapper is not memory. The pass
+  folds it into `outcome.memoryHiddenChars` (the read cap and the input fit are added, never
+  substituted), and `/memory status`'s cap warning now fires on the count as well as on the marker, so
+  the no-journal read — which clips without writing a marker — is no longer silent.
+- **What §14 does not change.** The landed-count contract, `refusedLoss`'s exclusivity, the refusal
+  path, the retry bound, and tier C's criteria C1–C4 and C6–C8. `loadMemorySync` (prompt injection) is
+  out of scope on purpose: it returns a string and has no receipt. The review that produced these two
+  items also proposed carrying the *pass-level* hidden counts as their own report field (the
+  `refusedLoss` shape) instead of changing the status; that was declined because the repo's own rule is
+  "silent degradation is tolerable, a wrong cause is not" — the log line carries the non-landing case,
+  and the landed-count contract stays single.
 

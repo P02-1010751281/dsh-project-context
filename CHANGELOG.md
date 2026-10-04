@@ -332,8 +332,10 @@
   失败发生在一次写入**之后**时，`failed` 回执改为说明哪个文件已经落盘、丢了什么，而不是把已有的丢失抹成 0。
   另修两处计数不实：`itemTruncated` 不再统计「先按单条上限裁、随后又整条被丢弃」的条目（它并不在文档里）；
   低于 40 字符下限而被丢弃的回复改为记一条日志（此前无写、无日志、回执仍称干净）。**干净路径逐字不变**（两个文件都
-  落地且无丢失时，`updated` 仍是 `Project memory and context updated.`，`clipped` 无计数时仍是原句），所以
-  「句子没变」仍然等于「没丢东西」。
+  落地且无丢失时，`updated` 仍是 `Project memory and context updated.`），所以「句子没变」仍然等于「没丢东西」。
+  **2026-10-05 补记**：原句里「`clipped` 无计数时仍是原句」这一半**已不再成立**——「状态 `clipped` + 落地计数全 0」
+  这个组合现在不可达（状态改由落地计数推导），而它正是当时接受的两条「档 A 残余」之一；两条残余均已收口，见下方
+  「project-memory（档 A 两条残余收口）」。`updated` 干净路径的逐字不变不受影响。
   同时**去掉三处每项目只报一次的日志闸门**（`memorySectionClipLogged` / `contextClipLogged` /
   `contextUnusableLogged`）：一个长期超预算或持续给出不可用 context 的项目每轮都在丢/跳，只报第一次等于把后面每
   一次都变成静默。
@@ -460,6 +462,43 @@
   `ConsolidationOutcome` 带上**做出决定时的 cap**（`maxMemoryChars`），该行读它；回执本身从不带数字，所以用户可见
   措辞不变。变异校验：把该行改回读 `config.maxMemoryChars` → 新用例红、其余全绿。门禁（现跑现读）：
   `pnpm typecheck` 0 错、`node --test` **317 pass / 0 fail**。
+
+**project-memory（档 A 两条残余收口：状态与落地计数一致 + loader cap 计入）**
+
+- 修复：**`clipped` 会指着一个没落盘的东西说「内容被缩短了」**（档 A 残余一）。状态原本由**趟级**的
+  `outcome.clipped`（= 上次发送的 fit 是否裁过）推导，而回执里的计数只描述**真的落了盘**的产出物：当被裁的是没落盘的
+  那一个时，回执就变成「状态 `clipped` + 所有计数为 0」，句子还把缩短归到落盘的那个文件上。真实复现（在 `lib/` 上跑真
+  `consolidateProject`、临时项目根）：存了 39017 字符 `MEMORY.md`（在 40000 读取上限内），fit 从 memory 里裁掉 7266
+  字符，回复的 memory 低于 40 字符下限所以没落盘，context 落盘——状态 `clipped`、六个计数全 0、回执
+  `Project context updated, but the existing content was shortened to fit the model output budget.`，而被缩短的
+  `MEMORY.md` **一个字节都没动**。现在状态由**落地计数**推导（`loss.memoryHiddenChars > 0 ||
+  loss.contextHiddenChars > 0`），状态与回执数字按构造成立；没落盘的那次缩短仍由 `errors.log` 与（非 silent 时的）
+  info 行承载，措辞改为中性的「consolidation was given a shortened version of the existing memory or context (the read
+  cap or the output budget)」——因为下面那条让同一个数同时覆盖读取上限与输出预算，只写「to fit the model output
+  budget」就是错因。**副作用（有意）**：已被计数的 context 读取上限（`MAX_CONTEXT_CHARS`）此前落在 `updated` 上，
+  现在也报 `clipped`，句子同步换成中性措辞。
+- 修复：**记忆侧 loader cap 未计入**（档 A 残余二）。`loadMemory` 在读的时候就按 `maxMemoryChars` 裁过一次（手改的
+  超限 `MEMORY.md`，或把 cap 调低到早先那轮写入之下），而 pass 只统计 `fitMemoryInput` 那一刀的字符数：模型被少看了
+  多少，回执里是 0。真实复现（cap 5000、手改 6337 字符 `MEMORY.md`）：无 journal 时 loader 把文档裁到 4860 字符且
+  **不写标记**，于是 `/memory status` 也完全不告警；有 journal 时走 external 分支、标记写了、status 也告警，但两种
+  情况下 pass 回执都是 `memoryHiddenChars 0`，读起来像一次干净读取。现在 `LoadedMemory` 带 `cappedDroppedChars`
+  （**本次读取自己按 cap 裁掉多少**），取值一律来自做裁剪的那个规范化器：`foldMemoryJournalWithDrop` /
+  `decodePoisonedMemoryWithDrop` / `memoryComparisonKeyWithDrop` 的 `dropped`，裸渲染分支是 `clipToLineBoundary`
+  的差。pass 把它加进 `outcome.memoryHiddenChars`（读取上限与输出 fit **相加**，不是互相替代），`outcome.clipped`
+  也随之为真，`/memory status` 的 cap 告警改由 `isMemoryTruncated(text) || cappedDroppedChars > 0` 触发。
+  **刻意不对原始字节取差**：`normalizeMemoryDocument` 在 capped 文档上**不幂等**（把单行超长正文裁到只剩标题时，
+  二次规范化会长 2 字符），而 poison 路径的 JSON wrapper 也不是「模型没看到的记忆」——所以计数只能取规范化器自己的
+  `dropped`；比较键因此仍做原来的两次规范化（它是写入路径的基准字节），只把两次的 `dropped` 相加。
+- 测试：新增 4 条（R1 端到端「没落盘的缩短不得读成 `clipped`」；R2 端到端「记忆读取上限被计数」；「两个 cap 分别
+  计数、互不替代」；loader 单元「每条读取路径都报自己的裁量」，含「92 字符 fenced 存储回复必须报 0」这个判别用例）。
+  改写 4 条既有措辞断言，原「`clipped` 无计数时仍是原句」按新措辞重钉并在用例里写明该组合已不可达。
+- 变异校验：**8 个**变异体全部杀死对应用例，且都过有效性三关（`tsc` 0 错、标记进 `lib/`、行为在用例上确实改变）：
+  状态改回 `outcome.clipped` → R1 那条红；outcome 去掉 loader 那一项 → R2 两条红；poisoned 分支改记原始字节差 →
+  loader 单元红；status 告警改回只看标记 → status 用例红；比较键跳过第二次规范化 → loader 单元红；两个 cap 取
+  `Math.max` 而非相加 → 「分别计数」那条红；趟级 flag 各去掉一个读取上限来源 → 对应用例红。每个变异体跑完立刻从
+  `sha256sum -c` 校验过的 `/tmp` 副本恢复 `src/`；收尾 `sha256sum -c` 全绿、重建后 `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`node --test`
+  **321 pass / 0 fail**。
 
 ### v0.2.1（2026-09-26）
 
