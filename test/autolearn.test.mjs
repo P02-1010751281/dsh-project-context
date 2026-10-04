@@ -861,6 +861,35 @@ test("a route that refuses the tools parameter is retried once without it", asyn
 	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false }, "the tools-free answer decides the pass");
 });
 
+test("once a route has refused the tools parameter, the pass never offers them again", async () => {
+	// autolearn asks a second time when the first decision wants archives read before it commits, so the
+	// pass's tools switch has a real path: the route already said it will not take `tools`, and offering
+	// them again would spend a second refusal on the same parameter.
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const refusal = { reason: { kind: "error", failure: { message: "this route does not accept the tools parameter", code: "INVALID_REQUEST" } } };
+	const propose = JSON.stringify({
+		skill: { name: "backtracked", description: "a workflow", body: BODY, evidence: ["session-a", "session-b"], candidate: false, reason: "why" },
+		need_sessions: [],
+	});
+	const ctx = fakeContext([
+		(options) => (options.tools === undefined ? '{"skill": null, "need_sessions": ["session-a"]}' : refusal),
+		'{"skill": null, "need_sessions": ["session-a"]}',
+		propose,
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 3, "the refusal retried once, then the backtrack decision ran");
+	assert.deepEqual(
+		ctx.calls.map((call) => call.tools?.map((tool) => tool.name)),
+		[["record_skill"], undefined, undefined],
+		"tools are offered once, and the route that refused them is never asked again",
+	);
+	assert.equal(outcome?.skill?.name, "backtracked", "the backtrack answer decides");
+});
+
 test("only a request-shape refusal buys the tools-free retry", async () => {
 	// Same finish shape, same in-band delivery, different code: this is the discrimination the fallback
 	// rests on, so an auth failure must fail the pass instead of being re-asked without tools.

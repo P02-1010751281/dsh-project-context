@@ -9,7 +9,7 @@ import { type Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
+import { type CompletionOutcome, type ToolsFallbackState, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { parseToolArguments } from "../shared/reply-json.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, reasoningReserveTokens } from "../shared/output-budget.js";
 import { MAX_CONTEXT_CHARS, MAX_SKILL_BODY_CHARS, cachedProjectRoot, contextFile, fileMtimeMs, getProjectRoot, getProjectRootSync, logError, logsDir, memoryFile, readOptional, safeSessionId } from "../shared/project-state.js";
@@ -157,9 +157,16 @@ export function autolearnProjectSkills(
 			// command is the user asking for the call.
 			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false, skipped: "no archived session grounds a new skill; no model call was made" };
 
+			/**
+			 * The pass's own tools switch: `ask()` runs twice when the first decision asks for archives
+			 * and the pass backtracks, and once a route has refused the `tools` parameter it must not be
+			 * offered them again.
+			 */
+			const toolsState: ToolsFallbackState = {};
+
 			/** One decision call. `withTools` is false for the retry, which asks for the text shape. */
 			const call = (prompt: string, withTools: boolean): Promise<CompletionOutcome> =>
-				callWithToolsFallback(withTools, (useTools) =>
+				callWithToolsFallback(toolsState, withTools, (useTools) =>
 					requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, useTools ? { tools: [RECORD_SKILL_TOOL] } : {}),
 				);
 

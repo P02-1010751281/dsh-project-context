@@ -13,7 +13,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
 import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, type PluginTool, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
+import { type CompletionOutcome, type PluginTool, type ToolsFallbackState, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { RETRY_OUTPUT_HEADROOM_TOKENS } from "../shared/output-budget.js";
 import { type ConsolidationResult, type ContextUpdate, parseConsolidation, parseContextMember, parseToolArguments } from "../shared/reply-json.js";
 import { MAX_CONSOLE_REPLY_CHARS, replyHead } from "../shared/text.js";
@@ -414,6 +414,8 @@ export function consolidateProjectState(
 
 		/** The input of the call actually sent last: a retry may have sent less than the first fit. */
 		let usedInput = fitted;
+		/** The pass's own tools switch; only the first call carries `tools`, so it stays inert here. */
+		const toolsState: ToolsFallbackState = {};
 		/** One call, recording the attempt before a failure so a persistent error backs off. */
 		const call = async (input: MemoryInput, extra: readonly string[], tools: readonly PluginTool[] | undefined): Promise<CompletionOutcome> => {
 			try {
@@ -421,7 +423,7 @@ export function consolidateProjectState(
 				// request-shape code; `callWithToolsFallback` spends the one tools-free retry for exactly
 				// that class and nothing else. The throttle line below runs once for the pair, so a
 				// refused parameter cannot burn two failure slots.
-				return await callWithToolsFallback(tools !== undefined && tools.length > 0, (withTools) =>
+				return await callWithToolsFallback(toolsState, tools !== undefined && tools.length > 0, (withTools) =>
 					requestConsolidationText(ctx, agent, config, promptFor(input, extra), options.signal, input.maxTokens, withTools ? tools : undefined),
 				);
 			} catch (error: unknown) {

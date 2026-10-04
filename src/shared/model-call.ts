@@ -241,23 +241,33 @@ export function failureCodeOf(error: unknown): string | undefined {
 	return typeof code === "string" && code !== "" ? code : undefined;
 }
 
+/** Per-pass state for `callWithToolsFallback`; the switch belongs to the pass, not to this module. */
+export type ToolsFallbackState = { toolsDisabled?: boolean; toolsAttempted?: boolean };
+
 /**
  * One auxiliary model call that may be refused because it carries `tools`, retried once without them.
  *
- * pi's `callAux` keeps a per-pass sticky switch (`toolsAttempted` / `toolsDisabled`) because its
- * passes issue several tools-carrying calls. Each pass here makes exactly one, so the fallback is per
- * call and carries no state: a switch no later call could read again would be untestable dead logic.
- * @param offersTools - whether this call carries tools at all.
+ * One-shot and sticky, like pi's `callAux`: only the **first** tools-carrying call of a pass may fall
+ * back, and once it has, no later call of that pass carries `tools` again. The switch is real here,
+ * not ceremony — the autolearn pass makes a second tools-carrying call when the first reply asks for
+ * archives and the pass backtracks, and a route that refused the parameter must not be asked to take
+ * it again. `toolsAttempted` is marked before the call, so a call that *succeeded* with tools also
+ * counts as "this route accepts them" and a later failure stays the provider's.
+ * @param state - the pass's own switch; a fresh object per pass.
+ * @param offersTools - whether this call would carry tools at all.
  * @param call - runs the request with tools (`true`) or without them (`false`).
  * @returns the first outcome, or the tools-free retry's when the refusal was a request-shape one.
  */
-export async function callWithToolsFallback<T>(offersTools: boolean, call: (withTools: boolean) => Promise<T>): Promise<T> {
-	if (!offersTools) return call(false);
+export async function callWithToolsFallback<T>(state: ToolsFallbackState, offersTools: boolean, call: (withTools: boolean) => Promise<T>): Promise<T> {
+	const wantsTools = offersTools && !state.toolsDisabled;
+	const firstToolsCall = wantsTools && !state.toolsAttempted;
+	if (wantsTools) state.toolsAttempted = true;
 	try {
-		return await call(true);
+		return await call(wantsTools);
 	} catch (error: unknown) {
 		const code = failureCodeOf(error);
-		if (code === undefined || !REQUEST_SHAPE_CODES.has(code)) throw error;
+		if (!firstToolsCall || code === undefined || !REQUEST_SHAPE_CODES.has(code)) throw error;
+		state.toolsDisabled = true;
 		return await call(false);
 	}
 }
