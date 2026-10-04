@@ -358,9 +358,13 @@
   而回执对同一事件的措辞（`the rewrite was lossy`）是对的。现在前缀改为 `MEMORY.md was rendered lossily:`。
   真实复现：2026-10-04 的一次 `/memory update` 写出 `… 2 section(s) exceeded their budget and 2 whole
   entry(ies) were dropped; 1 entry(ies) exceeded their section's per-item cap and were truncated`。
-  该前缀此前没有任何用例钉住，现在由 `test/logic.test.mjs` 的真实落盘用例断言：每行必须点名丢失、且
-  不得自称还在预算内。变异校验：前缀改回原句 → 该用例红。门禁（现跑现读）：`pnpm typecheck` 0 错、
-  `pnpm build` 通过、`node --test` **302 pass / 0 fail**。
+  该前缀此前没有任何用例钉住，现在两条真实落盘用例把它钉住：分节丢弃那条要求每行点名丢失、且不得自称还在
+  预算内；**单条截断那条**（`itemTruncated > 0` 而 `sectionDropped === 0`，此前没有任何用例执行到这条日志
+  路径）要求整行带出具体损失、冒号后不能是空描述。变异校验：前缀改回原句 → 两条都红（301 pass / 2 fail）；
+  删掉 `itemTruncated` 的描述子句使其成为悬空前缀 → 只红新那条（302 pass / 1 fail）。门禁（现跑现读）：
+  `pnpm typecheck` 0 错、`pnpm build` 通过、`node --test` **303 pass / 0 fail**。
+  注：`5b32867` 的提交信息把变异轮结果写成「302 pass / 1 fail」，正确是 **301 pass / 1 fail**（当时全量
+  只有 302 条、且没有新增用例）；该提交已推送，按本仓库「不重写历史」的规矩以本处更正代替 amend。
 
 ### v0.2.1（2026-09-26）
 
