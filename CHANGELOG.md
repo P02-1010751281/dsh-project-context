@@ -248,6 +248,47 @@
   有回复就算写了」→ 掉 1 项（**收据**那条：被保留的 memory 不许被报成 `project memory and context updated`）。
   全量门禁 0 错 / 0 错 / 265 pass 0 fail，`lib/` 变异标记 0。
 
+**project-memory / project-autolearn（工具化：`record_memory` / `record_skill`，MEMORY.md 四节预算制）**
+
+- 新增（自 pi 移植，批 B；**含一条破坏性命令变更**）：**整理与技能蒸馏不再依赖「回复里必须是那个 JSON」**。
+  两个 pass 现在把结果作为一次工具调用提交（`record_memory` / `record_skill`），JSON 文本回复降级为回退入口，
+  两条入口共用同一套解析与渲染。MEMORY.md 也从「一整份自由格式 Markdown」变成**固定四节 + 每节预算**：
+  `Project` 0.2 / `Invariants` 0.4 / `Pitfalls` 0.25 / `Index` 0.15（`src/project-memory/memory-schema.ts`
+  的 `MEMORY_SECTIONS`，布局占位先由 `memorySchemaOverheadChars()` 预留，余量按 share 分）。写入由
+  `renderMemoryDocument` 按节执法：每条先按该节的单条上限裁（`clipToLineBoundary`，不留半对 surrogate），
+  放不下就**整条丢弃**并返回 `sectionDropped` / `droppedItems` / `itemTruncated` 三个计数——不再靠整份文档的
+  60/40 剪切，那正好切在本项目放运维教训的中段。渲染器**不写**截断标记（写入路径会再剥一次），掉落通过计数
+  报出：pass 记一次每项目日志，且只对**真正落地**的那次写入（`snapshot.written`）记。
+  两条入口进库前都要过「空骨架」闸门——结构化入口用 `sectionsSemanticallyEmpty`（`[""]`/`[" "]`/零宽字符
+  都算没内容），不透明入口用 `isHeadingOnlyDocument`（标题/围栏/frontmatter/setext/HTML 注释/标签包装都算
+  骨架）——所以一份只有标题的回复再也无法把已存的 memory 换成骨架；写入判定因此从「长度 ≥ 40」改成
+  `!outcome.semanticEmpty && …`。
+  **工具面**：`GenerateOptions.tools` 直接转发（不提供工具时**省略**该字段而不是传空数组，所以没有工具的调用
+  方请求逐字节不变）；流里按块装配工具调用（`block-end` 优先于 `tool-call-delta`，因为首块才带 name）。
+  dsh 的适配器把工具参数以**文本**流式送达（pi-ai 给的是已解析对象），所以 `pickToolCall` 拿回原始参数字符串、
+  由 `parseToolArguments` 解码。**被输出上限切断的工具调用一律不接受**：适配器会把截断的参数串修成形状合法的
+  对象，「有工具调用」并不证明内容到齐；内存侧与技能侧都改成一次**不带工具**的文本重试。调用了别的工具又没
+  文本是**错误**而不是「模型什么都没提」。
+  consolidation 的 prompt 现在优先要工具、保留 JSON 回退措辞，并按 `memorySectionRule(maxMemoryChars)` 逐 pass
+  生成四节与其**字符**预算（照旧不出现词数提示）。
+  **技能侧**（`record_skill`）：新增 `src/project-autolearn/schema.ts`；「不提技能」在工具 schema 里由空 `name`
+  表达（严格 schema 无法表达 `null` 成员），两个入口共用同一个 `shapeProposedSkill`。
+  **命令面（破坏性）**：`/context-update` 改名为 **`/memory update`** 并**删除**、不留别名；pi 能直接删是因为
+  它那边 `/context-update` 只是 `/memory-learn` 的别名，而 dsh 里它是唯一的强制整理入口，所以先把动词做出来
+  才敢删旧名。客户端提示与 README 同步。
+  **相对 pi 的有意偏离**（记录在案，不是遗漏）：工具的回溯字段仍叫 **`need_sessions`**（pi 同批改名 `inspect`，
+  而本仓 prompt/parser/测试早已用 `need_sessions`）；**不带 `constrainedSampling`**（dsh 的 `ToolSchema` 只有
+  `{name, description, parameters}`，没有可携带的严格模式标记，schema 改为**构造上严格**）；**没有移植**
+  pi 的 `callAux` 固定「无工具」回退（路由拒绝 `tools` 时 dsh 按普通失败退避并记录，本机实际路由已验证接受
+  工具）与 `needsCondense` 二次模型调用（dsh 保留原有 `max-tokens` 重试，掉落由计数上报）。
+  **本仓自己的 `.agents/memory/MEMORY.md` 仍是自由格式**：迁移必须在**新代码活体**之后做（宿主重启前，跑着的
+  旧构建仍会写自由格式并把它改回去），见 `CONTEXT.md`。
+  变异校验：五个分片各自 2–3 个变异体，全部杀死（改 share → 预算与随机 cap 用例红；空条目谓词恒 false →
+  语义闸门红；不透明闸门丢掉标记过滤 → 骨架用例红；去掉写入门禁 → 骨架覆盖已存 memory 那条红；去掉截断守卫 →
+  截断工具调用那条红；工具从不提供/重试仍带工具 → 各自入口那条红；`/memory update` 动词改名、空动词当未知 →
+  命令路由那条红）。每个变异体都 `tsc` 0 错、marker 进 `lib/`、只掉自己的用例。
+  全量门禁 0 错 / 0 错 / 290 pass 0 fail，`lib/` 变异标记 0。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**

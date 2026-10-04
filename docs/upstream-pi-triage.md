@@ -11,9 +11,9 @@ plan: the first pass's plan is executed, and one of its recommendations was late
 per-commit dispositions and the read-now checks behind them.
 
 **Third pass, 2026-10-04**: pi's `master` advanced again, to `6707376`. The 78 commits in
-`8b300dc..6707376` were classified, and this pass **does** find portable work — four batches, none
-started. See "Third pass" at the end of this file. The second pass's "ported nothing" stays true of
-*its own* range only; it is not a statement about pi today.
+`8b300dc..6707376` were classified, and this pass **does** find portable work — four batches (A, B,
+C, D), all four ported in the same round. See "Third pass" at the end of this file. The second
+pass's "ported nothing" stays true of *its own* range only; it is not a statement about pi today.
 
 The durable per-change record lives in [`CHANGELOG.md`](../CHANGELOG.md); this file only maps the
 upstream commits to what dsh did with them.
@@ -191,6 +191,67 @@ has to guarantee the character cap. This is the largest item (33 files, ~2180 in
 BREAKING command renames on pi's side, and needs its own batch and its own review.
 **Brief for that batch: `docs/batch-b-port-brief.md`** (it records the verified tool-surface facts
 and the three decisions the owner must take first).
+
+**Ported 2026-10-04 (batch B).** The tool surface was verified live before any edit — one
+plugin-sourced, sessionless `ctx.llm.stream()` carrying `tools` on the route this repo actually
+runs (`deepseek-account` / `deepseek-flash`) delivered 10 `tool-call-delta` chunks, one assembled
+`block-end` and a `tool-calls` finish; the transcript is
+`.agents/evidence/2026-10-04-record-memory-tool-probe/`. Then, in five scoped commits:
+
+- `src/shared/model-call.ts` forwards `tools` (omitted — not an empty array — when a call offers
+  none, so a toolless caller's request stays byte-identical) and collects the calls a reply carries,
+  preferring the assembled `block-end` over the deltas. dsh streams a tool call's arguments as
+  **text**, where pi-ai hands back a parsed object, so `pickToolCall` returns the raw argument string
+  and `parseToolArguments` (`src/shared/reply-json.ts`) decodes it.
+- The memory document gained a fixed four-section schema — `Project` 0.2 / `Invariants` 0.4 /
+  `Pitfalls` 0.25 / `Index` 0.15 (`src/project-memory/memory-schema.ts`) — and a renderer
+  (`src/project-memory/sections.ts`) that enforces each section's share by clipping an entry to its
+  per-item cap and dropping whole entries, reporting the counts instead of writing a marker. The
+  consolidation pass offers `record_memory`, prefers its call, renders the sections through the same
+  renderer the Markdown fallback uses, and refuses a call cut off at the output cap (the adapter
+  repairs a truncated arguments string into a shape-valid object, so "there is a tool call" is not
+  evidence its contents arrived). The prompt states the sections and their budgets in characters,
+  built per pass from the renderer's own table. Both entries are also gated before storage —
+  `sectionsSemanticallyEmpty` for the structured one, `isHeadingOnlyDocument` for the opaque one — so
+  a headings-only or body-less reply can never replace a stored memory with a skeleton.
+- The autolearn pass (`record_skill`, `src/project-autolearn/schema.ts`) rides the same plumbing,
+  with the same truncation refusal, one text-only retry, and a shared shaper behind both entries.
+- **Command surface:** `/context-update` became `/memory update` and was removed outright, with no
+  alias. pi could delete it because there it was only an alias of `/memory-learn`; here it was the
+  sole forced entry point, so the verb had to exist before the old name could go.
+
+**Deliberate deviations, recorded rather than silent:**
+
+- The tool's backtrack field stays **`need_sessions`**. pi renamed it to `inspect` in the same change,
+  but dsh's prompt, parser and tests already used `need_sessions`; the port is the tool, not the
+  rename, and two names for one field would be worse than either.
+- **No `constrainedSampling`.** dsh's `ToolSchema` is `{name, description, parameters}` — a plain
+  declaration the adapter maps to the provider's `tools` — so there is no strict-mode marker to
+  carry. The schemas are strict **by construction** instead (every property required,
+  `additionalProperties: false`, no `anyOf`, no `maxLength`/`maxItems`), which is what pi's
+  `makeStrictJsonSchema` would otherwise have had to normalize.
+- **pi's sticky no-tools fallback (`callAux` + `call-policy`) is not ported.** A route that rejects
+  the `tools` parameter fails the pass, backs off like any other failure, and logs; pi retries once
+  without tools and keeps them off for the rest of the pass. dsh has no auxiliary-call policy module,
+  and the route this repo runs on accepts tools (verified above), so this is a recorded gap rather
+  than a mechanism ported blind.
+- **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) is not
+  ported.** dsh keeps its existing `max-tokens` retry (now also covering a truncated tool call) and
+  reports the renderer's `sectionDropped` / `droppedItems` / `itemTruncated` counts as a
+  once-per-project log line, only for a write that actually landed. The entries are dropped whole and
+  reported, which is the improvement over the old mid-document clip; the curated retry is left as an
+  open item.
+- **The free-form/legacy path is unchanged.** A memory that is not a plain four-section bullet
+  document still loads and renders verbatim, and `normalizeMemoryDocument` still owns the
+  whole-document marker for the entries that do not have sections.
+- **This repo's own `MEMORY.md` is still free-form.** The migration to the four-section format is
+  pending: it has to happen against the *live* new code (until the desktop host is restarted, the
+  running build still writes the free-form document and would revert it). See `CONTEXT.md`.
+
+Regression tests: `test/sections.test.mjs` (the schema, the renderer's cap enforcement over random
+caps, the extractor contract and both gates), plus the tool-path cases in `test/logic.test.mjs` and
+`test/autolearn.test.mjs`. Each commit's own pins were mutation-checked (two to three mutants each,
+all killed).
 
 **C — prompt bounds that are not the enforced bounds.** Both dsh prompts still state a *word* hint
 where the code enforces *characters*:

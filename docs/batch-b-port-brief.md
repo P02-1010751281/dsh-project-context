@@ -1,9 +1,12 @@
 # Batch B port brief — `record_memory`: structured sections through a tool
 
-**Status: not started.** Batches A (`986485d`), C (`aa62699`) and D (`3b672bd`) of the third pi
-triage pass are ported, tested and pushed — see `docs/upstream-pi-triage.md` §"Third pass" and the
-unreleased section of `CHANGELOG.md`. This file is the brief for the remaining batch. It is written
-for a fresh session: everything load-bearing is stated here or reachable from a command in it.
+**Status: ported 2026-10-04**, in five scoped commits (`022dd27`, `1e43236`, `e69b29f`, `438d518`,
+`11a1a43`). This file is kept as the brief that was written for the batch; the outcome and the
+deliberate deviations are recorded in `docs/upstream-pi-triage.md` §"Third pass" (batch B) and in the
+unreleased section of `CHANGELOG.md`. Batches A (`986485d`), C (`aa62699`) and D (`3b672bd`) of the
+third pi triage pass preceded it. The one item left open is migrating this repo's own free-form
+`MEMORY.md` to the four-section format, which has to happen against the live new code (a desktop
+restart); see `CONTEXT.md`.
 
 ## 1. Why this needs its own session
 
