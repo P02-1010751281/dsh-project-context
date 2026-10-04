@@ -48,6 +48,8 @@ const migrated = new Set<string>();
 const updates = new SerialQueue();
 /** Projects already told that the CONTEXT.md render clipped an over-budget section. */
 const contextClipLogged = new Set<string>();
+/** Projects already told that the MEMORY.md render had to drop or truncate a section's entries. */
+const memorySectionClipLogged = new Set<string>();
 
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
 function projectMemoryInjection(cwd: string | undefined, limit: number): string {
@@ -98,7 +100,9 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return "deduped";
 
 			const memoryText = outcome.result.memory.trim();
-			const memoryChanged = memoryText.length >= 40;
+			// A reply that carried no entries renders as a bare four-heading skeleton: it is over the
+			// length floor but is not a memory, so the pass's gate must win over the length heuristic.
+			const memoryChanged = !outcome.semanticEmpty && memoryText.length >= 40;
 			// Claim the version before the first await: another pass reaching this point while the
 			// writes below are in flight must see it as done, not run a second time.
 			written.set(projectRoot, outcome.version);
@@ -120,6 +124,16 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				memoryKeptStale = !snapshot.written;
 				if (snapshot.written && snapshot.backup.poisoned) {
 					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${snapshot.backup.path ?? "(none)"}`);
+				}
+				// A section render enforces the cap by dropping whole entries; the document itself no
+				// longer carries a marker, so the counts are the only trace of what was given up. Report
+				// them (once per project) only for a write that actually landed.
+				if (snapshot.written && (outcome.sectionDropped > 0 || outcome.itemTruncated > 0) && !memorySectionClipLogged.has(projectRoot)) {
+					memorySectionClipLogged.add(projectRoot);
+					const parts: string[] = [];
+					if (outcome.sectionDropped > 0) parts.push(`${outcome.sectionDropped} section(s) exceeded their budget and ${outcome.droppedItems} whole entry(ies) were dropped`);
+					if (outcome.itemTruncated > 0) parts.push(`${outcome.itemTruncated} entry(ies) exceeded their section's per-item cap and were truncated`);
+					await logError(projectRoot, "memory", `MEMORY.md was rendered within its per-section budgets: ${parts.join("; ")}`);
 				}
 			}
 

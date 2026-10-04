@@ -27,7 +27,9 @@ import { qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText 
 import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runtime.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
-import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate } from "../lib/project-memory/consolidate.js";
+import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate, memorySectionRule } from "../lib/project-memory/consolidate.js";
+import { consolidateProject } from "../lib/project-memory/index.js";
+import { memorySectionBudgets } from "../lib/project-memory/memory-schema.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation, parseContextMember, parseToolArguments } from "../lib/shared/reply-json.js";
 import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/conversation.js";
@@ -3419,7 +3421,15 @@ async function consolidationFixture({ root, replies, modelInfo }) {
 				const reply = replies[Math.min(calls.length - 1, replies.length - 1)];
 				return (async function* generate() {
 					if (reply.usage) yield { type: "usage", usage: reply.usage };
-					yield { type: "text-delta", index: 0, text: reply.text };
+					// A reply may carry a tool call instead of (or as well as) text. The stream is
+					// reproduced the way the adapter really sends it: the first delta names the tool,
+					// the next carries the arguments, and `block-end` carries the assembled call.
+					if (reply.toolCall) {
+						yield { type: "tool-call-delta", index: 0, id: "call-1", name: reply.toolCall.name, argumentsDelta: "" };
+						yield { type: "tool-call-delta", index: 0, id: "call-1", argumentsDelta: reply.toolCall.arguments };
+						yield { type: "block-end", index: 0, block: { type: "tool-call", id: "call-1", name: reply.toolCall.name, arguments: reply.toolCall.arguments } };
+					}
+					if (reply.text !== undefined) yield { type: "text-delta", index: 0, text: reply.text };
 					yield { type: "finish", reason: reply.reason ?? { kind: "stop" } };
 				})();
 			},
@@ -3562,6 +3572,130 @@ test("clipped follows the input that was actually sent last", async () => {
 	const sentMemory = (call) => /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(call.messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
 	assert.ok(sentMemory(calls[1]).length < sentMemory(calls[0]).length, "the retry really did send less");
 	assert.equal(outcome.clipped, true, "clipped mirrors the last input sent, not the first fit");
+});
+
+/** The four-section shape a `record_memory` call carries, as the adapter would stream it. */
+const RECORD_MEMORY_ARGS = JSON.stringify({
+	memory: { project: ["p1"], invariants: ["i1"], pitfalls: ["q1"], index: ["x1"] },
+	context: { title: "t", summary: "s", key_points: ["k"], open_tasks: ["o"] },
+});
+
+/** A project root with the memory directory in place. */
+async function memoryProject(prefix, memory) {
+	const root = await mkdtemp(path.join(tmpdir(), prefix));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+	if (memory !== undefined) await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), memory, "utf8");
+	return root;
+}
+
+test("the pass offers record_memory first and renders its call into the four sections", async () => {
+	const root = await memoryProject("dsh-memory-tool-");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: RECORD_MEMORY_ARGS }, reason: { kind: "tool-calls" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000 });
+
+	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+
+	assert.equal(calls.length, 1, "a tool call needs no retry");
+	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offers the tool");
+	assert.equal(outcome.kind, "structured");
+	assert.match(outcome.result.memory, /^# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n$/);
+	assert.equal(outcome.result.context.summary, "s", "the context comes from the same call");
+	assert.equal(outcome.semanticEmpty, false);
+	assert.equal(outcome.sectionDropped, 0);
+	// The prompt has to prefer the tool, or the model keeps answering in the old JSON shape.
+	assert.match(CONSOLIDATION_PROMPT_RULES.join("\n"), /Prefer calling the record_memory tool/);
+	assert.doesNotMatch(CONSOLIDATION_PROMPT_RULES.join("\n"), /^Return exactly one JSON object/m);
+});
+
+test("a tool call cut off at the output cap is refused, and the retry carries no tool", async () => {
+	const root = await memoryProject("dsh-memory-tool-cut-");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			// The adapter repairs a cut arguments string into a shape-valid object, so "there is a
+			// tool call" must not be treated as evidence that its contents arrived.
+			{ toolCall: { name: "record_memory", arguments: '{"memory":{"project":["p' }, reason: { kind: "max-tokens" } },
+			{ text: COMPLETE_REPLY, reason: { kind: "stop" } },
+		],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
+
+	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+
+	assert.equal(calls.length, 2, "the truncated call is retried rather than accepted");
+	assert.equal(calls[1].tools, undefined, "the retry asks for the JSON text shape, so it drops the tool");
+	assert.equal(outcome.kind, "fallback-opaque", "the accepted reply is the retry's text");
+	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n");
+});
+
+test("a tool call the pass did not ask for falls back to text, and fails loudly with no text", async () => {
+	const withText = await memoryProject("dsh-memory-other-tool-");
+	const first = await consolidationFixture({
+		root: withText,
+		replies: [{ toolCall: { name: "other_tool", arguments: "{}" }, text: COMPLETE_REPLY, reason: { kind: "tool-calls" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1 });
+	const outcome = await consolidateProjectState(first.ctx, first.agent, config, { force: true });
+	assert.equal(first.calls.length, 1);
+	assert.equal(outcome.kind, "fallback-opaque", "readable text is the fail-open path");
+
+	// With nothing to parse, returning an empty memory would read as a silent success: it is an error.
+	const withoutText = await memoryProject("dsh-memory-other-tool-empty-");
+	const second = await consolidationFixture({
+		root: withoutText,
+		replies: [{ toolCall: { name: "other_tool", arguments: "{}" }, reason: { kind: "tool-calls" } }],
+	});
+	await assert.rejects(
+		() => consolidateProjectState(second.ctx, second.agent, config, { force: true }),
+		/model called other_tool without text; expected record_memory/,
+	);
+});
+
+test("a record_memory call whose sections carry no content never replaces a stored memory", async () => {
+	// The stored memory is a real one; the reply is a shape-valid call with nothing in it. Without
+	// the semantic gate the rendered bare skeleton is over the length floor and would overwrite it.
+	const stored = "# Project Memory\n\n## Project\n- a real durable fact\n\n## Invariants\n\n## Pitfalls\n\n## Index\n";
+	const root = await memoryProject("dsh-memory-empty-gate-", stored);
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{
+			toolCall: {
+				name: "record_memory",
+				arguments: JSON.stringify({
+					memory: { project: [""], invariants: [" "], pitfalls: ["\u200b"], index: ["##"] },
+					context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+				}),
+			},
+			reason: { kind: "tool-calls" },
+		}],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000 });
+
+	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	assert.equal(outcome.semanticEmpty, true, "the pass judges the normalized sections, not the array lengths");
+
+	// The write decision lives in the feature's own pass: a body-less reply must not land on disk.
+	await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
+});
+
+test("the memory section rule states the same sections, order and character budgets the renderer enforces", () => {
+	const cap = 40_000;
+	const rule = memorySectionRule(cap);
+	const budgets = memorySectionBudgets(cap);
+	for (const section of budgets) {
+		assert.ok(rule.includes(`## ${section.heading}: ${section.description} (about ${section.chars} characters)`), `the rule budgets ${section.heading}`);
+	}
+	for (const [index, section] of budgets.entries()) {
+		if (index === 0) continue;
+		assert.ok(rule.indexOf(`## ${budgets[index - 1].heading}:`) < rule.indexOf(`## ${section.heading}:`), `the order is fixed at ${section.heading}`);
+	}
+	assert.match(rule, /no bullet prefix/);
+	// Every bound stated is in characters; a word hint is what the code does not enforce.
+	assert.doesNotMatch(rule, /\b(?:below|under|at most)\s+\d[\d,]*\s+words?\b/i);
 });
 
 test("requestPluginText and its meta variant keep the error and abort semantics", async () => {
