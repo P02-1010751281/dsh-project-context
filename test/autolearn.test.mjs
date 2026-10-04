@@ -124,6 +124,13 @@ function fakeContext(replies, { modelLimit } = {}) {
 					// A scripted decision may be the tool-call form; stream it the way the adapter really
 					// sends it (the first delta names the tool, `block-end` carries the assembled call).
 					if (typeof scripted === "object" && scripted !== null) {
+						// A text reply carrying a scripted finish reason: the deltas first, then the
+						// terminal event, so a pass that reads the finish can see a cut reply at all.
+						if (scripted.toolCall === undefined) {
+							if (scripted.text !== undefined) yield { type: "text-delta", text: scripted.text };
+							yield { type: "finish", reason: scripted.reason ?? { kind: "stop" } };
+							return;
+						}
 						yield { type: "tool-call-delta", index: 0, id: "call-1", name: scripted.toolCall.name, argumentsDelta: "" };
 						yield { type: "tool-call-delta", index: 0, id: "call-1", argumentsDelta: scripted.toolCall.arguments };
 						yield { type: "block-end", index: 0, block: { type: "tool-call", id: "call-1", name: scripted.toolCall.name, arguments: scripted.toolCall.arguments } };
@@ -785,6 +792,26 @@ test("an autolearn reply cut off at the output cap is retried without the tool",
 	assert.equal(ctx.calls[1].tools, undefined, "the retry asks for the JSON text shape, so it drops the tool");
 	assert.match(promptOf(ctx.calls[1]), /cut off by the output limit/);
 	assert.equal(outcome?.skill, null);
+});
+
+test("a cut text reply is retried, not read as \"nothing to propose\"", async () => {
+	// The text path is fail-soft: `parseAutolearn` reads an unparseable reply as `{skill: null}`, the
+	// same decision a model that proposed nothing returns. Reading a `max-tokens` reply first (the
+	// memory pass's shape) would therefore report a truncated answer as "no skill was warranted"
+	// instead of retrying it — which is why the pass discards the reply before reading it at all.
+	const root = await project({ sessions: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const agent = fakeAgent(root, { turns: 3 });
+	const ctx = fakeContext([
+		{ text: '{"skill":{"name":"cut', reason: { kind: "max-tokens" } },
+		'{"skill": null}',
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
+
+	assert.equal(ctx.calls.length, 2, "a cut text reply is retried rather than read as a decision");
+	assert.match(promptOf(ctx.calls[1]), /cut off by the output limit/, "the retry says why it is asking again");
+	assert.equal(outcome?.skill, null, "the retry's own answer decides");
 });
 
 test("a record_skill call with unusable arguments and no text fails the pass", async () => {

@@ -186,10 +186,16 @@ export function autolearnProjectSkills(
 			 * One text-only retry, then the retry's own answer decides.
 			 *
 			 * Deliberately unlike the memory pass, which reads the reply first and only retries when it
-			 * cannot be resolved: a skill body is exactly what a repaired call would corrupt, so a
-			 * `max-tokens` reply is discarded outright rather than read. The cost — a complete decision
-			 * that coincides with a `max-tokens` finish is asked for again — is the cheaper error here,
-			 * and pi's autolearn makes the same choice.
+			 * cannot be resolved. The tool-call half is covered by `toolCallIsTruncated` either way; the
+			 * reason the whole reply is discarded before reading is the **text** path's fail-soft
+			 * contract: `parseAutolearn` reads an unparseable reply as `{skill: null, need_sessions: []}`,
+			 * which is the same decision a model that proposed nothing returns. Reading a cut reply first
+			 * would therefore report a truncated answer as "no skill was warranted" instead of retrying
+			 * it. The cost — a complete decision that coincides with a `max-tokens` finish is asked for
+			 * again — is the cheaper error here, and pi's autolearn makes the same choice.
+			 * `test/autolearn.test.mjs` pins the cut-text case; a probe over every truncation point of a
+			 * brace-heavy reply found no cut that parses into a partial body, so the wasted call is the
+			 * only thing at stake, never half a procedure.
 			 */
 			const ask = async (prompt: string): Promise<AutolearnDecision> => {
 				const completion = await call(prompt, true);
