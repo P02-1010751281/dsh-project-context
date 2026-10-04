@@ -12,10 +12,10 @@
  * evidence instead of asserting it.
  *
  * Run: node .agents/evidence/2026-10-05-autolearn-cut-parse-probe/probe.mjs
- * Measured 2026-10-05 against lib/ built from the then-current src/ (dbf8124).
+ * Measured 2026-10-05 against lib/ built from the then-current src/; re-pointed at
+ * `parseAutolearnReply` when the fail-soft `parseAutolearn` wrapper was deleted.
  */
-import { parseAutolearn } from "../../../lib/project-autolearn/parse.js";
-import { parseJsonObject } from "../../../lib/shared/reply-json.js";
+import { parseAutolearnReply } from "../../../lib/project-autolearn/parse.js";
 
 const object = JSON.stringify({
 	skill: {
@@ -38,8 +38,8 @@ const SHAPES = {
 
 let failures = 0;
 for (const [label, full] of Object.entries(SHAPES)) {
-	const expected = parseAutolearn(full);
-	if (expected.skill === null) throw new Error(`${label}: fixture must parse to a skill`);
+	const expected = parseAutolearnReply(full);
+	if (expected === undefined || expected.skill === null) throw new Error(`${label}: fixture must parse to a skill`);
 	const fullBody = expected.skill.body;
 
 	let parsed = 0;
@@ -47,9 +47,11 @@ for (const [label, full] of Object.entries(SHAPES)) {
 	const bad = [];
 	for (let i = 1; i < full.length; i++) {
 		const cut = full.slice(0, i);
-		if (parseJsonObject(cut) === undefined) continue;
+		// `parseAutolearnReply` returns undefined exactly when the object does not parse, so it is both
+		// the population test and the decision read.
+		const decision = parseAutolearnReply(cut);
+		if (decision === undefined) continue;
 		parsed++;
-		const decision = parseAutolearn(cut);
 		if (decision.skill === null) {
 			// A parse that reports "nothing to propose": the object closed but carried no skill. This is
 			// the class R1 would newly accept, so it must be an honest null, never a truncated proposal.
@@ -70,6 +72,10 @@ for (const [label, full] of Object.entries(SHAPES)) {
 }
 
 console.log(failures === 0
-	? "\nRESULT: no cut of any shape parsed into a partial or altered decision."
+	? "\nRESULT: across these three single-object shapes, no cut parsed into a partial or altered decision."
 	: `\nRESULT: ${failures} shape(s) produced a partial/altered decision.`);
+// This probe's scope is one object. A reply that completes one object, adds prose, then starts a
+// SECOND object and is cut before closing it is a different shape: the first-`{`/last-`}` scan then
+// returns the earlier object. That shape is recorded by ../2026-10-05-draft-object-tail-probe/, and
+// the earlier draft of this file's RESULT line overclaimed by not naming that boundary.
 process.exit(failures === 0 ? 0 : 1);

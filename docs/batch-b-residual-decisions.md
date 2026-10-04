@@ -72,8 +72,12 @@ That is the only missing seam for Option A below.
 **Option A (recommended): request-shape codes only.** On the *first* tools-carrying call of a pass,
 if the failure carries `code === "INVALID_REQUEST"` (plus, defensively, the generic `HTTP_400` /
 `HTTP_413` fallbacks other adapters use), retry once without `tools` and keep them off for the pass.
-No marker is needed to exclude a finish-carried provider error, because that path throws an error
-with no `code` at all — the exclusion falls out of routing on the code.
+What decides is the **code**, not the delivery path — and that is a real divergence from pi, whose
+`toolsFallbackApplies` returns false for its own `AuxCallError` (a finish-carried provider failure).
+pi can afford that because a provider rejection is *thrown* there; in dsh `adapterFailureChunk`
+normalizes every adapter throw into the same in-band terminal `finish`, so the finish-carried failure
+is exactly where a tools rejection arrives and must be the thing that falls back. Option B's
+"marker" would therefore have to *include* that path, not exclude it.
 
 **Option B (pi-faithful): fail-open.** Fall back for any failure whose code is not in
 `{AUTH, INVALID_CREDENTIAL, QUOTA, ACCOUNT_QUOTA, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT}`, and add a
@@ -93,8 +97,11 @@ A scripted `ctx.llm.stream` **is** a route: the tests already drive fake streams
   pass completes and the decision is stored.
 - **A2** the same failure on a *later* tools-carrying call of the pass does not fall back.
 - **A3** `AUTH` / `RATE_LIMIT` / `QUOTA` failures do not fall back.
-- **A4** a finish-carried failure (no `code`, the shape `requestPluginTextWithMeta` synthesizes) does
-  not fall back.
+- **A4** a finish-carried failure whose code is *not* a request-shape one (`AUTH`, `RATE_LIMIT`,
+  `QUOTA`) does not fall back — the negative case. (An earlier draft of this criterion said "a
+  finish-carried failure with no code"; that premise was void the moment the reader below started
+  preserving the code, and it contradicted A1, which needs a finish-carried `INVALID_REQUEST` to fall
+  back. The two are one mechanism, not two.)
 - **A5** after a fallback, no later call in the pass carries `tools`.
 - Mutants: drop the first-tools-call guard → A2 reddens; drop the sticky flag → A5 reddens; key on
   the message instead of the code → A3 reddens.
@@ -192,6 +199,25 @@ last caller once `ask()` read through the reporting function.
   defined on top of it and keeps its old contract (pinned by `test/logic.test.mjs`). `ask()` accepts a
   `max-tokens` reply whose text parsed and still re-asks for one that did not; the tool-call half is
   untouched.
+- **Accepted residuals from the adversarial review of this batch** (2026-10-05; the review's own
+  reproduction is in its report, the shapes are re-runnable in
+  `.agents/evidence/2026-10-05-draft-object-tail-probe/`):
+  - *The draft-object tail is accepted by both passes.* A reply that completes one object, adds prose,
+    then starts a **second** object and is cut before closing it parses to the earlier object, because
+    `parseJsonObject` slices from the first `{` to the last `}`. The probe shows the memory pass
+    storing `- draft entry` from that shape and the autolearn pass taking `draft-skill`; the fenced /
+    trailing-prose shapes are unaffected. This is a property of the shared decoder that the memory
+    pass has always had (it reads before it retries), which R1 aligned autolearn with — not a
+    regression R1 introduced. Fixing it means a span-aware "the parsed object must be the last one
+    started" rule applied to **both** passes, which is a new design decision; until then the accepted
+    cost is that a model which drafts, reconsiders and is cut gets its draft used instead of being
+    asked again. The R1 probe's result line was narrowed to say which shapes it covers.
+  - *`INVALID_REQUEST` is wider than "the route refused `tools`".* dsh also emits it for local
+    serialize/validation failures and for any provider 400. The accepted cost is one wasted tools-free
+    call in those cases; the bound is structural — the retry is a single non-recursive `call(false)`,
+    the pass switch stops any later call from offering tools, and the pass's throttle is a plain
+    `throttle.set` that the single catch around the pair executes once, so no failure slot is burned
+    twice.
 - **Mutation-checked** (five valid mutants, each 0 `tsc` errors, marker present in `lib/`, and exactly
   the named cases turning red): removing the parse signal reddens only the parseable-cut case;
   emptying the request-shape set reddens the three fallback-dependent cases; replacing the membership

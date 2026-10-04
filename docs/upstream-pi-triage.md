@@ -250,7 +250,10 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   tools-carrying call, and that premise is false — autolearn asks a second time when the first decision
   wants archives read first (`ask(backtrackPrompt(...))`), so a route that just refused `tools` would
   have been offered them again. The one remaining deviation is the trigger: a positive request-shape
-  code set instead of pi's message-regex fail-open default.
+  code set instead of pi's message-regex fail-open default, and — as a consequence — dsh falls back
+  for the finish-carried failure that pi deliberately excludes (pi's `AuxCallError`), because in dsh
+  every adapter throw is normalized into that same in-band finish, so the code has to decide rather
+  than the delivery path.
   `docs/batch-b-residual-decisions.md` §2 owns the decision.
 - **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) IS
   implemented, as tier C.** `docs/batch-c-tier-c-design.md` owns the contract: a reply that would
