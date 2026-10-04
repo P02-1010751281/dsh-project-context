@@ -1941,7 +1941,7 @@ test("resolvePluginConfig validates every documented bound", () => {
 	assert.throws(() => resolvePluginConfig({ maxMemoryChars: 200_001 }), /maxMemoryChars must be a number between 4000 and 200000/);
 	assert.throws(() => resolvePluginConfig({ maxMemoryChars: "big" }), /maxMemoryChars must be a number between/);
 	assert.equal(resolvePluginConfig({ maxMemoryChars: 5_000 }).maxMemoryChars, 5_000);
-	assert.equal(DEFAULT_CONFIG.maxMemoryChars, 32_000, "the default cap is the documented 32000");
+	assert.equal(DEFAULT_CONFIG.maxMemoryChars, 40_000, "the default cap is the documented 40000");
 
 	const parsed = resolvePluginConfig({ consolidateTurns: 9.6, provider: "p", model: "m", handoffSummaryThinking: "session" });
 	assert.equal(parsed.consolidateTurns, 10, "whole-number fields round");

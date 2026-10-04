@@ -3,7 +3,7 @@
  */
 
 /** Default cap on the rendered memory document; the project's `maxMemoryChars` overrides it. */
-export const MAX_MEMORY_CHARS = 32_000;
+export const MAX_MEMORY_CHARS = 40_000;
 
 /** Accepted bounds for `maxMemoryChars`: below this a memory is useless, above it cannot be re-emitted. */
 export const MIN_MEMORY_CHARS = 4_000;

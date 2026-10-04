@@ -526,7 +526,7 @@ test("normalizeMemoryDocument rebuilds one canonical document", () => {
 	assert.equal(normalizeMemoryDocument(""), "# Project Memory\n");
 	// The default cap keeps a document that fits exactly as it is.
 	assert.equal(normalizeMemoryDocument("tiny"), "# Project Memory\n\ntiny\n");
-	assert.equal(MAX_MEMORY_CHARS, 32_000, "the default cap is the documented 32000");
+	assert.equal(MAX_MEMORY_CHARS, 40_000, "the default cap is the documented 40000");
 });
 
 /** A memory document of `count` complete lines, each well under any line-length cap. */
@@ -647,9 +647,18 @@ test("an explicit limit is honoured, and the default cap is the documented one",
 		const body = out.trimEnd().split("\n").slice(0, -2).join("\n").length;
 		assert.ok(body > 0 && body < source.length, `body ${body} is a real prefix of ${source.length}`);
 	}
-	// The default cap is the documented one, and what it keeps is far more than the old 24000 did.
-	const large = normalizeMemoryDocument(lines(700), MAX_MEMORY_CHARS);
-	assert.match(large.trimEnd().split("\n").pop(), /^_\[memory truncated at 32000 characters: \d+ dropped\]_$/);
+	// The default cap is the documented one, and it is now wide enough that a document the old 32000
+	// default cut comes through whole — that headroom is the point of the raise, and it is exactly
+	// what a profile relying on the bundle insert (no `maxMemoryChars` of its own) now gets.
+	const withinDefault = lines(650);
+	assert.ok(withinDefault.length > 32_000, `fixture is ${withinDefault.length} chars, past the old default`);
+	const kept = normalizeMemoryDocument(withinDefault);
+	assert.equal(isMemoryTruncated(kept), false, "the default cap keeps a document the old 32000 default cut");
+	assert.ok(kept.length > 32_000, `the default keeps ${kept.length} chars`);
+
+	// And it still cuts, on a line boundary, naming the default it used.
+	const large = normalizeMemoryDocument(lines(800), MAX_MEMORY_CHARS);
+	assert.match(large.trimEnd().split("\n").pop(), /^_\[memory truncated at 40000 characters: \d+ dropped\]_$/);
 	assert.ok(large.trimEnd().length > 24_000, `the default keeps ${large.trimEnd().length} chars, more than the old cap`);
 	assert.equal(normalizeMemoryDocument("tiny", MIN_MEMORY_CHARS), "# Project Memory\n\ntiny\n", "a short document is untouched");
 });
