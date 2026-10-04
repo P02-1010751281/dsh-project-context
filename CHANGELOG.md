@@ -281,8 +281,18 @@
   `{name, description, parameters}`，没有可携带的严格模式标记，schema 改为**构造上严格**）；**没有移植**
   pi 的 `callAux` 固定「无工具」回退（路由拒绝 `tools` 时 dsh 按普通失败退避并记录，本机实际路由已验证接受
   工具）与 `needsCondense` 二次模型调用（dsh 保留原有 `max-tokens` 重试，掉落由计数上报）。
-  **本仓自己的 `.agents/memory/MEMORY.md` 仍是自由格式**：迁移必须在**新代码活体**之后做（宿主重启前，跑着的
+  **2026-10-05 补记**：上面「没有移植 `needsCondense`」这一半**已不再成立**——**档 C 实现了它**（一次定向重试，
+  携带与 pi 同义的压缩指令；触发面是本批渲染计数的超集）。差别只在失败策略：pi 采纳干净的压缩回复、否则**保留
+  有损首答**并让上限报告说话，dsh 则**拒绝落盘**（`MEMORY.md` 逐字节不变，状态 `lossy-refused`）。档 B 的两条
+  未移植项现均以「已决定不移植」收口：`callAux` 无工具回退缺的是**可观察的失败码**（harness 确有
+  `HarnessError.code` 与 core 的可重试码集，但本机没有任何可达路由会拒绝 `tools`，且本插件的包装把 finish 里的
+  码拍进了消息文本）；autolearn 的「先重试再读」则是因为文本解析器 fail-soft（不可解析即 `{skill:null}`），
+  先读会把被截断的回复误报成「没有新技能」。逐条现状与证据在 `docs/upstream-pi-triage.md`。
+  **本仓自己的 `.agents/memory/MEMORY.md` 当时仍是自由格式**：迁移必须在**新代码活体**之后做（宿主重启前，跑着的
   旧构建仍会写自由格式并把它改回去），见 `CONTEXT.md`。
+  **2026-10-05 补记**：该迁移**已完成**，前置条件已满足——四节 schema 落在当前宿主启动之前；现读该文件已是纯四节
+  bullet 文档（`sectionsFromMarkdown` 返回四个节，而不是 `undefined`）。要复核就现读：把 19387 持有者的启动时刻与
+  `git log -1 --format=%cI -- src/project-memory/memory-schema.ts` 比，再走插件自己的解析器，别 grep 标题。
   变异校验：五个分片各自 2–3 个变异体，全部杀死（改 share → 预算与随机 cap 用例红；空条目谓词恒 false →
   语义闸门红；不透明闸门丢掉标记过滤 → 骨架用例红；去掉写入门禁 → 骨架覆盖已存 memory 那条红；去掉截断守卫 →
   截断工具调用那条红；工具从不提供/重试仍带工具 → 各自入口那条红；`/memory update` 动词改名、空动词当未知 →

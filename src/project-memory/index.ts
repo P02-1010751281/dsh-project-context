@@ -456,9 +456,10 @@ export function apply(ctx: Context, rawConfig: unknown): void {
  * a marker records that the document was capped *at some point* (it is carried forward), while
  * `cappedDroppedChars` describes what **this** read's cap kept back — including on the no-journal
  * read, which clips without writing a marker at all. Either one is enough to warn.
- * Measured on this repo at 41733 characters, the loaded document is capped at 31888 with 9621 dropped
- * while every other flag stays clean — so without the note the receipt calls a memory that lost a
- * third of itself perfectly healthy, and every later append lands past the cap and is dropped on write.
+ * Measure the current state rather than quoting one: `loadMemory(root, maxMemoryChars)` reports
+ * `cappedDroppedChars` and the marker through `isMemoryTruncated(loaded.text)`. Without the note the
+ * receipt calls a memory that lost a third of itself perfectly healthy, and every later append lands
+ * past the cap and is dropped on write.
  * @param memory - the loaded memory document and its status flags.
  * @param context - the paths and the cap this project is configured with.
  * @returns the command result.

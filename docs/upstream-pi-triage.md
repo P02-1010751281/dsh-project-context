@@ -231,29 +231,50 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   carry. The schemas are strict **by construction** instead (every property required,
   `additionalProperties: false`, no `anyOf`, no `maxLength`/`maxItems`), which is what pi's
   `makeStrictJsonSchema` would otherwise have had to normalize.
-- **pi's sticky no-tools fallback (`callAux` + `call-policy`) is not ported.** A route that rejects
-  the `tools` parameter fails the pass, backs off like any other failure, and logs; pi retries once
-  without tools and keeps them off for the rest of the pass. dsh has no auxiliary-call policy module,
-  and the route this repo runs on accepts tools (verified above), so this is a recorded gap rather
-  than a mechanism ported blind.
-- **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) is not
-  ported.** dsh keeps its existing `max-tokens` retry (now also covering a truncated tool call) and
-  reports the renderer's `sectionDropped` / `droppedItems` / `itemTruncated` counts as a
-  once-per-project log line, only for a write that actually landed. The entries are dropped whole and
-  reported, which is the improvement over the old mid-document clip; the curated retry is left as an
-  open item.
+- **pi's sticky no-tools fallback (`callAux` + `call-policy`) is not ported — closed, not pending.**
+  A route that rejects the `tools` parameter fails the pass, backs off like any other failure, and
+  logs; pi retries once without tools and keeps them off for the rest of the pass. The harness does
+  expose the signal such a port would route on — `HarnessError.code` is the stable machine-routable
+  class, and core owns the retryable set (`EMPTY_RESPONSE`, `RATE_LIMIT`, `SERVER`, `TIMEOUT`,
+  `TRANSPORT`), so pi's own "not auth / quota / transient" guard has a dsh spelling. What is missing
+  is an *observed* code: no reachable route here rejects `tools` (the one this repo runs on accepts
+  them, verified above), and `requestPluginTextWithMeta` flattens a finish-carried failure into
+  `plugin model call failed (<code>): <message>`, so a port would first have to stop discarding that
+  code. Keying a retry on a failure class never observed here is the blind port this list refuses.
+- **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) IS
+  implemented, as tier C.** `docs/batch-c-tier-c-design.md` owns the contract: a reply that would
+  lose whole entries (`memoryLoss`'s `retryWorthy`) gets exactly one targeted retry on the same
+  `usedInput`, carrying `memoryLossRetryRule` — pi's own instruction ("merge duplicates within a
+  section and dropping the least durable entries") in dsh's words. The trigger is a superset of
+  pi's `render.sectionDropped > 0` (it adds `droppedItems`, the opaque reply's `writeCapDroppedChars`,
+  and `itemTruncated`, which retries but never refuses). The one deliberate difference is the
+  failure policy: pi adopts the condensed reply when it is clean and otherwise **keeps the first,
+  lossy result** and lets the cap report speak, where dsh **refuses the write** — `MEMORY.md` stays
+  byte-identical and the status is `lossy-refused`. Silent degradation was acceptable, a wrong cause
+  was not. (Recorded here as *not ported* until 2026-10-05, when closing the batch-B residuals showed
+  the claim had been overtaken by tier C.)
 - **The free-form/legacy path is unchanged.** A memory that is not a plain four-section bullet
   document still loads and renders verbatim, and `normalizeMemoryDocument` still owns the
   whole-document marker for the entries that do not have sections.
-- **This repo's own `MEMORY.md` is still free-form.** The migration to the four-section format is
-  pending: it has to happen against the *live* new code (until the desktop host is restarted, the
-  running build still writes the free-form document and would revert it). See `CONTEXT.md`.
-- **autolearn retries before it reads, unlike the memory pass.** On a `max-tokens` finish the
-  autolearn `ask()` discards the reply and re-asks, where the memory pass reads first and only
-  retries what it could not resolve. That asymmetry is deliberate and is pi's own: a skill body is
-  exactly what a repaired, half-written tool call would corrupt, so the cheaper error here is one
-  extra call rather than storing half a procedure. The cost is recorded, not hidden: a *complete*
-  decision that happens to carry a `max-tokens` finish is asked for again.
+- **This repo's own `MEMORY.md` has migrated to the four-section format.** It was recorded here as
+  pending because the migration had to run against the *live* new code — a host started before the
+  schema landed writes the free-form document and reverts it. That precondition is now met, and
+  `sectionsFromMarkdown` reads the stored document as the four sections instead of `undefined`. Check
+  it rather than trusting this line: compare the 19387 socket holder's `ps -o lstart=` against
+  `git log -1 --format=%cI -- src/project-memory/memory-schema.ts`, then read the file through the
+  plugin's own parser instead of grepping for a heading.
+- **autolearn retries before it reads, unlike the memory pass — deliberate, and load-bearing.** On a
+  `max-tokens` finish the autolearn `ask()` discards the reply and re-asks, where the memory pass
+  reads first and only retries what it could not resolve. The reason is not just the repaired
+  tool-call argument string (that half is covered by `toolCallIsTruncated`): the autolearn **text**
+  path is fail-soft, so `parseAutolearn` reads an unparseable reply as `{skill: null,
+  need_sessions: []}` — the same decision a model that proposed nothing returns. Reading a cut reply
+  first would therefore report a truncated answer as "no skill was warranted" instead of retrying it.
+  The cost is recorded, not hidden: a *complete* decision that happens to carry a `max-tokens` finish
+  is asked for again. A probe across every truncation point of a brace-heavy reply (305 cuts) found
+  no cut that parses into a *partial* body — the first-`{`/last-`}` scan always leaves an unterminated
+  string — so the discarded reply is at worst complete, never half a procedure; the fail-soft parser,
+  not the body, is what makes read-first wrong here. `test/autolearn.test.mjs` pins it.
 - **The truncation guard keys on the finish reason, and that is all dsh has.** `toolCallIsTruncated`
   refuses a call when the finish reason is `max-tokens` **or empty** (a stream with no terminal
   event). It cannot detect a repaired call that arrives labelled `stop`; both shipped adapters label
