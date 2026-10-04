@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-10-04T15:16:37.821Z
+Last updated: 2026-10-04T15:26:07.673Z
 
 ## Summary
 
@@ -24,7 +24,7 @@ This session continues session-357df90f via handoff. It closed the handoff's las
 
 - Memory headroom stopped being the standing risk when the default cap went to 40000, but the document still rides near its cap: pay for any addition with a merge or a drop in the same section, and watch it through the API (`loadMemory` plus `isMemoryTruncated`, and the per-section costs from the archived probe) rather than through a written character count.
 - `/memory update`'s clean path is byte-identical to the old wording by design, so it cannot by itself prove that tier A ran: pair the receipt with the `errors.log` lines and with `.agents/memory/memory.jsonl`'s mtime against the socket holder's start, and never quote either value.
-- Tier C is implemented and live and tier B is moot (C is B plus the one retry that decides whether a refusal was necessary); its two accepted residuals were fixed 2026-10-04 and are no longer open — a cached outcome is keyed on the cap it was decided under (a forced pass under a new `maxMemoryChars` re-runs), and a loss retry that dies for its own reason leaves the first reply's loss in charge instead of reporting `failed`, while an abort still fails the pass. Recorded in `docs/batch-c-tier-c-design.md` and `CHANGELOG.md`.
+- Tier C is implemented and live and tier B is moot (C is B plus the one retry that decides whether a refusal was necessary); its two accepted residuals were fixed 2026-10-04 and are no longer open — a cached outcome is keyed on the cap it was decided under (a forced pass under a new `maxMemoryChars` re-runs), and a loss retry that dies for its own reason leaves the first reply's loss in charge instead of reporting `failed`, while only a caller-cancelled pass (the caller's own `options.signal` aborted) still fails the pass. The refusal log names the cap the decision was measured under, not the setting in force at report time. Recorded in `docs/batch-c-tier-c-design.md` and `CHANGELOG.md`.
 - Two accepted tier A residuals must not be presented as fixed: `clipped` with all counts zero is reachable when the hidden artifact is not the one that landed, and the memory-side loader cap is not counted (a hand-edited over-cap MEMORY.md is reported by `/memory status` and the stored marker).
 - Batch B residuals, recorded and deliberately not fixed: the autolearn `max-tokens` retry-before-read asymmetry; pi's `callAux` no-tool fallback and `needsCondense` second call were not ported; a call that was fixed but labelled `stop` still cannot be identified.
 - Out-of-repo residuals: dsh core splitting `discovery.ts`'s `capacity()` into declared window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold` `!model || usage.tokens === null` and its truncated-retry guard coverage.
