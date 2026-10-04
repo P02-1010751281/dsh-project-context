@@ -244,11 +244,14 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   `plugin model call failed (<code>): <message>`, and dsh's own `HarnessError` contract says to route
   on the code, never by parsing the message. Now the code rides on the thrown error and
   `callWithToolsFallback` spends exactly one tools-free retry on the request-shape codes
-  (`INVALID_REQUEST`, plus the generic `HTTP_400` / `HTTP_413` fallbacks); both passes call through it.
-  **Deliberate deviation from pi:** pi's `callAux` keeps a per-pass sticky switch
-  (`toolsAttempted` / `toolsDisabled`) because its passes issue several tools-carrying calls — each
-  pass here makes exactly one, so the fallback is per call and state-free, and a switch no later call
-  could read is untestable dead logic. `docs/batch-b-residual-decisions.md` §2 owns the decision.
+  (`INVALID_REQUEST`, plus the generic `HTTP_400` / `HTTP_413` fallbacks); both passes call through it,
+  each with the pass's own switch. **pi's sticky switch is ported too** (`toolsAttempted` /
+  `toolsDisabled`, marked before the call): the first version here argued each pass issues exactly one
+  tools-carrying call, and that premise is false — autolearn asks a second time when the first decision
+  wants archives read first (`ask(backtrackPrompt(...))`), so a route that just refused `tools` would
+  have been offered them again. The one remaining deviation is the trigger: a positive request-shape
+  code set instead of pi's message-regex fail-open default.
+  `docs/batch-b-residual-decisions.md` §2 owns the decision.
 - **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) IS
   implemented, as tier C.** `docs/batch-c-tier-c-design.md` owns the contract: a reply that would
   lose whole entries (`memoryLoss`'s `retryWorthy`) gets exactly one targeted retry on the same

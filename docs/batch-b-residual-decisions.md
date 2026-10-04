@@ -1,7 +1,7 @@
 # Batch B residual decisions — the `callAux` tools fallback and the autolearn retry-before-read
 
-**Status: decided and implemented 2026-10-05** (`5ebec43`; the two deviations from the decisions below
-are recorded in §6). Both residuals had been closed on 2026-10-05 as "deliberately not ported"
+**Status: decided and implemented 2026-10-05** (the batch is the three commits ending at
+`git log -1 --format=%h` when you read this; what landed and the one remaining deviation are in §6). Both residuals had been closed on 2026-10-05 as "deliberately not ported"
 (`CHANGELOG.md` 未发布, `docs/upstream-pi-triage.md`). Re-reading pi's `callAux` and this repo's own
 adapter path showed that both closure *reasons* rested on premises that did not hold, so the two
 decisions were re-opened and re-made here.
@@ -164,36 +164,41 @@ is implemented as tier C and the decision in `docs/batch-c-tier-c-design.md` sta
 
 ## 6. Implementation — what landed, and where it deviates
 
-Landed in `5ebec43` (code + tests; no client code, so the client bundle is unchanged).
+Landed in two commits (code + tests; no client code, so the client bundle is unchanged). The second
+one corrects the first: a self-review found the state-free helper below rested on a false premise.
 
 - **R2**: `failure.code` now rides on the error `requestPluginTextWithMeta` throws (own property, the
   message byte-identical to what the plugin always threw), and `callWithToolsFallback` retries a
   tools-carrying call once without `tools` when — and only when — the code is in
-  `{INVALID_REQUEST, HTTP_400, HTTP_413}`. Both passes call through it: autolearn at its single
-  decision call, consolidation at its single tools-carrying call. Verifying it needed no live route:
-  the tests script a stream that answers a `tools`-carrying request with an in-band error finish, which
-  is exactly how a real 400 arrives.
-  - **Deviation 1 (no sticky state).** pi's `AuxCallState` (`toolsAttempted` / `toolsDisabled`) is a
-    per-pass switch, because pi's passes issue several tools-carrying calls. Each pass here issues
-    exactly one, so the helper is `callWithToolsFallback(offersTools, call)` with no state: a switch no
-    later call could read would be unreachable, untestable logic. The one-shot behaviour that *is*
-    observable — one extra call, never a loop — is preserved.
-  - **Deviation 2 (the trigger set is a positive list, not pi's negative one).** pi falls back on
-    anything its message-regex classifier does not call auth/quota/transient. dsh's adapters publish a
-    code per rejection, so the trigger is the code that means "the request's shape was refused"; a
-    failure that is not in that set is never re-asked without tools.
+  `{INVALID_REQUEST, HTTP_400, HTTP_413}`. Both passes call through it, each handing it the pass's own
+  `ToolsFallbackState`. Verifying it needed no live route: the tests script a stream that answers a
+  `tools`-carrying request with an in-band error finish, which is exactly how a real 400 arrives.
+  - **pi's sticky switch is implemented, not dropped.** The first version of this code argued that each
+    pass issues exactly one tools-carrying call, so `toolsAttempted` / `toolsDisabled` would be
+    unreachable. That premise is false and the review that caught it is why the code changed: autolearn
+    asks a second time when the first decision wants archives read before it commits
+    (`ask(backtrackPrompt(...))`), so a route that had just refused `tools` would have been offered them
+    again. The switch is therefore pi's — only the first tools-carrying call may fall back, marked
+    before the call so a call that *succeeded* with tools also counts as "this route accepts them", and
+    no later call of the pass carries tools once one has been refused — and the backtrack case pins it.
+  - **The one remaining deviation (the trigger set is a positive list, not pi's negative one).** pi
+    falls back on anything its message-regex classifier does not call auth/quota/transient. dsh's
+    adapters publish a code per rejection, so the trigger is the code that means "the request's shape
+    was refused"; a failure that is not in that set is never re-asked without tools.
 - **R1**: `parseAutolearnReply` returns `undefined` for a reply with no readable object and
   `{skill: null}` for one that parsed and proposed nothing; the fail-soft `parseAutolearn` is now
   defined on top of it and keeps its old contract (pinned by `test/logic.test.mjs`). `ask()` accepts a
   `max-tokens` reply whose text parsed and still re-asks for one that did not; the tool-call half is
   untouched.
-- **Mutation-checked** (three valid mutants, each 0 `tsc` errors, marker present in `lib/`, and exactly
+- **Mutation-checked** (four valid mutants, each 0 `tsc` errors, marker present in `lib/`, and exactly
   the named cases turning red): removing the parse signal reddens only the parseable-cut case;
-  emptying the request-shape set reddens only the two positive fallback cases (one per pass, so both
-  call sites are load-bearing); replacing the membership test with "any code-bearing failure" reddens
-  only the auth negative, which is what pins the discrimination.
-- Gate at that commit: `pnpm typecheck` 0 errors, `node --test` 327 pass / 0 fail (323 before, +4),
-  `lib/` identical to a fresh `tsc` compile except `client.js`.
+  emptying the request-shape set reddens the three fallback-dependent cases; replacing the membership
+  test with "any code-bearing failure" reddens only the auth negative, which is what pins the
+  discrimination; and removing the pass switch reddens only the backtrack case, which is what shows the
+  state is reachable rather than ceremony.
+- Gate when the batch was pushed: `pnpm typecheck` 0 errors, `node --test` 328 pass / 0 fail (323
+  before, +5), `lib/` identical to a fresh `tsc` compile except `client.js` (28376 bytes, unchanged —
+  no client code moved).
 
 ## 7. Read-now checks
 
