@@ -27,7 +27,7 @@ import { qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText 
 import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runtime.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
-import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, fallbackUpdate, memorySectionRule } from "../lib/project-memory/consolidate.js";
+import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, CONVERSATION_CAPTION, FOREIGN_STATE_RULE, fallbackUpdate, memorySectionRule } from "../lib/project-memory/consolidate.js";
 import { memorySectionBudgets } from "../lib/project-memory/memory-schema.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation, parseContextMember, parseToolArguments } from "../lib/shared/reply-json.js";
@@ -601,6 +601,27 @@ test("the consolidation prompt states the context field types, not just their na
 	assert.match(prompt, /discarded and CONTEXT\.md is left unchanged/);
 	// The consequence must be stated too, or the model cannot know a wrong shape is costly.
 	assert.match(prompt, /discarded/);
+});
+
+test("the prompt states the cross-project boundary, at the rule and at the conversation block", async () => {
+	// The pass hands the model the whole session conversation and asks it to regenerate the documents
+	// from it, so a session that quotes a sibling repository's state writes that state into THIS
+	// project's memory — and hand-cleaning cannot hold, because the next pass writes it again. The
+	// boundary is therefore stated twice: as a rule, next to the secrets rule, and as the first line
+	// inside `<recent-conversation>`, which is the block where the foreign text actually enters.
+	assert.ok(CONSOLIDATION_PROMPT_RULES.includes(FOREIGN_STATE_RULE), "the rule is part of the fixed prompt rules");
+	assert.match(FOREIGN_STATE_RULE, /naming another project is fine only to record who owns an open item/, "naming another project stays legal for an ownership pointer, which this repo keeps on purpose");
+
+	const root = await memoryProject("dsh-memory-foreign-state-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: FITTING_TEXT_REPLY }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+	await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
+	const captionAt = prompt.indexOf(CONVERSATION_CAPTION);
+	assert.ok(captionAt > 0, "the caption is in the prompt the model is sent");
+	assert.equal(prompt.slice(captionAt - "<recent-conversation>\n".length, captionAt), "<recent-conversation>\n", "the caption is the first line inside the conversation block");
+	assert.ok(captionAt > prompt.indexOf("</existing-context>"), "and that block sits below the memory and context blocks");
 });
 
 test("parseAutolearnReply separates a skill, a backtrack request and an unreadable reply", () => {

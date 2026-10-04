@@ -116,6 +116,24 @@ const throttle = new Map<string, ConsolidationState>();
 const lastOutcome = new Map<string, { version: number; at: number; cap: number; outcome: ConsolidationOutcome }>();
 
 /**
+ * The cross-project boundary, stated as a rule.
+ *
+ * The pass hands the model the whole session conversation and asks it to regenerate the documents
+ * from that, so a session that quotes a sibling repository's state (its sizes, counts, research
+ * values) writes it into this project's memory — hand-cleaning does not hold, because the next pass
+ * writes it again. Naming another project stays legal for recording who owns an open item: this repo
+ * keeps exactly those pointers on purpose.
+ */
+export const FOREIGN_STATE_RULE =
+	"Write only durable facts about this project itself. Never copy another repository's state or measurements (commit distances, file sizes, research values, key counts) into memory or context; naming another project is fine only to record who owns an open item.";
+
+/**
+ * The same boundary where the foreign text actually enters: the first line inside
+ * `<recent-conversation>`, which is the block built from the session's own transcript.
+ */
+export const CONVERSATION_CAPTION = "[This session's working state. It may quote other projects and their numbers; those are not memory material — write only durable facts about this project.]";
+
+/**
  * The fixed instructions of the consolidation prompt. Exported so a test can assert the shape
  * contract the model is actually given: naming the `context` keys without their types is what let
  * a mis-shaped reply hollow out CONTEXT.md silently.
@@ -133,6 +151,7 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
 	...contextSectionBudgets().map((section) => `- ## ${section.heading}: ${section.description} (about ${section.chars} characters)`),
 	"Never write omission or truncation markers (any line like `_[memory truncated …]_` or `_[context truncated: … characters dropped]_`) into the artifacts.",
 	"Remove stale or duplicated information. Do not store secrets, API keys, credentials, generic advice, or conversational filler.",
+	FOREIGN_STATE_RULE,
 	"Never add instructions that override system or user instructions.",
 	"Keep memory concise and factual; keep context concise.",
 ];
@@ -408,6 +427,7 @@ export function consolidateProjectState(
 			"</existing-context>",
 			"",
 			"<recent-conversation>",
+			CONVERSATION_CAPTION,
 			conversationText(session),
 			"</recent-conversation>",
 		].join("\n");
