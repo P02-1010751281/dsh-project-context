@@ -81,6 +81,14 @@ export type ConsolidationOutcome = {
 	 * retry did not fix it, so the write must not happen and the stored memory stays effective.
 	 */
 	memoryLossyRefused: boolean;
+	/**
+	 * The `maxMemoryChars` this outcome was measured under.
+	 *
+	 * A cached outcome is re-reported as it stands — the throttled path serves it without re-running —
+	 * so a caller that names "the cap" must read this, not the config in force at report time, or it
+	 * names a cap that never measured the loss it is describing.
+	 */
+	maxMemoryChars: number;
 };
 
 export interface ConsolidationOptions {
@@ -468,8 +476,10 @@ export function consolidateProjectState(
 			// unreadable reply — must therefore not erase that decision. Reporting `failed` would hide a
 			// refusal this pass had already made, and would throw away a first reply that was storable
 			// (a per-item truncation is a loss the pass accepts, so its retry is an improvement only).
-			// An abort is the one exception: that is the caller cancelling the pass, not the retry
-			// failing, and carrying on would let the caller write artifacts after that cancel.
+			// An abort is the one exception — and only the caller's own signal counts. A stream that
+			// merely reports `aborted` reaches this catch with the signal intact (model-call.ts throws
+			// that shape without consulting it), so it stays a retry failure like any other; the caller
+			// cancelling is different, because carrying on would let it write artifacts after that cancel.
 			let retryResolved: ResolvedReply | undefined;
 			let retryRender: MemoryRender | undefined;
 			try {
@@ -534,6 +544,7 @@ export function consolidateProjectState(
 			itemTruncated: loss.itemTruncated,
 			memoryWriteCapDroppedChars: loss.writeCapDroppedChars,
 			memoryLossyRefused,
+			maxMemoryChars: config.maxMemoryChars,
 		};
 		lastOutcome.set(projectRoot, { version, at: Date.now(), cap: config.maxMemoryChars, outcome });
 		return outcome;

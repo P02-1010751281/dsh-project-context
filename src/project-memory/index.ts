@@ -207,7 +207,10 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 					parts.push(`${refusedLoss.sectionDropped} section(s) exceeded their budget and ${refusedLoss.droppedItems} whole entry(ies) would have been dropped`);
 				}
 				if (refusedLoss.writeCapDroppedChars > 0) {
-					parts.push(`${refusedLoss.writeCapDroppedChars} character(s) of the reply exceeded the ${config.maxMemoryChars}-character memory cap`);
+					// The cap this loss was measured under, not the setting in force now: a cached refusal is
+					// re-reported as it stands, and naming the current cap would attribute the loss to a cap
+					// that never measured it.
+					parts.push(`${refusedLoss.writeCapDroppedChars} character(s) of the reply exceeded the ${outcome.maxMemoryChars}-character memory cap`);
 				}
 				await logError(projectRoot, "memory", `the consolidation reply would have been stored lossily (${parts.join("; ")}), and the one targeted retry did not fix it; the stored memory was kept unchanged`);
 				// Carry it now: the memory write just below can throw (the lock, the journal), and a failure

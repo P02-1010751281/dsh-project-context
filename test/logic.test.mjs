@@ -1835,6 +1835,34 @@ test("tier C: raising maxMemoryChars inside forceDedupeMs re-runs the pass inste
 	assert.equal(raised.memoryWritten, true, "the reply that fits the new cap lands");
 });
 
+test("tier C: a cached refusal names the cap it was measured under, not the current setting", async () => {
+	// The throttled path re-reports a cached decision as it stands, so its log line has to read the cap
+	// that actually measured the loss. Naming the setting in force at report time attributes the loss to
+	// a cap that never saw it — the wrong-cause defect this repo treats as a real one, not a slip.
+	const root = await memoryProject("dsh-tierc-cached-cap-");
+	const prose = `# Project Memory\n\n${"a prose memory paragraph. ".repeat(400)}`;
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: prose, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const small = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 60_000 });
+	const big = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 60_000 });
+
+	const first = await consolidateProject(ctx, small, agent, { force: true, silent: true });
+	// No `force`: the pass is throttled, so the cached refusal is re-reported under the new cap.
+	const cached = await consolidateProject(ctx, big, agent, { silent: true });
+
+	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
+	assert.equal(cached.status, "lossy-refused", JSON.stringify(cached));
+	assert.equal(calls.length, 2, "the throttled path makes no new model call");
+	const capLines = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("character(s) of the reply exceeded"));
+	assert.equal(capLines.length, 2, "each report leaves its own line");
+	assert.match(capLines[1], /the 4000-character memory cap/, `the re-report names the cap it was measured under, got ${capLines[1]}`);
+	assert.doesNotMatch(capLines[1], /the 40000-character memory cap/, "not the setting in force at report time");
+});
+
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
 	// The stored context is over the read cap, so characters of it really are hidden from the model;
 	// the reply's context shape is unusable, so CONTEXT.md is left unchanged. Reporting the hidden
