@@ -73,12 +73,13 @@ this change and tier A is live: re-derive loaded-versus-not from the socket hold
 
 ## Open tasks
 
-- Tier A is live on the desktop host, but its new receipt has not been seen in a real pass: `/memory
-  update` is user-only and has not run since the restart, and a clean pass is byte-identical to the old
-  wording by design, so only a lossy pass or the new `errors.log` line would show the difference.
-  Re-derive loaded-versus-not rather than quoting a pid or start time: `ss -ltnp | grep 19387`, then
-  `ps -o lstart= -p <pid>` versus `git log -1 --format=%cI -- src/`, and `lib/` clean against a fresh
-  `tsc` compile into a temp dir.
+- Tier A is live on the desktop host, but its new receipt has not been observed in a real pass:
+  `/memory update` is user-only, and no consolidation write has landed since the restart — check by
+  comparing `.agents/memory/memory.jsonl`'s mtime with the socket holder's start, not by quoting
+  either. A clean pass is byte-identical to the old wording by design, so only a lossy pass or the
+  new `errors.log` line would show the difference. Re-derive loaded-versus-not with `ss -ltnp | grep
+  19387`, then `ps -o lstart= -p <pid>` versus `git log -1 --format=%cI -- src/`, and `lib/` clean
+  against a fresh `tsc` compile into a temp dir.
 - rewind: only the empirical check is left, and only the user can run it. After their next
   `home-manager switch`, `node_modules/dsh-rewind-plugin` should still be absent, because the
   activation generates no command for an entry that is no longer declared. No agent action.
