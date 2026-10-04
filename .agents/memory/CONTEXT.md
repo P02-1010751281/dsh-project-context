@@ -1,28 +1,93 @@
 # Project Context
 
-Last updated: 2026-10-04T16:37:43+08:00
+Last updated: 2026-10-04T16:53:52+08:00
 
 ## Summary
 
-Batch B's code is live and the four-section memory migration is repaired. The user restarted the desktop host in their own terminal and ran `/memory update`: the socket holder for 127.0.0.1:19387 is a fresh process started 2026-10-04 16:02:06, later than the last `src/`-touching commit `fe4a212` (2026-10-04T12:43:57+08:00), so the plugins now running are batch B. That first migration was lossy in two ways, both logged. The 14:14 pass reported `consolidation shortened the existing memory or context to fit the model output budget` — `fitMemoryInput` clips the stored memory head-and-tail when memory plus context exceed the model's output cap, so the model never saw the middle of the old 13-section document — and the 14:40 pass reported `MEMORY.md was rendered within its per-section budgets: 1 section(s) exceeded their budget and 12 whole entry(ies) were dropped`, because `renderMemoryDocument` drops whole entries that overflow a section's share. Whole sections did not survive: Release/versioning, Failure-cause attribution (R1/R2/R3), the Local GUI `本会话 ¥…` note, and Probe traps. This session therefore rebuilt MEMORY.md from the last known-good committed content (`git show HEAD:.agents/memory/MEMORY.md` at `fe4a212`: 13 sections, 31419 characters) into the fixed four sections, in English, and verified it: 30910 characters, `sectionsFromMarkdown` returns exactly the four keys, `renderMemoryDocument(…, 32000)` reports `sectionDropped 0 / droppedItems 0 / itemTruncated 0` with every section inside its share and every entry under the 800-character item cap, `isMemoryTruncated false`, `damaged 0`, `poisoned false`, and `fitMemoryInput` reports `clipped false` for every output cap at or above 24576 tokens. A re-runnable probe and the raw numbers are archived under `.agents/evidence/2026-10-04-memory-four-section-migration/`.
+Batch C tier A ("the receipt names the loss") is implemented, gate-green and pushed, and batch B is
+still what the desktop host is actually running. A consolidation pass can lose project memory in five
+reachable places, all of them before or at the write, so the stored document cannot show any of them:
+the input fit (`fitMemoryInput`, `src/shared/conversation.ts`) clips the stored memory and context
+head-and-tail to fit the model's output budget; the section render (`renderMemoryDocument`,
+`src/project-memory/sections.ts`) drops whole entries that overflow a section's budget; the stored
+context is sliced to `MAX_CONTEXT_CHARS` before the fit sees it; the context render
+(`renderContextDocument`) clips its own sections; and the write path (`normalizeMemoryDocument`)
+caps the document once more — which is the only trace an opaque, non-four-section reply's loss ever
+had. None of the five reached the `/memory update` receipt, because `ConsolidateReport` was a string
+union and `MemoryInput.clipped` a bare boolean, so a pass that dropped twelve entries produced a
+receipt identical, character for character, to a clean one. Tier A makes `ConsolidateReport` a
+report object with two written flags and six loss counts, adds per-artifact hidden-character counts to
+`MemoryInput` and `ConsolidationOutcome`, words the receipt by mechanism and only for artifacts that
+landed, and removes the three "logged once per project" gates so every lossy write or unusable
+context leaves its own `errors.log` line. It changes no behaviour: a lossy pass still writes. An
+independent adversarial review falsified the first version's narrower claim on three paths (including
+one that was completely silent) and all of them are closed; the review's dispositions and the two
+accepted residuals are in `docs/batch-c-loss-receipt-brief.md`, and the reproduction with recorded
+numbers is in `.agents/evidence/2026-10-04-memory-loss-receipt/`. The running desktop host (pid 4539,
+started 2026-10-04 16:02:06) predates this change, so the new receipt is **on disk, not yet live**
+until the user restarts the host in their own terminal.
 
 ## Key points
 
-- Batch B is live: the socket holder on 127.0.0.1:19387 started 2026-10-04 16:02:06, later than the last `src/` commit `fe4a212` (2026-10-04T12:43:57+08:00), and `lib/` still diffs clean against a fresh `tsc` compile into a temp directory except the esbuild `lib/client.js`.
-- Writing a near-cap document is lossy *before* the write: `fitMemoryInput` clips the stored memory head-and-tail when memory plus context exceed the model's output cap (logged as `shortened ... to fit the model output budget`; a truncated-reply retry adds 4096 tokens of headroom, so it clips sooner), and `renderMemoryDocument` drops whole entries that overflow a section's share (logged with the section and entry counts). A stored document that re-renders clean therefore proves nothing about what was lost.
-- MEMORY.md is now the fixed four-section schema written in English, gate-clean per the Summary. It was rebuilt from the committed 13-section document because the `/memory update` output had already lost sections. The two intermediate states survive as local backups: `MEMORY.md.memory-backup-2026-10-04T06-14-31-397Z-*` is the pre-migration 13-section document and `...06-40-52-507Z-*` the first (bullet-less) migration output.
-- English is the reason the migration changed language: a CJK document at the 32000-character cap cannot round-trip (its own rate is 1 token per character against ASCII's 0.4), so `fitMemoryInput` clips it; under the plugin's rate heuristic English is the only shape that fits the cap and the output budget at once.
-- MEMORY.md must stay inside every per-section share *and* under the 800-character per-entry cap, or the next write silently drops or clips entries. Verify with the archived probe rather than by counting characters.
-- rewind is disposed on both halves. The user removed the declaration from `/etc/nixos/home-manager/user/programs/dsh.nix` (file mtime 2026-10-04 16:36:57; the whole-line grep is now empty), and the `web` profile was then cleaned with the store-pinned pnpm 11.27.0 (PATH's is a different major and rewrites the lock): deps 15, `bundles` 16 with no rewind row, lock 0 references, `node_modules/dsh-rewind-plugin` gone. The `desktop` profile never declared or installed it.
-- Backups of the pre-cleanup manifests: `~/.dsh/profiles/web/{package.json,pnpm-lock.yaml}.bak-2026-10-04-rewind-local-half` and `/tmp/rewind-local-half-2026-10-04-rewind-local-half/`; the lock diff was removals only (61 lines out, 0 in, nothing but rewind's importer and package entries).
-- Why no HM activation can restore it now, read from source rather than inferred: `/etc/nixos/modules/home-manager/programs/dsh.nix` builds its activation as one ensure command per `cfg.plugins` entry, guarded by `if [ ! -d "$profile_dir/node_modules/${name}" ]` — ensure-missing-only, it never deletes — and that module only ever targets the `web` profile (desktop is hard-rejected). With the entry gone from the list, the activation has no command that mentions it. The empirical confirmation is the user's next `home-manager switch`, which no agent may run.
-- A concurrent session wrote a new untracked skill at `.agents/skills/pi-upstream-triage-pass/` (mtime 2026-10-04 14:04:50). This session read it, checked frontmatter, section coherence and absence of credentials, and staged it.
-- `pnpm test` was 293 pass / 0 fail at `fe4a212`; no `src/` file changed in this session, so the code gate is unchanged.
+- Tier A landed: `ConsolidateReport` is `{status, memoryWritten, contextWritten, memoryHiddenChars,
+  contextHiddenChars, contextDroppedChars, memoryWriteDroppedChars, sectionDropped, droppedItems,
+  itemTruncated}` with `ConsolidateStatus` the old string union. The counts describe only what landed
+  (a refused memory write zeroes the memory-side counts, an unwritten context zeroes the context-side
+  ones), the receipt names only the artifacts that actually landed, and a clean pass that wrote both
+  produces the byte-identical wording it produced before the change, so "the sentence did not change"
+  still means "nothing was lost".
+- The three per-project log gates (`memorySectionClipLogged`, `contextClipLogged`,
+  `contextUnusableLogged`) are gone, and the write-path cap logs at all: a project that stays over
+  budget or keeps sending an unusable context loses content every pass, so reporting only the first
+  occurrence silenced the rest. Two counter-honesty fixes ride along: `itemTruncated` no longer counts
+  an entry the same render then drops whole, and a reply below the 40-character floor is logged.
+- Tier B (refuse a lossy write) and tier C (refuse after one targeted retry) are deliberately **not**
+  implemented. B risks self-lock (this repo's memory rides near the 32000-character cap) and C needs
+  the retry contract designed; A is their prerequisite because it computes the counts they would use.
+- Accepted residuals, both documented with the review's reproduction in
+  `docs/batch-c-loss-receipt-brief.md`: `clipped` with all counts zero is reachable when the hidden
+  artifact did not land (inventing a count there would be the misattribution this repo warns about),
+  and the memory-side loader cap is not counted (a hand-edited over-cap `MEMORY.md` is reported by
+  `/memory status` and the stored marker, not by the receipt).
+- Mutation rounds: five mutants across two rounds, each compiling with 0 errors, landing its marker in
+  `lib/`, and killing exactly its own new test; `src/` was restored from a `sha256sum`-verified `/tmp`
+  copy and rebuilt to 0 markers. One first attempt was voided because it left an import unreferenced
+  (`tsc` `TS6133`), which is not a valid red.
+- Gate numbers are not recorded here: run `pnpm typecheck` / `pnpm build` / `pnpm test` and read the
+  counts fresh (`pnpm test` now includes the nine cases added by tier A).
+- MEMORY.md is the fixed four-section schema written in English, and it must stay inside every
+  per-section share *and* under the 800-character per-entry cap or the next write silently drops or
+  clips entries. Verify with `.agents/evidence/2026-10-04-memory-four-section-migration/probe.mjs`,
+  never by counting characters: the mechanism that lost content is invisible in the stored file.
+- rewind is disposed on both halves. The user removed the declaration from
+  `/etc/nixos/home-manager/user/programs/dsh.nix` (that file's mtime moved and the whole-line grep is
+  empty), and the `web` profile was cleaned with the store-pinned pnpm (PATH's is a different major
+  and rewrites `pnpm-lock.yaml`): the rewind dependency row, its `bundles` row, its lock references
+  and `node_modules/dsh-rewind-plugin` are all gone, and the lock diff was removals only. Why no
+  activation can bring it back is read from source, not inferred: the HM module builds one
+  ensure-missing command per `cfg.plugins` entry and never deletes, and it only targets the `web`
+  profile — with the entry gone there is no command mentioning it. Pre-cleanup manifests are kept at
+  `~/.dsh/profiles/web/{package.json,pnpm-lock.yaml}.bak-2026-10-04-rewind-local-half` and
+  `/tmp/rewind-local-half-2026-10-04-rewind-local-half/`.
 
 ## Open tasks
 
-- rewind: only the empirical check is left. The next `home-manager switch` the user runs should leave `node_modules/dsh-rewind-plugin` absent; the activation generates no command for it because it is no longer in `cfg.plugins` (source-verified above). No agent action here, and nothing was restarted — the change is in the `web` profile only, whose host was not running (only 127.0.0.1:19387, the desktop profile, was listening).
-- Batch C ruling wanted, plan delivered: three scope tiers with acceptance criteria were laid out in session (tier A "receipt names the loss", tier B "refuse a lossy write", tier C "refuse plus one targeted retry") on top of the two mechanisms. Open sub-decisions: which tier, and whether to archive the plan as `docs/batch-c-loss-receipt-brief.md`. Nothing was implemented; no `src/` file was touched.
-- Batch B residuals recorded and deliberately not fixed: the autolearn `max-tokens` retry-before-read asymmetry; pi's `callAux` no-tool fallback and `needsCondense` second call were not ported; a call that was fixed but labelled `stop` still cannot be identified.
-- Out-of-repo residuals: upstream dsh core splitting `discovery.ts`'s `capacity()` into declared window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold` `!model || usage.tokens === null` and its truncated-retry guard coverage.
-- Keep watching memory headroom through the API (`loadMemory` plus `isMemoryTruncated`, and the archived probe's per-section costs), never through a written character count.
+- Tier A is on disk but not live: the desktop host serving 127.0.0.1:19387 was started before this
+  change, so `/memory update` still returns the old receipt until the user restarts the host in their
+  own terminal (the restart script is user-only; an agent may run only `--dry-run` / `--verify-only`).
+  Verify loaded-versus-not from the socket holder's start time against `git log -1 --oneline -- src/`,
+  and confirm afterwards with `lib/` diffing clean against a fresh `tsc` compile.
+- rewind: only the empirical check is left, and only the user can run it. After their next
+  `home-manager switch`, `node_modules/dsh-rewind-plugin` should still be absent, because the
+  activation generates no command for an entry that is no longer declared. No agent action.
+- Tier B and tier C remain unimplemented by ruling, so a lossy consolidation pass still writes; the
+  residual is recorded in `CHANGELOG.md` and `docs/batch-c-loss-receipt-brief.md` rather than fixed.
+  If C is wanted later, it starts from tier A unchanged.
+- Batch B residuals recorded and deliberately not fixed: the autolearn `max-tokens` retry-before-read
+  asymmetry; pi's `callAux` no-tool fallback and `needsCondense` second call were not ported; a call
+  that was fixed but labelled `stop` still cannot be identified.
+- Out-of-repo residuals: upstream dsh core splitting `discovery.ts`'s `capacity()` into declared
+  window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold`
+  `!model || usage.tokens === null` and its truncated-retry guard coverage.
+- Keep watching memory headroom through the API (`loadMemory` plus `isMemoryTruncated`, and the
+  archived probes' per-section costs), never through a written character count.
