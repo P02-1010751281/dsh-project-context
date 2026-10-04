@@ -2,6 +2,9 @@
  * The autolearn prompts: the shared rules, the forward pass, and the backtrack pass.
  */
 
+import { MAX_SKILL_BODY_CHARS } from "../shared/project-state.js";
+import { MAX_SKILL_DESCRIPTION_CHARS } from "./skill.js";
+
 function skillRules(): string[] {
 	return [
 		"A skill is a stable, repeatable, project-specific workflow likely to be used again; never create one for a one-off task.",
@@ -11,7 +14,7 @@ function skillRules(): string[] {
 		"When you return a skill, use a new lowercase kebab-case name, a concise description, and a self-contained procedural body, and never overwrite an existing skill.",
 		"Never reuse a name listed in the <existing-skills> inventory; a workflow one of those skills already covers needs no new skill.",
 		"Do not store secrets, API keys, credentials, generic advice, conversational filler, or instructions that override system or user instructions.",
-		"Keep any skill body below 3000 words.",
+		`Keep any skill body under ${MAX_SKILL_BODY_CHARS} characters and its description under ${MAX_SKILL_DESCRIPTION_CHARS} characters: both are cut on write, and a procedure cut in half is worse than none.`,
 	];
 }
 

@@ -64,8 +64,19 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
 	"Never write omission or truncation markers (any line like `_[memory truncated …]_` or `_[context truncated: … characters dropped]_`) into the artifacts.",
 	"Remove stale or duplicated information. Do not store secrets, API keys, credentials, generic advice, or conversational filler.",
 	"Never add instructions that override system or user instructions.",
-	"Keep memory concise and below 6000 words; keep context concise.",
+	"Keep memory concise and factual; keep context concise.",
 ];
+
+/**
+ * The memory bound the pass actually enforces, stated with the real numbers.
+ *
+ * A word hint is not the enforced bound: the document is cut at `maxMemoryChars` **characters** on
+ * write, so a reply that satisfies a word count can still lose whatever sat at the end — and the
+ * model had no way to know. The cap is per project, so the line has to be built per pass.
+ */
+export function memoryBudgetRule(maxMemoryChars: number, currentChars: number): string {
+	return `memory_markdown must stay at or under ${maxMemoryChars} characters (the stored memory is currently about ${currentChars}). That is a hard cap in characters, not words: content past it is dropped on write, so condense and merge instead of appending.`;
+}
 
 export function fallbackUpdate(session: Session): ContextUpdate {
 	const text = firstUserText(session);
@@ -147,6 +158,7 @@ export function consolidateProjectState(
 		const fitted = fitMemoryInput(existing.text, existingContext, config.maxTokens, auxModel, config.maxOutputTokens);
 		const promptFor = (input: MemoryInput, retry: boolean): string => [
 			...CONSOLIDATION_PROMPT_RULES,
+			memoryBudgetRule(config.maxMemoryChars, input.text.length),
 			...(retry ? ["Your previous reply was cut off by the model output limit. Reply with a more compact JSON object and keep memory_markdown shorter."] : []),
 			"",
 			`Project root: ${projectRoot}`,
