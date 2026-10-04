@@ -18,7 +18,7 @@ import { readArchivedConversation } from "../project-context/archive.js";
 import { readSessionIndex } from "../project-context/session-index.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import { saveProposedSkill } from "./candidate.js";
-import { archivedSessionIds, collectSkillInventory, inventoryText } from "./inventory.js";
+import { archivedSessionIds, collectSkillInventory, inventoryText, learnedBodiesText } from "./inventory.js";
 import { type AutolearnDecision, parseAutolearnReply, parseAutolearnToolCall } from "./parse.js";
 import { backtrackPrompt, basePrompt } from "./prompt.js";
 import { RECORD_SKILL_TOOL } from "./schema.js";
@@ -134,7 +134,11 @@ export function autolearnProjectSkills(
 			const indexText = index.slice(-MAX_INDEX_ENTRIES).map((entry) => `- ${entry.id} — ${entry.date} — ${entry.title}`).join("\n");
 			const target = resolveTarget(agent, config);
 			if (!target) throw new Error("no provider/model available for the autolearn pass: route one request, set AgentOptions, or configure provider+model");
-			const skillsText = inventoryText(await collectSkillInventory(projectRoot));
+			const inventory = await collectSkillInventory(projectRoot);
+			const skillsText = inventoryText(inventory);
+			// The learned skills' own bodies travel too: without them a reuse of a learned name would
+			// be a blind rewrite instead of a merge.
+			const learnedText = learnedBodiesText(inventory);
 			// A skill body can be as large as MAX_SKILL_BODY_CHARS; ask for enough output room
 			// (1 token per char worst case), plus a reserve for hidden reasoning on a reasoning
 			// route, where thinking shares the same output cap as the body and would otherwise cut
@@ -218,7 +222,7 @@ export function autolearnProjectSkills(
 				return decideFrom(await call(retryPrompt, false), false) ?? NOTHING_PROPOSED;
 			};
 
-			const first = await ask(basePrompt(projectRoot, memory.text, contextText, indexText, skillsText));
+			const first = await ask(basePrompt(projectRoot, memory.text, contextText, indexText, skillsText, learnedText));
 			// Record the gate at the material stamp this pass actually distilled: a newer write is
 			// then still newer than the gate, so a pass that ran while consolidation was writing
 			// re-opens on the next idle instead of masking that memory until it is written again.
@@ -247,7 +251,7 @@ export function autolearnProjectSkills(
 				// Every requested id was missing or empty: that is the same as "no evidence" —
 				// no second call, and the first look's `null` skill stands.
 				if (extracts.length > 0) {
-					skill = (await ask(backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n")))).skill;
+					skill = (await ask(backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n"), learnedText))).skill;
 				}
 			}
 

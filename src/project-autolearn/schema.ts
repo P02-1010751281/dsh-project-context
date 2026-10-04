@@ -35,7 +35,7 @@ export const RECORD_SKILL_TOOL: PluginTool = {
 					name: {
 						type: "string",
 						description:
-							'New lowercase-kebab-case name, never reused from the existing inventory. "" means propose nothing; the other skill fields are then ignored.',
+							'Lowercase-kebab-case name, never reused from the existing inventory — except a name marked `(learned)` there whose body is shown under <learned-skill-bodies>, which may be reused to update that skill. "" means propose nothing; the other skill fields are then ignored.',
 					},
 					description: { type: "string", description: `One line: when to use the skill, at most ${MAX_SKILL_DESCRIPTION_CHARS} characters.` },
 					body: { type: "string", description: `Concise Markdown procedure with when-to-use and exact commands or paths, at most ${MAX_SKILL_BODY_CHARS} characters.` },
@@ -47,7 +47,7 @@ export const RECORD_SKILL_TOOL: PluginTool = {
 					candidate: {
 						type: "boolean",
 						description:
-							"true stores a proposal for the user to confirm and needs at least one verified session id; false needs at least two distinct verified session ids.",
+							"true stores a proposal for the user to confirm and needs at least one verified session id; false needs at least two distinct verified session ids. An update to a learned skill must be stored this way, because only the user's approval replaces it.",
 					},
 					reason: {
 						type: "string",

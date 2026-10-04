@@ -6,7 +6,8 @@
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { MAX_SKILL_BODY_CHARS, memoryDir, readOptional, skillsDir, validSkillName, writeAtomic } from "../shared/project-state.js";
-import { MAX_SKILL_DESCRIPTION_CHARS, type ProposedSkill, skillBodyUnsafe, skillDescription, skillDocument } from "./skill.js";
+import { collectSkillInventory, type SkillInventory } from "./inventory.js";
+import { MAX_SKILL_DESCRIPTION_CHARS, type ProposedSkill, autolearnProvenance, promotedDocument, skillBody, skillBodyUnsafe, skillDescription, skillDocument } from "./skill.js";
 
 /** A live skill must be grounded in at least two archived sessions; a candidate in one. */
 const MIN_SKILL_SESSIONS = 2;
@@ -25,14 +26,7 @@ function candidateFile(projectRoot: string, name: string): string {
 }
 
 function candidateBody(raw: string): string {
-	const match = /^---\n[\s\S]*?\n---\n/.exec(raw);
-	const rest = match ? raw.slice(match[0].length) : raw;
-	return rest.replace(/^\s*<!--[\s\S]*?-->\s*/, "").trim();
-}
-
-async function existingSkillNames(projectRoot: string): Promise<Set<string>> {
-	const entries = await readdir(skillsDir(projectRoot), { withFileTypes: true }).catch(() => []);
-	return new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+	return skillBody(raw).replace(/^\s*<!--[\s\S]*?-->\s*/, "").trim();
 }
 
 /**
@@ -56,7 +50,7 @@ export function shapeRejection(description: string, body: string): string | unde
 	return undefined;
 }
 
-function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: Set<string>, candidateExists: boolean): string | undefined {
+function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: readonly SkillInventory[], candidateExists: boolean): string | undefined {
 	if (!validSkillName(skill.name)) return "invalid kebab-case name";
 	const shape = shapeRejection(skill.description, skill.body);
 	if (shape !== undefined) return shape;
@@ -65,7 +59,11 @@ function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: 
 	if (cited.length < required) {
 		return skill.candidate ? "needs at least one verified session id" : "needs evidence from at least two different sessions";
 	}
-	if (existing.has(skill.name)) return `skill "${skill.name}" already exists`;
+	// A name this pipeline generated may be reused to supersede that skill; every other existing name
+	// (hand-written or imported) belongs to someone else and stays refused. The guard reads the marker
+	// off the artifact, so it is the same fact `/autolearn approve` reads before it replaces a file.
+	const collision = existing.find((entry) => entry.name === skill.name);
+	if (collision && !collision.autolearn) return `skill "${skill.name}" already exists`;
 	if (candidateExists) return `candidate "${skill.name}" already exists`;
 	return undefined;
 }
@@ -73,9 +71,16 @@ function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: 
 /**
  * Save a proposed skill. Returns `"live"`/`"candidate"` when written, or the rejection reason so
  * the caller can report *why* instead of claiming the model proposed nothing.
+ *
+ * A supersede always lands through the candidate gate: the gate lets a marked name through, but the
+ * direct publish below may only *create* a name, never replace one. So the only path that replaces
+ * a marked skill is `/autolearn approve`, and "the pipeline updated a skill" is always a change a
+ * human approved.
  */
 export async function saveProposedSkill(projectRoot: string, skill: ProposedSkill, archived: Set<string>): Promise<"live" | "candidate" | { rejected: string }> {
-	const existing = await existingSkillNames(projectRoot);
+	// Read the corpus fresh rather than trusting the caller's list: the marker is the deciding fact
+	// and it can change between the prompt and this write.
+	const existing = await collectSkillInventory(projectRoot);
 	const candidateExists = !!(await readOptional(candidateFile(projectRoot, skill.name)));
 	const reason = rejectionReason(skill, archived, existing, candidateExists);
 	if (reason !== undefined) return { rejected: reason };
@@ -83,7 +88,11 @@ export async function saveProposedSkill(projectRoot: string, skill: ProposedSkil
 		await writeAtomic(candidateFile(projectRoot, skill.name), skillDocument(skill));
 		return "candidate";
 	}
-	await writeAtomic(path.join(skillsDir(projectRoot), skill.name, "SKILL.md"), skillDocument(skill));
+	const destination = path.join(skillsDir(projectRoot), skill.name, "SKILL.md");
+	// The publish path keeps its blanket refusal, whatever the destination carries: it is the belt to
+	// the approve path's braces, so a model that asks for a direct supersede cannot bypass the gate.
+	if (await readOptional(destination)) return { rejected: `skill "${skill.name}" already exists` };
+	await writeAtomic(destination, skillDocument(skill));
 	return "live";
 }
 
@@ -114,12 +123,17 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	// document the pass refused. Only the value that gets written is the capped one.
 	const shape = shapeRejection(skillDescription(raw, Number.MAX_SAFE_INTEGER), body);
 	if (shape !== undefined) return { ok: false, message: `Candidate "${name}" is not activatable (${shape}); not activating.` };
-	if (await readOptional(path.join(skillsDir(projectRoot), name, "SKILL.md"))) {
+	const destination = path.join(skillsDir(projectRoot), name, "SKILL.md");
+	const existing = await readOptional(destination);
+	// The same boundary the proposal path applies, read off the file being replaced rather than a
+	// cached inventory: only a skill this pipeline generated may be superseded, so a name freed by
+	// deleting a skill and later taken by a hand-written one is never overwritten.
+	if (existing && !autolearnProvenance(existing)) {
 		return { ok: false, message: `Skill "${name}" already exists; remove the candidate manually.` };
 	}
-	await writeAtomic(path.join(skillsDir(projectRoot), name, "SKILL.md"), `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${body}\n`);
+	await writeAtomic(destination, promotedDocument(name, description, body));
 	await rm(file, { force: true });
-	return { ok: true, message: `Activated project skill: ${name}` };
+	return { ok: true, message: `${existing ? "Updated" : "Activated"} project skill: ${name}` };
 }
 
 /** Drop a candidate. Exported for the plugin. */

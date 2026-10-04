@@ -5,15 +5,26 @@
 
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { logsDir, pathExists, readOptional, skillsDir, validSkillName } from "../shared/project-state.js";
-import { skillDescription } from "./skill.js";
+import { MAX_SKILL_BODY_CHARS, logsDir, pathExists, readOptional, skillsDir, validSkillName } from "../shared/project-state.js";
+import { autolearnProvenance, skillBody, skillDescription, withoutAutolearnProvenance } from "./skill.js";
 
 /** Existing skill inventory carried in the prompt, names plus one-line descriptions. */
 const MAX_INVENTORY_CHARS = 8_000;
 
-interface SkillInventory {
+/**
+ * How much of the learned skills' own bodies the merge prompt may carry. Whole bodies only: a
+ * truncated body invites a lossy merge, so a body that does not fit is left out entirely and the
+ * prompt then forbids reusing its name this pass.
+ */
+const MAX_LEARNED_BODY_CHARS = MAX_SKILL_BODY_CHARS;
+
+export interface SkillInventory {
 	name: string;
 	description: string;
+	/** True when this pipeline wrote the skill; only such a skill may be superseded. */
+	autolearn: boolean;
+	/** The learned skill's own body, carried so an update can merge instead of rewriting blind. */
+	body?: string;
 }
 
 /**
@@ -27,7 +38,15 @@ export async function collectSkillInventory(projectRoot: string): Promise<SkillI
 	for (const entry of entries) {
 		if (!entry.isDirectory() || !validSkillName(entry.name)) continue;
 		const raw = await readOptional(path.join(skillsDir(projectRoot), entry.name, "SKILL.md"));
-		skills.push({ name: entry.name, description: skillDescription(raw) });
+		const autolearn = autolearnProvenance(raw);
+		skills.push({
+			name: entry.name,
+			description: skillDescription(raw),
+			autolearn,
+			// Only a skill this pipeline wrote may be superseded, and reading the marker here is what
+			// keeps the gate and the prompt judging the same fact.
+			...(autolearn ? { body: withoutAutolearnProvenance(skillBody(raw)) } : {}),
+		});
 	}
 	return skills.sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -37,12 +56,31 @@ export function inventoryText(skills: readonly SkillInventory[]): string {
 	const lines: string[] = [];
 	let used = 0;
 	for (const skill of skills) {
-		const line = `- ${skill.name}${skill.description ? `: ${skill.description}` : ""}`;
+		// Marking the pipeline's own output is what makes the one allowed name reuse checkable by the
+		// model: without it, "never reuse a name" is the only rule it can apply.
+		const line = `- ${skill.name}${skill.autolearn ? " (learned)" : ""}${skill.description ? `: ${skill.description}` : ""}`;
 		if (used + line.length > MAX_INVENTORY_CHARS) break;
 		lines.push(line);
 		used += line.length + 1;
 	}
 	return lines.join("\n") || "(none)";
+}
+
+/**
+ * The learned skills' own bodies, so an update can keep every still-valid step instead of rewriting
+ * the procedure blind. Whole bodies only — see `MAX_LEARNED_BODY_CHARS`.
+ */
+export function learnedBodiesText(skills: readonly SkillInventory[]): string {
+	const sections: string[] = [];
+	let used = 0;
+	for (const skill of skills) {
+		if (!skill.autolearn || !skill.body) continue;
+		const section = `### ${skill.name}\n\n${skill.body}`;
+		if (used + section.length > MAX_LEARNED_BODY_CHARS) continue;
+		sections.push(section);
+		used += section.length + 1;
+	}
+	return sections.join("\n\n");
 }
 
 /**

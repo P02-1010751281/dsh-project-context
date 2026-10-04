@@ -9,14 +9,14 @@
 
 import assert from "node:assert/strict";
 import { statSync, utimesSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
-import { MAX_SKILL_DESCRIPTION_CHARS } from "../lib/project-autolearn/skill.js";
+import { MAX_SKILL_DESCRIPTION_CHARS, autolearnProvenance, promotedDocument } from "../lib/project-autolearn/skill.js";
 import { parseAutolearnReply } from "../lib/project-autolearn/parse.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
@@ -316,6 +316,138 @@ test("a skill citing two verified sessions is written", async () => {
 	assert.equal(outcome?.candidate, false);
 	assert.deepEqual(outcome?.backtracked, []);
 	assert.match(await readFile(path.join(skillsDir(root), "release-steps", "SKILL.md"), "utf8"), /^---\nname: release-steps\n/);
+});
+
+test("a promoted skill carries the provenance marker, and a candidate never does", async () => {
+	const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	const ctx = fakeContext([
+		JSON.stringify({ skill: { name: "release-steps", description: "cut a release", body: BODY, evidence: ["session-a", "session-b"] } }),
+	]);
+
+	const outcome = await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
+	assert.equal(outcome?.skill?.name, "release-steps");
+	const doc = await readFile(path.join(skillsDir(root), "release-steps", "SKILL.md"), "utf8");
+	assert.ok(autolearnProvenance(doc), "the pass's live write is marked as the pipeline's own output");
+	assert.match(doc, /<!-- autolearn-generated:/);
+	// The marker lives in the body, not the frontmatter: `skillDescription` and the candidate parser
+	// read the frontmatter, so an unknown key there would be read as a candidate field.
+	const frontmatter = doc.slice(4, doc.indexOf("\n---\n", 4));
+	assert.ok(frontmatter.includes("description:") && !frontmatter.includes("autolearn-generated"), "the marker stays out of the frontmatter");
+	assert.equal((doc.match(/autolearn-generated/g) ?? []).length, 1, "exactly one copy of the marker");
+
+	// A candidate is a proposal, not a promoted skill; approving it is what records provenance.
+	assert.equal(
+		await saveProposedSkill(root, { name: "draft-workflow", description: "a draft", body: BODY, evidence: ["session-a"], candidate: true }, new Set(["session-a"])),
+		"candidate",
+	);
+	const candidateRaw = await readOptional(path.join(memoryDir(root), "skill-candidates", "draft-workflow.md"));
+	assert.ok(candidateRaw.length > 0, "the candidate was written");
+	assert.equal(autolearnProvenance(candidateRaw), false, "a candidate carries no provenance marker");
+	const approved = await approveCandidate(root, "draft-workflow");
+	assert.equal(approved.ok, true, approved.message);
+	assert.equal(approved.message, "Activated project skill: draft-workflow");
+	assert.ok(autolearnProvenance(await readOptional(path.join(skillsDir(root), "draft-workflow", "SKILL.md"))), "approving a candidate records the marker");
+});
+
+test("only a skill the pipeline wrote may be superseded, and only through the candidate gate", async () => {
+	const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+	const archived = new Set(["session-a", "session-b"]);
+	const learnedBody = "## When to use\n\nOriginal learned procedure for the fixture project.\n\n## Steps\n\n1. Run `node original.mjs`\n2. Check the render.\n";
+	// Seed a learned skill through the renderer that owns the promoted document, so the marker the
+	// gate reads is the one the pipeline writes; and a hand-written skill that owns its name.
+	await mkdir(path.join(skillsDir(root), "alpha-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"), promotedDocument("alpha-workflow", "alpha workflow", learnedBody));
+	await mkdir(path.join(skillsDir(root), "handmade-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "handmade-workflow", "SKILL.md"), '---\nname: handmade-workflow\ndescription: "hand-written"\n---\n\n## When to use\n\nHand-written procedure for the fixture project.\n');
+
+	const mergedBody = `## When to use\n\nMerged alpha workflow.\n\n## Steps\n\n1. Run \`node merged.mjs\`\n2. ${"Keep every still-valid step. ".repeat(8)}`;
+	// The direct publish path keeps its blanket refusal: a model asking to supersede without the gate
+	// changes nothing, whatever the destination carries.
+	const before = await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"));
+	assert.deepEqual(
+		await saveProposedSkill(root, { name: "alpha-workflow", description: "alpha merged", body: mergedBody, evidence: ["session-a", "session-b"], candidate: false }, archived),
+		{ rejected: 'skill "alpha-workflow" already exists' },
+	);
+	assert.equal(await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md")), before, "the direct publish path wrote nothing");
+	// D2: the gate refuses the name when it belongs to a hand-written skill...
+	assert.deepEqual(
+		await saveProposedSkill(root, { name: "handmade-workflow", description: "duplicate", body: mergedBody, evidence: ["session-a"], candidate: true }, archived),
+		{ rejected: 'skill "handmade-workflow" already exists' },
+	);
+	// ...and lets a marked name through, so the supersede can be proposed.
+	assert.equal(
+		await saveProposedSkill(root, { name: "alpha-workflow", description: "alpha merged", body: mergedBody, evidence: ["session-a"], candidate: true }, archived),
+		"candidate",
+	);
+
+	// D3: approve reads the marker off the destination, so the candidate replaces a learned skill...
+	const approved = await approveCandidate(root, "alpha-workflow");
+	assert.equal(approved.ok, true, approved.message);
+	assert.equal(approved.message, "Updated project skill: alpha-workflow");
+	const updated = await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"));
+	assert.ok(updated.includes("node merged.mjs"), "the supersede landed");
+	assert.ok(autolearnProvenance(updated), "the superseded skill is still marked as ours");
+	assert.equal((updated.match(/autolearn-generated/g) ?? []).length, 1, "the marker survives as exactly one copy");
+	// D6: the candidate is consumed and nothing else appears — a supersede is ordinary churn in
+	// `.agents/skills/`, with no new side file to keep load-bearing.
+	assert.equal(await readOptional(path.join(memoryDir(root), "skill-candidates", "alpha-workflow.md")), "");
+	assert.deepEqual((await readdir(skillsDir(root))).sort(), ["alpha-workflow", "handmade-workflow"]);
+
+	// ...but a hand-written skill that owns the name is never overwritten, even with a candidate.
+	await writeFile(path.join(memoryDir(root), "skill-candidates", "handmade-workflow.md"), `---\nname: handmade-workflow\ndescription: "handmade, approved"\n---\n\n${mergedBody}\n`);
+	const refused = await approveCandidate(root, "handmade-workflow");
+	assert.equal(refused.ok, false, refused.message);
+	assert.match(refused.message, /already exists/);
+	assert.ok(!(await readOptional(path.join(skillsDir(root), "handmade-workflow", "SKILL.md"))).includes("node merged.mjs"), "the hand-written body survived");
+
+	// D5: the marker dies with its skill. A name freed by deleting a learned skill and later taken by
+	// a hand-written one is a different owner, so the candidate for it is refused.
+	await rm(path.join(skillsDir(root), "alpha-workflow"), { recursive: true, force: true });
+	await mkdir(path.join(skillsDir(root), "alpha-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"), '---\nname: alpha-workflow\ndescription: "hand-written now"\n---\n\n## When to use\n\nSomeone else owns this name now.\n');
+	await writeFile(path.join(memoryDir(root), "skill-candidates", "alpha-workflow.md"), `---\nname: alpha-workflow\ndescription: "alpha again"\n---\n\n${mergedBody}\n`);
+	const stolen = await approveCandidate(root, "alpha-workflow");
+	assert.equal(stolen.ok, false, stolen.message);
+	assert.ok(!(await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"))).includes("node merged.mjs"), "a name taken by hand is never superseded");
+});
+
+test("the merge prompt carries a learned skill's body whole, and drops one that does not fit", async () => {
+	const root = await project({ sessions: ["session-a"], index: ["session-a"] });
+	const learnedBody = "## When to use\n\nMarked learned procedure for the fixture project.\n\n## Steps\n\n1. Run `node learned.mjs`\n";
+	await mkdir(path.join(skillsDir(root), "alpha-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"), promotedDocument("alpha-workflow", "alpha workflow", learnedBody));
+	await mkdir(path.join(skillsDir(root), "handmade-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "handmade-workflow", "SKILL.md"), '---\nname: handmade-workflow\ndescription: "hand-written"\n---\n\n## When to use\n\nHand-written procedure for the fixture project.\n');
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	// Two calls: the first asks for an archive, the second distills from it. The block has to travel
+	// in both, because the rule that forbids reusing an unshown learned name is in both.
+	const ctx = fakeContext(['{"skill": null, "need_sessions": ["session-a"]}', '{"skill": null}']);
+
+	await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
+	assert.equal(ctx.calls.length, 2, "the first decision backtracked into the archive");
+	for (const [index, call] of ctx.calls.entries()) {
+		const prompt = promptOf(call);
+		assert.match(prompt, /<learned-skill-bodies>\n### alpha-workflow\n\n## When to use\n\nMarked learned procedure/, `call ${index + 1} carries the learned body`);
+		assert.match(prompt, /- alpha-workflow \(learned\)/);
+		assert.doesNotMatch(prompt, /Hand-written procedure for the fixture project\./, "a hand-written body is never offered for merging");
+		// The rule is what forbids reusing a name whose body was left out of the block.
+		assert.match(prompt, /Never reuse the name of a learned skill whose body is not shown/);
+	}
+	assert.match(promptOf(ctx.calls[0]), /- handmade-workflow: hand-written/, "a hand-written skill is listed without the learned mark");
+
+	// A body that cannot fit whole is left out entirely rather than truncated: a cut body would invite
+	// exactly the lossy merge the budget protects against.
+	const big = await project({ sessions: ["session-a"] });
+	await mkdir(path.join(skillsDir(big), "huge-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(big), "huge-workflow", "SKILL.md"), promotedDocument("huge-workflow", "huge", `## Steps\n\n${"y".repeat(MAX_SKILL_BODY_CHARS)}`));
+	const bigCtx = fakeContext(['{"skill": null}']);
+	await autolearnProjectSkills(bigCtx, fakeAgent(big, { turns: 2 }), config);
+	const bigPrompt = promptOf(bigCtx.calls[0]);
+	assert.match(bigPrompt, /- huge-workflow \(learned\)/);
+	// The block itself, not the rule that names it: the rule text mentions `<learned-skill-bodies>`
+	// whether or not the block is there.
+	assert.doesNotMatch(bigPrompt, /\n<learned-skill-bodies>\n/, "a body that does not fit whole is left out");
 });
 
 test("the adaptive output cap is raised to fit, bounded by the model and by maxOutputTokens", () => {

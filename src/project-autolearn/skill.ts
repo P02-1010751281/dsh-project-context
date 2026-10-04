@@ -21,12 +21,54 @@ export interface ProposedSkill extends LearnedSkill {
 
 export const MAX_SKILL_DESCRIPTION_CHARS = 1024;
 
+/**
+ * The provenance marker every `SKILL.md` this pipeline writes carries in its body.
+ *
+ * It is what makes "autolearn may only supersede its own output" checkable *on the artifact* instead
+ * of booked in a side file: the marker dies with the skill, so a name freed by deleting a skill and
+ * later taken by a hand-written one can never be mistaken for ours. It sits in the body and not the
+ * frontmatter because `skillDescription` and the candidate parser read the frontmatter, so an unknown
+ * key there would be read as a candidate field.
+ */
+const PROVENANCE_PATTERN = /<!--\s*autolearn-generated[^>]*-->/g;
+
+const PROVENANCE_COMMENT = "<!-- autolearn-generated: this skill may be superseded by a later autolearn pass -->";
+
+/** True when this `SKILL.md` carries the pipeline's provenance marker (frontmatter or body). */
+export function autolearnProvenance(raw: string): boolean {
+	// A fresh non-global regex: `.test` on a shared `g` pattern would carry `lastIndex` between calls.
+	return new RegExp(PROVENANCE_PATTERN.source).test(raw);
+}
+
+/** The body with the marker stripped, so a merge prompt never carries pipeline metadata. */
+export function withoutAutolearnProvenance(body: string): string {
+	return body.replace(PROVENANCE_PATTERN, "").replace(/^\s+/, "").trimEnd();
+}
+
+/** Everything after the `SKILL.md` frontmatter, marker included. */
+export function skillBody(raw: string): string {
+	const match = /^---\n[\s\S]*?\n---\n/.exec(raw);
+	return (match ? raw.slice(match[0].length) : raw).trim();
+}
+
+/**
+ * The `SKILL.md` a promoted skill becomes: frontmatter, provenance marker, then the body.
+ *
+ * One owner for that document, so the marker cannot be forgotten in one of the write paths — the
+ * pass's live publish and `/autolearn approve` both go through here.
+ */
+export function promotedDocument(name: string, description: string, body: string): string {
+	return `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${PROVENANCE_COMMENT}\n\n${withoutAutolearnProvenance(body)}\n`;
+}
+
 export function skillDocument(skill: ProposedSkill): string {
 	const description = skill.description.replace(/\s+/g, " ").trim().slice(0, MAX_SKILL_DESCRIPTION_CHARS);
 	const body = skill.body.trim().slice(0, MAX_SKILL_BODY_CHARS);
-	const header = skill.candidate
-		? `---\nname: ${skill.name}\ndescription: ${JSON.stringify(description)}\ncandidate: true\n---\n\n<!-- evidence: ${[...new Set(skill.evidence)].join(", ")}${skill.reason ? ` — ${skill.reason}` : ""} -->\n\n`
-		: `---\nname: ${skill.name}\ndescription: ${JSON.stringify(description)}\n---\n\n`;
+	// A candidate is a proposal, not a promoted skill: it carries no marker, so approving it is what
+	// records provenance. That asymmetry is the point — the marker only ever means "the pipeline
+	// wrote the live skill".
+	if (!skill.candidate) return promotedDocument(skill.name, description, body);
+	const header = `---\nname: ${skill.name}\ndescription: ${JSON.stringify(description)}\ncandidate: true\n---\n\n<!-- evidence: ${[...new Set(skill.evidence)].join(", ")}${skill.reason ? ` — ${skill.reason}` : ""} -->\n\n`;
 	return `${header}${body}\n`;
 }
 
