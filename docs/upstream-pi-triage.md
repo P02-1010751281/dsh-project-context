@@ -189,6 +189,8 @@ title trims now run through it and a half pair cannot be re-encoded. Regression 
 strict-ready `record_memory` tool and renders the stored document from them, so the schema no longer
 has to guarantee the character cap. This is the largest item (33 files, ~2180 insertions), carries
 BREAKING command renames on pi's side, and needs its own batch and its own review.
+**Brief for that batch: `docs/batch-b-port-brief.md`** (it records the verified tool-surface facts
+and the three decisions the owner must take first).
 
 **C — prompt bounds that are not the enforced bounds.** Both dsh prompts still state a *word* hint
 where the code enforces *characters*:
