@@ -1,0 +1,65 @@
+{
+  "loaded": {
+    "source": "/mnt/Data/Projects/dsh-project-context/.agents/memory/MEMORY.md",
+    "chars": 30910,
+    "poisoned": false,
+    "unreadable": false,
+    "damaged": 0,
+    "isMemoryTruncated": false
+  },
+  "damage": {
+    "damaged": 0,
+    "unreadable": false
+  },
+  "sectionKeys": [
+    "project",
+    "invariants",
+    "pitfalls",
+    "index"
+  ],
+  "render": {
+    "chars": 30910,
+    "sectionDropped": 0,
+    "droppedItems": 0,
+    "itemTruncated": 0
+  },
+  "perSection": {
+    "Project": {
+      "entries": 14,
+      "cost": 5629,
+      "budget": 6384,
+      "longest": 768
+    },
+    "Invariants": {
+      "entries": 38,
+      "cost": 12714,
+      "budget": 12769,
+      "longest": 596
+    },
+    "Pitfalls": {
+      "entries": 20,
+      "cost": 7830,
+      "budget": 7981,
+      "longest": 706
+    },
+    "Index": {
+      "entries": 10,
+      "cost": 4670,
+      "budget": 4788,
+      "longest": 685
+    }
+  },
+  "clipped": {
+    "cap=none/reasoning=false": false,
+    "cap=none/reasoning=true": false,
+    "cap=16384/reasoning=false": false,
+    "cap=16384/reasoning=true": true,
+    "cap=24576/reasoning=false": false,
+    "cap=24576/reasoning=true": false,
+    "cap=32768/reasoning=false": false,
+    "cap=32768/reasoning=true": false,
+    "cap=65536/reasoning=false": false,
+    "cap=65536/reasoning=true": false
+  },
+  "maxListItemChars": 800
+}
