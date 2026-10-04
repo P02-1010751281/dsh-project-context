@@ -27,7 +27,14 @@ export function clipToLineBoundary(text: string, limit: number): string {
 	if (text.length <= limit) return text;
 	const head = text.slice(0, Math.max(0, limit));
 	const cut = head.lastIndexOf("\n");
-	return cut > 0 ? head.slice(0, cut) : head;
+	const clipped = cut > 0 ? head.slice(0, cut) : head;
+	// A mid-line fallback cut must not leave a lone high surrogate behind: a provider cannot
+	// re-encode half a pair, so the kept text would come back as a replacement character.
+	return clipped.length > 0 && isHighSurrogate(clipped.charCodeAt(clipped.length - 1)) ? clipped.slice(0, -1) : clipped;
+}
+
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xd800 && code <= 0xdbff;
 }
 
 /**

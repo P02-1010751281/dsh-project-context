@@ -17,6 +17,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { renderContextDocument } from "./context-doc.js";
+import { contextClipNotice, contextTruncationDropped } from "./context-schema.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
 import { consolidateProjectState, fallbackUpdate } from "./consolidate.js";
 import {
@@ -45,6 +46,8 @@ const written = new Map<string, number>();
 const migrated = new Set<string>();
 /** Serialize consolidation so a forced shutdown pass always runs last. */
 const updates = new SerialQueue();
+/** Projects already told that the CONTEXT.md render clipped an over-budget section. */
+const contextClipLogged = new Set<string>();
 
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
 function projectMemoryInjection(cwd: string | undefined, limit: number): string {
@@ -117,7 +120,18 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 
 			const existing = await readOptional(contextFile(projectRoot));
 			const update = outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
-			if (update) await writeAtomic(contextFile(projectRoot), renderContextDocument(update, { updatedAt: new Date().toISOString() }));
+			if (update) {
+				const contextDocument = renderContextDocument(update, { updatedAt: new Date().toISOString() });
+				await writeAtomic(contextFile(projectRoot), contextDocument);
+				const dropped = contextTruncationDropped(contextDocument);
+				if (dropped !== undefined && !contextClipLogged.has(projectRoot)) {
+					// The marker is the durable trace; say it once per project per process, the way the
+					// unusable-context notice does. A clipped context is otherwise visible only by
+					// reading the file, which is exactly the silence the marker exists to break.
+					contextClipLogged.add(projectRoot);
+					await logError(projectRoot, "memory", contextClipNotice(dropped));
+				}
+			}
 
 			// A torn journal tail is skipped at read time; record it so a silent loss of history is
 			// diagnosable. This is the only place the damage counter is reported.

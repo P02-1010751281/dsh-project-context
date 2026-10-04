@@ -20,7 +20,7 @@
 export { diagnosticMessage, logError } from "./error-log.js";
 export { fileMtimeMs, invalidateTextCache, pathExists, readOptional, readTextCachedSync, writeAtomic } from "./files.js";
 export { ensureMemoryGitignore } from "./gitignore.js";
-export { MAX_CONTEXT_CHARS, MAX_CONVERSATION_CHARS, MAX_LIST_ITEM_CHARS, MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MAX_SKILL_BODY_CHARS, MAX_SUMMARY_CHARS, MIN_MEMORY_CHARS } from "./limits.js";
+export { MAX_CONTEXT_CHARS, MAX_CONVERSATION_CHARS, MAX_LIST_ENTRIES, MAX_LIST_ITEM_CHARS, MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MAX_SKILL_BODY_CHARS, MAX_SUMMARY_CHARS, MIN_MEMORY_CHARS } from "./limits.js";
 export { migrateProjectState } from "./migrate.js";
 export type { MigrationResult } from "./migrate.js";
 export { AGENTS_DIR, LEGACY_DIR, MEMORY_SUBDIR, SESSION_LOGS_SUBDIR, SKILLS_SUBDIR, cachedProjectRoot, contextFile, getProjectRoot, getProjectRootSync, legacyOmpDir, legacyPiDir, legacySessionIndexFile, logsDir, memoryDir, memoryFile, safeSessionId, sessionIndexFile, skillsDir, validSkillName } from "./paths.js";

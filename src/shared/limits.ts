@@ -19,3 +19,6 @@ export const MAX_SKILL_BODY_CHARS = 20000;
 export const MAX_SUMMARY_CHARS = 6000;
 
 export const MAX_LIST_ITEM_CHARS = 800;
+
+/** Maximum bullet items a CONTEXT.md list section renders. */
+export const MAX_LIST_ENTRIES = 50;

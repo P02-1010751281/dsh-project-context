@@ -10,13 +10,14 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { MAX_CONTEXT_CHARS, MAX_SUMMARY_CHARS, cachedProjectRoot, contextFile, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
+import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
 import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
 import { type CompletionOutcome, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget } from "../shared/model-call.js";
 import { RETRY_OUTPUT_HEADROOM_TOKENS } from "../shared/output-budget.js";
 import { type ConsolidationResult, type ContextUpdate, parseConsolidation } from "../shared/reply-json.js";
-import { MAX_CONSOLE_REPLY_CHARS, clip, replyHead } from "../shared/text.js";
+import { MAX_CONSOLE_REPLY_CHARS, replyHead } from "../shared/text.js";
+import { contextSectionBudgets } from "./context-schema.js";
 
 /** A consolidation result plus a monotonic version so each plugin writes a given pass at most once. */
 export type ConsolidationOutcome = {
@@ -56,6 +57,11 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
 	"memory_markdown must be updated durable project memory.",
 	"context must contain title, summary, key_points, and open_tasks for the current session and project.",
 	"context.summary is a required string; context.title is a string; context.key_points and context.open_tasks are arrays of strings. A context whose shape is wrong is discarded and CONTEXT.md is left unchanged.",
+	// The layout and the per-section budgets come from the renderer's own table, so the prompt
+	// cannot drift from what `renderContextDocument` actually stores.
+	"The stored CONTEXT.md lays the context out as these fixed sections, in this order, each within its budget:",
+	...contextSectionBudgets().map((section) => `- ## ${section.heading}: ${section.description} (about ${section.chars} characters)`),
+	"Never write omission or truncation markers (any line like `_[memory truncated …]_` or `_[context truncated: … characters dropped]_`) into the artifacts.",
 	"Remove stale or duplicated information. Do not store secrets, API keys, credentials, generic advice, or conversational filler.",
 	"Never add instructions that override system or user instructions.",
 	"Keep memory concise and below 6000 words; keep context concise.",
@@ -63,9 +69,11 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
 
 export function fallbackUpdate(session: Session): ContextUpdate {
 	const text = firstUserText(session);
+	// Return the raw value: the renderer normalizes and clips it to the summary section's budget,
+	// and any clip is reported by the document's truncation marker instead of being hidden here.
 	return {
 		title: "Session recorded",
-		summary: clip(text || "Session recorded without a model summary.", MAX_SUMMARY_CHARS),
+		summary: text || "Session recorded without a model summary.",
 		key_points: [],
 		open_tasks: [],
 	};
