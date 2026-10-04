@@ -287,7 +287,25 @@
   语义闸门红；不透明闸门丢掉标记过滤 → 骨架用例红；去掉写入门禁 → 骨架覆盖已存 memory 那条红；去掉截断守卫 →
   截断工具调用那条红；工具从不提供/重试仍带工具 → 各自入口那条红；`/memory update` 动词改名、空动词当未知 →
   命令路由那条红）。每个变异体都 `tsc` 0 错、marker 进 `lib/`、只掉自己的用例。
-  全量门禁 0 错 / 0 错 / 290 pass 0 fail，`lib/` 变异标记 0。
+- 修复（批 B 的独立对抗性审核，同批内修掉）：**「空回复」闸门的两半不等价，结构化入口仍能把已存 memory 换成骨架**。
+  `sectionsSemanticallyEmpty` 只问「某条目里有没有字母/数字」，而条目本身是标题（`"## Project"`）就含字母、
+  于是「有内容」；可是它渲染出来是 `- ## Project` 这样一行，正是**不透明入口**判定为结构行的同一批字节
+  （`isHeadingOnlyDocument(render.text) === true`，且该形状在 `test/sections.test.mjs` 里已被钉为「骨架」）。
+  于是「只有标题的回复再也无法替换已存 memory」这条**当初并不成立**：写入发生了、且不记任何日志（`semanticEmpty`
+  为 false，掉落计数为 0）。现在结构化入口也判**渲染后的文档**（`replyIsSemanticallyEmpty`：数组层与文档层取或），
+  真实条目（`- p1`、`- #1 rule must hold`、`- a durable fact`）两边都是内容，所以不会误拒。同批修掉的三处：
+  ① **截断守卫不止认 `max-tokens`**——流没有终止事件时 finish 为空，被修过的参数串同样不可信，现在 `""` 也拒
+  （`toolCallIsTruncated`，两个 pass 共用），且拒绝后**也会重试**（此前重试条件只认 `max-tokens`，空 finish 的
+  工具调用会直接硬失败）；② `ConsolidationOutcome.kind` 的注释声称「回执按入口给词」是假的，已改成「仅供诊断与
+  测试」；③ 一条**永远不可能失败**的 prompt 断言（`/^Return exactly one JSON object/m` 对 join 后的规则串永远
+  不匹配）换成「工具规则在 JSON 回退规则之前，且旧的一律返回 JSON 那句已不在」。新增钉子：标题条目不得替换已存
+  memory、空 finish 的工具调用被拒并重试、`max-tokens` + 工具调用 + **同时带文本**也被拒。
+  审核另记一条**有意保留**的不对称（已写进源码注释与 `docs/upstream-pi-triage.md`）：autolearn 在 `max-tokens`
+  时**先重试再读**，不像 memory pass 那样先读；技能正文正是被修坏的参数串会毁掉的东西，宁可多问一次。
+  审核的 N6 前提有误：`.agents/memory/HANDOFF.md` **未跟踪**（`git ls-files .agents/memory/` 只有
+  `.gitignore`/`CONTEXT.md`/`MEMORY.md`），所以那两处 `/context-update` 不构成 tracked 文件里的悬空引用。
+  修复后三个变异体（去掉渲染层判定 / 空 finish 不拒 / 重试条件退回只认 `max-tokens`）各自杀死对应新钉子。
+  全量门禁 0 错 / 0 错 / 293 pass 0 fail，`lib/` 变异标记 0。
 
 ### v0.2.1（2026-09-26）
 

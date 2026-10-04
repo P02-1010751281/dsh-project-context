@@ -196,7 +196,8 @@ and the three decisions the owner must take first).
 plugin-sourced, sessionless `ctx.llm.stream()` carrying `tools` on the route this repo actually
 runs (`deepseek-account` / `deepseek-flash`) delivered 10 `tool-call-delta` chunks, one assembled
 `block-end` and a `tool-calls` finish; the transcript is
-`.agents/evidence/2026-10-04-record-memory-tool-probe/`. Then, in five scoped commits:
+`.agents/evidence/2026-10-04-record-memory-tool-probe/`. Then, on top of `0650fe1` (the tool
+plumbing slice, landed just before this batch), in five further scoped commits:
 
 - `src/shared/model-call.ts` forwards `tools` (omitted — not an empty array — when a call offers
   none, so a toolless caller's request stays byte-identical) and collects the calls a reply carries,
@@ -247,6 +248,29 @@ runs (`deepseek-account` / `deepseek-flash`) delivered 10 `tool-call-delta` chun
 - **This repo's own `MEMORY.md` is still free-form.** The migration to the four-section format is
   pending: it has to happen against the *live* new code (until the desktop host is restarted, the
   running build still writes the free-form document and would revert it). See `CONTEXT.md`.
+- **autolearn retries before it reads, unlike the memory pass.** On a `max-tokens` finish the
+  autolearn `ask()` discards the reply and re-asks, where the memory pass reads first and only
+  retries what it could not resolve. That asymmetry is deliberate and is pi's own: a skill body is
+  exactly what a repaired, half-written tool call would corrupt, so the cheaper error here is one
+  extra call rather than storing half a procedure. The cost is recorded, not hidden: a *complete*
+  decision that happens to carry a `max-tokens` finish is asked for again.
+- **The truncation guard keys on the finish reason, and that is all dsh has.** `toolCallIsTruncated`
+  refuses a call when the finish reason is `max-tokens` **or empty** (a stream with no terminal
+  event). It cannot detect a repaired call that arrives labelled `stop`; both shipped adapters label
+  truncation `max-tokens`, so that residual is latent rather than live, and it is the same signal pi
+  uses (`stopReason === "length"`).
+
+**Fixed before release by the batch's own adversarial review** (its report is not committed; the
+findings are): the two halves of the empty-reply gate were not equivalent — `sectionsSemanticallyEmpty`
+calls an entry that is itself a heading "content" (it contains letters), while the very same rendered
+bytes are what `isHeadingOnlyDocument` refuses, so a headings-only `record_memory` call could still
+replace a stored memory with a skeleton, silently. The structured and fallback-sections entries now
+judge the **rendered document** too (`replyIsSemanticallyEmpty`). The same review extended the
+truncation guard to the empty finish reason and made the retry fire for it, corrected the false
+"receipts word their notices per entry" comment on `ConsolidationOutcome.kind`, and replaced a
+vacuous prompt assertion with one that can fail. Each of the three fixes was mutation-checked
+(remove the rendered-document half → the headings-only case red; stop refusing the empty finish →
+the unsignalled-call case red; retry only on `max-tokens` → the same case red).
 
 Regression tests: `test/sections.test.mjs` (the schema, the renderer's cap enforcement over random
 caps, the extractor contract and both gates), plus the tool-path cases in `test/logic.test.mjs` and

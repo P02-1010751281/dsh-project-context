@@ -9,7 +9,7 @@ import { type Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget } from "../shared/model-call.js";
+import { type CompletionOutcome, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { parseToolArguments } from "../shared/reply-json.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, reasoningReserveTokens } from "../shared/output-budget.js";
 import { MAX_CONTEXT_CHARS, MAX_SKILL_BODY_CHARS, cachedProjectRoot, contextFile, fileMtimeMs, getProjectRoot, getProjectRootSync, logError, logsDir, memoryFile, readOptional, safeSessionId } from "../shared/project-state.js";
@@ -184,10 +184,16 @@ export function autolearnProjectSkills(
 			 * carries a tool call: the adapter repairs a truncated arguments string into a shape-valid
 			 * object, so a repaired call would store a half-written skill body as if it were complete.
 			 * One text-only retry, then the retry's own answer decides.
+			 *
+			 * Deliberately unlike the memory pass, which reads the reply first and only retries when it
+			 * cannot be resolved: a skill body is exactly what a repaired call would corrupt, so a
+			 * `max-tokens` reply is discarded outright rather than read. The cost — a complete decision
+			 * that coincides with a `max-tokens` finish is asked for again — is the cheaper error here,
+			 * and pi's autolearn makes the same choice.
 			 */
 			const ask = async (prompt: string): Promise<AutolearnDecision> => {
 				const completion = await call(prompt, true);
-				if (completion.stopReason !== "max-tokens") return decideFrom(completion, true);
+				if (!toolCallIsTruncated(completion) && completion.stopReason !== "max-tokens") return decideFrom(completion, true);
 				const retryPrompt = `${prompt}\n\nYour previous response was cut off by the output limit. Retry this same decision now without the tool: return exactly one complete JSON object, condensing the skill body so it fits; no prose, Markdown code fence, ellipsis, or unfinished value.`;
 				return decideFrom(await call(retryPrompt, false), false);
 			};

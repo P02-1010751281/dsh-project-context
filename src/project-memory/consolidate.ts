@@ -13,7 +13,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
 import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, type PluginTool, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget } from "../shared/model-call.js";
+import { type CompletionOutcome, type PluginTool, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { RETRY_OUTPUT_HEADROOM_TOKENS } from "../shared/output-budget.js";
 import { type ConsolidationResult, type ContextUpdate, parseConsolidation, parseContextMember, parseToolArguments } from "../shared/reply-json.js";
 import { MAX_CONSOLE_REPLY_CHARS, replyHead } from "../shared/text.js";
@@ -30,7 +30,7 @@ import {
 	sectionsSemanticallyEmpty,
 } from "./sections.js";
 
-/** Which entry produced the memory this pass would write; the receipts word their notices per entry. */
+/** Which entry produced the memory this pass would write. */
 export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque";
 
 /** A reply read into the shape this pass writes: the sections when it had them, plus the context. */
@@ -47,7 +47,10 @@ export type ConsolidationOutcome = {
 	 * whose baseline no longer matches what is stored: publishing it would overwrite a newer edit.
 	 */
 	basisKey: string;
-	/** Which entry the memory came from. */
+	/**
+	 * Which entry the memory came from. Reported for diagnostics and tests; no receipt reads it yet,
+	 * so a pass is never worded differently because of it.
+	 */
 	kind: ConsolidateKind;
 	/** No section held an entry worth storing, so the memory must not be written at all. */
 	semanticEmpty: boolean;
@@ -200,6 +203,21 @@ function resolveReply(completion: CompletionOutcome, allowTools: boolean): Resol
 }
 
 /**
+ * True when a resolved reply carries nothing worth storing.
+ *
+ * The opaque entry has no sections, so its half of the gate is "is this a document at all". The
+ * sectioned entries are judged on the document the renderer would actually store, not only on the
+ * section arrays: an entry that is itself a heading (`"## Project"`) contains letters, so the
+ * array-level check passes, but it renders to a structural line — the very bytes the opaque half
+ * refuses. Judging both keeps the two halves agreeing on the same document; a real entry (`- p1`,
+ * `- #1 rule must hold`, `- a durable fact`) is content in both, so nothing genuine is refused.
+ */
+function replyIsSemanticallyEmpty(resolved: ResolvedReply, render: MemoryRender | undefined): boolean {
+	if (resolved.sections === undefined) return isHeadingOnlyDocument(resolved.result.memory);
+	return sectionsSemanticallyEmpty(resolved.sections) || (render !== undefined && isHeadingOnlyDocument(render.text));
+}
+
+/**
  * Run the consolidation pass (durable memory + session context).
  * Callers own persisting their artifact; results are cached per project so the memory and
  * session-context plugins can consume the same pass without a second model call.
@@ -294,12 +312,13 @@ export function consolidateProjectState(
 		};
 
 		let attempt = await call(fitted, false, [RECORD_MEMORY_TOOL]);
-		// A truncated tool call is never accepted: the adapter repairs a cut arguments string into a
-		// shape-valid object, so "there is a tool call" is not evidence that its contents arrived. A
-		// *text* reply that stopped at the cap is the old case, and is handled by the retry below.
-		const truncatedToolCall = attempt.stopReason === "max-tokens" && (attempt.toolCalls?.length ?? 0) > 0;
+		// A cut-off tool call is never accepted: the adapter repairs a truncated arguments string into
+		// a shape-valid object, so "there is a tool call" is not evidence that its contents arrived.
+		// A *text* reply that stopped at the cap is the old case. Both are retried: the untrusted call
+		// because its contents are unverified, the cut text because it may simply have been cut.
+		const truncatedToolCall = toolCallIsTruncated(attempt);
 		let resolved = truncatedToolCall ? undefined : read(attempt, true);
-		if (!resolved && attempt.stopReason === "max-tokens") {
+		if (!resolved && (attempt.stopReason === "max-tokens" || truncatedToolCall)) {
 			// The reply ran into the output cap, which is not a parse failure: ask again with extra
 			// headroom reserved out of the same cap, a shorter prompt, and no tool — the reminder asks
 			// for the JSON text shape, which a tool call could not satisfy. dsh reports this as
@@ -320,9 +339,7 @@ export function consolidateProjectState(
 			throw new Error(`consolidation reply was not a usable JSON object\n${replyHead(attempt.text, MAX_CONSOLE_REPLY_CHARS)}`);
 		}
 		const render: MemoryRender | undefined = resolved.sections === undefined ? undefined : renderMemoryDocument(resolved.sections, config.maxMemoryChars);
-		// The opaque entry has no sections, so its half of the gate is "is this a document at all": a
-		// reply that is nothing but headings would otherwise replace a real memory with a skeleton.
-		const semanticEmpty = resolved.sections === undefined ? isHeadingOnlyDocument(resolved.result.memory) : sectionsSemanticallyEmpty(resolved.sections);
+		const semanticEmpty = replyIsSemanticallyEmpty(resolved, render);
 		const result: ConsolidationResult = { ...resolved.result, memory: render === undefined ? resolved.result.memory : render.text };
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });

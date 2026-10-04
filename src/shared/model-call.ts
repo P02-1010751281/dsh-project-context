@@ -242,3 +242,15 @@ export function pickToolCall(toolCalls: readonly PluginToolCall[] | undefined, n
 	}
 	return undefined;
 }
+
+/**
+ * True when a reply's tool call must not be trusted as complete.
+ *
+ * The adapter repairs a truncated arguments string into a shape-valid object, so the *presence* of a
+ * call is not evidence that its contents arrived. dsh names a cut reply `max-tokens`, and an empty
+ * finish reason means no terminal event was seen at all; either way the block may have been retained
+ * half-written, so both are refused. A reply that carries no call is not this predicate's business.
+ */
+export function toolCallIsTruncated(completion: CompletionOutcome): boolean {
+	return (completion.toolCalls?.length ?? 0) > 0 && (completion.stopReason === "max-tokens" || completion.stopReason === "");
+}

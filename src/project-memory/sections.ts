@@ -217,9 +217,10 @@ function canonicalLine(line: string): string {
  *
  * The gate is a heuristic and it is deliberately one-sided. Any wrapper that holds real words — a
  * prose preamble, an element with text inside, a `---` setext heading — is content, because the only
- * other answer is "refuse a memory the model did write". A body-less reply that is decorated that way
- * therefore still gets through, and so does one whose only line is a lone `<T>` or `<hN>…</hN>`; those
- * boundaries are recorded rather than closed.
+ * other answer is "refuse a memory the model did write". A body-less reply decorated that way
+ * therefore still gets through; those boundaries are recorded rather than closed. Markup alone does
+ * not: a lone `<T>` and an `<hN>…</hN>` pair are both refused (`isTagOnlyLine` /
+ * `HTML_HEADING_LINE_RE`), so the fail-open covers wrappers carrying words, not empty tags.
  *
  * This is also looser than the `sectionsFromMarkdown` contract: there, anything unusual means "fall
  * back to the verbatim path"; here, anything unusual must still count as content.
