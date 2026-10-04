@@ -9,13 +9,13 @@ Release workflow for the dsh-project-context plugins (repo root /mnt/Data/Projec
    Run `git status --short`. Untracked `.agents/` and `thinking-effort-loaded.json` are normal. A second dsh agent session may be working in this repo and can leave changes staged, so use the scoped commit: stage only this task's paths and never `git add -A` — the full rule (the exact add, `git commit -F <msg> -- <paths>`, and the `git diff --cached` check) lives in `dsh-project-context-concurrent-writer-guard` step 5.
 
 2. Update version and changelog.
-   The changelog is `CHANGELOG.md`, not the README; the README only points to it. Move completed entries from the `未发布` section into a new version heading in `CHANGELOG.md`. Set `version` in `package.json` to the release version. Keep README prose wrapped at 100 columns and never split an inline code span across lines. Use English Conventional Commits (`feat:`, `fix:`, `docs:`, `chore(release):`).
+   The changelog is `CHANGELOG.md`, not the README; the README only points to it. Move completed entries from the `未发布` section into a new version heading in `CHANGELOG.md`. Set `version` in `package.json` to the release version. Keep README prose wrapped at 100 columns and never split an inline code span across lines. Use English Conventional Commits (`feat:`, `fix:`, `docs:`, `chore(release):`). The CHANGELOG edit rides the **pre-tag** release commit: anything that documents the release afterwards — evidence under `.agents/evidence/`, a decision doc, the memory/context render — lands as its own **post-tag** commit, because a released tag is never rewritten and a released section gets dated addenda rather than rewrites.
 
 3. Run the full gate under the correct Node.
    Run `node -v`; the Nix store path and version rotate on rebuild, so prepend the node it reports — `PATH="$(dirname "$(command -v node)"):$PATH"` — never a pasted store path. Run `pnpm typecheck`, `pnpm test`, and `pnpm build`. `pnpm test` must pass (expected count). When stdout is not a TTY, `node --test` prints TAP (`# pass N`) instead of `ℹ pass`; check the exit code, not a grep for the reporter.
 
 4. Commit the release changes.
-   Stage only the files changed for the release (e.g. `package.json`, `CHANGELOG.md`, `README.md`). Commit with a message such as `chore(release): vX.Y.Z`.
+   Stage only the files changed for the release (e.g. `package.json`, `CHANGELOG.md`, `README.md`). Commit with a message such as `chore(release): vX.Y.Z`. Slices must be **self-consistent**: when two concerns assert in the same test file, splitting them leaves an intermediate commit whose suite is red, so keep them in one slice — a bisect-broken split is worse than a mixed slice.
 
 5. Create and push an annotated tag.
    Write the release note to a file (a `/tmp` path is fine; the durable copy is the tag object once pushed). Create the tag with `git tag -a vX.Y.Z -F <note-file>`. Push the branch with `git push origin main` and the tag with `git push origin refs/tags/vX.Y.Z`.

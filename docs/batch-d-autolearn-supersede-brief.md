@@ -1,6 +1,6 @@
 # Batch D port brief — autolearn may supersede a skill it generated
 
-**Status: not started.** Decided to be portable by the fourth pi triage pass
+**Status: ruled 2026-10-05, not started.** Decided to be portable by the fourth pi triage pass
 (`docs/upstream-pi-triage.md` §"Fourth pass", commit `2d562ce` of the range `6707376..f6bea1d`). Nothing
 here is implemented; this file states everything a fresh session needs, and every claim in it is either a
 pi path at a stated revision or a read-now command.
@@ -62,21 +62,27 @@ Two dsh-only facts the port must respect:
   `.agents/memory/skill-candidates/` (untracked) for `/autolearn approve`, and the evidence rule is
   `MIN_CANDIDATE_SESSIONS` (1) vs `MIN_SKILL_SESSIONS` (2). A supersede must not quietly bypass it.
 
-## 4. Rulings needed before implementation
+## 4. Rulings (2026-10-05)
 
-1. **Do we want the pipeline to supersede at all?** Our current answer is "a learned skill is fixed by
-   hand"; pi's is "the pipeline may rewrite what it wrote". This is the decision, not the mechanism.
-2. **Evidence for a supersede.** pi keeps the existing evidence rule. Does rewriting a skill whose
-   evidence is already stored need new evidence, or is the existing skill's evidence enough? Our rule is
-   currently a *proposal* rule, so the answer has to be stated for the update case.
-3. **Candidate or direct?** Must a supersede always go through `candidate: true` (the human gate), or may
-   a two-session proposal overwrite a marked skill directly (pi's `approveCandidate` path is the human
-   one)? Our `/autolearn approve` is the only human gate, and pi's pass writes directly.
-4. **Marker placement.** Body, as pi — never frontmatter: our `skillDescription` and the candidate parser
-   read the frontmatter, and an unknown key would be read by the next pass as a candidate field.
-5. **Does the near-duplicate refusal need wording changes here?** Our prompt refuses a reused name
-   through the tool description and the inventory, so the exception has to be stated in both places or the
-   model will never propose a supersede.
+1. **Yes — the pipeline may supersede, but only its own output.** The marker is what makes "its own
+   output" checkable on the artifact, and our `.agents/skills/` corpus is tracked, so the alternative is
+   exactly the hand-maintenance cost pi removed. Nothing about the port weakens the boundary: a name that
+   belongs to a hand-written, imported or (here) unmarked skill stays refused.
+2. **The evidence rule does not relax.** A supersede writes a *whole new body*, so it is grounded like a
+   creation: `MIN_SKILL_SESSIONS` (2) for a non-candidate proposal and `MIN_CANDIDATE_SESSIONS` (1) for a
+   candidate. The replaced skill's own evidence is not evidence for new claims, and a candidate file is
+   deleted on approval, so neither can be cited instead.
+3. **A supersede always lands through the candidate gate.** The pass proposes `candidate: true`; only
+   `/autolearn approve` performs the replacement. Two consequences for §5: the *publish* path keeps its
+   blanket refusal (D3's marker check stays there as the belt to the approve path's braces), and "the
+   pipeline updated a skill" is always a change a human approved. This diverges from pi deliberately —
+   pi's pass publishes a two-session proposal directly.
+4. **The marker lives in the body**, immediately after the frontmatter, as pi puts it. Our
+   `skillDescription` and the candidate parser read the frontmatter, and the next pass would read an
+   unknown key there as a candidate field.
+5. **Both wordings change, or the exception is dead code.** `RECORD_SKILL_TOOL`'s description has to say
+   that rewriting a marked learned skill is the one allowed reuse, and `inventoryText` has to mark which
+   skills are learned; without both the model never proposes a supersede.
 
 ## 5. Acceptance criteria
 
@@ -84,14 +90,15 @@ Two dsh-only facts the port must respect:
   candidate never carries it.
 - **D2** the gate allows a collision only for a marked project skill; a hand-written or imported skill with
   the same name is still refused.
-- **D3** the approve path and the publish path each read the marker off the destination file, so a name
-  freed by deleting a skill and then taken by a hand-written one is never superseded.
+- **D3** the approve path reads the marker off the destination file it is replacing, so a name freed
+  by deleting a skill and then taken by a hand-written one is never superseded; the publish path keeps
+  its blanket refusal (ruling 3), and the marker check there is the second reading of the same fact.
 - **D4** the merge prompt carries learned bodies whole; a skill that does not fit is excluded and the
   prompt forbids reusing its name this pass.
 - **D5** the marker dies with its skill: delete the file, recreate it by hand, and the next pass refuses
   the collision.
-- **D6** nothing about the tracked boundary changes: a supersede shows up as normal file churn, and no
-  new side file becomes load-bearing.
+- **D6** nothing about the tracked boundary changes: an approved supersede is ordinary file churn in
+  `.agents/skills/`, and no new side file becomes load-bearing.
 - Mutants that must each redden exactly their own cases: drop the marker from the shared promoted-document
   renderer (all of D1–D3), ignore the marker in the gate (D2), fall back to a blanket refusal in approve
   (D3), drop the body injection (D4).
