@@ -34,7 +34,7 @@ import {
 	readTextCachedSync,
 	writeAtomic,
 } from "../shared/project-state.js";
-import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
+import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, memoryTruncationDropped, normalizeMemoryDocument, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
 import { withMemoryLock } from "../shared/lock.js";
 
 export const name = "project-memory";
@@ -46,10 +46,6 @@ const written = new Map<string, number>();
 const migrated = new Set<string>();
 /** Serialize consolidation so a forced shutdown pass always runs last. */
 const updates = new SerialQueue();
-/** Projects already told that the CONTEXT.md render clipped an over-budget section. */
-const contextClipLogged = new Set<string>();
-/** Projects already told that the MEMORY.md render had to drop or truncate a section's entries. */
-const memorySectionClipLogged = new Set<string>();
 
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
 function projectMemoryInjection(cwd: string | undefined, limit: number): string {
@@ -87,7 +83,66 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateReport = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context";
+
+/**
+ * What one consolidation attempt did, plus the loss it caused.
+ *
+ * A consolidation pass loses content in two places that the stored document cannot show afterwards,
+ * because both happen before the write: the input fit hides characters of the stored artifacts from
+ * the model (`memoryHiddenChars` / `contextHiddenChars`), and the section render drops whole entries
+ * that overflow a section's share (`sectionDropped` / `droppedItems`), with `itemTruncated` counting
+ * entries cut to the per-item cap. Carrying them here is what lets the receipt name the mechanism and
+ * the count: without it a pass that dropped twelve entries read exactly like a clean one.
+ *
+ * A count is 0 unless the artifact it describes actually landed. A memory render whose write was
+ * refused dropped nothing from the stored file, so its counts must not be reported as a loss.
+ */
+export type ConsolidateReport = {
+	status: ConsolidateStatus;
+	/** True when this pass's memory landed. A receipt must never claim an artifact that did not. */
+	memoryWritten: boolean;
+	/** True when this pass's context landed. */
+	contextWritten: boolean;
+	/** Characters of the landed memory the input fit hid from the model; 0 when whole or unwritten. */
+	memoryHiddenChars: number;
+	/** Characters of the landed context the model was not shown (the read cap plus the input fit). */
+	contextHiddenChars: number;
+	/** Characters the landed CONTEXT.md render dropped to fit its section budgets. */
+	contextDroppedChars: number;
+	/**
+	 * Characters the landed MEMORY.md write dropped because the reply itself exceeded the memory cap.
+	 * A reply that is not a four-section bullet document never reaches the section renderer, so this
+	 * cap is the only place its loss is recorded: without it such a write is completely silent.
+	 */
+	memoryWriteDroppedChars: number;
+	/** Sections of the landed memory that lost at least one entry to their budget. */
+	sectionDropped: number;
+	/** Entries dropped whole from the landed memory because their section's budget was full. */
+	droppedItems: number;
+	/** Entries of the landed memory cut to their section's per-item cap and kept. */
+	itemTruncated: number;
+};
+
+/** The no-loss half of a report: nothing landed and nothing was dropped. */
+export type ConsolidateLoss = Omit<ConsolidateReport, "status">;
+
+const NO_LOSS: ConsolidateLoss = {
+	memoryWritten: false,
+	contextWritten: false,
+	memoryHiddenChars: 0,
+	contextHiddenChars: 0,
+	contextDroppedChars: 0,
+	memoryWriteDroppedChars: 0,
+	sectionDropped: 0,
+	droppedItems: 0,
+	itemTruncated: 0,
+};
+
+/** A report for a status that landed no write, so it can never claim a loss. */
+function cleanReport(status: ConsolidateStatus): ConsolidateReport {
+	return { status, ...NO_LOSS };
+}
 
 /** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
 /** One consolidation pass. Exported so the version-claim/backoff behaviour is testable. */
@@ -96,18 +151,28 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
 		let wroteMemory = false;
+		let wroteContext = false;
+		/** What had already landed if something throws later: a failure receipt must not hide it. */
+		let loss: ConsolidateLoss = NO_LOSS;
 		try {
-			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return "deduped";
+			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
+			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return cleanReport("deduped");
 
 			const memoryText = outcome.result.memory.trim();
 			// A reply that carried no entries renders as a bare four-heading skeleton: it is over the
 			// length floor but is not a memory, so the pass's gate must win over the length heuristic.
 			const memoryChanged = !outcome.semanticEmpty && memoryText.length >= 40;
+			if (!memoryChanged && !outcome.semanticEmpty && memoryText.length > 0) {
+				// The length floor discards a short reply with no other trace at all: a tiny but real
+				// memory must not vanish while the receipt still reports the pass as clean.
+				await logError(projectRoot, "memory", `the consolidation reply carried a ${memoryText.length}-character memory, below the ${40}-character floor; the stored memory was kept unchanged`);
+			}
 			// Claim the version before the first await: another pass reaching this point while the
 			// writes below are in flight must see it as done, not run a second time.
 			written.set(projectRoot, outcome.version);
 
 			let memoryKeptStale = false;
+			let memoryWriteDroppedChars = 0;
 			if (memoryChanged) {
 				// Always keep the bytes on disk right now, whatever this pass believed earlier; the
 				// lock keeps another process from replacing them mid-write, and the journal is the
@@ -122,14 +187,21 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				});
 				wroteMemory = snapshot.written;
 				memoryKeptStale = !snapshot.written;
+				// The write path caps the document once more: an opaque reply never reaches the section
+				// renderer, and an oversized one lands with a truncation marker instead. Nothing else
+				// reports that, so the count comes from the same normalizer the write used.
+				memoryWriteDroppedChars = snapshot.written ? memoryTruncationDropped(normalizeMemoryDocument(memoryText, config.maxMemoryChars)) ?? 0 : 0;
+				if (memoryWriteDroppedChars > 0) {
+					await logError(projectRoot, "memory", `MEMORY.md was capped at ${config.maxMemoryChars} characters on write: ${memoryWriteDroppedChars} character(s) of the reply were dropped`);
+				}
 				if (snapshot.written && snapshot.backup.poisoned) {
 					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${snapshot.backup.path ?? "(none)"}`);
 				}
 				// A section render enforces the cap by dropping whole entries; the document itself no
 				// longer carries a marker, so the counts are the only trace of what was given up. Report
-				// them (once per project) only for a write that actually landed.
-				if (snapshot.written && (outcome.sectionDropped > 0 || outcome.itemTruncated > 0) && !memorySectionClipLogged.has(projectRoot)) {
-					memorySectionClipLogged.add(projectRoot);
+				// them for every write that actually landed: this used to be gated to once per project,
+				// which made every later loss on the same project silent.
+				if (snapshot.written && (outcome.sectionDropped > 0 || outcome.itemTruncated > 0)) {
 					const parts: string[] = [];
 					if (outcome.sectionDropped > 0) parts.push(`${outcome.sectionDropped} section(s) exceeded their budget and ${outcome.droppedItems} whole entry(ies) were dropped`);
 					if (outcome.itemTruncated > 0) parts.push(`${outcome.itemTruncated} entry(ies) exceeded their section's per-item cap and were truncated`);
@@ -137,19 +209,30 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				}
 			}
 
+			// What landed is recorded as soon as it lands: a later throw must not erase it.
+			loss = {
+				...NO_LOSS,
+				memoryWritten: wroteMemory,
+				memoryHiddenChars: wroteMemory ? outcome.memoryHiddenChars : 0,
+				memoryWriteDroppedChars: wroteMemory ? memoryWriteDroppedChars : 0,
+				sectionDropped: wroteMemory ? outcome.sectionDropped : 0,
+				droppedItems: wroteMemory ? outcome.droppedItems : 0,
+				itemTruncated: wroteMemory ? outcome.itemTruncated : 0,
+			};
+
 			const existing = await readOptional(contextFile(projectRoot));
 			const update = outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
-			let wroteContext = false;
+			let contextDroppedChars = 0;
 			if (update) {
 				const contextDocument = renderContextDocument(update, { updatedAt: new Date().toISOString() });
 				await writeAtomic(contextFile(projectRoot), contextDocument);
 				wroteContext = true;
 				const dropped = contextTruncationDropped(contextDocument);
-				if (dropped !== undefined && !contextClipLogged.has(projectRoot)) {
-					// The marker is the durable trace; say it once per project per process, the way the
-					// unusable-context notice does. A clipped context is otherwise visible only by
-					// reading the file, which is exactly the silence the marker exists to break.
-					contextClipLogged.add(projectRoot);
+				contextDroppedChars = dropped ?? 0;
+				if (dropped !== undefined) {
+					// The marker is the durable trace; this line is the live one. It is not deduped per
+					// project: a project whose context stays over budget loses content on every pass, and
+					// reporting only the first loss leaves the rest silent.
 					await logError(projectRoot, "memory", contextClipNotice(dropped));
 				}
 			}
@@ -175,15 +258,23 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				const target = wroteMemory && wroteContext ? "project memory and context" : wroteMemory ? "project memory" : "project context";
 				ctx.logger.info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}${note}`);
 			}
-			if (memoryKeptStale) return wroteContext ? "stale-context" : "stale";
-			return wrote ? (outcome.clipped ? "clipped" : "updated") : "unchanged";
+			// The counts still describe only what landed: a refused memory write dropped nothing from
+			// the stored file, and a context that was never written kept all of its characters.
+			loss = {
+				...loss,
+				contextWritten: wroteContext,
+				contextHiddenChars: wroteContext ? outcome.contextHiddenChars : 0,
+				contextDroppedChars: wroteContext ? contextDroppedChars : 0,
+			};
+			if (memoryKeptStale) return { status: wroteContext ? "stale-context" : "stale", ...loss };
+			return wrote ? { status: outcome.clipped ? "clipped" : "updated", ...loss } : cleanReport("unchanged");
 		} catch (error) {
 			// Release the claimed version when nothing was written: otherwise the next forced pass
 			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
 			if (!wroteMemory) written.delete(projectRoot);
 			await logError(projectRoot, "memory", error);
 			if (!options.silent) ctx.logger.warn(`dsh-project-context: project memory update failed: ${diagnosticMessage(error)}`);
-			return "failed";
+			return { status: "failed", ...loss };
 		}
 	});
 }
@@ -318,20 +409,69 @@ export function memoryStatusReply(
 }
 
 /**
+ * Name what a pass gave up, mechanism by mechanism, so a lossy receipt cannot read as a clean one.
+ *
+ * The mechanisms are worded separately because they fail differently: a hidden character count is the
+ * input side shielding the model from part of a stored artifact, the write-cap count is the memory the
+ * cap dropped from the reply itself, and the drop counts are a renderer refusing to write an entry
+ * whole. An empty string means the report carries no loss at all.
+ * @param report - the pass result, whose counts are already filtered to what landed.
+ * @returns the loss clause, or `""` when the pass was clean.
+ */
+function memoryLossDetail(report: ConsolidateReport): string {
+	const hidden: string[] = [];
+	if (report.memoryHiddenChars > 0) hidden.push(`${report.memoryHiddenChars} character(s) of the stored memory`);
+	if (report.contextHiddenChars > 0) hidden.push(`${report.contextHiddenChars} character(s) of the stored context`);
+	const parts: string[] = [];
+	if (hidden.length > 0) parts.push(`the model was not shown ${hidden.join(" and ")}`);
+	if (report.memoryWriteDroppedChars > 0) parts.push(`${report.memoryWriteDroppedChars} character(s) of the reply exceeded the memory cap and were dropped on write`);
+	if (report.sectionDropped > 0) parts.push(`${report.sectionDropped} section(s) exceeded their budget and ${report.droppedItems} whole entry(ies) were dropped`);
+	if (report.itemTruncated > 0) parts.push(`${report.itemTruncated} entry(ies) exceeded their section's per-item cap and were truncated`);
+	if (report.contextDroppedChars > 0) parts.push(`${report.contextDroppedChars} character(s) of the context were dropped to fit its section budgets`);
+	return parts.join("; ");
+}
+
+/** Name the artifact(s) a pass wrote, so no receipt claims one that did not land. */
+function writtenTarget(report: ConsolidateReport): string {
+	if (report.memoryWritten && report.contextWritten) return "Project memory and context";
+	return report.memoryWritten ? "Project memory" : "Project context";
+}
+
+/**
  * The `/memory update` reply for one pass result. The pass swallows its own
  * error (it is also logged to `errors.log`), so the reply must not claim success
  * for a failure or for a deduped no-op. Exported for tests.
- * @param report - what the consolidation attempt did.
+ *
+ * A clean pass that wrote both artifacts reads exactly as it did before the report carried counts —
+ * the wording only changes when the pass lost something or wrote only one of the two, so an unchanged
+ * sentence keeps meaning "both landed, nothing was lost".
+ * @param report - what the consolidation attempt did, including the loss it caused.
  * @returns the command result.
  */
 export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" | "error"; text: string } {
-	if (report === "failed") return { kind: "error", text: "Project memory update failed; see .agents/memory/errors.log." };
-	if (report === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
-	if (report === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
-	if (report === "clipped") return { kind: "success", text: "Project memory and context updated, but the existing content was shortened to fit the model output budget." };
+	const detail = memoryLossDetail(report);
+	if (report.status === "failed") {
+		const base = "Project memory update failed; see .agents/memory/errors.log.";
+		// A write that landed before the failure is not part of the failure; say which one survived.
+		if (!report.memoryWritten && !report.contextWritten) return { kind: "error", text: base };
+		const what = report.memoryWritten && report.contextWritten ? "The memory and the context" : report.memoryWritten ? "The memory" : "The context";
+		return { kind: "error", text: `${base} ${what} had already landed${detail === "" ? "" : `, with this loss: ${detail}`}.` };
+	}
+	if (report.status === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
+	if (report.status === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
+	const target = writtenTarget(report);
+	if (report.status === "clipped") {
+		const base = `${target} updated, but the existing content was shortened to fit the model output budget`;
+		return { kind: "success", text: detail === "" ? `${base}.` : `${base}: ${detail}.` };
+	}
 	// A refused reply is not a write: the memory changed while the reply was being built, so the
 	// newer bytes stay effective. Neither wording may claim that memory was rewritten.
-	if (report === "stale") return { kind: "success", text: "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };
-	if (report === "stale-context") return { kind: "success", text: "Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective." };
-	return { kind: "success", text: "Project memory and context updated." };
+	if (report.status === "stale") return { kind: "success", text: "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };
+	if (report.status === "stale-context") {
+		// The context did land, so a context this pass was shown only part of is a real loss and is
+		// named; the memory's own counts stay 0 because that document was refused.
+		const base = "Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.";
+		return { kind: "success", text: detail === "" ? base : `${base} ${detail}.` };
+	}
+	return { kind: "success", text: detail === "" ? `${target} updated.` : `${target} updated, but the rewrite was lossy: ${detail}.` };
 }

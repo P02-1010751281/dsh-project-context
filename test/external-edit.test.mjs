@@ -70,7 +70,7 @@ test("an edit landing during the model call is kept and the reply is not publish
 	const { root, ctx, agent, config, errors, infos } = await fixture({ beforeReply: () => writeFile(memoryFile(root), HAND_EDIT, "utf8") });
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: false });
 
-	assert.equal(report, "stale-context", "the context still landed, but the memory reply did not");
+	assert.equal(report.status, "stale-context", "the context still landed, but the memory reply did not");
 	const stored = await readFile(memoryFile(root), "utf8");
 	assert.equal(stored, HAND_EDIT, "the hand edit stays on disk");
 	assert.ok(!stored.includes("must never reach the file"), "the reply's memory is not published");
@@ -87,7 +87,7 @@ test("the same pass publishes the reply when nothing changed under it", async ()
 	const { root, ctx, agent, config } = await fixture();
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: false });
 
-	assert.equal(report, "updated");
+	assert.equal(report.status, "updated");
 	const stored = await readFile(memoryFile(root), "utf8");
 	assert.ok(stored.includes("must never reach the file"), "without a race the reply is published");
 });

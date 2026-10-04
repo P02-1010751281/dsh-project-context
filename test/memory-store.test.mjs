@@ -248,10 +248,10 @@ test("a failed pass releases its version claim so the next forced pass retries",
 	// outcome (same version), which is exactly the case the release protects.
 	const config = resolvePluginConfig({ maxTokens: 8192 });
 
-	assert.equal(await consolidateProject(ctx, config, agent, { force: true, silent: true }), "failed");
+	assert.equal((await consolidateProject(ctx, config, agent, { force: true, silent: true })).status, "failed");
 	// Without the release this would answer "deduped" — a false "already up to date" after a write
 	// that never landed.
-	assert.notEqual(await consolidateProject(ctx, config, agent, { force: true, silent: true }), "deduped");
+	assert.notEqual((await consolidateProject(ctx, config, agent, { force: true, silent: true })).status, "deduped");
 });
 
 test("a malformed model reply cannot leak credentials into the logs", async () => {
@@ -283,7 +283,7 @@ test("a malformed model reply cannot leak credentials into the logs", async () =
 	};
 	const config = resolvePluginConfig({ maxTokens: 8192 });
 
-	assert.equal(await consolidateProject(ctx, config, agent, { force: true, silent: false }), "failed");
+	assert.equal((await consolidateProject(ctx, config, agent, { force: true, silent: false })).status, "failed");
 	assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
 
 	// The console is the unguarded sink: mask and bound there.
@@ -327,7 +327,7 @@ test("the console copy of a failure is redacted even when its source is not", as
 	};
 	const config = resolvePluginConfig({ maxTokens: 8192 });
 
-	assert.equal(await consolidateProject(ctx, config, agent, { force: true, silent: false }), "failed");
+	assert.equal((await consolidateProject(ctx, config, agent, { force: true, silent: false })).status, "failed");
 	assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
 	assert.ok(warnings[0].includes(".agents/memory"), "the failure is the memory write, not something else");
 	assert.ok(!warnings[0].includes(key), "the console sink must mask a secret it was not given masked");

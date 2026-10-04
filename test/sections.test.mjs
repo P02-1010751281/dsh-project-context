@@ -110,6 +110,14 @@ test("renderMemoryDocument enforces the cap per section: clip an item, drop a fl
 	assert.equal(many.sectionDropped, 1);
 	assert.ok(many.droppedItems > 0);
 	assert.ok(!many.text.includes("_[memory truncated"));
+
+	// An entry clipped to the per-item cap and then rejected for good is dropped, not truncated: it is
+	// not in the document, so counting it as truncated would report a loss that never landed.
+	const clippedThenDropped = renderMemoryDocument({ project: ["p".repeat(500), "q".repeat(900)], invariants: [], pitfalls: [], index: [] }, 4000);
+	assert.equal(clippedThenDropped.droppedItems, 1, "the second entry does not fit beside the first");
+	assert.equal(clippedThenDropped.itemTruncated, 0, "the dropped entry is not also reported as truncated");
+	assert.ok(clippedThenDropped.text.includes("p".repeat(500)), "the kept entry is in the document");
+	assert.ok(!clippedThenDropped.text.includes("q".repeat(100)), "the dropped entry is not");
 });
 
 test("renderMemoryDocument fits 2000 random caps (the budget holds by construction)", () => {

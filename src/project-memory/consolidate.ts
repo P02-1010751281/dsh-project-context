@@ -42,6 +42,13 @@ export type ConsolidationOutcome = {
 	version: number;
 	/** True when the stored memory or context had to be shortened to fit the output budget. */
 	clipped: boolean;
+	/** Characters of the stored memory the input fit hid from the model; 0 when whole. */
+	memoryHiddenChars: number;
+	/**
+	 * Characters of the stored context the model was not shown: what the read cap kept back plus what
+	 * the input fit clipped. 0 only when the stored context reached the model whole.
+	 */
+	contextHiddenChars: number;
 	/**
 	 * The memory this pass's prompt was built from, byte for byte. The write path refuses a reply
 	 * whose baseline no longer matches what is stored: publishing it would overwrite a newer edit.
@@ -77,9 +84,6 @@ const activeConsolidation = new Map<string, Promise<ConsolidationOutcome | undef
 const throttle = new Map<string, ConsolidationState>();
 
 const lastOutcome = new Map<string, { version: number; at: number; outcome: ConsolidationOutcome }>();
-
-/** Projects already told that a reply carried an unusable `context`, so the log stays one per project. */
-const contextUnusableLogged = new Set<string>();
 
 /**
  * The fixed instructions of the consolidation prompt. Exported so a test can assert the shape
@@ -257,7 +261,12 @@ export function consolidateProjectState(
 		// the prompt would otherwise look as if the project had no memory at all.
 		if (existing.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${existing.source}`);
 		else if (existing.damaged) await logError(projectRoot, "memory", `memory journal has ${existing.damaged} unusable line(s); they were skipped`);
-		const existingContext = (await readOptional(contextFile(projectRoot))).slice(0, MAX_CONTEXT_CHARS);
+		const existingContextText = await readOptional(contextFile(projectRoot));
+		const existingContext = existingContextText.slice(0, MAX_CONTEXT_CHARS);
+		// Characters the context read cap alone kept from the model, before the fit clips anything: an
+		// over-cap stored context loses this much on every pass, and only the fit's own count was ever
+		// reported, so the receipt understated what the model was not shown.
+		const contextReadHiddenChars = existingContextText.length - existingContext.length;
 		const target = resolveTarget(agent, config);
 		if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
 		// One resolve for both facts: the adapter's own output cap bounds the adaptive cap, and its
@@ -350,16 +359,18 @@ export function consolidateProjectState(
 			// that is a silent no-op from the outside, it always leaves a diagnostic.
 			await logError(projectRoot, "memory", "the consolidation reply carried no entries; the stored memory was kept unchanged");
 		}
-		if (result.contextUnusable && !contextUnusableLogged.has(projectRoot)) {
-			// Memory still lands, but CONTEXT.md keeps its previous content: say so once per
-			// project, since the alternative is a stale context with no trace of why.
-			contextUnusableLogged.add(projectRoot);
+		if (result.contextUnusable) {
+			// Memory still lands, but CONTEXT.md keeps its previous content: say so on every pass, not
+			// once per project — a project whose replies keep carrying an unusable context is stale
+			// every time, and reporting only the first one leaves the rest silent.
 			await logError(projectRoot, "memory", "consolidation reply carried a context whose shape is unusable (summary must be a string and key_points/open_tasks arrays of strings); CONTEXT.md was left unchanged");
 		}
 		const outcome: ConsolidationOutcome = {
 			result,
 			version,
 			clipped: usedInput.clipped,
+			memoryHiddenChars: usedInput.memoryHiddenChars,
+			contextHiddenChars: usedInput.contextHiddenChars + contextReadHiddenChars,
 			basisKey: existing.text,
 			kind: resolved.kind,
 			semanticEmpty,

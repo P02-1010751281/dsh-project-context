@@ -53,6 +53,7 @@ import {
 	validSkillName,
 	writeAtomic,
 } from "../lib/shared/project-state.js";
+import { MAX_CONTEXT_CHARS } from "../lib/shared/limits.js";
 import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-context/session-log.js";
 import { effectivePluginConfig, publishProjectContextSettings } from "../lib/shared/settings.js";
 import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
@@ -1319,16 +1320,300 @@ test("the memory command carries status and update, and the removed /context-upd
 	assert.match(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), /a second durable fact/, "the forced pass really wrote");
 });
 
+/**
+ * A consolidation report for a status, with every loss count zero unless a case overrides it.
+ * The written flags default to what that status means: a clean `updated`/`clipped` pass wrote both
+ * artifacts, a `stale` pass wrote only the context, and the no-op statuses wrote nothing.
+ */
+const plainReport = (status, loss = {}) => ({
+	status,
+	memoryWritten: status === "updated" || status === "clipped",
+	contextWritten: status === "updated" || status === "clipped" || status === "stale-context",
+	memoryHiddenChars: 0,
+	contextHiddenChars: 0,
+	contextDroppedChars: 0,
+	memoryWriteDroppedChars: 0,
+	sectionDropped: 0,
+	droppedItems: 0,
+	itemTruncated: 0,
+	...loss,
+});
+
 test("the /memory update reply reflects what the consolidation pass did", () => {
 	// The pass swallows its own failure, so the reply is the only signal the user gets.
-	assert.equal(memoryUpdateReply("failed").kind, "error");
-	assert.match(memoryUpdateReply("failed").text, /errors\.log/);
-	assert.equal(memoryUpdateReply("updated").kind, "success");
-	assert.match(memoryUpdateReply("updated").text, /updated/);
-	assert.match(memoryUpdateReply("deduped").text, /already up to date/);
-	assert.match(memoryUpdateReply("unchanged").text, /no new memory/);
-	assert.match(memoryUpdateReply("clipped").text, /shortened to fit the model output budget/);
-	assert.notEqual(memoryUpdateReply("deduped").text, memoryUpdateReply("updated").text, "a deduped no-op must not read as a successful rewrite");
+	assert.equal(memoryUpdateReply(plainReport("failed")).kind, "error");
+	assert.match(memoryUpdateReply(plainReport("failed")).text, /errors\.log/);
+	assert.equal(memoryUpdateReply(plainReport("updated")).kind, "success");
+	assert.match(memoryUpdateReply(plainReport("updated")).text, /updated/);
+	assert.match(memoryUpdateReply(plainReport("deduped")).text, /already up to date/);
+	assert.match(memoryUpdateReply(plainReport("unchanged")).text, /no new memory/);
+	assert.match(memoryUpdateReply(plainReport("clipped")).text, /shortened to fit the model output budget/);
+	assert.notEqual(memoryUpdateReply(plainReport("deduped")).text, memoryUpdateReply(plainReport("updated")).text, "a deduped no-op must not read as a successful rewrite");
+});
+
+test("a lossy pass is receipted by mechanism and count, and a clean pass reads word for word as before", () => {
+	// Both losses happen before the write, so the stored document cannot show them afterwards. The
+	// receipt is the only place the user can see them, and it has to name which mechanism and how
+	// much: before this, a pass that dropped twelve entries and a pass that dropped none produced a
+	// text that was identical character for character.
+	const clean = memoryUpdateReply(plainReport("updated")).text;
+	assert.equal(clean, "Project memory and context updated.", "a clean pass keeps its exact wording");
+	assert.equal(
+		memoryUpdateReply(plainReport("clipped")).text,
+		"Project memory and context updated, but the existing content was shortened to fit the model output budget.",
+		"a clipped receipt with no landed count keeps its exact wording",
+	);
+
+	const clipped = memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 1234, contextHiddenChars: 567 })).text;
+	assert.match(clipped, /1234 character\(s\) of the stored memory/);
+	assert.match(clipped, /567 character\(s\) of the stored context/);
+	assert.match(clipped, /the model was not shown 1234 character\(s\) of the stored memory and 567 character\(s\) of the stored context/);
+	assert.match(clipped, /shortened to fit the model output budget/, "the detail extends the existing sentence rather than replacing it");
+	assert.notEqual(clipped, memoryUpdateReply(plainReport("clipped")).text, "a lossy clipped pass must not read as a lossless one");
+
+	const dropped = memoryUpdateReply(plainReport("updated", { sectionDropped: 1, droppedItems: 12 })).text;
+	assert.match(dropped, /1 section\(s\) exceeded their budget and 12 whole entry\(ies\) were dropped/);
+	assert.notEqual(dropped, clean, "an entry-dropping pass must not read as a clean one");
+	assert.doesNotMatch(dropped, /shortened to fit the model output budget/, "drops are the render's loss, not the input fit's");
+
+	const cut = memoryUpdateReply(plainReport("updated", { itemTruncated: 2 })).text;
+	assert.match(cut, /2 entry\(ies\) exceeded their section's per-item cap and were truncated/);
+	assert.notEqual(cut, clean);
+
+	// Both mechanisms in one pass are named separately, not collapsed into one number.
+	const both = memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 9, sectionDropped: 1, droppedItems: 3, itemTruncated: 1 })).text;
+	assert.match(both, /9 character\(s\) of the stored memory/);
+	assert.match(both, /1 section\(s\) exceeded their budget and 3 whole entry\(ies\) were dropped/);
+	assert.match(both, /1 entry\(ies\) exceeded their section's per-item cap/);
+	assert.match(both, /; /, "the two mechanisms are separate clauses");
+
+	// A refused memory write lost nothing from the stored file, so its report must carry no counts —
+	// otherwise the receipt would blame the context for a memory that was never written.
+	assert.equal(memoryUpdateReply(plainReport("stale")).text, "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it.");
+	assert.equal(
+		memoryUpdateReply(plainReport("stale-context")).text,
+		"Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.",
+		"a stale-context receipt with no landed loss keeps its exact wording",
+	);
+	assert.match(memoryUpdateReply(plainReport("stale-context", { contextHiddenChars: 40 })).text, /40 character\(s\) of the stored context/, "the context landed, so a context hidden from the model is reported");
+
+	// The other two loss sites the same receipt has to name: the reply's own write cap (an opaque or
+	// oversized reply never reaches the section renderer) and the context render's own budgets.
+	const written = memoryUpdateReply(plainReport("updated", { memoryWriteDroppedChars: 700 })).text;
+	assert.match(written, /700 character\(s\) of the reply exceeded the memory cap and were dropped on write/);
+	assert.notEqual(written, clean, "a write-cap truncation must not read as a clean pass");
+	const contextClipped = memoryUpdateReply(plainReport("updated", { contextDroppedChars: 3599 })).text;
+	assert.match(contextClipped, /3599 character\(s\) of the context were dropped to fit its section budgets/);
+	assert.notEqual(contextClipped, clean);
+
+	// A pass that wrote only one artifact must say so: the old wording claimed both were updated even
+	// when the context was left unchanged.
+	assert.equal(memoryUpdateReply(plainReport("updated", { contextWritten: false })).text, "Project memory updated.");
+	assert.equal(memoryUpdateReply(plainReport("updated", { memoryWritten: false })).text, "Project context updated.");
+	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false })).text, "Project memory updated, but the existing content was shortened to fit the model output budget.");
+
+	// A failure that happened after a write landed must not hide what landed.
+	const partial = memoryUpdateReply(plainReport("failed", { memoryWritten: true, contextWritten: false, sectionDropped: 1, droppedItems: 4 })).text;
+	assert.match(partial, /^Project memory update failed; see \.agents\/memory\/errors\.log\. The memory had already landed, with this loss: 1 section\(s\) exceeded their budget and 4 whole entry\(ies\) were dropped\.$/);
+});
+
+test("fitMemoryInput reports the hidden characters per artifact, and clipped stays their summary", () => {
+	const memory = "m".repeat(400_000);
+	const context = "c".repeat(400_000);
+	const fits = [
+		fitMemoryInput("small memory", "small context", 8192, {}, 32_768),
+		fitMemoryInput(memory, context, 8192, {}, 32_768),
+		fitMemoryInput(memory, context, 8192, {}, 32_768, RETRY_OUTPUT_HEADROOM_TOKENS),
+		fitMemoryInput("记".repeat(60_000), "录".repeat(60_000), 8192, {}, 32_768),
+	];
+	for (const fit of fits) {
+		assert.equal(typeof fit.memoryHiddenChars, "number", "the per-artifact count is always present");
+		assert.equal(typeof fit.contextHiddenChars, "number");
+		assert.ok(fit.memoryHiddenChars >= 0 && fit.contextHiddenChars >= 0, "counts are never negative");
+		assert.equal(fit.clipped, fit.memoryHiddenChars > 0 || fit.contextHiddenChars > 0, "clipped is exactly the counts' summary");
+	}
+	// The count is the characters the model was not shown, not a token estimate: it reconstructs the
+	// original from what was sent.
+	const clipped = fits[1];
+	assert.ok(clipped.clipped, "fixture: this fit is budget-bound");
+	assert.equal(clipped.text.length + clipped.memoryHiddenChars, memory.length, "memory hidden = stored minus sent");
+	assert.equal(clipped.contextText.length + clipped.contextHiddenChars, context.length, "context hidden = stored minus sent");
+	// A clean fit sends everything and reports nothing hidden.
+	const clean = fits[0];
+	assert.equal(clean.clipped, false);
+	assert.equal(clean.memoryHiddenChars, 0);
+	assert.equal(clean.contextHiddenChars, 0);
+});
+
+test("a pass that drops entries reports the loss in its receipt and logs every occurrence", async () => {
+	// End-to-end over the real write path: the reply's Project section floods its share, so the
+	// renderer drops entries before anything lands and the stored document afterwards shows none of
+	// it. The receipt must name the drop rather than read as a clean update, and the log must fire on
+	// every lossy write — it used to be gated to once per project, which silenced every later loss.
+	const root = await memoryProject("dsh-memory-loss-receipt-");
+	const flooded = JSON.stringify({
+		memory: { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] },
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: flooded }, reason: { kind: "tool-calls" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.equal(first.status, "updated", `fixture: a drop is not an input clip (got ${JSON.stringify(first)})`);
+	assert.equal(first.memoryHiddenChars, 0, "fixture: nothing was hidden from the model here");
+	assert.equal(first.sectionDropped, 1, "the flooded Project section lost entries");
+	assert.ok(first.droppedItems > 0, "the drop count reaches the report");
+	assert.match(memoryUpdateReply(first).text, /whole entry\(ies\) were dropped/, "the receipt names the drop");
+	assert.notEqual(memoryUpdateReply(first).text, memoryUpdateReply(plainReport("updated")).text, "a lossy pass cannot read as a clean one");
+
+	// A second lossy pass must land as well, so the log assertion below is about repetition and not
+	// about the second pass being deduped.
+	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.equal(second.status, "updated", `the second pass landed (got ${JSON.stringify(second)})`);
+	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("exceeded their budget"));
+	assert.equal(logged.length, 2, `each lossy write leaves its own line, got ${JSON.stringify(logged)}`);
+});
+
+test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
+	// The stored context is over the read cap, so characters of it really are hidden from the model;
+	// the reply's context shape is unusable, so CONTEXT.md is left unchanged. Reporting the hidden
+	// count anyway would attribute a loss to an artifact that never reached disk — and the receipt
+	// used to claim both artifacts were updated.
+	const root = await memoryProject("dsh-memory-unlanded-loss-", "# Project Memory\n\n## Project\n- original\n");
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "x".repeat(60_000), "utf8");
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{
+			text: JSON.stringify({
+				memory_markdown: "# Project Memory\n\n## Project\n- kept even though the context shape was unusable\n",
+				context: { title: "t", summary: 42, key_points: [], open_tasks: [] },
+			}),
+			reason: { kind: "stop" },
+		}],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated", JSON.stringify(report));
+	assert.equal(report.memoryWritten, true, "the memory landed");
+	assert.equal(report.contextWritten, false, "an unusable context leaves CONTEXT.md unchanged");
+	assert.equal(report.contextHiddenChars, 0, "a context that never landed reports no hidden characters");
+	assert.equal(report.contextDroppedChars, 0);
+	assert.equal(memoryUpdateReply(report).text, "Project memory updated.", "the receipt must not claim the context was updated");
+	const unusable = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("context whose shape is unusable"));
+	assert.equal(unusable.length, 1, "the first pass reports it");
+	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.equal(second.contextWritten, false);
+	const repeated = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("context whose shape is unusable"));
+	assert.equal(repeated.length, 2, `a third once-per-project gate would leave only one line, got ${JSON.stringify(repeated)}`);
+});
+
+test("the context read cap is counted as characters the model was not shown", async () => {
+	// `existingContext` is sliced to MAX_CONTEXT_CHARS before the fit ever sees it, so an over-cap
+	// stored context loses that much on every pass. The receipt has to count it, or it understates
+	// what the model was shown.
+	const root = await memoryProject("dsh-context-read-cap-", "# Project Memory\n\n## Project\n- original\n");
+	const storedContext = "x".repeat(60_000);
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), storedContext, "utf8");
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- rewritten\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.contextWritten, true, JSON.stringify(report));
+	assert.ok(report.contextHiddenChars >= storedContext.length - MAX_CONTEXT_CHARS, `the read cap is counted (got ${report.contextHiddenChars})`);
+	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.contextHiddenChars} character\\(s\\) of the stored context`));
+});
+
+test("a clipped CONTEXT.md render reaches the receipt and logs on every pass", async () => {
+	const root = await memoryProject("dsh-context-clip-receipt-", "# Project Memory\n\n## Project\n- original\n");
+	const reply = JSON.stringify({
+		memory_markdown: "# Project Memory\n\n## Project\n- a durable fact kept by this pass, past the length floor\n",
+		context: { title: "t", summary: "s".repeat(20_000), key_points: [], open_tasks: [] },
+	});
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.ok(first.contextDroppedChars > 0, `the context render dropped characters (got ${JSON.stringify(first)})`);
+	assert.match(memoryUpdateReply(first).text, /character\(s\) of the context were dropped to fit its section budgets/);
+	assert.notEqual(memoryUpdateReply(first).text, memoryUpdateReply(plainReport("updated")).text, "a clipped context must not read as a clean pass");
+
+	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	assert.ok(second.contextDroppedChars > 0, "the second pass drops too");
+	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("CONTEXT.md was clipped"));
+	assert.equal(logged.length, 2, `each clipped render leaves its own line, got ${JSON.stringify(logged)}`);
+});
+
+test("a reply the memory cap truncates on write is counted, logged and receipted", async () => {
+	// Opaque (not a four-section bullet document) replies never reach the section renderer, so the
+	// write cap is the only place this loss is recorded at all — and it used to leave no trace.
+	const root = await memoryProject("dsh-memory-write-cap-", "# Project Memory\n\n## Project\n- original\n");
+	const prose = `# Project Memory\n\n${"a prose memory paragraph. ".repeat(400)}`;
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: prose, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.ok(report.memoryWriteDroppedChars > 0, `the write cap dropped characters (got ${JSON.stringify(report)})`);
+	assert.match(memoryUpdateReply(report).text, /character\(s\) of the reply exceeded the memory cap and were dropped on write/);
+	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	assert.equal(isMemoryTruncated(stored), true, "the stored memory carries the truncation marker");
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /was capped at 4000 characters on write/);
+});
+
+test("a reply below the length floor is logged instead of discarded silently", async () => {
+	const stored = "# Project Memory\n\n## Project\n- an existing durable fact\n";
+	const root = await memoryProject("dsh-memory-floor-log-", stored);
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n- tiny\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.memoryWritten, false, "the floor keeps the stored memory");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored);
+	assert.equal(memoryUpdateReply(report).text, "Project context updated.", "the receipt no longer claims a memory that was not written");
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /below the 40-character floor/);
+});
+
+test("a failure after the memory landed keeps the landed loss in the receipt", async () => {
+	const root = await memoryProject("dsh-memory-partial-land-", "# Project Memory\n\n## Project\n- original\n");
+	// Make the context write fail: CONTEXT.md is a directory, so the atomic replace cannot land.
+	await mkdir(path.join(root, ".agents", "memory", "CONTEXT.md"), { recursive: true });
+	const flooded = JSON.stringify({
+		memory: { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] },
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ toolCall: { name: "record_memory", arguments: flooded }, reason: { kind: "tool-calls" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "failed", JSON.stringify(report));
+	assert.equal(report.memoryWritten, true, "the memory landed before the failure");
+	assert.equal(report.contextWritten, false);
+	assert.ok(report.droppedItems > 0, "the landed loss survives into the failed report");
+	assert.match(memoryUpdateReply(report).text, /The memory had already landed, with this loss/);
 });
 
 test("the /memory reply reports a memory that is riding the character cap", () => {

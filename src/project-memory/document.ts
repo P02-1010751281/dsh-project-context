@@ -12,6 +12,9 @@ const MEMORY_TRUNCATION_PREFIX = "_[memory truncated";
 /** The marker line in full: `_[memory truncated at <limit> characters: <dropped> dropped]_`. */
 const MEMORY_TRUNCATION_LINE = /^_\[memory truncated at \d+ characters: \d+ dropped\]_$/;
 
+/** The same line with its dropped count captured, so the loss can be reported as a number. */
+const MEMORY_TRUNCATION_LINE_COUNT = /^_\[memory truncated at \d+ characters: (\d+) dropped\]_$/;
+
 /**
  * True when a single line is the cap marker, not merely prefixed like it.
  *
@@ -34,6 +37,21 @@ export function memoryTruncationMarker(dropped: number, limit: number): string {
 /** True when a memory document reports that the cap dropped part of it. */
 export function isMemoryTruncated(text: string): boolean {
 	return text.split("\n").some((line) => isMemoryTruncationLine(line));
+}
+
+/**
+ * The dropped count a capped document reports, or undefined when it carries no marker.
+ *
+ * Only the document's last non-empty line counts: the write path appends its marker last, so a
+ * model-authored line that merely looks like one inside the body is never mistaken for a real cap.
+ * This is the count the write path itself produced (`normalizeMemoryDocument`), which is the only
+ * place an oversized reply's loss is recorded at all — the caller cannot recompute it, because
+ * normalization also strips the header and any previous marker.
+ */
+export function memoryTruncationDropped(text: string): number | undefined {
+	const lines = text.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+	const match = lines.length > 0 ? MEMORY_TRUNCATION_LINE_COUNT.exec(lines[lines.length - 1]) : null;
+	return match ? Number(match[1]) : undefined;
 }
 
 /** Largest whole-line prefix of `text` within `limit`; only a single over-long line is cut inside. */

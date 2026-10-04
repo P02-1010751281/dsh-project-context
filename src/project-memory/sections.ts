@@ -127,7 +127,6 @@ export function renderMemoryDocument(sections: MemorySections, cap: number): Mem
 		let lost = false;
 		for (const entry of entries) {
 			const clipped = clipToLineBoundary(entry, itemCap);
-			if (clipped !== entry) itemTruncated += 1;
 			const cost = clipped.length + BULLET_OVERHEAD_CHARS;
 			if (spent + cost > budget.chars) {
 				// Whole-entry drop: a half entry reads as a fact while being unusable.
@@ -135,6 +134,9 @@ export function renderMemoryDocument(sections: MemorySections, cap: number): Mem
 				droppedItems += 1;
 				continue;
 			}
+			// Counted only once the entry is kept: an entry that was clipped and then dropped whole is
+			// not in the document, so calling it truncated would report a loss that never landed.
+			if (clipped !== entry) itemTruncated += 1;
 			spent += cost;
 			kept.push(clipped);
 		}

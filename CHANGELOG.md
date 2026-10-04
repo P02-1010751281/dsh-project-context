@@ -307,6 +307,52 @@
   修复后三个变异体（去掉渲染层判定 / 空 finish 不拒 / 重试条件退回只认 `max-tokens`）各自杀死对应新钉子。
   全量门禁 0 错 / 0 错 / 293 pass 0 fail，`lib/` 变异标记 0。
 
+**project-memory（丢失回执：五处丢失点名）**
+
+- 修复：**有一次整理丢掉了内容，回执读起来跟一次干净整理逐字相同**。合并整理的丢失都发生在**写入之前或写入当刻**，
+  所以存下来的文档再渲染一遍必然报 0、看上去完全健康。批 B 已经算出其中两处并写了日志，但它们**进不了回执**：
+  `ConsolidateReport` 当时是 `"updated" | "clipped" | …` 的字符串联合、`MemoryInput.clipped` 只是个布尔，于是
+  「丢 12 条」与「一条没丢」的回执一模一样，丢的是 memory 还是 context 也无从分辨。这类丢失共五处，现在**五处都
+  进回执与 `errors.log`**：
+  ① **输入适配** `fitMemoryInput`（`src/shared/conversation.ts`）在「记忆 + 上下文」超出模型输出上限时把已存记忆
+  掐头去尾（头 60% + 尾 40%，丢中段）；截断重试再多留 4096 headroom，所以重试比首投更早开始裁。
+  ② **分节渲染** `renderMemoryDocument`（`src/project-memory/sections.ts`）把超出一节预算的条目整条丢弃，并按每节
+  预算推出单条上限（`min(800, budget − 3)`）。
+  ③ **上下文读取上限**：`existingContext` 在进 fit 之前就被 `slice(0, MAX_CONTEXT_CHARS)` 截掉，超上限的存量
+  `CONTEXT.md` 每轮都丢这一段，此前**没有任何计数**。
+  ④ **上下文渲染** `renderContextDocument` 按自己的分节预算裁剪并写截断标记，此前只有一条每项目只报一次的日志。
+  ⑤ **记忆写入上限** `normalizeMemoryDocument`（写入路径 `record.ts:89`）：**不是四节 bullet 文档**的回复根本进不了
+  分节渲染器，超上限时被裁到 cap 并以截断标记落盘——此前**回执与日志全无**，是最彻底的一条静默路径。
+  现在：`MemoryInput` 带 `memoryHiddenChars` / `contextHiddenChars`，`ConsolidationOutcome` 把读取上限并入
+  `contextHiddenChars`（`clipTo` 只缩不增，计数恒非负），`ConsolidateReport` 升级为带 `status`、两个落地布尔
+  （`memoryWritten` / `contextWritten`）与六个计数的对象（`memoryHiddenChars` / `contextHiddenChars` /
+  `contextDroppedChars` / `memoryWriteDroppedChars` / `sectionDropped` / `droppedItems` / `itemTruncated`）。
+  回执按机制给词，并**只说真的落了盘的东西**：`stale` 时 memory 侧计数归零、context 没写时 context 计数归零，
+  只写了一个文件时说 `Project memory updated.` 而不再声称两个都更新了（旧措辞在 context 因形状不可用被跳过时是假的）。
+  失败发生在一次写入**之后**时，`failed` 回执改为说明哪个文件已经落盘、丢了什么，而不是把已有的丢失抹成 0。
+  另修两处计数不实：`itemTruncated` 不再统计「先按单条上限裁、随后又整条被丢弃」的条目（它并不在文档里）；
+  低于 40 字符下限而被丢弃的回复改为记一条日志（此前无写、无日志、回执仍称干净）。**干净路径逐字不变**（两个文件都
+  落地且无丢失时，`updated` 仍是 `Project memory and context updated.`，`clipped` 无计数时仍是原句），所以
+  「句子没变」仍然等于「没丢东西」。
+  同时**去掉三处每项目只报一次的日志闸门**（`memorySectionClipLogged` / `contextClipLogged` /
+  `contextUnusableLogged`）：一个长期超预算或持续给出不可用 context 的项目每轮都在丢/跳，只报第一次等于把后面每
+  一次都变成静默。
+  档位选择：批 C 的三档（A 回执点名 / B 拒绝写入 / C 拒绝 + 一次定向重试）里选 **A**——它零行为变更、复杂度最低，
+  且是 C 的前置（C 要用这些计数）。B 单做有自锁风险（当前这份 MEMORY.md 就在 cap 附近），C 需要完整的重试语义设计。
+  决策、验收判据与仍未收口的两条残余存档在 `docs/batch-c-loss-receipt-brief.md`，证据在
+  `.agents/evidence/2026-10-04-memory-loss-receipt/`（`probe.mjs` 在**写入前的输入/回复**上逐一复现五处丢失，并量出
+  「写完再渲染 → 0 掉落」这个陷阱）。
+  过程：初版只收口 ①②（且把主张写成"回执再也不会与干净回执逐字相同"）。独立对抗审核复现出 ③④⑤ 与三处计数/措辞
+  不实（含 ⑤ 全静默），于是本轮扩到五处并逐条加了用例；审核同时给出「无法证伪」清单：干净措辞在七种 status 上逐字
+  相同（旧函数从 `HEAD` 取出后逐字比对）、重试路径报的是重试那次 fit 的计数、新用例非空转。
+  变异校验：**五个**变异体各自杀死对应用例——`memoryHiddenChars` 恒 0 → 按份报字符数那条红；回执掉落子句阈值改
+  100000 → 回执两条红；`contextHiddenChars` 去掉 `wroteContext` 过滤 → 「计数只描述落盘内容」那条红；`itemTruncated`
+  挪回丢弃之前 → `renderMemoryDocument` 分节用例红；写入上限计数阈值改 1000000 → 写上限用例红。每个都 `tsc` 0 错、
+  marker 进 `lib/`、只掉自己的用例（其中 M5 第一版让 import 变成未引用、`tsc` 报 `TS6133`，按仓库规矩作废重做）。
+  从 hash 校验过的 `/tmp` 副本恢复 `src/` 后重建，`lib/` 变异标记 0。
+  门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28376 字节）、`pnpm test`
+  **302 pass / 0 fail**（新增 9 条用例）。
+
 ### v0.2.1（2026-09-26）
 
 **设置卡片（client + host）**

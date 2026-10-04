@@ -1,0 +1,107 @@
+{
+  "clip": {
+    "storedMemory": 60018,
+    "storedContext": 60011,
+    "sentMemory": 39682,
+    "sentContext": 39677,
+    "clipped": true,
+    "memoryHiddenChars": 20336,
+    "contextHiddenChars": 20334,
+    "identityMemory": true,
+    "identityContext": true,
+    "retryHiddenChars": 50910,
+    "firstHiddenChars": 40670
+  },
+  "render": {
+    "replyEntries": 400,
+    "sectionDropped": 1,
+    "droppedItems": 354,
+    "renderedChars": 854,
+    "itemTruncatedSingleEntry": 1
+  },
+  "pass": {
+    "clipCase": {
+      "report": {
+        "status": "clipped",
+        "memoryWritten": true,
+        "contextWritten": true,
+        "memoryHiddenChars": 7272,
+        "contextHiddenChars": 0,
+        "contextDroppedChars": 0,
+        "memoryWriteDroppedChars": 0,
+        "sectionDropped": 0,
+        "droppedItems": 0,
+        "itemTruncated": 0
+      },
+      "receipt": "Project memory and context updated, but the existing content was shortened to fit the model output budget: the model was not shown 7272 character(s) of the stored memory."
+    },
+    "dropCase": {
+      "report": {
+        "status": "updated",
+        "memoryWritten": true,
+        "contextWritten": true,
+        "memoryHiddenChars": 0,
+        "contextHiddenChars": 0,
+        "contextDroppedChars": 0,
+        "memoryWriteDroppedChars": 0,
+        "sectionDropped": 1,
+        "droppedItems": 354,
+        "itemTruncated": 0
+      },
+      "receipt": "Project memory and context updated, but the rewrite was lossy: 1 section(s) exceeded their budget and 354 whole entry(ies) were dropped.",
+      "secondPassStatus": "updated"
+    },
+    "storedAfterDropChars": 839,
+    "storedReRenderDrops": 0,
+    "lossLogLines": 2,
+    "cleanCase": {
+      "report": {
+        "status": "updated",
+        "memoryWritten": true,
+        "contextWritten": true,
+        "memoryHiddenChars": 0,
+        "contextHiddenChars": 0,
+        "contextDroppedChars": 0,
+        "memoryWriteDroppedChars": 0,
+        "sectionDropped": 0,
+        "droppedItems": 0,
+        "itemTruncated": 0
+      },
+      "receipt": "Project memory and context updated.",
+      "errorLines": 0
+    },
+    "contextClipCase": {
+      "report": {
+        "status": "updated",
+        "memoryWritten": true,
+        "contextWritten": true,
+        "memoryHiddenChars": 0,
+        "contextHiddenChars": 28000,
+        "contextDroppedChars": 14000,
+        "memoryWriteDroppedChars": 0,
+        "sectionDropped": 0,
+        "droppedItems": 0,
+        "itemTruncated": 0
+      },
+      "receipt": "Project memory and context updated, but the rewrite was lossy: the model was not shown 28000 character(s) of the stored context; 14000 character(s) of the context were dropped to fit its section budgets.",
+      "contextTruncatedOnDisk": true
+    },
+    "writeCapCase": {
+      "report": {
+        "status": "updated",
+        "memoryWritten": true,
+        "contextWritten": true,
+        "memoryHiddenChars": 0,
+        "contextHiddenChars": 0,
+        "contextDroppedChars": 0,
+        "memoryWriteDroppedChars": 10401,
+        "sectionDropped": 0,
+        "droppedItems": 0,
+        "itemTruncated": 0
+      },
+      "receipt": "Project memory and context updated, but the rewrite was lossy: 10401 character(s) of the reply exceeded the memory cap and were dropped on write.",
+      "memoryTruncatedOnDisk": true,
+      "logLines": 1
+    }
+  }
+}

@@ -11,8 +11,25 @@ import { MAX_CONVERSATION_CHARS } from "./project-state.js";
 import { MAX_ADAPTIVE_OUTPUT_TOKENS, MIN_CLIP_CHARS, REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, allocateTokens, reasoningReserveTokens } from "./output-budget.js";
 import { clip, clipTo, replyTokenRate, textOf, truncateMiddle } from "./text.js";
 
-/** What the pass sends instead of the stored artifacts, plus the budget it asks for. */
-export type MemoryInput = { text: string; contextText: string; maxTokens: number; clipped: boolean };
+/**
+ * What the pass sends instead of the stored artifacts, plus the budget it asks for.
+ *
+ * The clip is reported per artifact as a character count, not just a boolean: the receipt has to say
+ * which of the two was shortened and by how much, and a bare flag cannot distinguish a pass that hid
+ * a few characters of memory from one that hid a whole context. `clipped` stays the derived "either
+ * one was shortened" answer the call sites already read.
+ */
+export type MemoryInput = {
+	text: string;
+	contextText: string;
+	maxTokens: number;
+	/** True when either stored artifact had to be shortened to fit the output budget. */
+	clipped: boolean;
+	/** Characters of the stored memory the model was not shown (head-and-tail clip); 0 when whole. */
+	memoryHiddenChars: number;
+	/** Characters of the stored context the model was not shown; 0 when whole. */
+	contextHiddenChars: number;
+};
 
 /**
  * Match the output budget to everything the reply must re-emit. A large memory is what truncated
@@ -44,7 +61,7 @@ export function fitMemoryInput(
 	const reserved = Math.min(desiredReserve, Math.max(0, maxTokens - MIN_CLIP_CHARS), Math.max(REPLY_OUTPUT_MARGIN_TOKENS, Math.round(maxTokens * 0.5)));
 	const budget = Math.max(0, maxTokens - reserved);
 	if (contentTokens <= budget) {
-		return { text: memory, contextText: context, maxTokens, clipped: false };
+		return { text: memory, contextText: context, maxTokens, clipped: false, memoryHiddenChars: 0, contextHiddenChars: 0 };
 	}
 	// Over budget: each artifact keeps a floor in tokens and the rest follows its measured need, so
 	// a big cheap artifact cannot crowd out a small dense one. Repeat with the clipped texts' own
@@ -108,7 +125,18 @@ export function fitMemoryInput(
 			contextText = clipTo(contextText, contextText.length - Math.max(1, Math.ceil(over / Math.max(replyTokenRate(contextText), 0.001))));
 		} else break;
 	}
-	return { text, contextText, maxTokens, clipped: text.length < memory.length || contextText.length < context.length };
+	// The counts are what the receipt reports; `clipped` is their boolean summary. `clipTo` only ever
+	// shortens, so neither count can go negative even after the growth passes above.
+	const memoryHiddenChars = memory.length - text.length;
+	const contextHiddenChars = context.length - contextText.length;
+	return {
+		text,
+		contextText,
+		maxTokens,
+		clipped: memoryHiddenChars > 0 || contextHiddenChars > 0,
+		memoryHiddenChars,
+		contextHiddenChars,
+	};
 }
 
 /**
