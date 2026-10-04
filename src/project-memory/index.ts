@@ -205,7 +205,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 					const parts: string[] = [];
 					if (outcome.sectionDropped > 0) parts.push(`${outcome.sectionDropped} section(s) exceeded their budget and ${outcome.droppedItems} whole entry(ies) were dropped`);
 					if (outcome.itemTruncated > 0) parts.push(`${outcome.itemTruncated} entry(ies) exceeded their section's per-item cap and were truncated`);
-					await logError(projectRoot, "memory", `MEMORY.md was rendered within its per-section budgets: ${parts.join("; ")}`);
+					await logError(projectRoot, "memory", `MEMORY.md was rendered lossily: ${parts.join("; ")}`);
 				}
 			}
 

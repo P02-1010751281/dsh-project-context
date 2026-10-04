@@ -1445,7 +1445,7 @@ test("fitMemoryInput reports the hidden characters per artifact, and clipped sta
 	assert.equal(clean.contextHiddenChars, 0);
 });
 
-test("a pass that drops entries reports the loss in its receipt and logs every occurrence", async () => {
+test("a pass that drops entries reports the loss in its receipt and logs a truthful line on every occurrence", async () => {
 	// End-to-end over the real write path: the reply's Project section floods its share, so the
 	// renderer drops entries before anything lands and the stored document afterwards shows none of
 	// it. The receipt must name the drop rather than read as a clean update, and the log must fire on
@@ -1477,6 +1477,13 @@ test("a pass that drops entries reports the loss in its receipt and logs every o
 		.split("\n")
 		.filter((line) => line.includes("exceeded their budget"));
 	assert.equal(logged.length, 2, `each lossy write leaves its own line, got ${JSON.stringify(logged)}`);
+	// The line must not claim the render stayed inside the very budgets it is reporting exceeded: it
+	// used to open with "MEMORY.md was rendered within its per-section budgets", which reads as a clean
+	// render while naming drops — the opposite of what the receipt says for the same event.
+	for (const line of logged) {
+		assert.match(line, /MEMORY\.md was rendered lossily:/, `the log must name the loss, got ${line}`);
+		assert.doesNotMatch(line, /within its per-section budgets/, `the log must not claim the budgets held, got ${line}`);
+	}
 });
 
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
