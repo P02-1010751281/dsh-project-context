@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-10-04T19:55:35+08:00
+Last updated: 2026-10-04T20:07:16+08:00
 
 ## Summary
 
@@ -61,13 +61,20 @@ this change and tier A is live: re-derive loaded-versus-not from the socket hold
   clips entries. Verify with `.agents/evidence/2026-10-04-memory-four-section-migration/probe.mjs`,
   never by counting characters: the mechanism that lost content is invisible in the stored file.
 - rewind is disposed on both halves. The user removed the declaration from
-  `/etc/nixos/home-manager/user/programs/dsh.nix` (that file's mtime moved and the whole-line grep is
-  empty), and the `web` profile was cleaned with the store-pinned pnpm (PATH's is a different major
-  and rewrites `pnpm-lock.yaml`): the rewind dependency row, its `bundles` row, its lock references
-  and `node_modules/dsh-rewind-plugin` are all gone, and the lock diff was removals only. Why no
+  `/etc/nixos/home-manager/user/programs/dsh.nix` (`grep -rn --include='*.nix' rewind /etc/nixos` is
+  empty — scan only `*.nix`, since this repo's own session logs otherwise swamp the result), and the
+  `web` profile was cleaned with the store-pinned pnpm (PATH's is a different major and rewrites
+  `pnpm-lock.yaml`): the rewind dependency row, its `bundles` row, its lock references and
+  `node_modules/dsh-rewind-plugin` are all gone, and the lock diff was removals only. Why no
   activation can bring it back is read from source, not inferred: the HM module builds one
   ensure-missing command per `cfg.plugins` entry and never deletes, and it only targets the `web`
-  profile — with the entry gone there is no command mentioning it. Pre-cleanup manifests are kept at
+  profile — with the entry gone there is no command mentioning it. That reading is confirmed
+  empirically, not just structurally: the first switch after the removal has already run and is the
+  live generation, and its own activation script names no rewind while still ensuring every other
+  declared plugin — require
+  `grep -c rewind "$(readlink -f ~/.local/state/home-manager/gcroots/current-home)/activate"` to be 0
+  and the same file to carry the other plugins' `dsh plugin --profile web add` lines. Pre-cleanup
+  manifests are kept at
   `~/.dsh/profiles/web/{package.json,pnpm-lock.yaml}.bak-2026-10-04-rewind-local-half` and
   `/tmp/rewind-local-half-2026-10-04-rewind-local-half/`.
 
@@ -80,9 +87,6 @@ this change and tier A is live: re-derive loaded-versus-not from the socket hold
   new `errors.log` line would show the difference. Re-derive loaded-versus-not with `ss -ltnp | grep
   19387`, then `ps -o lstart= -p <pid>` versus `git log -1 --format=%cI -- src/`, and `lib/` clean
   against a fresh `tsc` compile into a temp dir.
-- rewind: only the empirical check is left, and only the user can run it. After their next
-  `home-manager switch`, `node_modules/dsh-rewind-plugin` should still be absent, because the
-  activation generates no command for an entry that is no longer declared. No agent action.
 - Tier B and tier C remain unimplemented by ruling, so a lossy consolidation pass still writes; the
   residual is recorded in `CHANGELOG.md` and `docs/batch-c-loss-receipt-brief.md` rather than fixed.
   If C is wanted later, it starts from tier A unchanged.
