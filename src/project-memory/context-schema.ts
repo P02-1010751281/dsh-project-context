@@ -37,6 +37,30 @@ export const CONTEXT_SECTIONS: readonly ContextSectionSpec[] = [
 
 export type ContextSectionBudget = { heading: string; description: string; entry: ContextSectionEntry; chars: number };
 
+/**
+ * The `context` member of the `record_memory` tool, as a plain JSON Schema.
+ *
+ * Every property is required and `additionalProperties` is false so the schema passes a strict-mode
+ * validator unchanged: an optional property would be wrapped into `anyOf: [<prop>, {type: "null"}]`
+ * and forced back into `required`, which strict mode rejects.
+ */
+export const CONTEXT_TOOL_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: ["summary", "title", "key_points", "open_tasks"],
+	description:
+		"The session's working state, rewritten from scratch every pass. State and pointers, not rules; nothing that already lives in memory. Keep entries short and pointerized; no inline formulas, tables, or command transcripts.",
+	properties: {
+		summary: {
+			type: "string",
+			description: "Prose summary of this session's state. Code enforces its own cap on this field.",
+		},
+		title: { type: "string", description: "One-line title for this session." },
+		key_points: { type: "array", items: { type: "string" }, description: "What was established this session." },
+		open_tasks: { type: "array", items: { type: "string" }, description: "What is still open, and who owns it." },
+	},
+};
+
 /** One blank line (two characters) terminates each section body; the last one over-reserves a character. */
 export const CONTEXT_SECTION_GAP_CHARS = 2;
 

@@ -12,6 +12,20 @@ const MEMORY_TRUNCATION_PREFIX = "_[memory truncated";
 /** The marker line in full: `_[memory truncated at <limit> characters: <dropped> dropped]_`. */
 const MEMORY_TRUNCATION_LINE = /^_\[memory truncated at \d+ characters: \d+ dropped\]_$/;
 
+/**
+ * True when a single line is the cap marker, not merely prefixed like it.
+ *
+ * Exported because the section parser has to strip a trailing marker before it can read a stored
+ * memory: a memory that was ever over the cap ends with this line, and treating it as section content
+ * would reject the whole document.
+ */
+export function isMemoryTruncationLine(line: string): boolean {
+	return MEMORY_TRUNCATION_LINE.test(line.trim());
+}
+
+/** The canonical heading every stored memory document carries; the schema budget reserves it. */
+export const MEMORY_HEADER = "# Project Memory\n\n";
+
 /** The line a capped document ends with: a cut memory must never look like a complete one. */
 export function memoryTruncationMarker(dropped: number, limit: number): string {
 	return `${MEMORY_TRUNCATION_PREFIX} at ${limit} characters: ${dropped} dropped]_`;
@@ -19,7 +33,7 @@ export function memoryTruncationMarker(dropped: number, limit: number): string {
 
 /** True when a memory document reports that the cap dropped part of it. */
 export function isMemoryTruncated(text: string): boolean {
-	return text.split("\n").some((line) => MEMORY_TRUNCATION_LINE.test(line.trim()));
+	return text.split("\n").some((line) => isMemoryTruncationLine(line));
 }
 
 /** Largest whole-line prefix of `text` within `limit`; only a single over-long line is cut inside. */
@@ -62,9 +76,9 @@ export function normalizeMemoryDocument(value: string, limit: number = MAX_MEMOR
 	const lines = cleaned.split("\n");
 	// Only the exact marker shape is stripped; a regular memory line that merely starts with the
 	// same words must not be moved to the end (and reported as a cap that never happened).
-	const previous = lines.find((line) => MEMORY_TRUNCATION_LINE.test(line.trim()))?.trim();
-	const body = lines.filter((line) => !MEMORY_TRUNCATION_LINE.test(line.trim())).join("\n").trim();
-	const document = `# Project Memory\n\n${body}`;
+	const previous = lines.find((line) => isMemoryTruncationLine(line))?.trim();
+	const body = lines.filter((line) => !isMemoryTruncationLine(line)).join("\n").trim();
+	const document = `${MEMORY_HEADER}${body}`;
 	if (document.length <= limit) return `${document}${previous ? `\n\n${previous}` : ""}`.trimEnd() + "\n";
 	// Reserve the marker's room, then re-cut with the count that cut produced: one correction is
 	// enough, because a larger dropped count can only make the marker longer and the budget is
