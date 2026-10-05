@@ -20,6 +20,22 @@
 - 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 字节，客户端未动）、`node --test`
   **335 pass / 0 fail**（用例数未增，新断言并入既有的命令级用例）。
 
+**project-handoff（设置名口径）**
+
+- 修复：护栏拒绝句把设置简写成 `keep`，但用户可见名两端都不叫这个——设置卡标签是「保留最近对话（token）」/「Recent tokens kept」，
+  README 写 `handoffKeepTokens`。现在 `thresholdRefusalText` 里所有指该设置的**名词**统一改用设置卡自己的标签：window-headroom 的
+  组装项、quality-knee 的两支杠杆句（`lower …` / `no … value clears this`）、summarizer-floor 的 `a smaller keep`。两支互斥**不变**
+  ——`keepClears` 仍决定点名还是不点名。
+- 边界：拒绝句本身不分语言（`thresholdRefusalText` 没有语言参数，全仓运行期回执皆为英文），所以用的是**英文**标签 `"Recent tokens kept"`。
+  要让中文会话看到「保留最近对话（token）」，得把语言穿进 `thresholdRefusalText`（`/handoff status` 侧能从 session 解析），属单独一件事。
+- 未跟随的口径（留待裁定）：`/handoff status` 回执里的 `keep ~N recent tokens` 与跳过原因 `nothing older than keep ~N tokens`
+  （`src/project-handoff/command.ts`）是**动词式**描述而不是设置名词，本轮未动；要一并统一属另一条 ruling。
+- 变异校验（1 个变异体，`tsc` 0 错、标记进 `lib/project-handoff/threshold.js`、只打红该打的用例）：把两支杠杆句改回 `keep`
+  → `test/logic.test.mjs` 的「the status receipt names the term that refused the threshold, not always the window」红（先打在
+  `no "Recent tokens kept" value clears this` 那条断言上）。收尾从 `sha256sum -c` 校验过的 `/tmp` 副本恢复 `src/`、重建后 `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 字节，客户端未动）、`node --test`
+  **335 pass / 0 fail**（用例数未增，断言就地改写）。
+
 ### v0.3.0（2026-10-05）
 
 **project-context（归档范围）**

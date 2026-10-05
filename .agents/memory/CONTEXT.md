@@ -23,7 +23,7 @@ This session continued from handoff session-e51fc636, whose main line was either
 ## Open tasks
 
 - `/handoff force` was retired (2026-10-05, on the user's ruling — option C): it no longer triggers a manual handoff and answers with the `/session-log now`-shaped naming sentence instead of the generic `USAGE`. Recorded under `未发布` in `CHANGELOG.md` and as an addendum to ruling §5.4.
-- Still open after batch E: the guard refusal sentence's `keep` names the `handoffKeepTokens` setting rather than a command spelling — ruling §5.5 records why it survived and pi keeps the same sentence, and the user has not ruled on renaming it.
+- The other batch-E residual was closed too (2026-10-05): the guard refusal sentence now names the setting with the settings card's label (`"Recent tokens kept"`) instead of the `keep` shorthand, and the two-branch exclusion (`keepClears`) is intact. The refusal receipt is English-only, so a zh label would need the language threaded into `thresholdRefusalText`; `command.ts`'s verb-style `keep ~N recent tokens` lines were left alone by the same decision.
 - A tab hard-reload is still owed for the batch E client hint text in already-open tabs; host-side batch F/D/E code is live after the user's restart, so nothing else is pending on the host.
 - Out-of-repo residuals unchanged: dsh core splitting `discovery.ts`'s `capacity()` into declared window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold` `!model || usage.tokens === null` and its truncated-retry guard coverage.
 - Standing guard for the next session: no profile edits, no host restarts and no `/etc/nixos` changes without the user naming them; the desktop restart script and `/memory update` are user-only.
