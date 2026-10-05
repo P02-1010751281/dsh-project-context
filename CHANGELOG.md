@@ -23,18 +23,22 @@
 **project-handoff（设置名口径）**
 
 - 修复：护栏拒绝句把设置简写成 `keep`，但用户可见名两端都不叫这个——设置卡标签是「保留最近对话（token）」/「Recent tokens kept」，
-  README 写 `handoffKeepTokens`。现在 `thresholdRefusalText` 里所有指该设置的**名词**统一改用设置卡自己的标签：window-headroom 的
-  组装项、quality-knee 的两支杠杆句（`lower …` / `no … value clears this`）、summarizer-floor 的 `a smaller keep`。两支互斥**不变**
-  ——`keepClears` 仍决定点名还是不点名。
-- 边界：拒绝句本身不分语言（`thresholdRefusalText` 没有语言参数，全仓运行期回执皆为英文），所以用的是**英文**标签 `"Recent tokens kept"`。
-  要让中文会话看到「保留最近对话（token）」，得把语言穿进 `thresholdRefusalText`（`/handoff status` 侧能从 session 解析），属单独一件事。
-- 未跟随的口径（留待裁定）：`/handoff status` 回执里的 `keep ~N recent tokens` 与跳过原因 `nothing older than keep ~N tokens`
-  （`src/project-handoff/command.ts`）是**动词式**描述而不是设置名词，本轮未动；要一并统一属另一条 ruling。
-- 变异校验（1 个变异体，`tsc` 0 错、标记进 `lib/project-handoff/threshold.js`、只打红该打的用例）：把两支杠杆句改回 `keep`
-  → `test/logic.test.mjs` 的「the status receipt names the term that refused the threshold, not always the window」红（先打在
-  `no "Recent tokens kept" value clears this` 那条断言上）。收尾从 `sha256sum -c` 校验过的 `/tmp` 副本恢复 `src/`、重建后 `lib/` 标记 0。
-- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 字节，客户端未动）、`node --test`
-  **335 pass / 0 fail**（用例数未增，断言就地改写）。
+  README 写 `handoffKeepTokens`。现在**一个事实一个拼法**：`src/shared/setting-labels.ts` 是这对标签的唯一定义，设置卡
+  （`client/locales.ts` 的两个字典）直接读它——`client/index.ts` 本来就从 `src/` 引代码，所以不是两份副本各自漂移——运行期回执也读它。
+  `keep` 这个简写在用户可见处全部消失：`thresholdRefusalText` 的组装项、quality-knee 的两支杠杆句（`lower …` / `no … value
+  clears this`）、summarizer-floor 的括注，以及 `/handoff status` 的保留量行与自动跳过原因（`src/project-handoff/command.ts`）。
+  两支互斥**不变**——`keepClears` 仍决定点名还是不点名。
+- 修复：拒绝句原本只有英文，而 `HANDOFF.md` 早已按会话语言本地化，于是中文会话会拿到一段英文的「为什么没交接」。现在
+  `thresholdRefusalText` 的**四条分支**（window-headroom / quality-knee / summarizer-floor / no-positive-threshold）都有中英两套，
+  语言在 `statusText` 里用 `resolveHandoffLanguage` 解析一次后传入——与 `HANDOFF.md` 用的是同一个判定——标签随之取该语言的卡片文案。
+  边界：回执的其余片段（`context …`、`harness envelope …`、`adaptive target …` 等）两种语言下都仍是英文，整份回执的本地化是另一件事。
+- 变异校验（**三个**变异体，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：把两支杠杆句改回 `keep` → 既有用例
+  「the status receipt names the term that refused the threshold, not always the window」红；把 `thresholdRefusalText` 的 `zh` 写死为
+  `false` → 新用例「the status receipt follows the handoff language and names the setting by its card label」红在中文拒绝句断言上；
+  把 `statusText` 的语言写死为英文（用 `{...config, handoffLanguage: "en"}` 保持导入被引用，否则是 `TS6133` 的无效变异体）→ 同一条新用例
+  红在 `lang auto (zh)` 断言上。收尾均从 `sha256sum -c` 校验过的 `/tmp` 副本恢复 `src/`、重建后 `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 → **28529** 字节：客户端字典改读共享定义，
+  需按 `dsh-host-build-restart-verify` 硬刷新标签页）、`node --test` **336 pass / 0 fail**（新增 1 条语言用例，另 2 条就地改写）。
 
 ### v0.3.0（2026-10-05）
 

@@ -103,9 +103,11 @@ directory layouts rather than config shapes. The umbrella command pi retired doe
 5. **`keep` as a *setting* name survives.** The refusal's lever sentence still says "lower `keep`", because
    there `keep` names the `handoffKeepTokens` setting rather than a command spelling, and pi's port left the
    same sentence alone. Only spellings actually typed at `/handoff` moved.
-   **Addendum (2026-10-05, after `v0.3.0`):** the user ruled to stop using the `keep` shorthand in the refusal
-   text, so every *noun* mention of the setting in `thresholdRefusalText` now uses the settings card's own label
-   (`"Recent tokens kept"`). The receipt is English-only — `thresholdRefusalText` takes no language — so the zh
-   card label («保留最近对话（token）») would require threading the session language into that function, which was
-   not done. The two-branch exclusion is unchanged, and `command.ts`'s verb-style `keep ~N recent tokens`
-   lines were deliberately not moved.
+   **Addendum (2026-10-05, after `v0.3.0`):** the user ruled to retire the `keep` shorthand from everything the
+   user can see. The label now has one definition, `src/shared/setting-labels.ts`, read by the settings card
+   (`client/locales.ts`) and by the receipts alike; `thresholdRefusalText` renders in both languages, using the
+   session language `resolveHandoffLanguage` already picks for `HANDOFF.md`, so the zh card label is used
+   verbatim instead of leaving a Chinese session with an English explanation; and `command.ts`'s two verb-style
+   `keep ~N recent tokens` lines moved with it. The two-branch exclusion is unchanged. The rest of the status
+   receipt (`context …`, `harness envelope …`, `adaptive target …`) is English in both languages — localizing
+   every fragment is a separate decision, not a side effect of this one.
