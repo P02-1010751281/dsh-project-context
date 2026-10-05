@@ -23,7 +23,7 @@ export const RECORD_SKILL_TOOL: PluginTool = {
 	parameters: {
 		type: "object",
 		additionalProperties: false,
-		required: ["skill", "need_sessions"],
+		required: ["skill", "need_sessions", "inspect_skill"],
 		properties: {
 			skill: {
 				type: "object",
@@ -35,7 +35,7 @@ export const RECORD_SKILL_TOOL: PluginTool = {
 					name: {
 						type: "string",
 						description:
-							'Lowercase-kebab-case name, never reused from the existing inventory — except a name marked `(learned)` there whose body is shown under <learned-skill-bodies>, which may be reused to update that skill. "" means propose nothing; the other skill fields are then ignored.',
+							'Lowercase-kebab-case name, never reused from the existing inventory — except a name marked `(learned)` there whose body you asked for with `inspect_skill` and saw under <learned-skill-bodies>, which may be reused to update that skill. "" means propose nothing; the other skill fields are then ignored.',
 					},
 					description: { type: "string", description: `One line: when to use the skill, at most ${MAX_SKILL_DESCRIPTION_CHARS} characters.` },
 					body: { type: "string", description: `Concise Markdown procedure with when-to-use and exact commands or paths, at most ${MAX_SKILL_BODY_CHARS} characters.` },
@@ -60,6 +60,14 @@ export const RECORD_SKILL_TOOL: PluginTool = {
 				type: "array",
 				items: { type: "string" },
 				description: "Up to three archived session ids whose raw transcripts you want to read before deciding.",
+			},
+			inspect_skill: {
+				type: "array",
+				items: { type: "string" },
+				// The count cap lives in code (`MAX_INSPECT_SKILLS`, sliced inside `learnedBodies`):
+				// `maxItems` is not guaranteed to be enforced, so no `maxItems` is declared here.
+				description:
+					"Up to two learned project skill names whose current body you want shown before merging them. A learned skill's name may only be reused after its body has been shown.",
 			},
 		},
 	},

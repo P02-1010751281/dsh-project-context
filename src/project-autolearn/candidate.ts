@@ -50,7 +50,13 @@ export function shapeRejection(description: string, body: string): string | unde
 	return undefined;
 }
 
-function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: readonly SkillInventory[], candidateExists: boolean): string | undefined {
+function rejectionReason(
+	skill: ProposedSkill,
+	archived: Set<string>,
+	existing: readonly SkillInventory[],
+	candidateExists: boolean,
+	shownNames: ReadonlySet<string> = new Set(),
+): string | undefined {
 	if (!validSkillName(skill.name)) return "invalid kebab-case name";
 	const shape = shapeRejection(skill.description, skill.body);
 	if (shape !== undefined) return shape;
@@ -59,11 +65,16 @@ function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: 
 	if (cited.length < required) {
 		return skill.candidate ? "needs at least one verified session id" : "needs evidence from at least two different sessions";
 	}
-	// A name this pipeline generated may be reused to supersede that skill; every other existing name
-	// (hand-written or imported) belongs to someone else and stays refused. The guard reads the marker
-	// off the artifact, so it is the same fact `/autolearn approve` reads before it replaces a file.
+	// A name this pipeline generated may be reused to supersede that skill — and only when this pass
+	// actually showed its body, because the merge has to be over the text being replaced rather than a
+	// blind rewrite. Every other existing name (hand-written or imported) belongs to someone else, and
+	// a learned name whose body was not shown is off limits too. The guard reads the marker off the
+	// artifact, so it is the same fact `/autolearn approve` reads before it replaces a file.
 	const collision = existing.find((entry) => entry.name === skill.name);
-	if (collision && !collision.autolearn) return `skill "${skill.name}" already exists`;
+	if (collision) {
+		if (!collision.autolearn) return `skill "${skill.name}" already exists`;
+		if (!shownNames.has(collision.name)) return "body not shown this pass";
+	}
 	if (candidateExists) return `candidate "${skill.name}" already exists`;
 	return undefined;
 }
@@ -76,22 +87,36 @@ function rejectionReason(skill: ProposedSkill, archived: Set<string>, existing: 
  * direct publish below may only *create* a name, never replace one. So the only path that replaces
  * a marked skill is `/autolearn approve`, and "the pipeline updated a skill" is always a change a
  * human approved.
+ *
+ * `shownNames` is the set of learned names whose body this pass actually rendered. A marked name
+ * outside it is refused, because a merge over text the model never saw is a blind rewrite wearing a
+ * merge's clothes.
  */
-export async function saveProposedSkill(projectRoot: string, skill: ProposedSkill, archived: Set<string>): Promise<"live" | "candidate" | { rejected: string }> {
+export async function saveProposedSkill(
+	projectRoot: string,
+	skill: ProposedSkill,
+	archived: Set<string>,
+	shownNames: ReadonlySet<string> = new Set(),
+): Promise<"live" | "candidate" | { rejected: string }> {
 	// Read the corpus fresh rather than trusting the caller's list: the marker is the deciding fact
 	// and it can change between the prompt and this write.
 	const existing = await collectSkillInventory(projectRoot);
 	const candidateExists = !!(await readOptional(candidateFile(projectRoot, skill.name)));
-	const reason = rejectionReason(skill, archived, existing, candidateExists);
+	const reason = rejectionReason(skill, archived, existing, candidateExists, shownNames);
 	if (reason !== undefined) return { rejected: reason };
+	const destination = path.join(skillsDir(projectRoot), skill.name, "SKILL.md");
+	// The second, independent read of the same boundary: the gate judged the inventory collected
+	// above, this reads the file a promote would replace. Both have to agree that this pass showed
+	// the body, so a one-sided change to either rule cannot let a blind supersede through.
+	const replaced = await readOptional(destination);
+	if (replaced && autolearnProvenance(replaced) && !shownNames.has(skill.name)) return { rejected: "body not shown this pass" };
 	if (skill.candidate) {
 		await writeAtomic(candidateFile(projectRoot, skill.name), skillDocument(skill));
 		return "candidate";
 	}
-	const destination = path.join(skillsDir(projectRoot), skill.name, "SKILL.md");
 	// The publish path keeps its blanket refusal, whatever the destination carries: it is the belt to
 	// the approve path's braces, so a model that asks for a direct supersede cannot bypass the gate.
-	if (await readOptional(destination)) return { rejected: `skill "${skill.name}" already exists` };
+	if (replaced) return { rejected: `skill "${skill.name}" already exists` };
 	await writeAtomic(destination, skillDocument(skill));
 	return "live";
 }
@@ -133,7 +158,11 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	}
 	await writeAtomic(destination, promotedDocument(name, description, body));
 	await rm(file, { force: true });
-	return { ok: true, message: `${existing ? "Updated" : "Activated"} project skill: ${name}` };
+	// Approving is a human decision that runs no prompt, so when it replaces a file the overwrite is
+	// blind by construction and the message says so instead of implying the body was merged. It is
+	// worded around the approval, not "this pass", because the pass that stored the candidate may
+	// well have shown the body — what never saw it is the approval.
+	return { ok: true, message: `${existing ? "Updated" : "Activated"} project skill: ${name}${existing ? " — approved by hand; the body was not shown to the approval" : ""}` };
 }
 
 /** Drop a candidate. Exported for the plugin. */

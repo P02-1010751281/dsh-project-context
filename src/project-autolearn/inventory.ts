@@ -12,11 +12,18 @@ import { autolearnProvenance, skillBody, skillDescription, withoutAutolearnProve
 const MAX_INVENTORY_CHARS = 8_000;
 
 /**
- * How much of the learned skills' own bodies the merge prompt may carry. Whole bodies only: a
- * truncated body invites a lossy merge, so a body that does not fit is left out entirely and the
- * prompt then forbids reusing its name this pass.
+ * How much of the *requested* learned skills' own bodies one round may carry. Whole bodies only: a
+ * truncated body invites a lossy merge, so a body that does not fit is left out entirely — and then
+ * its name is not in `names`, which is what the write path reads before it lets a name be superseded.
  */
-const MAX_LEARNED_BODY_CHARS = MAX_SKILL_BODY_CHARS;
+const MAX_SHOWN_BODY_CHARS = MAX_SKILL_BODY_CHARS;
+
+/**
+ * How many bodies one round may ask for. Enforced in `learnedBodies` rather than through the tool
+ * schema's `maxItems`: the provider is not guaranteed to honour `maxItems`, so the slice has to live
+ * in code, and it belongs where the bodies are actually rendered.
+ */
+export const MAX_INSPECT_SKILLS = 2;
 
 export interface SkillInventory {
 	name: string;
@@ -67,20 +74,25 @@ export function inventoryText(skills: readonly SkillInventory[]): string {
 }
 
 /**
- * The learned skills' own bodies, so an update can keep every still-valid step instead of rewriting
- * the procedure blind. Whole bodies only — see `MAX_LEARNED_BODY_CHARS`.
+ * The bodies of the *requested* learned skills, so an update can keep every still-valid step instead
+ * of rewriting the procedure blind. Returns the rendered text **and** the names it managed to
+ * include: "shown this pass" is what the gate and the write path read, so both have to come out of
+ * one computation rather than being re-derived. Whole bodies only — see `MAX_SHOWN_BODY_CHARS`.
  */
-export function learnedBodiesText(skills: readonly SkillInventory[]): string {
+export function learnedBodies(skills: readonly SkillInventory[], requested: readonly string[]): { text: string; names: string[] } {
+	const wanted = new Set(requested.slice(0, MAX_INSPECT_SKILLS));
 	const sections: string[] = [];
+	const names: string[] = [];
 	let used = 0;
 	for (const skill of skills) {
-		if (!skill.autolearn || !skill.body) continue;
+		if (!wanted.has(skill.name) || !skill.autolearn || !skill.body) continue;
 		const section = `### ${skill.name}\n\n${skill.body}`;
-		if (used + section.length > MAX_LEARNED_BODY_CHARS) continue;
+		if (used + section.length > MAX_SHOWN_BODY_CHARS) continue;
 		sections.push(section);
+		names.push(skill.name);
 		used += section.length + 1;
 	}
-	return sections.join("\n\n");
+	return { text: sections.join("\n\n"), names };
 }
 
 /**

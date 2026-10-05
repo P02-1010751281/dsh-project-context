@@ -17,6 +17,8 @@ import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
 import { MAX_SKILL_DESCRIPTION_CHARS, autolearnProvenance, promotedDocument } from "../lib/project-autolearn/skill.js";
+import { MAX_INSPECT_SKILLS, collectSkillInventory, learnedBodies } from "../lib/project-autolearn/inventory.js";
+import { RECORD_SKILL_TOOL } from "../lib/project-autolearn/schema.js";
 import { parseAutolearnReply } from "../lib/project-autolearn/parse.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS } from "../lib/shared/output-budget.js";
@@ -362,29 +364,38 @@ test("only a skill the pipeline wrote may be superseded, and only through the ca
 	await writeFile(path.join(skillsDir(root), "handmade-workflow", "SKILL.md"), '---\nname: handmade-workflow\ndescription: "hand-written"\n---\n\n## When to use\n\nHand-written procedure for the fixture project.\n');
 
 	const mergedBody = `## When to use\n\nMerged alpha workflow.\n\n## Steps\n\n1. Run \`node merged.mjs\`\n2. ${"Keep every still-valid step. ".repeat(8)}`;
-	// The direct publish path keeps its blanket refusal: a model asking to supersede without the gate
-	// changes nothing, whatever the destination carries.
+	// G4: a marked name whose body this pass never showed is refused with its own reason, on the
+	// direct-publish path too, and nothing is written.
 	const before = await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"));
 	assert.deepEqual(
 		await saveProposedSkill(root, { name: "alpha-workflow", description: "alpha merged", body: mergedBody, evidence: ["session-a", "session-b"], candidate: false }, archived),
-		{ rejected: 'skill "alpha-workflow" already exists' },
+		{ rejected: "body not shown this pass" },
 	);
 	assert.equal(await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md")), before, "the direct publish path wrote nothing");
+	// With the body shown the direct publish path keeps its blanket refusal: it is the belt to the
+	// approve path's braces, so the only way to replace a marked skill stays `/autolearn approve`.
+	assert.deepEqual(
+		await saveProposedSkill(root, { name: "alpha-workflow", description: "alpha merged", body: mergedBody, evidence: ["session-a", "session-b"], candidate: false }, archived, new Set(["alpha-workflow"])),
+		{ rejected: 'skill "alpha-workflow" already exists' },
+	);
+	assert.equal(await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md")), before, "the direct publish path wrote nothing even with the body shown");
 	// D2: the gate refuses the name when it belongs to a hand-written skill...
 	assert.deepEqual(
 		await saveProposedSkill(root, { name: "handmade-workflow", description: "duplicate", body: mergedBody, evidence: ["session-a"], candidate: true }, archived),
 		{ rejected: 'skill "handmade-workflow" already exists' },
 	);
-	// ...and lets a marked name through, so the supersede can be proposed.
+	// ...and lets a marked name through once this pass showed its body, so the supersede can be proposed.
 	assert.equal(
-		await saveProposedSkill(root, { name: "alpha-workflow", description: "alpha merged", body: mergedBody, evidence: ["session-a"], candidate: true }, archived),
+		await saveProposedSkill(root, { name: "alpha-workflow", description: "alpha merged", body: mergedBody, evidence: ["session-a"], candidate: true }, archived, new Set(["alpha-workflow"])),
 		"candidate",
 	);
 
 	// D3: approve reads the marker off the destination, so the candidate replaces a learned skill...
 	const approved = await approveCandidate(root, "alpha-workflow");
 	assert.equal(approved.ok, true, approved.message);
-	assert.equal(approved.message, "Updated project skill: alpha-workflow");
+	// Approving runs no prompt, so replacing a file here is blind by construction and the message
+	// has to say so instead of implying the body was merged.
+	assert.equal(approved.message, "Updated project skill: alpha-workflow — approved by hand; the body was not shown to the approval");
 	const updated = await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"));
 	assert.ok(updated.includes("node merged.mjs"), "the supersede landed");
 	assert.ok(autolearnProvenance(updated), "the superseded skill is still marked as ours");
@@ -412,7 +423,7 @@ test("only a skill the pipeline wrote may be superseded, and only through the ca
 	assert.ok(!(await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"))).includes("node merged.mjs"), "a name taken by hand is never superseded");
 });
 
-test("the merge prompt carries a learned skill's body whole, and drops one that does not fit", async () => {
+test("the first look carries no learned body, and the follow-up shows only the body it asked for", async () => {
 	const root = await project({ sessions: ["session-a"], index: ["session-a"] });
 	const learnedBody = "## When to use\n\nMarked learned procedure for the fixture project.\n\n## Steps\n\n1. Run `node learned.mjs`\n";
 	await mkdir(path.join(skillsDir(root), "alpha-workflow"), { recursive: true });
@@ -420,34 +431,150 @@ test("the merge prompt carries a learned skill's body whole, and drops one that 
 	await mkdir(path.join(skillsDir(root), "handmade-workflow"), { recursive: true });
 	await writeFile(path.join(skillsDir(root), "handmade-workflow", "SKILL.md"), '---\nname: handmade-workflow\ndescription: "hand-written"\n---\n\n## When to use\n\nHand-written procedure for the fixture project.\n');
 	const config = resolvePluginConfig({ autolearnTurns: 1 });
-	// Two calls: the first asks for an archive, the second distills from it. The block has to travel
-	// in both, because the rule that forbids reusing an unshown learned name is in both.
-	const ctx = fakeContext(['{"skill": null, "need_sessions": ["session-a"]}', '{"skill": null}']);
+	// The tag on its own line: the rules text names `<learned-skill-bodies>` whether or not a block exists.
+	const hasBodyBlock = (prompt) => prompt.includes("\n<learned-skill-bodies>\n");
 
+	// G1: the first look is the inventory alone — no body, whatever the marked population is — and the
+	// name is offered together with the ask that can show it.
+	const ctx = fakeContext(['{"skill": null, "need_sessions": [], "inspect_skill": ["alpha-workflow"]}', '{"skill": null}']);
 	await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
-	assert.equal(ctx.calls.length, 2, "the first decision backtracked into the archive");
-	for (const [index, call] of ctx.calls.entries()) {
-		const prompt = promptOf(call);
-		assert.match(prompt, /<learned-skill-bodies>\n### alpha-workflow\n\n## When to use\n\nMarked learned procedure/, `call ${index + 1} carries the learned body`);
-		assert.match(prompt, /- alpha-workflow \(learned\)/);
-		assert.doesNotMatch(prompt, /Hand-written procedure for the fixture project\./, "a hand-written body is never offered for merging");
-		// The rule is what forbids reusing a name whose body was left out of the block.
-		assert.match(prompt, /Never reuse the name of a learned skill whose body is not shown/);
-	}
-	assert.match(promptOf(ctx.calls[0]), /- handmade-workflow: hand-written/, "a hand-written skill is listed without the learned mark");
+	assert.equal(ctx.calls.length, 2, "the body ask opened a follow-up round");
+	const firstPrompt = promptOf(ctx.calls[0]);
+	assert.ok(!hasBodyBlock(firstPrompt), "the first look carries no learned body block");
+	assert.doesNotMatch(firstPrompt, /Marked learned procedure/, "no learned body text in the first look");
+	assert.match(firstPrompt, /- alpha-workflow \(learned\)/, "the inventory still lists the name");
+	assert.match(firstPrompt, /- handmade-workflow: hand-written/, "a hand-written skill is listed without the learned mark");
+	assert.match(firstPrompt, /inspect_skill/, "the first look offers the body ask");
+	// G7: the rule states the pull semantics the code enforces, not a rule only the model can apply.
+	assert.match(firstPrompt, /ask for its current body with `inspect_skill`/);
+	assert.match(firstPrompt, /Never reuse the name of a learned skill whose body was not shown/);
+	assert.match(firstPrompt, /body not shown this pass/);
 
-	// A body that cannot fit whole is left out entirely rather than truncated: a cut body would invite
-	// exactly the lossy merge the budget protects against.
-	const big = await project({ sessions: ["session-a"] });
-	await mkdir(path.join(skillsDir(big), "huge-workflow"), { recursive: true });
-	await writeFile(path.join(skillsDir(big), "huge-workflow", "SKILL.md"), promotedDocument("huge-workflow", "huge", `## Steps\n\n${"y".repeat(MAX_SKILL_BODY_CHARS)}`));
-	const bigCtx = fakeContext(['{"skill": null}']);
-	await autolearnProjectSkills(bigCtx, fakeAgent(big, { turns: 2 }), config);
-	const bigPrompt = promptOf(bigCtx.calls[0]);
-	assert.match(bigPrompt, /- huge-workflow \(learned\)/);
-	// The block itself, not the rule that names it: the rule text mentions `<learned-skill-bodies>`
-	// whether or not the block is there.
-	assert.doesNotMatch(bigPrompt, /\n<learned-skill-bodies>\n/, "a body that does not fit whole is left out");
+	// G2: the follow-up carries exactly the requested body, whole, and never a hand-written one. With
+	// no archive attached, the log block and its untrusted-data warning are absent rather than empty.
+	const followUp = promptOf(ctx.calls[1]);
+	assert.match(followUp, /<learned-skill-bodies>\n### alpha-workflow\n\n## When to use\n\nMarked learned procedure/);
+	assert.doesNotMatch(followUp, /Hand-written procedure for the fixture project\./, "a hand-written body is never offered for merging");
+	assert.doesNotMatch(followUp, /<session-logs>/);
+	assert.doesNotMatch(followUp, /untrusted data/, "a follow-up without logs never claims to carry them");
+});
+
+test("the body ask is capped in code, and the names left out are named in the follow-up", async () => {
+	const root = await project({ sessions: ["session-a"], index: ["session-a"] });
+	const body = (name) => `## When to use\n\nMarked learned procedure for ${name}.\n\n## Steps\n\n1. Run \`node ${name}.mjs\`\n`;
+	for (const name of ["alpha-workflow", "beta-workflow", "gamma-workflow"]) {
+		await mkdir(path.join(skillsDir(root), name), { recursive: true });
+		await writeFile(path.join(skillsDir(root), name, "SKILL.md"), promotedDocument(name, `${name} workflow`, body(name)));
+	}
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+
+	// G3: the cap lives in code (the provider is not guaranteed to honour the schema's implied maximum),
+	// so a longer ask attaches at most `MAX_INSPECT_SKILLS` bodies and the rest stay off limits.
+	assert.equal(MAX_INSPECT_SKILLS, 2);
+	const ctx = fakeContext([
+		'{"skill": null, "need_sessions": [], "inspect_skill": ["alpha-workflow", "beta-workflow", "gamma-workflow"]}',
+		'{"skill": null}',
+	]);
+	await autolearnProjectSkills(ctx, fakeAgent(root, { turns: 2 }), config);
+	const followUp = promptOf(ctx.calls[1]);
+	assert.match(followUp, /### alpha-workflow/);
+	assert.match(followUp, /### beta-workflow/);
+	assert.doesNotMatch(followUp, /### gamma-workflow/, "the third requested body is past the cap");
+	assert.match(followUp, /No body was shown for these requested names, so they stay off limits this pass: gamma-workflow\./);
+});
+
+test("a learned name is refused unless this pass showed its body", async () => {
+	const learnedBody = "## When to use\n\nMarked learned procedure for the fixture project.\n\n## Steps\n\n1. Run `node learned.mjs`\n2. Check the render.\n";
+	const mergeBody = `## When to use\n\nMerged alpha workflow body.\n\n## Steps\n\n${"Keep every still-valid step. ".repeat(8)}`;
+	const config = resolvePluginConfig({ autolearnTurns: 1 });
+	/** A fresh root per scenario: the pass is throttled per project root. */
+	const learnedRoot = async () => {
+		const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
+		await mkdir(path.join(skillsDir(root), "alpha-workflow"), { recursive: true });
+		await writeFile(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"), promotedDocument("alpha-workflow", "alpha workflow", learnedBody));
+		return root;
+	};
+	const skillFile = (root) => path.join(skillsDir(root), "alpha-workflow", "SKILL.md");
+	const candidate = (root) => path.join(memoryDir(root), "skill-candidates", "alpha-workflow.md");
+
+	// G4, direct-publish path: the model proposes a marked name it never asked for. The refusal names
+	// the rule instead of the generic collision, and nothing is written.
+	const blindRoot = await learnedRoot();
+	const before = await readOptional(skillFile(blindRoot));
+	const blind = fakeContext([JSON.stringify({ skill: { name: "alpha-workflow", description: "blind merge", body: mergeBody, evidence: ["session-a", "session-b"], candidate: false }, need_sessions: [], inspect_skill: [] })]);
+	const blindOutcome = await autolearnProjectSkills(blind, fakeAgent(blindRoot, { turns: 2 }), config);
+	assert.equal(blind.calls.length, 1, "a proposal needs no follow-up round");
+	assert.equal(blindOutcome?.rejected, "body not shown this pass");
+	assert.equal(await readOptional(skillFile(blindRoot)), before, "the refused merge changed nothing");
+
+	// G4, candidate path: a candidate for an unshown marked name is refused as well, because approving
+	// it later would be a blind overwrite by another route.
+	const blindCandidateRoot = await learnedRoot();
+	const blindCandidate = fakeContext([JSON.stringify({ skill: { name: "alpha-workflow", description: "blind candidate", body: mergeBody, evidence: ["session-a"], candidate: true }, need_sessions: [], inspect_skill: [] })]);
+	const blindCandidateOutcome = await autolearnProjectSkills(blindCandidate, fakeAgent(blindCandidateRoot, { turns: 2 }), config);
+	assert.equal(blindCandidateOutcome?.rejected, "body not shown this pass");
+	assert.equal(await readOptional(candidate(blindCandidateRoot)), "", "no candidate was stored for an unshown learned name");
+
+	// G5: with the body shown, the same candidate proposal takes the batch-D path — stored for review,
+	// and only `/autolearn approve` replaces the marked skill.
+	const shownRoot = await learnedRoot();
+	const shownLiveBefore = await readOptional(skillFile(shownRoot));
+	const shown = fakeContext([
+		'{"skill": null, "need_sessions": [], "inspect_skill": ["alpha-workflow"]}',
+		JSON.stringify({ skill: { name: "alpha-workflow", description: "merged alpha workflow", body: mergeBody, evidence: ["session-a"], candidate: true }, need_sessions: [], inspect_skill: [] }),
+	]);
+	const shownOutcome = await autolearnProjectSkills(shown, fakeAgent(shownRoot, { turns: 2 }), config);
+	assert.equal(shownOutcome?.candidate, true, "the shown body takes the candidate path");
+	assert.notEqual(await readOptional(candidate(shownRoot)), "", "the candidate was stored for review");
+	assert.equal(await readOptional(skillFile(shownRoot)), shownLiveBefore, "the live skill is untouched before approval");
+	const approved = await approveCandidate(shownRoot, "alpha-workflow");
+	assert.equal(approved.ok, true, approved.message);
+	assert.match(await readOptional(skillFile(shownRoot)), /Merged alpha workflow body/, "approval landed the merge");
+	// G6 — the gate and the write path read the same boundary independently, so either one alone refuses
+	// and a one-sided mutation of the gate leaves the refusal in place. That is a mutation-round claim,
+	// not something a green run can assert; removing *both* conditions is what turns the lines above red.
+});
+
+test("learnedBodies renders only requested, marked bodies and reports exactly what it rendered", async () => {
+	const root = await project();
+	await mkdir(path.join(skillsDir(root), "alpha-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"), promotedDocument("alpha-workflow", "alpha", "## Steps\n\n1. `node alpha.mjs`\n"));
+	await mkdir(path.join(skillsDir(root), "beta-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "beta-workflow", "SKILL.md"), promotedDocument("beta-workflow", "beta", "## Steps\n\n1. `node beta.mjs`\n"));
+	await mkdir(path.join(skillsDir(root), "huge-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "huge-workflow", "SKILL.md"), promotedDocument("huge-workflow", "huge", `## Steps\n\n${"y".repeat(MAX_SKILL_BODY_CHARS)}`));
+	await mkdir(path.join(skillsDir(root), "handmade-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "handmade-workflow", "SKILL.md"), '---\nname: handmade-workflow\ndescription: "hand-written"\n---\n\n## When to use\n\nHand-written procedure.\n');
+	const skills = await collectSkillInventory(root);
+
+	// Asking for nothing renders nothing, so a first look that requests no body carries no block.
+	assert.deepEqual(learnedBodies(skills, []), { text: "", names: [] });
+	// G2: `names` is exactly the set the text rendered — a body that does not fit is absent from both.
+	const asked = learnedBodies(skills, ["alpha-workflow", "beta-workflow"]);
+	assert.deepEqual(asked.names, ["alpha-workflow", "beta-workflow"]);
+	assert.match(asked.text, /### alpha-workflow/);
+	assert.match(asked.text, /### beta-workflow/);
+	const oversized = learnedBodies(skills, ["huge-workflow"]);
+	assert.equal(oversized.text, "", "a body that cannot fit whole is left out");
+	assert.deepEqual(oversized.names, [], "and it is not reported as shown");
+	// Only a marked skill may be shown, and only when it was asked for.
+	assert.deepEqual(learnedBodies(skills, ["handmade-workflow"]), { text: "", names: [] });
+	assert.deepEqual(learnedBodies(skills, ["nope"]), { text: "", names: [] });
+	// G3: the cap is the function's own contract, not only the pass's.
+	const many = learnedBodies(skills, ["alpha-workflow", "beta-workflow", "huge-workflow"]);
+	assert.deepEqual(many.names, ["alpha-workflow", "beta-workflow"]);
+});
+
+test("the record_skill schema stays strict-ready with the body ask", () => {
+	const root = RECORD_SKILL_TOOL.parameters;
+	// Every property is required and no object union appears, which is what makes the tool shape
+	// acceptable to a strict JSON schema; the count cap is deliberately *not* a `maxItems`.
+	assert.equal(root.additionalProperties, false);
+	for (const key of ["skill", "need_sessions", "inspect_skill"]) assert.ok(root.required.includes(key), `required lists ${key}`);
+	assert.equal(root.properties.inspect_skill.type, "array");
+	assert.equal(root.properties.inspect_skill.items.type, "string");
+	assert.equal(root.properties.inspect_skill.maxItems, undefined, "the cap lives in code, not in the schema");
+	assert.match(root.properties.inspect_skill.description, /may only be reused after its body has been shown/);
 });
 
 test("the adaptive output cap is raised to fit, bounded by the model and by maxOutputTokens", () => {

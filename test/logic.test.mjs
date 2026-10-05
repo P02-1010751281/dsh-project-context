@@ -629,15 +629,23 @@ test("parseAutolearnReply separates a skill, a backtrack request and an unreadab
 	const direct = parseAutolearnReply(JSON.stringify({ skill: { name: "n", description: "d", body: "b" }, need_sessions: [] }));
 	assert.equal(direct.skill.name, "n");
 	assert.deepEqual(direct.needSessions, []);
+	assert.deepEqual(direct.inspectSkill, []);
 
 	const backlog = parseAutolearnReply('```json\n{"skill": null, "need_sessions": ["session-a", "", "session-b", "session-c", "session-d"]}\n```');
 	assert.equal(backlog.skill, null);
 	assert.deepEqual(backlog.needSessions, ["session-a", "session-b", "session-c"]);
 
+	// The ask for a learned body travels beside the ask for archives: the same parser reads both the
+	// tool call and the text fallback, so a reply that leaves the new list out parses as "asked for no
+	// body" rather than as an unreadable reply.
+	const wantsBody = parseAutolearnReply(JSON.stringify({ skill: null, need_sessions: [], inspect_skill: ["alpha-workflow", "  ", "beta-workflow"] }));
+	assert.equal(wantsBody.skill, null);
+	assert.deepEqual(wantsBody.inspectSkill, ["alpha-workflow", "beta-workflow"]);
+
 	// The distinction the pass routes on: an unreadable reply is not a decision, so a caller that
 	// accepted it as "nothing to propose" could not tell a cut reply from a considered one.
 	assert.equal(parseAutolearnReply("not json"), undefined, "an unreadable reply reports no decision at all");
-	assert.deepEqual(parseAutolearnReply('{"skill": null}'), { skill: null, needSessions: [] }, "a parsed reply that proposed nothing is a decision");
+	assert.deepEqual(parseAutolearnReply('{"skill": null}'), { skill: null, needSessions: [], inspectSkill: [] }, "a parsed reply that proposed nothing is a decision");
 });
 
 test("parseAutolearnReply reads evidence, candidate and reason", () => {
@@ -656,10 +664,16 @@ test("parseAutolearnToolCall reads the record_skill shape and treats an empty na
 	// skill cannot be expressed without an `anyOf`, which strict schemas reject).
 	assert.deepEqual(
 		parseAutolearnToolCall({ skill: { name: "", description: "", body: "", evidence: [], candidate: false, reason: "" }, need_sessions: [] }),
-		{ skill: null, needSessions: [] },
+		{ skill: null, needSessions: [], inspectSkill: [] },
 	);
 	// A model returning the text shape out of habit still reads.
-	assert.deepEqual(parseAutolearnToolCall({ skill: null, need_sessions: ["a", " ", "b"] }), { skill: null, needSessions: ["a", "b"] });
+	assert.deepEqual(parseAutolearnToolCall({ skill: null, need_sessions: ["a", " ", "b"] }), { skill: null, needSessions: ["a", "b"], inspectSkill: [] });
+	// The body ask reads through the same entry, and a tool call that predates the field parses as
+	// "asked for no body" instead of becoming unusable arguments.
+	assert.deepEqual(
+		parseAutolearnToolCall({ skill: null, need_sessions: [], inspect_skill: ["alpha-workflow"] }),
+		{ skill: null, needSessions: [], inspectSkill: ["alpha-workflow"] },
+	);
 
 	const parsed = parseAutolearnToolCall({ skill: { name: "n", description: " d ", body: " b ", evidence: ["e"], candidate: true, reason: "r" }, need_sessions: ["s"] });
 	assert.equal(parsed.skill.name, "n");
@@ -667,6 +681,7 @@ test("parseAutolearnToolCall reads the record_skill shape and treats an empty na
 	assert.equal(parsed.skill.candidate, true);
 	assert.deepEqual(parsed.skill.evidence, ["e"]);
 	assert.deepEqual(parsed.needSessions, ["s"]);
+	assert.deepEqual(parsed.inspectSkill, []);
 
 	// The name is not filtered here, or the kebab-case admission rule would be unreachable from a
 	// model answer (the pass path takes whatever the model returned).

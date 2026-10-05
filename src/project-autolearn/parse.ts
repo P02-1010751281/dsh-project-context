@@ -11,8 +11,11 @@ import { type ProposedSkill } from "./skill.js";
 /** At most three archives, 16 KB each: enough for concrete steps without a huge prompt. */
 const MAX_BACKTRACK_SESSIONS = 3;
 
-/** One autolearn decision: the proposal (or none) and the archives it wants read before deciding. */
-export type AutolearnDecision = { skill: ProposedSkill | null; needSessions: string[] };
+/**
+ * One autolearn decision: the proposal (or none), the archives it wants read, and the learned skill
+ * bodies it wants shown before deciding.
+ */
+export type AutolearnDecision = { skill: ProposedSkill | null; needSessions: string[]; inspectSkill: string[] };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,6 +29,21 @@ function readNeedSessions(value: unknown): string[] {
 		.map((item) => item.trim())
 		.filter((item) => item.length > 0)
 		.slice(0, MAX_BACKTRACK_SESSIONS);
+}
+
+/**
+ * Read the `inspect_skill` member: learned skill names, trimmed, blanks dropped.
+ *
+ * Deliberately not sliced to a count here. The cap belongs where the bodies are rendered
+ * (`learnedBodies` in inventory.ts), because that is the computation that decides what counts as
+ * "shown this pass" — one owner, so the decision and the write path cannot disagree about the cap.
+ */
+function readInspectSkill(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => item.trim())
+		.filter((item) => item.length > 0);
 }
 
 /**
@@ -68,7 +86,7 @@ export function parseAutolearnReply(text: string): AutolearnDecision | undefined
 	// propose", not an unusable reply.
 	const raw = isRecord(parsed.skill) ? parsed.skill : null;
 	const skill = raw === null ? null : shapeProposedSkill(raw) ?? null;
-	return { skill, needSessions: readNeedSessions(parsed.need_sessions) };
+	return { skill, needSessions: readNeedSessions(parsed.need_sessions), inspectSkill: readInspectSkill(parsed.inspect_skill) };
 }
 
 /**
@@ -81,11 +99,12 @@ export function parseAutolearnReply(text: string): AutolearnDecision | undefined
 export function parseAutolearnToolCall(value: unknown): AutolearnDecision | undefined {
 	if (!isRecord(value)) return undefined;
 	const needSessions = readNeedSessions(value.need_sessions);
+	const inspectSkill = readInspectSkill(value.inspect_skill);
 	const raw = value.skill;
 	// `null` and a missing member are the text shape, which a model may still return out of habit.
-	if (raw === null || raw === undefined) return { skill: null, needSessions };
+	if (raw === null || raw === undefined) return { skill: null, needSessions, inspectSkill };
 	if (!isRecord(raw)) return undefined;
 	const skill = shapeProposedSkill(raw);
 	if (skill === undefined) return undefined;
-	return { skill, needSessions };
+	return { skill, needSessions, inspectSkill };
 }

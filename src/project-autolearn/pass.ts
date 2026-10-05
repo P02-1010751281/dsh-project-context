@@ -18,7 +18,7 @@ import { readArchivedConversation } from "../project-context/archive.js";
 import { readSessionIndex } from "../project-context/session-index.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import { saveProposedSkill } from "./candidate.js";
-import { archivedSessionIds, collectSkillInventory, inventoryText, learnedBodiesText } from "./inventory.js";
+import { archivedSessionIds, collectSkillInventory, inventoryText, learnedBodies } from "./inventory.js";
 import { type AutolearnDecision, parseAutolearnReply, parseAutolearnToolCall } from "./parse.js";
 import { backtrackPrompt, basePrompt } from "./prompt.js";
 import { RECORD_SKILL_TOOL } from "./schema.js";
@@ -136,9 +136,10 @@ export function autolearnProjectSkills(
 			if (!target) throw new Error("no provider/model available for the autolearn pass: route one request, set AgentOptions, or configure provider+model");
 			const inventory = await collectSkillInventory(projectRoot);
 			const skillsText = inventoryText(inventory);
-			// The learned skills' own bodies travel too: without them a reuse of a learned name would
-			// be a blind rewrite instead of a merge.
-			const learnedText = learnedBodiesText(inventory);
+			// No learned body travels in the first look: a learned name only becomes reusable after
+			// the model asks for that body with `inspect_skill`, which the follow-up round attaches.
+			// Pushing every body that fit a budget made which skills were visible depend on inventory
+			// order, while the names of the ones that did not fit stayed reusable.
 			// A skill body can be as large as MAX_SKILL_BODY_CHARS; ask for enough output room
 			// (1 token per char worst case), plus a reserve for hidden reasoning on a reasoning
 			// route, where thinking shares the same output cap as the body and would otherwise cut
@@ -193,7 +194,7 @@ export function autolearnProjectSkills(
 			};
 
 			/** The fail-soft text path's value for a reply that carried no readable decision. */
-			const NOTHING_PROPOSED: AutolearnDecision = { skill: null, needSessions: [] };
+			const NOTHING_PROPOSED: AutolearnDecision = { skill: null, needSessions: [], inspectSkill: [] };
 
 			/**
 			 * One decision attempt. A reply cut off at the output cap is never accepted when it carries a
@@ -222,7 +223,7 @@ export function autolearnProjectSkills(
 				return decideFrom(await call(retryPrompt, false), false) ?? NOTHING_PROPOSED;
 			};
 
-			const first = await ask(basePrompt(projectRoot, memory.text, contextText, indexText, skillsText, learnedText));
+			const first = await ask(basePrompt(projectRoot, memory.text, contextText, indexText, skillsText));
 			// Record the gate at the material stamp this pass actually distilled: a newer write is
 			// then still newer than the gate, so a pass that ran while consolidation was writing
 			// re-opens on the next idle instead of masking that memory until it is written again.
@@ -235,8 +236,16 @@ export function autolearnProjectSkills(
 
 			let skill = first.skill;
 			const backtracked: string[] = [];
+			// Exactly what this pass showed. The gate and the write path both read it, so "not shown"
+			// and "may not be superseded" are one fact instead of two rules that can drift apart.
+			const shownNames = new Set<string>();
 
-			if (!skill && first.needSessions.length > 0) {
+			if (!skill && (first.needSessions.length > 0 || first.inspectSkill.length > 0)) {
+				// Which of the asked-for bodies could actually be rendered whole, and which could not:
+				// a name that was requested but not shown stays off limits, and the follow-up names it.
+				const bodies = learnedBodies(inventory, first.inspectSkill);
+				for (const name of bodies.names) shownNames.add(name);
+				const notShown = first.inspectSkill.filter((name) => !shownNames.has(name));
 				const extracts: string[] = [];
 				for (const id of first.needSessions) {
 					const safe = safeSessionId(id);
@@ -248,10 +257,11 @@ export function autolearnProjectSkills(
 					backtracked.push(safe);
 					extracts.push(`## session ${safe}\n\n${text}`);
 				}
-				// Every requested id was missing or empty: that is the same as "no evidence" —
-				// no second call, and the first look's `null` skill stands.
-				if (extracts.length > 0) {
-					skill = (await ask(backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n"), learnedText))).skill;
+				// A follow-up that could attach neither an archive nor a body adds nothing, so no second
+				// call is spent and the first look's decision stands. (pi always follows up here; dsh
+				// keeps its own rule that a request which resolved to no material changes no verdict.)
+				if (extracts.length > 0 || bodies.text !== "") {
+					skill = (await ask(backtrackPrompt(projectRoot, memory.text, skillsText, extracts.join("\n\n"), bodies.text, notShown))).skill;
 				}
 			}
 
@@ -259,7 +269,7 @@ export function autolearnProjectSkills(
 			let candidate = false;
 			let rejected: string | undefined;
 			if (skill) {
-				const saved = await saveProposedSkill(projectRoot, skill, archived);
+				const saved = await saveProposedSkill(projectRoot, skill, archived, shownNames);
 				if (typeof saved === "string") {
 					learned = { name: skill.name, description: skill.description, body: skill.body };
 					candidate = saved === "candidate";
