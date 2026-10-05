@@ -97,6 +97,9 @@ directory layouts rather than config shapes. The umbrella command pi retired doe
    does not mention it and pi's own `0399e04` explicitly kept its synonyms ("the already-pinned
    language/run/force synonyms are untouched"). Retiring it would apply ruling 1 beyond what was ruled, so
    it stays and this note records the decision — it is a one-line change if the hard cut should cover it.
+   **Addendum (2026-10-05, after `v0.3.0`):** the user ruled to close this, so `/handoff force` is now retired —
+   it no longer triggers a manual handoff and answers with the `/session-log now`-shaped naming sentence
+   instead of the generic `USAGE`; `now` is unchanged. Recorded under `未发布` in `CHANGELOG.md`.
 5. **`keep` as a *setting* name survives.** The refusal's lever sentence still says "lower `keep`", because
    there `keep` names the `handoffKeepTokens` setting rather than a command spelling, and pi's port left the
    same sentence alone. Only spellings actually typed at `/handoff` moved.

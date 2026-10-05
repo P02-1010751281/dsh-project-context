@@ -22,9 +22,8 @@ This session continued from handoff session-e51fc636, whose main line was either
 
 ## Open tasks
 
-- User-only: run `/memory update` to record the v0.3.0 release, and rewrite the stale Open tasks entry in `.agents/memory/CONTEXT.md` that the handoff flagged.
-- Awaiting the user's ruling on the two residuals deliberately retained after batch E (pi retains both too, so the conservative default is to keep them): `/handoff force` is a third spelling of what `now` did — retiring it is a one-line change — and the guard refusal sentence's "lower `keep`" names the setting rather than a command spelling.
-- The tracked skill `dsh-project-context-release` should carry the step this session learned the hard way: the release commit's CHANGELOG edit also opens the empty `### 未发布（`<new tag>` 之后）` section, and a miss is repaired by a post-tag docs commit, never by rewriting the tag.
+- `/handoff force` was retired (2026-10-05, on the user's ruling — option C): it no longer triggers a manual handoff and answers with the `/session-log now`-shaped naming sentence instead of the generic `USAGE`. Recorded under `未发布` in `CHANGELOG.md` and as an addendum to ruling §5.4.
+- Still open after batch E: the guard refusal sentence's `keep` names the `handoffKeepTokens` setting rather than a command spelling — ruling §5.5 records why it survived and pi keeps the same sentence, and the user has not ruled on renaming it.
 - A tab hard-reload is still owed for the batch E client hint text in already-open tabs; host-side batch F/D/E code is live after the user's restart, so nothing else is pending on the host.
 - Out-of-repo residuals unchanged: dsh core splitting `discovery.ts`'s `capacity()` into declared window plus usable input so `qualityLimit`'s upstream branch can be wired; pi's `resolveThreshold` `!model || usage.tokens === null` and its truncated-retry guard coverage.
 - Standing guard for the next session: no profile edits, no host restarts and no `/etc/nixos` changes without the user naming them; the desktop restart script and `/memory update` are user-only.

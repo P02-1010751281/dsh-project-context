@@ -7,6 +7,19 @@
 
 ### 未发布（`v0.3.0` 之后）
 
+**project-handoff（命令面收口）**
+
+- 修复：`/handoff force` 是 `now` 的第三个拼法。v0.3.0 时它按「超出 ruling §1 的范围」原样保留（见该版末条与 ruling §5.4），
+  现按用户裁定**退役**：手动交接路径只剩 `""`/`now`，`force` 不再触发交接，而是回一行指名句
+  「`/handoff force` was retired; use `/handoff now`.」——与 `/session-log now` 的退役句同形，而不是回泛用 `USAGE`；
+  `now` 一字未动。命令的 `description` / `input.hint` / `USAGE` 本就不含 `force`，所以只改这一处。
+- 变异校验（1 个变异体，`tsc` 0 错、标记进 `lib/project-handoff/index.js`、只打红该打的用例）：把 `force` 放回手动路径
+  （即 v0.3.0 的形状）→ 新断言红——`test/logic.test.mjs` 的「the /handoff command routes the new verbs and rejects the
+  retired spellings」实际值变成 `The session controller is unavailable in this profile…`。收尾从 `sha256sum -c` 校验过的
+  `/tmp` 副本恢复 `src/`、重建后 `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 字节，客户端未动）、`node --test`
+  **335 pass / 0 fail**（用例数未增，新断言并入既有的命令级用例）。
+
 ### v0.3.0（2026-10-05）
 
 **project-context（归档范围）**
