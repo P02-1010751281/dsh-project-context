@@ -71,7 +71,9 @@ check sits before the candidate branch, which is this repo's only real supersede
 - **Follow-up trigger.** pi follows up whenever the first look requested evidence or a body. dsh keeps
   its own rule: no second call when the request resolved to no material (`extracts.length === 0 &&
   bodies.text === ""`). The existing optimisation is pinned by `test/autolearn.test.mjs`'s
-  "evidence ids without an archive on disk are dropped" (`ctx.calls.length === 1`).
+  "all requested ids missing behaves like no evidence" (`ctx.calls.length === 1`), **not** by
+  "evidence ids without an archive on disk are dropped" — that case keeps one valid id and asserts
+  `ctx.calls.length === 2`, i.e. the follow-up is taken.
 - **The count cap lives in `learnedBodies`, not in the parser.** `readInspectSkill` filters and trims
   but does not slice, so there is one owner of the cap — the computation that decides what counts as
   shown. The brief's `parse.ts` row said "capped at `MAX_INSPECT_SKILLS`"; that would have been a

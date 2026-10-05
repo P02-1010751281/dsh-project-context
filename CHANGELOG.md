@@ -59,7 +59,7 @@
   「— approved by hand; the body was not shown to the approval」，不再暗示正文被合并过。
 - 边界（有意偏离 pi）：跟进轮只在**确实有材料可附**时发起（至少一段会话摘录或一份正文），pi 在请求了证据或正文时
   总是跟进；本仓保留自己「请求落空即不花第二次调用」的既有口径，仍由既有用例把守。计数上限的**唯一**归属是
-  `learnedBodies`（`readInspectSkill` 只做过滤与去空白，不切片）；
+  `learnedBodies`（`readInspectSkill` 只做过滤与去空白，不切片）。
 - 变异校验（**8 个有效变异体 + 2 个设计上等价的**，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：同时去掉
   闸门与写入路径的展示条件 → 「only a skill the pipeline wrote may be superseded…」与「a learned name is refused
   unless this pass showed its body」红（`lib` 内该字面量 2 → 0）；**只**去掉闸门、或**只**去掉写入路径 → 全绿，

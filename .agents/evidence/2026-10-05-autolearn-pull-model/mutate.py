@@ -66,7 +66,7 @@ MUTANTS = {
         "\treturn notShown.length\n\t\t? [\"\", `No body was shown for these requested names, so they stay off limits this pass: ${notShown.join(\", \")}.`]\n\t\t: [];",
         "\treturn [];",
     )],
-    # J: the follow-up no longer tells the model which material it is answering from.
+    # J: the follow-up is never taken (`if (false)`), so no body or excerpt ever reaches a second round.
     "J": [(
         "src/project-autolearn/pass.ts",
         "\t\t\t\tif (extracts.length > 0 || bodies.text !== \"\") {",

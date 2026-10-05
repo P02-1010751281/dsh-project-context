@@ -630,7 +630,7 @@ git -C $P show 2177386 -- extensions/project-context/shared/config.ts           
 git -C $P show ca71fd3:extensions/project-context/autolearn/inventory.ts         # learnedBodies: text + names
 D=/mnt/Data/Projects/dsh-project-context
 git -C $D grep -cE '\b(memoryEnabled|autolearnEnabled|handoffBudgetSummaryTokens|handoffBudgetRecentTokens|handoffThinking|handoffThresholdAuto|handoffLang)\b' -- src/   # 0: batch H not started
-git -C $D grep -n 'collision && !collision.autolearn' -- src/project-autolearn/candidate.ts   # the whole gate
+git -C $D grep -n 'collision && !collision.autolearn' -- src/project-autolearn/candidate.ts   # the pre-port gate; rc=1 after batch G
 git -C $D grep -cn 'shown' -- src/project-autolearn/candidate.ts                 # 0 before batch G; 9 after it
 git -C $D grep -n 'whose body is not shown' -- src/project-autolearn/prompt.ts   # the pre-port wording: the rule lived in the prompt only
 git -C $D grep -in legacy -- src/shared/config.ts                                # 0: no legacy-name reader exists
@@ -645,11 +645,12 @@ the two trees; anything outside this repo (dsh core, the delivery line in `/etc/
 `~/.dsh`) is not owned here. At the time of this pass both batches were *proposals with evidence*, not landed work:
 `src/` was not touched by this pass and nothing was ported. **Batch G has since landed** (2026-10-05, one `src/` +
 test commit: `docs/batch-g-autolearn-pull-brief.md` §8, evidence
-`.agents/evidence/2026-10-05-autolearn-pull-model/`), so the two command comments above that read `0: the gate has no
-shown set` and `the rule lives in the prompt only`, and the `0 of 21: batch G is latent here` comment, describe the
-*pre-port* state — re-run them rather than quoting them (`git grep -cn 'shown' -- src/project-autolearn/candidate.ts`
-is 9 now, the prompt rule says `was not shown`, and the corpus is still `0 of 21` marked, which is a fact about the
-corpus rather than about the code). **Batch H is still not started**, so its `0` above stands. The pi measurements quoted (`96975` characters of marked
+`.agents/evidence/2026-10-05-autolearn-pull-model/`), so three commands in the block above describe the *pre-port*
+state and were annotated in place: the `collision && !collision.autolearn` grep now returns rc=1 (the gate reads
+`if (collision) { if (!collision.autolearn) … }`), `git grep -cn 'shown' …` reads 9 instead of 0, and the prompt rule
+now says `was not shown`. The `0 of 21` marker count is unchanged and is a fact about the corpus rather than about
+the code — nothing was ever superseded blind *because nothing was marked*, which is exactly why the defect was
+latent. **Batch H is still not started**, so its `0` above stands. The pi measurements quoted (`96975` characters of marked
 bodies against `20000`, four shown of seventeen) are pi's, taken from its own commits; our counterpart is the count
 `0 of 21` markers, not a byte total, because a repo with no marked skills has no bodies to weigh. The two standing
 traps hold: pi's finish reason is `length` where dsh's is `max-tokens`, and pi's `R3` table is pi's audit and not

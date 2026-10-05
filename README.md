@@ -293,7 +293,9 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
   所以整理恰好在同一 idle 写入的新记忆不会被当成“已沉淀”而漏掉。
   **自动**沉淀时项目里一个真实存档都没有就直接跳过（正式技能要两个、候选要一个，跑了也不会有产物，
   白花一次模型调用；`/autolearn` 显式强制仍会调用）；prompt 里带 `<existing-skills>`
-  清单并禁止重名；回读前逐个校验 `session-logs/<id>/session.jsonl` 真实存在（模型幻觉出的 id
+  清单并禁止重名；已学习技能的正文**不再随每次提示词推送**，模型要用 `inspect_skill` 点名索取
+  （最多 2 个），跟进轮才附上——**没展示过正文的已学习名字一律拒绝覆盖**
+  （`body not shown this pass`）；回读前逐个校验 `session-logs/<id>/session.jsonl` 真实存在（模型幻觉出的 id
   会被丢弃，全部落空时按“无证据”处理）；输出上限按需自适应上调（受 `maxOutputTokens`
   约束）。正式技能需要至少两个**已验证**的存档会话做证据，只举一个会话的提案进 `skill-candidates/`
   等 `/autolearn approve`；已存在的技能不覆盖，含提示注入话术的 body

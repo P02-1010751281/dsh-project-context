@@ -204,4 +204,6 @@ One behaviour this plan listed as user-visible that is narrower in the port: the
 when there is material to attach (`extracts.length > 0 || bodies.text !== ""`), not whenever a body was asked
 for. §5's "the follow-up costs at most one body" still holds; a request that resolves to nothing still spends
 no second call, which is this repo's pre-existing rule and is pinned by the existing
-`evidence ids without an archive on disk are dropped` case.
+`all requested ids missing behaves like no evidence` case (`ctx.calls.length === 1`) — **not** by
+`evidence ids without an archive on disk are dropped`, which has the opposite shape: it keeps one valid id, so
+its `ctx.calls.length === 2` asserts that the follow-up *is* taken.
