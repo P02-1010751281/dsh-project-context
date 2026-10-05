@@ -24,11 +24,13 @@ node .agents/evidence/2026-10-05-memory-share-fix-offline-verify/share-fit.mjs
 
 ## Observed output
 
-Captured at `MEMORY.md` 34078 chars and `CONTEXT.md` 7642 chars — the context is an **input** to the
-fit, so the output-side figures below move with it and every re-run will print its own.
+Captured at `MEMORY.md` 34078 chars and `CONTEXT.md` 7642 chars — both documents are **inputs** to
+the fit, so the output-side figures below move with them, and the script prints both lengths so a
+re-run says which one moved.
 
 ```
-cap 40000  schema overhead 76  document 34078 chars
+cap 40000  schema overhead 76
+documents: MEMORY.md 34078 chars, CONTEXT.md 7642 chars
 rates: memory 0.4014 tok/char, context 0.4023 tok/char
 
 section occupancy (a kept entry costs its text + 3 chars of bullet overhead):

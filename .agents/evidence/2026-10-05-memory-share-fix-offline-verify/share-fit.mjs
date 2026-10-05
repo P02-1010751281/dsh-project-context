@@ -40,7 +40,10 @@ const { replyTokenRate } = await load("lib/shared/text.js");
 const memory = readFileSync(join(root, ".agents/memory/MEMORY.md"), "utf8");
 const context = readFileSync(join(root, ".agents/memory/CONTEXT.md"), "utf8");
 
-console.log(`cap ${MAX_MEMORY_CHARS}  schema overhead ${memorySchemaOverheadChars()}  document ${memory.length} chars`);
+console.log(`cap ${MAX_MEMORY_CHARS}  schema overhead ${memorySchemaOverheadChars()}`);
+// Both documents are inputs to the fit, so print both lengths: a re-run whose figures differ can
+// then say which one moved instead of re-deriving it.
+console.log(`documents: MEMORY.md ${memory.length} chars, CONTEXT.md ${context.length} chars`);
 console.log(`rates: memory ${replyTokenRate(memory).toFixed(4)} tok/char, context ${replyTokenRate(context).toFixed(4)} tok/char`);
 
 const sections = sectionsFromMarkdown(memory);
