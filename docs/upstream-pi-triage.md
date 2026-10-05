@@ -605,6 +605,20 @@ matches** in our `src/`, and all seven old names (`autoConsolidate`, `autoLearn`
 six were shared; our grep says seven old spellings exist here, so treat pi's six/seven split as pi's accounting and
 read our own tree.
 
+**待核项（2026-10-05 追加，用户裁定记录）**：pi 的 `extensions/project-context/shared/config.ts` 头注释（第 13–24
+行）有两处口径不符，均已按本仓 grep 复核。这是 pi 的注释问题、不是代码缺陷，也不动摇批次 H（七个改名另有
+独立依据：pi 的 `RENAMED_KEYS` 表加词表约定）：
+
+1. 它写 "Six of the renamed keys were shared with dsh"，实为**七个**：dsh 在 `v0.3.0` 就已拥有全部七个旧名
+   （`git show v0.3.0:src/shared/config.ts` 七个逐一到齐），改名后两侧同名。即上面那句 six/seven。
+2. 它把 `handoffLang` 与 `handoffMode`、`handoffGuard` 并列为 pi-only，但 `handoffLang` **不是** pi-only：两侧
+   同名且语义一致（`"auto" | "zh" | "en"`，handoff scaffolding language）。真正的 pi-only 是 `handoffMode`、
+   `handoffGuard`（外加 pi 的状态字段 `autolearnAt`）。
+
+复现（2026-10-05 实跑，两侧 `DEFAULT_CONFIG` 各按对象字面量提取键集后求交）：dsh 21 键 / pi 23 键 / 共有 20；
+dsh-only = `handoffPendingQuestion`，pi-only = `autolearnAt`、`handoffGuard`、`handoffMode`；七个改名键两侧
+`grep -cx` 全部为 1。**待核**：下次与 pi 同步或改 pi 头注释时一并订正；本仓不改 pi 树。
+
 The mechanical half does not transfer. pi folds an old name into the new one inside `legacyConfigPatch`, which reads
 a *project* file (`.agents/memory/project-context.json`). Our settings are parsed from the Loader entry's config
 (`src/shared/config.ts`'s `resolvePluginConfig`) and the platform persists the values the card writes into each
