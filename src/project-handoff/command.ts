@@ -7,10 +7,10 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
+import { HANDOFF_KEEP_TOKENS_LABEL } from "../shared/setting-labels.js";
 import { pendingSubagentWork } from "./guard.js";
-import { resolveLanguage } from "./language.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
-import { sessionLanguageMessages } from "./conversation.js";
+import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { performHandoff } from "./perform.js";
 import { type SessionControllerLike, type SessionProjectionsLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { handedOff, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
@@ -96,6 +96,9 @@ export async function writeSetting(ctx: Context, patch: Record<string, unknown>)
  */
 export async function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<string> {
 	const config = effectivePluginConfig(entry);
+	// Resolved once and early: the threshold refusal below is written in this language, and it must be
+	// the same one `HANDOFF.md` would use for this handoff.
+	const language = resolveHandoffLanguage(sessionLanguageMessages(session), config);
 	const parts: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const target = resolveTarget(session, config);
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
@@ -127,7 +130,7 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			parts.push(threshold !== undefined
 				? `threshold ${threshold.label}`
 				: refusal !== undefined
-					? thresholdRefusalText(refusal, config, measurement, contextWindow)
+					? thresholdRefusalText(refusal, config, measurement, contextWindow, language)
 					// Unreachable: `thresholdRefusal` is total over `resolveThreshold`'s refusals. Say the
 					// honest minimum rather than inventing a cause if the two ever diverge.
 					: "threshold unavailable");
@@ -138,16 +141,24 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 		}
 	}
 	parts.push(config.handoffAdaptive ? `adaptive target ${config.handoffTargetTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);
-	parts.push(config.handoffKeepTokens > 0 ? `keep ~${config.handoffKeepTokens} recent tokens` : "summary only");
+	// The setting's name is the settings card's, in the receipt's own language — `keep` is an internal
+	// shorthand that appears nowhere the user can see it.
+	parts.push(config.handoffKeepTokens > 0
+		? (language === "zh"
+			? `「${HANDOFF_KEEP_TOKENS_LABEL.zh}」 ~${config.handoffKeepTokens}`
+			: `"${HANDOFF_KEEP_TOKENS_LABEL.en}" ~${config.handoffKeepTokens}`)
+		: "summary only");
 	parts.push(`summary thinking ${config.handoffSummaryThinking}`);
 	parts.push(`pending question ${config.handoffPendingQuestion}`);
-	const language = resolveLanguage(sessionLanguageMessages(session), config.handoffLanguage);
 	parts.push(config.handoffLanguage === "auto" ? `lang auto (${language})` : `lang ${language}`);
 	// The automatic path skips this session while the conversation fits the recent window; without
 	// this line the only trace is a rate-limited server log the user cannot see.
 	const skippedAt = skippedSince.get(String(session.id));
 	if (skippedAt !== undefined) {
-		parts.push(`auto skipped since ${new Date(skippedAt).toISOString()} — nothing older than keep ~${config.handoffKeepTokens} tokens to summarize`);
+		const at = new Date(skippedAt).toISOString();
+		parts.push(language === "zh"
+			? `自 ${at} 起自动跳过 —— 全部对话都在「${HANDOFF_KEEP_TOKENS_LABEL.zh}」（~${config.handoffKeepTokens} token）之内，没有更早的内容可摘要`
+			: `auto skipped since ${at} — everything is inside "${HANDOFF_KEEP_TOKENS_LABEL.en}" (~${config.handoffKeepTokens} tokens), so nothing older is left to summarize`);
 	}
 	if (handedOff.has(String(session.id))) parts.push("already handed off in this process");
 	return parts.join(" · ");

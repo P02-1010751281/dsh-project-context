@@ -2950,7 +2950,8 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	const signal = new AbortController().signal;
 	const status = await statusText(ctx, session, config, signal);
 	assert.match(status, /auto skipped since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, "status reports when the skip started");
-	assert.match(status, /nothing older than keep ~/, "status names the reason, not just the fact");
+	assert.match(status, /everything is inside "Recent tokens kept"/, "status names the reason and the setting by its card label");
+	assert.doesNotMatch(status, /keep ~/, "the internal shorthand never reaches the receipt");
 
 	// The skip repeats on every idle; the receipt must keep the first occurrence rather than
 	// reporting a session that looks skipped "just now" at every read.
@@ -3079,26 +3080,26 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.equal(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), undefined, "W = SAFETY_MARGIN is the boundary");
 	assert.notEqual(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_001), undefined, "one token past the margin resolves");
 	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000), "no-positive-threshold");
-	const fixedText = thresholdRefusalText("no-positive-threshold", fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000);
+	const fixedText = thresholdRefusalText("no-positive-threshold", fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000, "en");
 	assert.match(fixedText, /a larger window is the only lever/, "the receipt names the lever that works");
 	assert.match(fixedText, /the ratio cannot help/, "and says outright that the ratio does not");
 	assert.doesNotMatch(fixedText, /raise the ratio or the window/, "the dead lever is gone");
 
 	// A window below the request reserve makes `usable` negative; printing "-8192 usable tokens"
 	// reads as nonsense, so the text must describe that case instead of quoting the negative number.
-	const tiny = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 8_192);
+	const tiny = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 8_192, "en");
 	assert.doesNotMatch(tiny, /-\d+ usable tokens/, `a negative token count was printed: ${tiny}`);
 	assert.match(tiny, /no usable tokens at all/);
 	assert.match(tiny, /exceeds the 8192-token window by 8192/);
 
 	// `usable === 0` is the boundary between the two phrasings: "exceeds … by 0" would contradict
 	// itself, so it needs its own wording.
-	const exact = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_384);
+	const exact = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_384, "en");
 	assert.doesNotMatch(exact, /exceeds .* by 0\b/, `self-contradictory wording: ${exact}`);
 	assert.match(exact, /consumes the entire 16384-token window/);
 
 	// One token past the boundary is the singular case, and "1 usable tokens" is not English.
-	const one = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_385);
+	const one = thresholdRefusalText("window-headroom", adaptive, { totalTokens: 0, surfaceTokens: 0 }, 16_385, "en");
 	assert.match(one, /\b1 usable token after\b/, `plural used for one: ${one}`);
 	assert.doesNotMatch(one, /1 usable tokens/);
 
@@ -3127,6 +3128,34 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.doesNotMatch(squeezed, /threshold auto/, "the receipt must not claim a resolved trigger");
 	const unsqueezed = await statusAt(1_000_000, adaptive, { totalTokens: 11_800, surfaceTokens: 11_800 });
 	assert.match(unsqueezed, /threshold auto \d+ \(\d+%\)/, "without the projection the same numbers resolve");
+});
+
+test("the status receipt follows the handoff language and names the setting by its card label", async () => {
+	// The receipt explains the decision `HANDOFF.md` documents, so it is written in the language
+	// `resolveHandoffLanguage` picked for that handoff (an English-only explanation is a false boundary
+	// for a Chinese session), and it names the knob the way the settings card does — in that language,
+	// never by the internal `keep` shorthand.
+	const signal = new AbortController().signal;
+	const session = {
+		id: "session-receipt-zh-00000000",
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => [message("user", "这个记忆整理流程要怎么改？先把交接这块看一遍。")],
+		requestHeader: () => undefined,
+		snapshotEvents: () => [],
+	};
+	const ctx = {
+		get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 11_800, surfaceTokens: 0 }) } : undefined),
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 1_000_000 } }) },
+	};
+	// `handoffKeepTokens: 149_001` at a 1M window is the reachable knee refusal whose lever *is* the
+	// setting, so this fixture exercises the `lower …` sentence rather than the inert-lever branch.
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_001 });
+	const status = await statusText(ctx, session, config, signal);
+	assert.match(status, /lang auto \(zh\)/, "the receipt reports the language it resolved");
+	assert.match(status, /阈值不可用：不是窗口的问题/);
+	assert.match(status, /调小「保留最近对话（token）」/, "the lever is named by the card's own zh label");
+	assert.doesNotMatch(status, /threshold unavailable/, "a Chinese session is not given the English account");
+	assert.doesNotMatch(status, /keep\b/, "the internal shorthand never reaches the receipt");
 });
 
 test("the receipt names whether the harness envelope was read, because the threshold cannot", async () => {

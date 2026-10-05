@@ -7,6 +7,8 @@
  */
 
 import { type PluginConfig } from "../shared/config.js";
+import { HANDOFF_KEEP_TOKENS_LABEL } from "../shared/setting-labels.js";
+import { type HandoffLanguage } from "./language.js";
 
 // Threshold math, ported from pi's auto-handoff.
 /** Don't hand off unless at least this much context is actually replaced by the summary. */
@@ -96,15 +98,23 @@ export function thresholdRefusal(
 }
 
 /**
- * The refusal sentence for the `/handoff status` receipt. Each cause is phrased as the comparison
- * that failed, so the receipt cannot misattribute one refusal to another.
+ * The refusal sentence for the `/handoff status` receipt, in the handoff's own language. Each cause is
+ * phrased as the comparison that failed, so the receipt cannot misattribute one refusal to another.
+ *
+ * `resolveHandoffLanguage` already picks one language per handoff for `HANDOFF.md`, and the receipt
+ * explains the same decision, so it follows that language rather than leaving a Chinese session with
+ * an English account of why nothing started. The setting is named by the settings card's label
+ * ({@link HANDOFF_KEEP_TOKENS_LABEL}) — `keep` is not a name the user can see anywhere.
  */
 export function thresholdRefusalText(
 	reason: ThresholdRefusal,
 	config: PluginConfig,
 	measurement: ContextMeasurement,
 	contextWindow: number,
+	language: HandoffLanguage,
 ): string {
+	const zh = language === "zh";
+	const label = HANDOFF_KEEP_TOKENS_LABEL[language];
 	const floor = thresholdFloor(config, measurement);
 	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
 	if (reason === "window-headroom") {
@@ -112,26 +122,38 @@ export function thresholdRefusalText(
 		// reserve; quoting "-8192 usable tokens" reads as nonsense, and "exceeds the window by 0"
 		// contradicts itself, so each side of zero gets its own phrasing.
 		const room = usable > 0
-			? `${usable} usable token${usable === 1 ? "" : "s"} after the ${WINDOW_RESERVE_TOKENS}-token request reserve`
+			? zh
+				? `扣掉 ${WINDOW_RESERVE_TOKENS} token 的请求预留后可用 ${usable} token`
+				: `${usable} usable token${usable === 1 ? "" : "s"} after the ${WINDOW_RESERVE_TOKENS}-token request reserve`
 			: usable === 0
-				? `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve consumes the entire ${contextWindow}-token window`
-				: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve exceeds the ${contextWindow}-token window by ${-usable}`;
+				? zh
+					? `没有任何可用 token —— ${WINDOW_RESERVE_TOKENS} token 的请求预留吃掉了整个 ${contextWindow} token 的窗口`
+					: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve consumes the entire ${contextWindow}-token window`
+				: zh
+					? `没有任何可用 token —— ${WINDOW_RESERVE_TOKENS} token 的请求预留比 ${contextWindow} token 的窗口还多 ${-usable}`
+					: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve exceeds the ${contextWindow}-token window by ${-usable}`;
 		const envelope = floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS;
 		// The envelope term exists only when the harness reports one; printing "0-token envelope" would
 		// invent a term that took no part in the comparison.
 		const assembly = envelope > 0
-			? `the ${envelope}-token envelope the harness reports + "Recent tokens kept" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
-			: `"Recent tokens kept" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
-		return `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (${assembly})`;
+			? zh
+				? `harness 报出的 ${envelope} token 包络 + 「${label}」 ${config.handoffKeepTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
+				: `the ${envelope}-token envelope the harness reports + "${label}" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
+			: zh
+				? `「${label}」 ${config.handoffKeepTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
+				: `"${label}" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
+		return zh
+			? `阈值不可用：窗口太小 —— ${contextWindow} token 的窗口只剩 ${room}，低于 ${floor} token 的下限（${assembly}）`
+			: `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (${assembly})`;
 	}
 	if (reason === "quality-knee") {
 		// "A larger window" is the lever for the margin case and the *opposite* of the lever here: the
 		// curve approaches its 157K asymptote from above, so a wider window lowers the knee. Say which
 		// control actually helps rather than reusing the margin sentence.
 		//
-		// The floor's terms are the harness-reported envelope, `keep` and the summarize minimum. Only
-		// `keep` is a config key, and it reaches this refusal on its own **today**: `handoffKeepTokens` is
-		// bounded at 200_000 (`config.ts`), so at a 1M window `keep >= 149_001` puts the floor past the
+		// The floor's terms are the harness-reported envelope, the kept tail and the summarize minimum.
+		// Only `handoffKeepTokens` is a config key, and it reaches this refusal on its own **today**: it
+		// is bounded at 200_000 (`config.ts`), so at a 1M window `keep >= 149_001` puts the floor past the
 		// 157_000 knee (measured: 149_000 resolves, 149_001 refuses). A reported envelope can reach it too.
 		// Neither the window nor the target is a lever here — the window is the *opposite* lever (the curve
 		// approaches 157K from above, so a wider window lowers the knee) and `/handoff budget summary` never
@@ -144,26 +166,39 @@ export function thresholdRefusalText(
 		// knee 303500, 0.4 trigger 180000). It must not mention the safety margin either: that term did
 		// not bind here, and naming it would misattribute the refusal.
 		const knee = qualityLimit(contextWindow);
-		// Naming `keep` is only honest when `keep` can actually clear the knee: `floor − keep − MIN` is the
-		// envelope, so `keep` helps iff `knee − envelope − MIN > 0`. In the envelope-driven case no `keep`
-		// value clears it, and naming one would be the same dead-lever defect the baseline wording had.
+		// Naming the kept-tail setting is only honest when it can actually clear the knee: `floor − keep −
+		// MIN` is the envelope, so the setting helps iff `knee − envelope − MIN > 0`. In the
+		// envelope-driven case no value of it clears the refusal, and naming one would be the same
+		// dead-lever defect the baseline wording had.
 		const envelope = floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS;
 		const keepClears = knee - envelope - MIN_SUMMARIZE_TOKENS > 0;
 		const lever = envelope > 0
 			? keepClears
-				? `lower "Recent tokens kept" (the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever — raising it lowers the knee)`
-				: `no "Recent tokens kept" value clears this: the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever (raising it lowers the knee)`
-			: `lower "Recent tokens kept" (the window is the wrong lever — raising it lowers the knee)`;
-		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff threshold 0.4 is not checked against the knee, which is what blocks auto here`;
+				? zh
+					? `调小「${label}」（harness 报出的 ${envelope} token 包络不是设置项，而窗口是反方向的杠杆 —— 窗口越大膝越低）`
+					: `lower "${label}" (the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever — raising it lowers the knee)`
+				: zh
+					? `没有任何「${label}」取值能清掉它：harness 报出的 ${envelope} token 包络不是设置项，而窗口是反方向的杠杆（窗口越大膝越低）`
+					: `no "${label}" value clears this: the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever (raising it lowers the knee)`
+			: zh
+				? `调小「${label}」（窗口是反方向的杠杆 —— 窗口越大膝越低）`
+				: `lower "${label}" (the window is the wrong lever — raising it lowers the knee)`;
+		return zh
+			? `阈值不可用：不是窗口的问题 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但这个窗口下模型的质量膝只允许 ${knee}，交接最早也只能在膝之后启动；${lever}，或者用固定比例把触发显式化 —— /handoff threshold 0.4 不经过膝检，而正是膝检挡住了自动档`
+			: `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff threshold 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
 	if (reason === "summarizer-floor") {
-		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or lowering "Recent tokens kept") is the lever, not this window alone`;
+		return zh
+			? `阈值不可用：窗口不是限制 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但 ${SAFETY_MARGIN_TOKENS} token 的安全余量会让摘要替换的内容少于 ${MIN_SUMMARIZE_TOKENS} token 的下限；杠杆是更大的上下文窗口（或调小「${label}」），而不是这个窗口本身`
+			: `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or lowering "${label}") is the lever, not this window alone`;
 	}
 	// Fixed mode refuses exactly when `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the
 	// ratio is validated into [0.1, 0.95], the second term binds first and the condition reduces to
 	// `W ≤ SAFETY_MARGIN`: raising the ratio can never clear a refusal, so naming it would send the
 	// user to a lever that does nothing.
-	return `threshold unavailable: the ${contextWindow}-token window does not exceed the ${SAFETY_MARGIN_TOKENS}-token safety margin, so a fixed ${config.handoffThresholdRatio} ratio resolves to no positive threshold; a larger window is the only lever here (the ratio cannot help)`;
+	return zh
+		? `阈值不可用：${contextWindow} token 的窗口没有超过 ${SAFETY_MARGIN_TOKENS} token 的安全余量，所以固定 ${config.handoffThresholdRatio} 这一比例算不出正阈值；这里唯一的杠杆是更大的窗口（比例帮不上忙）`
+		: `threshold unavailable: the ${contextWindow}-token window does not exceed the ${SAFETY_MARGIN_TOKENS}-token safety margin, so a fixed ${config.handoffThresholdRatio} ratio resolves to no positive threshold; a larger window is the only lever here (the ratio cannot help)`;
 }
 
 /** Where pi's fitted quality curve flattens out: the population-median reliable length. */

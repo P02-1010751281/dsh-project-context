@@ -2,6 +2,8 @@
 
 import type { SettingsFormLabels } from "@deepseek-ai/dsh-client-ui-primitives";
 
+import { HANDOFF_KEEP_TOKENS_LABEL } from "../src/shared/setting-labels.ts";
+
 export const zh = {
 	"card.title": "项目上下文",
 	"card.description": "维护项目 MEMORY.md / CONTEXT.md、项目技能与会话索引",
@@ -53,7 +55,7 @@ export const zh = {
 	"field.handoffThresholdRatioHint": "仅自适应关闭时生效；0.1–0.95，默认 0.4，早于 dsh 内置压缩的 0.8",
 	"field.handoffTargetTokens": "单次摘要目标（token）",
 	"field.handoffTargetTokensHint": "自适应模式：每次交接摘要移交的对话量，默认 64000",
-	"field.handoffKeepTokens": "保留最近对话（token）",
+	"field.handoffKeepTokens": HANDOFF_KEEP_TOKENS_LABEL.zh,
 	"field.handoffKeepTokensHint": "原样带入新会话的最近对话，0 表示只带摘要（默认 20000）",
 	"field.handoffSummaryThinking": "摘要思考级别",
 	"field.handoffSummaryThinkingHint": "off（默认，避免思考与答案共享输出上限）或 session",
@@ -116,7 +118,7 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffThresholdRatioHint": "Only used when adaptive is off; 0.1–0.95, default 0.4, before dsh compaction's 0.8",
 	"field.handoffTargetTokens": "Tokens per summary",
 	"field.handoffTargetTokensHint": "Adaptive mode: conversation tokens handed to each summary, default 64000",
-	"field.handoffKeepTokens": "Recent tokens kept",
+	"field.handoffKeepTokens": HANDOFF_KEEP_TOKENS_LABEL.en,
 	"field.handoffKeepTokensHint": "Recent conversation carried into the new session verbatim; 0 = summary only (default 20000)",
 	"field.handoffSummaryThinking": "Summary thinking level",
 	"field.handoffSummaryThinkingHint": "off (default, avoids sharing the output cap with thinking) or session",
