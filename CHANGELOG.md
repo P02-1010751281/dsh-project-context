@@ -40,6 +40,36 @@
 - 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28388 → **28529** 字节：客户端字典改读共享定义，
   需按 `dsh-host-build-restart-verify` 硬刷新标签页）、`node --test` **336 pass / 0 fail**（新增 1 条语言用例，另 2 条就地改写）。
 
+**project-autolearn（拉取模型）**
+
+- 修复：**「模型能看到的已学习技能」和「它有权覆盖的技能」曾是两套判定**。`learnedBodiesText` 把学到的正文按
+  20000 字符预算整篇推进每次提示词，装不下的直接 `continue` 掉（无任何提示），而 `inventoryText` 照旧列出这些
+  名字（它自己的上限是另一个 8000）；准入闸门 `rejectionReason` 只读 `autolearn-generated` 标记，代码里没有
+  「本轮展示过」这个概念（`git grep -cn 'shown' -- src/project-autolearn/candidate.ts` 为 0）。于是「没展示」与
+  「不可覆盖」是**两条规则**，只有 `prompt.ts` 里的一句话在替代码兜底——落在预算之外的已学习名字可以被一次盲
+  改写覆盖，而谁落在哪一侧取决于清单顺序（`collectSkillInventory` 按名字排序）。本仓此前是**潜伏**而非在燃：
+  21 个技能里带标记的是 **0 个**，所以没有任何东西正在被盲覆盖。现在改为**拉取**：第一眼只带清单，不带任何已
+  学习正文；模型要用新工具字段 `inspect_skill`（wire 名与既有的 `need_sessions` 同用 snake_case，最多 2 个；计数
+  上限写在 `learnedBodies` 里而不是 schema 的 `maxItems`——`maxItems` 不保证被执行）点名索取，跟进轮才附上正文。
+  展示过的名字集合由 `learnedBodies(skills, requested) → {text, names}` **一次算出**，闸门与写入路径读同一份，
+  所以「没展示」与「不可覆盖」是同一个事实；写入路径另有一次独立读取（目标 `SKILL.md`），单侧变异闸门仍挡得住。
+  未展示的已学习名字以 `body not shown this pass` 拒绝，候选路径与直接发布路径都走这条；跟进轮把请求了但没能
+  展示的名字列进提示词。
+- 修复：`/autolearn approve` 是人工决定、不跑提示词，替换文件时必然是盲覆盖，完成句现在写明
+  「— approved by hand; the body was not shown to the approval」，不再暗示正文被合并过。
+- 边界（有意偏离 pi）：跟进轮只在**确实有材料可附**时发起（至少一段会话摘录或一份正文），pi 在请求了证据或正文时
+  总是跟进；本仓保留自己「请求落空即不花第二次调用」的既有口径，仍由既有用例把守。计数上限的**唯一**归属是
+  `learnedBodies`（`readInspectSkill` 只做过滤与去空白，不切片）；
+- 变异校验（**8 个有效变异体 + 2 个设计上等价的**，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：同时去掉
+  闸门与写入路径的展示条件 → 「only a skill the pipeline wrote may be superseded…」与「a learned name is refused
+  unless this pass showed its body」红（`lib` 内该字面量 2 → 0）；**只**去掉闸门、或**只**去掉写入路径 → 全绿，
+  这正是要求里的独立性；`learnedBodies` 忽略 `requested` → 上限用例与单元用例红；忽略计数上限 → 上限用例红；
+  schema 去掉 `inspect_skill` 的 `required` → strict-ready 用例红；`parse` 不再读 `inspect_skill` → 4 条红；
+  跟进轮恒不发起 → 6 条红；`notShown` 恒为空 → 上限用例红；回退 approve 完成句 → 既有 D3 用例红。细节与复现脚本见
+  `.agents/evidence/2026-10-05-autolearn-pull-model/`。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28529 字节，客户端未动）、
+  `node --test` **340 pass / 0 fail**（336 → +4：拉取模型、计数上限、拒绝路径、schema 与单元）。
+
 ### v0.3.0（2026-10-05）
 
 **project-context（归档范围）**

@@ -539,7 +539,7 @@ docs, audits or evidence, but the two code commits are the largest pi has sent s
 
 | batch | what | pi reference | dsh target | ruling needed |
 | --- | --- | --- | --- | --- |
-| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit — brief: `docs/batch-g-autolearn-pull-brief.md` | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
+| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit — brief: `docs/batch-g-autolearn-pull-brief.md` (**landed 2026-10-05**, see its §8) | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
 | **H** | a key mirrors the command path that changes it; one notification prefix per layer — brief: `docs/batch-h-vocabulary-keys-brief.md` | `2177386` (code) + `b869be3` (the six strings v0.3.0 left behind); design `998a4ae`, `a11d1ef`, `851a14f`, `ebdba28`, `f217e7d` | `src/shared/{config,settings,setting-labels}.ts`, `src/project-handoff/{command,index}.ts`, `src/project-memory/index.ts`, `client/locales.ts` | yes — seven keys are user-visible and persisted *outside* this repo |
 | **docs** | a project-owned vocabulary conventions file, so a rename cannot land half-done twice | `a11d1ef` → `.codestable/reference/vocabulary-conventions.md` | a `docs/` file; our nearest counterpart today is `docs/batch-e-command-surface-ruling.md` | small; port the rules, not pi's file |
 
@@ -552,7 +552,7 @@ the changelog rather than left implicit."
 | commit | subject | disposition |
 | --- | --- | --- |
 | `2177386` | feat(config)!: make config keys, notification prefixes and status renderers say the same fact the same way | **PORT-WORTHY** — batch H — but the mechanical half is *not* portable: pi's seam is `legacyConfigPatch` reading a project file, and dsh's settings are persisted by the platform outside the repo (see below) |
-| `997447a` | feat(autolearn): make the pass pull a learned skill's body instead of pushing every body it can fit | **PORT-WORTHY** — batch G — dsh has the identical defect shape. `learnedBodiesText` (`inventory.ts:73-84`) pushes whole bodies until `MAX_LEARNED_BODY_CHARS` (= `MAX_SKILL_BODY_CHARS` = `20000`) runs out and `continue`s a body that does not fit, while `inventoryText` still lists its name; the gate `rejectionReason` (`candidate.ts:53-68`) reads only `collision.autolearn`. "Not shown" and "may not be superseded" are therefore **two** rules here, and only the prompt states the second (`prompt.ts:16`: "Never reuse the name of a learned skill whose body is not shown"). pi's fix computes the shown set once and reads it from both guards. `git grep -cn 'shown' -- src/project-autolearn/candidate.ts` → 0 is the whole gap |
+| `997447a` | feat(autolearn): make the pass pull a learned skill's body instead of pushing every body it can fit | **PORT-WORTHY — batch G — landed 2026-10-05** (the reading below is the pre-port state) — dsh had the identical defect shape. `learnedBodiesText` (`inventory.ts:73-84`) pushes whole bodies until `MAX_LEARNED_BODY_CHARS` (= `MAX_SKILL_BODY_CHARS` = `20000`) runs out and `continue`s a body that does not fit, while `inventoryText` still lists its name; the gate `rejectionReason` (`candidate.ts:53-68`) reads only `collision.autolearn`. "Not shown" and "may not be superseded" are therefore **two** rules here, and only the prompt states the second (`prompt.ts:16`: "Never reuse the name of a learned skill whose body is not shown"). pi's fix computes the shown set once and reads it from both guards. `git grep -cn 'shown' -- src/project-autolearn/candidate.ts` → 0 is the whole gap |
 | `b869be3` | docs(handoff): finish the vocabulary v0.3.0 left behind in the handoff notifications | **ALREADY IN DSH (command names), divergent wording** — none of the six retired strings exists here (`Auto summarize target`, `summary target`, `recent kept`, `keep ~` → 0 hits) and our command names already match (`budget summary\|recent`, the `summary only` literal). What differs is the *receipt*: ours names the recent window by the settings-card label (`src/shared/setting-labels.ts` en `Recent tokens kept`) where pi's terminal is `~N recent carried` (`run.ts:28`), and our line is `summary thinking N` where pi's key is `handoffThinking`. Fold this into batch H's ruling; it is not a port of its own |
 
 ### The 19 commits that touch only docs, audits, evidence or skills
@@ -631,10 +631,10 @@ git -C $P show ca71fd3:extensions/project-context/autolearn/inventory.ts        
 D=/mnt/Data/Projects/dsh-project-context
 git -C $D grep -cE '\b(memoryEnabled|autolearnEnabled|handoffBudgetSummaryTokens|handoffBudgetRecentTokens|handoffThinking|handoffThresholdAuto|handoffLang)\b' -- src/   # 0: batch H not started
 git -C $D grep -n 'collision && !collision.autolearn' -- src/project-autolearn/candidate.ts   # the whole gate
-git -C $D grep -cn 'shown' -- src/project-autolearn/candidate.ts                 # 0: the gate has no shown set
-git -C $D grep -n 'whose body is not shown' -- src/project-autolearn/prompt.ts   # the rule lives in the prompt only
+git -C $D grep -cn 'shown' -- src/project-autolearn/candidate.ts                 # 0 before batch G; 9 after it
+git -C $D grep -n 'whose body is not shown' -- src/project-autolearn/prompt.ts   # the pre-port wording: the rule lived in the prompt only
 git -C $D grep -in legacy -- src/shared/config.ts                                # 0: no legacy-name reader exists
-grep -rl autolearn-generated $D/.agents/skills/*/SKILL.md | wc -l                # 0 of 21: batch G is latent here
+grep -rl autolearn-generated $D/.agents/skills/*/SKILL.md | wc -l                # 0 of 21: the corpus is unmarked (a corpus fact, not a code one)
 grep -n 'handoffKeepTokens\|handoffAdaptive' ~/.dsh/profiles/*/cordis.patch.yml  # the values a rename would orphan
 ```
 
@@ -642,8 +642,14 @@ grep -n 'handoffKeepTokens\|handoffAdaptive' ~/.dsh/profiles/*/cordis.patch.yml 
 
 This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a semantic diff of
 the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`, the profile files under
-`~/.dsh`) is not owned here. Both batches are *proposals with evidence*, not landed work: `src/` was not touched by
-this pass, nothing was ported, and no host restart is owed. The pi measurements quoted (`96975` characters of marked
+`~/.dsh`) is not owned here. At the time of this pass both batches were *proposals with evidence*, not landed work:
+`src/` was not touched by this pass and nothing was ported. **Batch G has since landed** (2026-10-05, one `src/` +
+test commit: `docs/batch-g-autolearn-pull-brief.md` §8, evidence
+`.agents/evidence/2026-10-05-autolearn-pull-model/`), so the two command comments above that read `0: the gate has no
+shown set` and `the rule lives in the prompt only`, and the `0 of 21: batch G is latent here` comment, describe the
+*pre-port* state — re-run them rather than quoting them (`git grep -cn 'shown' -- src/project-autolearn/candidate.ts`
+is 9 now, the prompt rule says `was not shown`, and the corpus is still `0 of 21` marked, which is a fact about the
+corpus rather than about the code). **Batch H is still not started**, so its `0` above stands. The pi measurements quoted (`96975` characters of marked
 bodies against `20000`, four shown of seventeen) are pi's, taken from its own commits; our counterpart is the count
 `0 of 21` markers, not a byte total, because a repo with no marked skills has no bodies to weigh. The two standing
 traps hold: pi's finish reason is `length` where dsh's is `max-tokens`, and pi's `R3` table is pi's audit and not

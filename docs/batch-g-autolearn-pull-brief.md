@@ -1,7 +1,8 @@
 # Batch G port brief — autolearn pulls a learned body instead of pushing every body
 
-**Status: not started.** Opened by the fifth pi triage pass (`docs/upstream-pi-triage.md` §"Fifth pass",
-commit `997447a` of the range `f6bea1d..ca71fd3`, pi's v0.3.2). No code has moved. Every claim here is
+**Status: landed 2026-10-05** (see §8 for the acceptance evidence and the deviations from this plan).
+Opened by the fifth pi triage pass (`docs/upstream-pi-triage.md` §"Fifth pass",
+commit `997447a` of the range `f6bea1d..ca71fd3`, pi's v0.3.2). Every claim here is
 either a pi path at a stated revision or a read-now command, so a fresh session can start from this file
 without the triage document.
 
@@ -161,3 +162,46 @@ This batch changes what a reply *produces*, so a half-landed version is worse th
 in one commit with its tests, run the mutation round, and only then ask the user for the host restart.
 See `docs/batch-d-autolearn-supersede-brief.md` for the format a landed batch takes (status line, mutants,
 acceptance criteria pinned by tests).
+
+## 8. Landed — what actually shipped, and where it departed from this plan
+
+Commit: one `src/` + test commit on 2026-10-05. Gate re-read after it: `pnpm typecheck` 0 errors,
+`pnpm build` 0 (`lib/client.js` 28529 bytes, client untouched), `node --test` **340 pass / 0 fail**
+(336 before the batch), `lib/` matches a fresh `tsc` except `client.js`, 0 mutant markers. Evidence and
+the reproduction script: `.agents/evidence/2026-10-05-autolearn-pull-model/`.
+
+Acceptance criteria, each pinned by a named case:
+
+| # | pinned by |
+| --- | --- |
+| G1 | `the first look carries no learned body, and the follow-up shows only the body it asked for` |
+| G2 | same case + `learnedBodies renders only requested, marked bodies and reports exactly what it rendered` |
+| G3 | `the body ask is capped in code, and the names left out are named in the follow-up` (boundary) + the `learnedBodies` unit case (the function's own contract) |
+| G4 | `a learned name is refused unless this pass showed its body` — the direct-publish and candidate paths in separate roots — plus the `saveProposedSkill` assertions in `only a skill the pipeline wrote may be superseded, and only through the candidate gate` |
+| G5 | `a learned name is refused unless this pass showed its body` (candidate stored, then `/autolearn approve` lands the merge) |
+| G6 | the mutation round: mutants A (gate condition only) and B (write-path condition only) stay green; mutant C (both) turns G4's two cases red |
+| G7 | the G1 case asserts the rewritten rule 6, and `git grep -cn 'shown' -- src/project-autolearn/candidate.ts` reads 9, not 0 |
+
+Three deliberate departures from §4/§5 of this plan:
+
+1. **`parse.ts` does not slice `inspect_skill`.** The plan's parse row said "capped at `MAX_INSPECT_SKILLS`"; a
+   cap in the reader *and* in `learnedBodies` would be two owners of one bound. `MAX_INSPECT_SKILLS` is defined
+   and enforced in `learnedBodies` alone, which is the computation that decides what counts as shown — the
+   same function the gate and the write path read. `readInspectSkill` only filters non-strings, trims and drops
+   blanks, so `notShown` still names every request that could not be rendered.
+2. **The write-path guard sits before the candidate branch, not only on the live path.** pi's second read
+   guards the direct-publish branch, which in this repo is blanket-refused for any existing destination, so
+   copying that placement would have been dead code. Here the check is placed before the `skill.candidate`
+   branch, which is this repo's only real supersede route. Consequence reported honestly: mutants A and B are
+   *equivalent* mutants (each guard alone suffices), which is exactly what G6 asks for; the load-bearing mutant
+   is C, which removes the fact from both readers.
+3. **The approve message is worded around the approval, not "this pass".** pi writes
+   `this pass never showed its body`; the pass that stored a candidate may have shown the body — that is how a
+   legitimate merge gets stored — so that wording is a wrong cause here. dsh writes
+   `— approved by hand; the body was not shown to the approval`.
+
+One behaviour this plan listed as user-visible that is narrower in the port: the follow-up round is taken only
+when there is material to attach (`extracts.length > 0 || bodies.text !== ""`), not whenever a body was asked
+for. §5's "the follow-up costs at most one body" still holds; a request that resolves to nothing still spends
+no second call, which is this repo's pre-existing rule and is pinned by the existing
+`evidence ids without an archive on disk are dropped` case.
