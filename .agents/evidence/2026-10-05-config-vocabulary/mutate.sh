@@ -9,9 +9,11 @@
 # cannot leave an unrestored mutation behind (the repo's rule: restoring `src/` does not restore
 # `lib/`, so a round always ends with a rebuild and 0 markers).
 #
-#   bash .agents/evidence/2026-10-05-config-vocabulary/mutate.sh m1|m2|m4
+#   bash .agents/evidence/2026-10-05-config-vocabulary/mutate.sh m1|m2|m4|m5|m6
 #
-# Expected: the named scoped test turns red for that mutant, and the trap leaves the tree green.
+# Expected: the named scoped test turns red for that mutant, and the trap leaves the tree green. If a
+# mutant fails validity leg (a) or (b) the script prints `INVALID MUTANT` and exits 1 instead of
+# reporting a red, because that red would not be evidence.
 
 set -euo pipefail
 
@@ -78,9 +80,12 @@ m2)
 	;;
 m4)
 	# The D4 prefix reverts for one branch: the memory status line names the layer twice.
+	# The marker MUST be a *block* comment here: the anchor is the consequent of a ternary, so a `//`
+	# swallows the `: ` branch and the mutant stops compiling (`TS1005: ':' expected.`) — an invalid
+	# mutant whose red is not evidence. Found 2026-10-05 by re-running this script verbatim.
 	edit "$REPO/src/project-memory/index.ts" \
 		'? `Memory: ${memory.source}${capped}`' \
-		'? `Project memory: ${memory.source}${capped}` // MUTANT H4'
+		'? `Project memory: ${memory.source}${capped}` /* MUTANT H4 */'
 	;;
 m5)
 	# The memory pass reads a sibling's switch instead of its own: `autolearnEnabled` defaults to true,
@@ -107,9 +112,22 @@ m6)
 esac
 
 cd "$REPO"
-pnpm typecheck >/dev/null   # validity leg (a): 0 errors
+# Validity leg (a): 0 errors. This used to be `pnpm typecheck >/dev/null`, which hid the reason behind a
+# bare `[ELIFECYCLE] Command failed with exit code 2` — that reads like an environment fault rather than
+# an invalid mutant. An invalid mutant's red is not evidence, so say so and show the compiler's own line.
+if ! tcOut="$(pnpm typecheck 2>&1)"; then
+	echo "INVALID MUTANT: does not compile, so its red would not be evidence (validity leg (a))"
+	printf '%s\n' "$tcOut" | tail -20
+	exit 1
+fi
 pnpm build >/dev/null
-grep -rn 'MUTANT H' lib/ | sed 's/^/marker in lib\/: /'   # validity leg (b)
+# Validity leg (b): the marker must actually reach the build output, otherwise a red proves nothing.
+markers="$(grep -rn 'MUTANT H' lib/ || true)"
+if [ -z "$markers" ]; then
+	echo "INVALID MUTANT: marker did not reach lib/ after the build (validity leg (b))"
+	exit 1
+fi
+printf '%s\n' "$markers" | sed 's/^/marker in lib\/: /'
 
 case "$MUTANT" in
 m1) expect_red test/config-vocabulary.test.mjs "m1 (reintroduced compatibility term)" ;;

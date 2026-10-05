@@ -1,7 +1,8 @@
 # Batch H — config vocabulary (2026-10-05): the mutation round
 
-Evidence for the three valid mutants behind batch H, plus the one mutant that was **discarded as
-invalid**. Run `bash mutate.sh m1|m2|m4` to reproduce any of them; the script snapshots `src/` and
+Evidence for the five valid mutants behind batch H, plus the two spellings that were **discarded as
+invalid** (m3, and m4's first). Run `bash mutate.sh m1|m2|m4|m5|m6` to reproduce any of them; the script
+snapshots `src/` and
 `client/`, refuses an edit whose anchor is absent or ambiguous, and restores + rebuilds on every exit
 path, printing the marker count left in `lib/`.
 
@@ -22,6 +23,18 @@ throw `unknown config key` — and converged the memory layer's replies onto the
 
 m3 is recorded rather than dropped because its failure is itself a fact about the design: the card's
 copy layer cannot be left half-renamed. The type system, not the test suite, is what enforces it.
+
+**m4's first committed spelling was invalid too** — found 2026-10-05 by re-running this script verbatim.
+It appended its marker as a *line* comment, ``…${capped}` // MUTANT H4``, but the anchor is the consequent
+of a ternary written on one physical line, so the `//` swallowed the `: ` else-branch and `tsc` answered
+`src/project-memory/index.ts(489,2): error TS1005: ':' expected.` That is validity leg (a), so the round
+could not run at all — and it read as an environment fault rather than an invalid mutant, because the old
+script sent `pnpm typecheck` to `/dev/null` and died with a bare `[ELIFECYCLE] … exit code 2`. The result
+in the table above came from an ad-hoc mutant; the committed script could not reproduce it. The marker is
+now a block comment (`/* MUTANT H4 */`), which does not eat the `:`, and both validity legs fail loudly:
+the script prints `INVALID MUTANT` and exits 1 instead of reporting a red. Both branches are proven
+reachable — reverting the marker to `//` prints the TS1005 line, and a renamed marker prints the leg-(b)
+message. The full round then reproduces 5/5 KILLED.
 
 ## What m1 and m2 have to prove together
 
