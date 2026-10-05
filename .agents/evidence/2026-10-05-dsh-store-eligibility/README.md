@@ -61,8 +61,24 @@ signal.
 
 `lib/` (125 files, ~1.0 MB) is now tracked: `main`/`exports`/`files` point into it, so a clone without
 a build runs and a fixed Commit carries what the catalog reads. `pnpm build` is deterministic —
-rebuilding leaves the tracked artifacts byte-identical (`git diff --exit-code -- lib`). Recorded in
-`CHANGELOG.md` under `未发布（v0.4.0 之后）`.
+rebuilding leaves the tracked artifacts byte-identical (`git diff --exit-code -- lib`). Published in
+`v0.4.1` (`### v0.4.1（2026-10-05）` in `CHANGELOG.md`) together with the project-root refactor below;
+the fixed commit a catalog reads is therefore the tag itself.
+
+## Verified at the released tag
+
+A catalog reads a fixed Commit and never runs a build, so the surface is checked against the tag tree
+rather than the working tree:
+
+```bash
+node .agents/evidence/2026-10-05-dsh-store-eligibility/tag-surface-check.mjs v0.4.1
+```
+
+Read at `v0.4.1`: 125 files under `lib/`, all 15 declared entry points present as blobs (`main`,
+`types`, every `exports` branch, `bin`, `dsh.bundle.patch`), the packaged bin's three relative imports
+resolvable, and its executable bit preserved — 0 missing. The same script on `c4eed2a^` and on `v0.4.0`
+reports `lib files 0; missing entry points 11/15; unresolved bin imports 3`, so the check is not
+vacuous.
 
 The `commands` signal was avoided by replacing one `git rev-parse --show-toplevel` per cwd with a walk
 to the nearest `.git` **entry** (directory or file), covered by `test/project-root.test.mjs` and two
