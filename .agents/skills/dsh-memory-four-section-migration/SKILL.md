@@ -25,7 +25,7 @@ The model's raw reply is not journalled, so the reply itself cannot be re-read, 
 
 1. Read the source's shape fresh — `wc -m` (characters; `wc -c` overstates CJK by about a third) plus its section headings — never carry counts from a note into the new document.
 2. Emit exactly four sections, `## Project` / `## Invariants` / `## Pitfalls` / `## Index`, each a `- ` bullet list. Section names and shares come from `src/project-memory/memory-schema.ts` (`MEMORY_SECTIONS`, `memorySectionBudgets(cap)`); do not copy those numbers elsewhere.
-3. Write in English: at the 32000-character cap CJK costs roughly 1 token/char versus ~0.4 for English, so a full CJK document is inevitably clipped.
+3. Write in English: at the configured cap (read it with `grep -n 'MAX_MEMORY_CHARS' src/shared/limits.ts`) CJK costs roughly 1 token/char versus ~0.4 for English, so a full CJK document is inevitably clipped.
 4. Keep every entry short (well under the per-entry cap) and each section comfortably inside its share: an over-cap entry is clipped (`itemTruncated`), and only a section overflowing its share drops whole entries (`sectionDropped`/`droppedItems`).
 5. Edit by whole-line replacement with an in-line anchor, then read the line back and confirm no sentence appears twice.
 
@@ -34,8 +34,8 @@ The model's raw reply is not journalled, so the reply itself cannot be re-read, 
 Run a throwaway probe under `/tmp` that imports the host modules by absolute path (relative imports resolve against the probe) and report:
 
 - `sectionsFromMarkdown(text)` → exactly the four sections;
-- `renderMemoryDocument(sections, 32000)` → `sectionDropped === 0`, `droppedItems === 0`, `itemTruncated === 0`, and per-section `cost` ≤ `budget` with `longest` below the item cap;
-- `loadMemory(root, 32000)` → `isMemoryTruncated(loaded.text) === false`, `damaged === 0`, `poisoned === false`;
+- `renderMemoryDocument(sections, <the cap>)` → `sectionDropped === 0`, `droppedItems === 0`, `itemTruncated === 0`, and per-section `cost` ≤ `budget` with `longest` below the item cap;
+- `loadMemory(root, <the cap>)` → `isMemoryTruncated(loaded.text) === false`, `damaged === 0`, `poisoned === false`;
 - `fitMemoryInput` reports clipped `false` across a cap grid (24576 tokens and up).
 
 Never grep for the truncation marker: it can be present while the status object still reports a healthy document. Archive the probe, its `out.json` and a `README.md` under `.agents/evidence/<date>-memory-four-section-migration/`.

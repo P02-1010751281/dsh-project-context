@@ -18,12 +18,12 @@ Use after a review-driven fix batch that edited tracked documentation or memory:
      - `git log -1 --format=%cI -- src/` and `git log -1 --oneline -- src/`
      - `git rev-parse HEAD origin/main`
      - `ls -d .agents/skills/*/` compared with `git ls-files '.agents/skills/**/SKILL.md'`
-     - plugin API: `loadMemory(root, 32000)` plus `isMemoryTruncated(loaded.text)`; do not grep for the truncation marker.
+     - plugin API: `loadMemory(root, <the configured cap>)` plus `isMemoryTruncated(loaded.text)`; do not grep for the truncation marker. Read the cap with `grep -n 'MAX_MEMORY_CHARS' src/shared/limits.ts` — never carry a cap number in this file or in a report.
    - If the finding is false, record why and move on.
 
 3. Fix by replacing volatile facts with live-check commands.
    - Never write a hard-coded hit count, byte size, HEAD hash, tag name, anchor number, or zero-hit claim into tracked docs/memory.
-   - Instead write the command to read it: e.g. `git grep -oF DSH_PROFILES_ROOT -- .` or use `loadMemory(root, 32000)` and check `truncated`.
+   - Instead write the command to read it: e.g. `git grep -oF DSH_PROFILES_ROOT -- .` or use `loadMemory(root, <the cap>)` and check `truncated`.
    - For claims about a revision, write the command (`git log -1 -- src/`), not the hash.
    - For counts of tracked skills, write the comparison command, not the number.
 

@@ -15,12 +15,13 @@ Use this skill whenever `.agents/memory/MEMORY.md` or `.agents/memory/CONTEXT.md
 
 1. **Measure before and after any memory edit**
    - `wc -m .agents/memory/MEMORY.md` — **characters, which is the unit of the cap**. `wc -c` counts **bytes**, and this document is mostly CJK, so it overstates by roughly a third: a 26K-character file reads as ~34K bytes and looks over the cap when it is not. The authority is step 2's `loaded.text.length`, not either `wc`. Take the cap from config (`maxMemoryChars`) and from the call sites themselves (`git grep -n 'normalizeMemoryDocument(' -- src/ | grep -v 'export function' | wc -l`) — never from a number written in a doc or in a skill.
-   - `MAX_MEMORY_CHARS` is **32000**; `MIN_MEMORY_CHARS` 4000; `MAX_MEMORY_CHARS_LIMIT` 200000 (configurable via `maxMemoryChars`).
-   - Budget **~31,500 chars**, not 32000: a session appends memory between checks, so 32000 is already over the cap by the time you notice.
+   - Read the cap instead of remembering it: `grep -n 'MAX_MEMORY_CHARS' src/shared/limits.ts` (re-exported through `src/shared/project-state.ts`). `MIN_MEMORY_CHARS` and `MAX_MEMORY_CHARS_LIMIT` live in the same file and the config field is `maxMemoryChars`.
+   - Budget a margin below the cap: a session appends memory between checks, so a document sitting at the cap is already over it by the time you notice.
+   - Headroom is per **section**, not only in total. The renderer drops whole entries over a single section's budget, so read the shares from `src/project-memory/memory-schema.ts` (`MEMORY_SECTIONS`) and check every section: a document that fits the cap as a whole can still have two sections at 96% and refuse the next pass.
 
 2. **Verify truncation state with the API, never with text checks**
    - Run a throwaway probe under `/tmp` that imports host modules by **absolute path** (`/mnt/Data/Projects/dsh-project-context/lib/...`, because relative imports inside `/tmp` resolve against the probe).
-   - Call `loadMemory(root, 32000)` and require `isMemoryTruncated(doc) === false` (exported from `src/project-memory/document.ts`; `loadMemory` from `src/project-memory/load.ts`). Check `damaged` / `poisoned` and the section count in the same pass.
+   - Call `loadMemory(root, <the cap read in step 1>)` and require `isMemoryTruncated(doc) === false` (exported from `src/project-memory/document.ts`; `loadMemory` from `src/project-memory/load.ts`). Check `damaged` / `poisoned` and the section count in the same pass.
    - Do **not** verify by grepping for the marker string: legitimate prose can describe the marker, so a grep hit proves nothing, and a miss proves nothing either. Do **not** treat a passing `pnpm test` as evidence the file is untruncated. A `read`-then-`edit` round trip does not protect the file either — truncation happens on the plugin's next write.
 
 3. **Do not trust the `/memory status` line alone**
@@ -40,7 +41,7 @@ Use this skill whenever `.agents/memory/MEMORY.md` or `.agents/memory/CONTEXT.md
    - Keep `MEMORY.md` and `CONTEXT.md` from restating the same fact: each duplicated copy diverges at the next edit. Keep the full statement in one file and a pointer in the other; when a passage is reduced to a pointer, verify the target still exists.
 
 7. **Re-measure and re-probe, then report magnitudes**
-   - After compressing: repeat the `loadMemory(root, 32000)` + `isMemoryTruncated()` probe (and `wc -m` if you want the raw count), and state the final **character** count plus the boolean.
+   - After compressing: repeat the `loadMemory(root, <the cap>)` + `isMemoryTruncated()` probe plus the per-section headroom check (and `wc -m` if you want the raw count), and state the final **character** count plus the boolean.
    - Report magnitudes and round counts to the user; never write the measured totals or section numbers back into the documents — they change with every write.
 
 8. **Confirm the tail survived**

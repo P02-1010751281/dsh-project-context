@@ -45,7 +45,9 @@ none produced receipts identical character for character.
 
 **Ruling: tier A.** It is the only tier with zero behaviour risk and the smallest change, and it is a
 prerequisite for C — the counts C would put into a retry prompt are the counts A computes. B's
-self-lock risk is real today (`.agents/memory/MEMORY.md` sits close to the 32000-character cap), and
+self-lock risk is real (`.agents/memory/MEMORY.md` sits close to the configured cap — read it with
+`grep -n 'MAX_MEMORY_CHARS' src/shared/limits.ts`, and check the per-section headroom rather than the
+total), and
 C without a designed retry contract would be a second, larger guess.
 
 ## 3. What actually landed
