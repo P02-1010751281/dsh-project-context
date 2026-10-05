@@ -187,6 +187,28 @@ key is the settings *projection*, not the apply path, which is where §7's origi
 wrong. This closes the live-reload question §6 left open ("a retained old fiber could keep an older publication
 alive"): a retained fiber does not save the entry.
 
+**The block.** Verified on copies of both files (4 lines changed, 0 leftovers), and pre-read with
+`bash /etc/nixos/scripts/dsh-desktop-restart.sh --dry-run` and `--verify-only` — the two read-only modes are
+allowed inside a session, the restart itself is not, and it ends the session that runs it, so all four lines go in
+your own terminal:
+
+```bash
+cp ~/.dsh/profiles/desktop/cordis.patch.yml ~/.dsh/profiles/desktop/cordis.patch.yml.bak-$(date +%Y%m%d-%H%M)-batchh
+cp ~/.dsh/profiles/web/cordis.patch.yml     ~/.dsh/profiles/web/cordis.patch.yml.bak-$(date +%Y%m%d-%H%M)-batchh
+sed -i 's/handoffKeepTokens/handoffBudgetRecentTokens/g; s/handoffAdaptive/handoffThresholdAuto/g' \
+  ~/.dsh/profiles/desktop/cordis.patch.yml ~/.dsh/profiles/web/cordis.patch.yml
+bash /etc/nixos/scripts/dsh-desktop-restart.sh
+```
+
+**In the successor session.** The load check is the three-part one owned by the tracked skill
+`dsh-host-build-restart-verify` (step 4: the holder's start against the last `src/` commit, the change's
+characteristic line in `lib/`, and `diff -rq <tmp> lib/` against a fresh `tsc` into a temp dir) — do not re-derive
+it here. Two batch-specific reads on top: the settings card must be **back** and carry the profile's own values
+(`handoffThresholdAuto: true`, `handoffBudgetRecentTokens: 0`) — a missing card means apply threw, and `20000` /
+`defer` in its place means the entries fell back to `DEFAULT_CONFIG`, which is exactly the failure this corrigendum
+predicts; and the batch G observable, which only a real pass produces, is a marked skill name whose body that round
+did not render being refused with `body not shown this pass`.
+
 ## 8. Deliberate non-goals
 
 - pi's terminal wording for the handoff receipt (H-D5).
