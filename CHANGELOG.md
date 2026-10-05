@@ -7,6 +7,39 @@
 
 ### 未发布（`v0.4.0` 之后）
 
+**仓库打包（`lib/` 纳入跟踪）**
+
+- 修复：**`main` / `exports` / `files` 指向的运行时产物从来没进过仓库**。`lib/` 被 `.gitignore` 排除，于是
+  任何"从固定 Commit 装本插件"的路径都装不起来——DSH STORE 的自动检查据此把条目判成 `catalog-blocked`，
+  理由逐条点名九个入口（`runtime artifact is missing from the distributable surface: ./lib/project-context/
+  index.js` … `./lib/client.js`）。它读的是固定 Commit 的树，而且**不执行** install / prepare / build，
+  所以除了把产物提交进去没有别的修法（bot 建议里的 `prepare` 契约与它自己的"无生命周期脚本"判据冲突）。
+  现在 `lib/`（125 个文件，约 1.0 MB）纳入跟踪，`.gitignore` 只剩 `node_modules/` 与 `*.tsbuildinfo`。
+  `pnpm build` 是确定性的（连跑两次 + 重新构建后 `git diff --exit-code -- lib` 为空），所以"产物与源码一致"
+  从此是一条可执行检查；发布提交必须带上重建的产物，`dsh-project-context-release` 已记录这一点。
+- 边界：这一条只让**本仓可装**，不等于能在 DSH STORE 上架。把判据当代码读（DSH-Store 的
+  `registry/automation-policy.json` → `automaticApproval.permissionSignals`，六个信号全是 `false`）：
+  运行时代码里只要出现 `files`/`commands`/`credentials`/`network`/`protectedDsh`/原生可执行产物中的任何一种，
+  自动上架就不成立。补齐产物后**剩余两条**恰是本插件的固有属性——`files`（它靠写项目文件工作）与
+  `nativeOrExecutableArtifacts`（`scripts/import-archives.mjs` 是 `bin` 声明的 CLI，带 shebang，可执行位必需）。
+  判据、干跑脚本与策略 revision 见 `.agents/evidence/2026-10-05-dsh-store-eligibility/`。
+
+**project-context（项目根查找）**
+
+- 重构：项目根不再靠 `git rev-parse --show-toplevel` 子进程，改成从 cwd 向上找最近的 `.git` **条目**（目录 =
+  普通克隆，**文件** = linked worktree / submodule），找不到就回落 cwd；找到时按 `realpath` 解析，与 git
+  报告的一致，`.agents/` 落点不变。同步与异步两个入口共用同一个缓存与同一个查找，一个 cwd 每进程只走一次。
+  代价是**有意不实现** git 的环境处理（`GIT_DIR` / `GIT_WORK_TREE` / ceiling 目录）：本插件要的是 `.agents/`
+  该落到哪个目录，不是 git 的环境语义。换来的是每个 cwd 少一次 fork、不要求机器上装了 git，以及发行源码里
+  `child_process` 清零（商店把命令能力算作能力信号）。
+- 新增 `test/project-root.test.mjs`（5 条）：最近 `.git` 优先、`.git` 文件也算根、无 `.git` 时以 cwd 为根，
+  外加一条源码扫描（`src/` + `client/` 里出现 `child_process` 即红）。扫描非空转有阳性对照：对改动前的
+  `src/shared/paths.ts`（`git show HEAD:…`）跑同一判据命中 1。变异校验 2 个变异体，各自 `tsc` 0 错、标记进
+  `lib/shared/paths.js`、探针输入行为改变、且只打红该打的用例：只查 cwd 不走上层 → 三条路径用例红
+  （探针：嵌套 cwd 返回 cwd 而非根）；要求 `.git` 必须是目录 → worktree/submodule 用例红（探针：`.git` 文件
+  被跳过，返回子目录）。收尾从 `sha256sum -c` 校验过的 `/tmp` 快照恢复 `src/`、重建后 `lib/` 标记 0。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过、`node --test` **352 pass / 0 fail**（347 → +5）。
+
 ### v0.4.0（2026-10-05）
 
 **project-handoff（命令面收口）**

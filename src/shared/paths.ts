@@ -1,15 +1,12 @@
 /**
- * Where a project's `.agents` state lives, and the project root itself: the git-based lookup
+ * Where a project's `.agents` state lives, and the project root itself: the `.git`-entry lookup
  * (async and sync) with its cache, every path helper, and the two name validators.
  */
 
-import { execFile, execFileSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export const AGENTS_DIR = ".agents";
 
@@ -33,37 +30,54 @@ export function cachedProjectRoot(cwd: string): string | undefined {
 	return projectRootCache.get(path.resolve(cwd));
 }
 
-/** Resolve the project root for a cwd through git, falling back to the cwd itself. */
+/**
+ * The nearest ancestor holding a `.git` entry — a directory for a normal clone, a *file* for a linked
+ * worktree or a submodule — or `undefined` when no ancestor does. The plugin needs the directory its
+ * `.agents/` state belongs to, not git's environment handling (`GIT_DIR`, `GIT_WORK_TREE`, ceiling
+ * directories), so this reads the filesystem directly: no subprocess per cwd, nothing to fail when
+ * git is not installed, and no command capability in the shipped source.
+ */
+function nearestProjectRoot(cwd: string): string | undefined {
+	for (let dir = cwd; ; ) {
+		if (existsSync(path.join(dir, ".git"))) return dir;
+		const parent = path.dirname(dir);
+		if (parent === dir) return undefined;
+		dir = parent;
+	}
+}
+
+/** The root for `key`, through `nearestProjectRoot` and falling back to `key` itself. */
+function resolveProjectRoot(key: string): string {
+	const found = nearestProjectRoot(key);
+	if (found === undefined) return key;
+	// `git rev-parse --show-toplevel` reported a symlink-resolved path and `.agents/` must keep landing
+	// in the same place, so resolve the discovered root the same way.
+	try {
+		return realpathSync(found);
+	} catch {
+		return found;
+	}
+}
+
+/** Resolve the project root for a cwd through its `.git` entry, falling back to the cwd itself. */
 export async function getProjectRoot(cwd: string): Promise<string> {
 	const key = path.resolve(cwd);
 	const cached = projectRootCache.get(key);
 	if (cached !== undefined) return cached;
 
-	try {
-		const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: key, timeout: 3000, windowsHide: true });
-		const root = stdout.trim();
-		return cacheProjectRoot(key, root ? path.resolve(root) : key);
-	} catch {
-		return cacheProjectRoot(key, key);
-	}
+	return cacheProjectRoot(key, resolveProjectRoot(key));
 }
 
 /**
- * Synchronous variant for prompt-assembly providers. `git` runs at most once
- * per cwd; later calls read the cache.
+ * Synchronous variant for prompt-assembly providers. Both variants share one cache and one lookup,
+ * so a cwd is walked at most once per process.
  */
 export function getProjectRootSync(cwd: string): string {
 	const key = path.resolve(cwd);
 	const cached = projectRootCache.get(key);
 	if (cached !== undefined) return cached;
 
-	try {
-		const stdout = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: key, timeout: 3000, windowsHide: true, encoding: "utf8" });
-		const root = stdout.trim();
-		return cacheProjectRoot(key, root ? path.resolve(root) : key);
-	} catch {
-		return cacheProjectRoot(key, key);
-	}
+	return cacheProjectRoot(key, resolveProjectRoot(key));
 }
 
 export function memoryDir(projectRoot: string): string {

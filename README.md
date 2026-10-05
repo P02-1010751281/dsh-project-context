@@ -13,6 +13,8 @@ dsh plugin --profile web add /path/to/dsh-project-context   # 自动应用包内
 dsh --profile web --dump-config | grep -A3 project-         # 验证
 ```
 
+仓库带着构建产物（`lib/` 纳入跟踪），`pnpm build` 只在你要改 `src/`/`client/` 时才需要（见「开发」）。
+
 卸载：`dsh plugin --profile web remove dsh-project-context`。
 
 ## 架构与数据流
@@ -387,6 +389,10 @@ pnpm typecheck        # host + 客户端 tsc --noEmit
 pnpm build            # host → lib/*.js，客户端 bundle → lib/client.js
 pnpm test             # 先编译再跑 node:test 回归（test/）
 ```
+
+`lib/` **纳入版本控制**：`main` / `exports` / `files` 都指向它，所以 clone 下来不构建也能装（商店读的
+固定 Commit 里必须有运行时产物）。改 `src/` 或 `client/` 后要 `pnpm build` **并提交重建的产物**；
+`pnpm build` 是确定性的——构建完 `git diff --exit-code -- lib` 必须为空。
 
 `test/card-render.test.mjs` 是唯一**真正渲染**卡片的测试（其余客户端测试都是对源码的字符串扫描，
 能证明某个字符串不在，不能证明控件进了 DOM）：它把 `client/settings-card.tsx` 连同平台的

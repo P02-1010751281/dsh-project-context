@@ -1,6 +1,8 @@
 node_modules/
-lib/
 *.tsbuildinfo
+
+# `lib/` is tracked on purpose: `main`/`exports`/`files` point into it, so a clone without a build
+# must run, and a fixed Commit must carry the artifacts a catalog reads.
 
 # dsh thinking-effort plugin writes this marker into the cwd
 thinking-effort-loaded.json
