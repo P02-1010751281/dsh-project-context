@@ -40,6 +40,6 @@ If disposition (c) is non-empty, group it into coherent batches by mechanism (no
 
 ## 6. Record, commit, verify
 - Add one line to `.agents/memory/MEMORY.md`: the conclusion (ported N / ported nothing), where the detail lives (`docs/upstream-pi-triage.md`), and the durable lesson (pi fixes commonly converge on dsh, so compare first; pi's `R3` and dsh's `R3` name different audits - do not cross-reference).
-- Verify the memory edit through the plugin API (`loadMemory(root, <the cap read from `src/shared/limits.ts`>)` and `isMemoryTruncated(loaded.text) === false`), never by grepping for a truncation marker.
+- Verify the memory edit through the plugin API (`loadMemory(root, cap)` with the cap read from `src/shared/limits.ts`, plus `isMemoryTruncated(loaded.text) === false`), never by grepping for a truncation marker.
 - A pass that ports nothing still changes `docs/` and memory. Stage only those paths (`git add <paths>`, never `add -A`; another agent session may be editing this repo), commit with a `docs(upstream): ...` Conventional Commit, push, then confirm `git rev-parse HEAD origin/main` and a clean tree.
 - Do not add a CHANGELOG entry and do not imply the gate ran for a docs-only pass; say plainly that `src/` was untouched and no host restart is needed.

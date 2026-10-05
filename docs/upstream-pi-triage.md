@@ -204,8 +204,9 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   preferring the assembled `block-end` over the deltas. dsh streams a tool call's arguments as
   **text**, where pi-ai hands back a parsed object, so `pickToolCall` returns the raw argument string
   and `parseToolArguments` (`src/shared/reply-json.ts`) decodes it.
-- The memory document gained a fixed four-section schema — `Project` 0.2 / `Invariants` 0.4 /
-  `Pitfalls` 0.25 / `Index` 0.15 (`src/project-memory/memory-schema.ts`) — and a renderer
+- The memory document gained a fixed four-section schema — `Project` / `Invariants` / `Pitfalls` /
+  `Index`, ported at pi's `0.2 / 0.4 / 0.25 / 0.15` shares (since rebalanced in this repo; read the
+  current shares from `src/project-memory/memory-schema.ts`, and see `CHANGELOG.md` 未发布) — and a renderer
   (`src/project-memory/sections.ts`) that enforces each section's share by clipping an entry to its
   per-item cap and dropping whole entries, reporting the counts instead of writing a marker. The
   consolidation pass offers `record_memory`, prefers its call, renders the sections through the same
