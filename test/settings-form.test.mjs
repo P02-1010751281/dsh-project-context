@@ -66,6 +66,11 @@ test("the card's table covers the host schema exactly once, with copy for every 
 		assert.ok(["boolean", "number", "text", "union"].includes(row.kind), `${row.key} has an unknown kind`);
 		if (row.kind === "union") {
 			assert.ok(Array.isArray(row.options) && row.options.length > 0, `${row.key} is a union without options`);
+			// The row renders one control per option, so drift here loses a value the host still accepts:
+			// the card would offer fewer choices than the schema allows. `card-render.test.mjs` counts
+			// pills from this same table, so the count can never notice — only this comparison can.
+			const declaredOptions = PluginSettingsSchema.dict[row.key].list.map((member) => member.value);
+			assert.deepEqual([...row.options].sort(), [...declaredOptions].sort(), `${row.key}'s options must be the schema's union members`);
 		} else {
 			assert.equal(row.options, undefined, `${row.key} is not a union and must not carry options`);
 		}

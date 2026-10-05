@@ -82,8 +82,26 @@ m4)
 		'? `Memory: ${memory.source}${capped}`' \
 		'? `Project memory: ${memory.source}${capped}` // MUTANT H4'
 	;;
+m5)
+	# The memory pass reads a sibling's switch instead of its own: `autolearnEnabled` defaults to true,
+	# so nothing in the memory tests notices except the switch's own negative (added by this review).
+	edit "$REPO/src/project-memory/index.ts" \
+		'		const current = effectivePluginConfig(entry);
+		if (!current.memoryEnabled) return;
+		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: false, silent: false }));' \
+		'		const current = effectivePluginConfig(entry);
+		if (!current.autolearnEnabled) return; // MUTANT H5
+		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: false, silent: false }));'
+	;;
+m6)
+	# A card union loses an option the schema still accepts: the count-based assertions in
+	# `card-render.test.mjs` derive from the same table, so only the schema comparison notices.
+	edit "$REPO/client/card-fields.ts" \
+		'{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },' \
+		'{ key: "handoffLang", kind: "union", options: ["auto", "zh"] }, // MUTANT H6'
+	;;
 *)
-	echo "usage: bash $0 m1|m2|m4   (m3 is deliberately absent: it does not compile, see README.md)"
+	echo "usage: bash $0 m1|m2|m4|m5|m6   (m3 is deliberately absent: it does not compile, see README.md)"
 	exit 2
 	;;
 esac
@@ -97,6 +115,8 @@ case "$MUTANT" in
 m1) expect_red test/config-vocabulary.test.mjs "m1 (reintroduced compatibility term)" ;;
 m2) expect_red test/config-vocabulary.test.mjs "m2 (write path emits a retired key)" ;;
 m4) expect_red test/logic.test.mjs "m4 (one Memory: prefix reverted)" ;;
+m5) expect_red test/top-level-gate.test.mjs "m5 (memory pass reads a sibling switch)" ;;
+m6) expect_red test/settings-form.test.mjs "m6 (a card union loses an option)" ;;
 esac
 
 echo "done; the trap restores, rebuilds and reports the marker count"

@@ -43,10 +43,22 @@ const RENAMED_KEYS = {
 	handoffLanguage: "handoffLang",
 };
 
-/** The values the two profiles persist, keyed by the retired spelling so the shape cannot drift. */
+/**
+ * The two shapes at issue. `PROFILE_SHAPES` is what both profiles must persist **after** the rename;
+ * `STALE_PROFILE_SHAPES` is what they persist **today** — the retired spellings, which must keep failing
+ * until the user edits both files. That edit is part of the deploy step, not a nicety: the settings
+ * namespace's owner throws, so its card disappears, and the three sibling entries (which carry no config
+ * of their own) fall back to `DEFAULT_CONFIG` in the meantime. See the ruling's §7.
+ */
 const PROFILE_SHAPES = {
 	desktop: { maxMemoryChars: 40_000, handoffThresholdAuto: true, handoffBudgetRecentTokens: 0, handoffPendingQuestion: "wait" },
 	web: { maxMemoryChars: 40_000, handoffBudgetRecentTokens: 0, handoffPendingQuestion: "wait" },
+};
+
+/** The desktop and web config blocks as read from the two profiles on 2026-10-05, before the edit. */
+const STALE_PROFILE_SHAPES = {
+	desktop: { maxMemoryChars: 40_000, handoffAdaptive: true, handoffKeepTokens: 0, handoffPendingQuestion: "wait" },
+	web: { maxMemoryChars: 40_000, handoffKeepTokens: 0, handoffPendingQuestion: "wait" },
 };
 
 const PLUGINS = {
@@ -138,14 +150,22 @@ test("a retired spelling is an unknown key, not a silent fallback to the default
 	assert.doesNotThrow(() => resolvePluginConfig({ handoffBudgetRecentTokens: 0 }));
 });
 
-test("both profiles' persisted shapes resolve, and every apply() accepts them", () => {
+test("the post-rename profile shapes resolve and every apply() accepts them, while today's shapes throw", () => {
 	for (const [profile, shape] of Object.entries(PROFILE_SHAPES)) {
+		// The edit the deploy step owes, pinned here: the shape the files persist *right now* is an
+		// unknown-key error, which is why it cannot be deferred past the restart.
+		assert.throws(
+			() => resolvePluginConfig(STALE_PROFILE_SHAPES[profile]),
+			/unknown config key/,
+			`${profile}: the pre-edit shape must fail until the file is renamed`,
+		);
+
 		const resolved = resolvePluginConfig(shape);
 		assert.equal(resolved.maxMemoryChars, 40_000, `${profile}: maxMemoryChars survives`);
 		assert.equal(resolved.handoffBudgetRecentTokens, 0, `${profile}: the recent budget survives`);
 		assert.equal(resolved.handoffPendingQuestion, "wait", `${profile}: the pending-question gate survives`);
 		for (const [name, apply] of Object.entries(PLUGINS)) {
-			assert.doesNotThrow(() => apply(stubCtx(), shape), `${name} accepts the ${profile} profile shape`);
+			assert.doesNotThrow(() => apply(stubCtx(), shape), `${name} accepts the shape the ${profile} profile must adopt`);
 			// The positive control: the same ctx and the same call site do surface a stale key, so the
 			// line above is evidence about the shape rather than about a fixture that cannot throw.
 			assert.throws(
@@ -182,8 +202,12 @@ test("every key the handoff verbs write back is a schema key", () => {
 		for (const key of Object.keys(patch ?? {})) written.add(key);
 	}
 	assert.ok(written.size > 0, "the fixture must reach at least one setter");
+	// Compare against the schema the Host projects, not `DEFAULT_CONFIG`: the two sets happen to be
+	// identical today, but the contract is "the card's namespace declares it", and a key could be added
+	// to one without the other.
+	const schemaKeys = Object.keys(PluginSettingsSchema({}));
 	for (const key of written) {
-		assert.ok(Object.keys(DEFAULT_CONFIG).includes(key), `${key} is written back but is not a schema key`);
+		assert.ok(schemaKeys.includes(key), `${key} is written back but is not a key the settings schema declares`);
 	}
 });
 

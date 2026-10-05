@@ -1,9 +1,11 @@
 /**
  * Shared plugin configuration for the context pair.
  *
- * Every key mirrors the command path that changes it — `/memory on|off` writes `memoryEnabled`,
- * `/handoff budget summary` writes `handoffBudgetSummaryTokens`, `/handoff thinking` writes
- * `handoffThinking` — so the card, the command and the stored profile spell one fact one way.
+ * A key mirrors the thing that changes it: the command path where one exists — `/handoff budget summary`
+ * writes `handoffBudgetSummaryTokens`, `/handoff thinking` writes `handoffThinking` — and otherwise the
+ * settings card, which is the only writer of the two capability switches (`memoryEnabled`,
+ * `autolearnEnabled`; dsh has no `/memory on|off`). The card, the command and the stored profile then
+ * spell one fact one way.
  *
  * Renaming one of these keys is a breaking change rather than a rename: the platform persists them
  * into each profile's own `cordis.patch.yml`, this repo cannot rewrite that file, and the type check

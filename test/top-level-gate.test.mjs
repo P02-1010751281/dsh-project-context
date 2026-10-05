@@ -109,8 +109,8 @@ async function fire(handlers, type, agent) {
 	if (flush) await flush(agent.session);
 }
 
-/** Model calls the memory plugin makes for one event on one fresh project. */
-async function memoryCalls(event, origin) {
+/** Model calls the memory plugin makes for one event on one fresh project, with optional config overrides. */
+async function memoryCalls(event, origin, extra = {}) {
 	const root = await project("dsh-gate-memory-");
 	const calls = [];
 	const { handlers, on } = handlerContext();
@@ -131,7 +131,7 @@ async function memoryCalls(event, origin) {
 				},
 			},
 		},
-		resolvePluginConfig({ consolidateTurns: 1, consolidateIntervalMs: 1000, provider: "test-provider", model: "test-model" }),
+		resolvePluginConfig({ consolidateTurns: 1, consolidateIntervalMs: 1000, provider: "test-provider", model: "test-model", ...extra }),
 	);
 	const agent = fakeAgent(root, { id: `session-${event}-${origin ?? "top"}`, origin });
 	await fire(handlers, event, agent);
@@ -225,6 +225,15 @@ test("project-memory: a delegated session runs no consolidation on either lifecy
 		assert.equal(await memoryCalls(event, "subagent"), 0, `${event}: a delegated session must not consolidate the project`);
 		assert.equal(await memoryCalls(event), 1, `${event}: the same event on a top-level session consolidates once`);
 	}
+});
+
+test("project-memory: the memoryEnabled switch alone suppresses the automatic pass", async () => {
+	// The positive half is the control: the same event with the switch on spends a model call, so a zero
+	// from the off case is the switch's doing rather than a fixture that cannot schedule work at all.
+	// Without this pair, a reader of the *sibling* switch (`autolearnEnabled`, which defaults to true)
+	// would read `memoryEnabled` nowhere and pass the whole suite.
+	assert.equal(await memoryCalls("agent/status", undefined, { memoryEnabled: false }), 0, "memoryEnabled: false must not run a pass");
+	assert.equal(await memoryCalls("agent/status", undefined, { memoryEnabled: true }), 1, "the same event with the switch on consolidates once");
 });
 
 test("project-autolearn: a delegated session runs no distill pass on either lifecycle event", async () => {
