@@ -539,8 +539,8 @@ docs, audits or evidence, but the two code commits are the largest pi has sent s
 
 | batch | what | pi reference | dsh target | ruling needed |
 | --- | --- | --- | --- | --- |
-| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
-| **H** | a key mirrors the command path that changes it; one notification prefix per layer | `2177386` (code) + `b869be3` (the six strings v0.3.0 left behind); design `998a4ae`, `a11d1ef`, `851a14f`, `ebdba28`, `f217e7d` | `src/shared/{config,settings,setting-labels}.ts`, `src/project-handoff/{command,index}.ts`, `src/project-memory/index.ts`, `client/locales.ts` | yes — seven keys are user-visible and persisted *outside* this repo |
+| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit — brief: `docs/batch-g-autolearn-pull-brief.md` | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
+| **H** | a key mirrors the command path that changes it; one notification prefix per layer — brief: `docs/batch-h-vocabulary-keys-brief.md` | `2177386` (code) + `b869be3` (the six strings v0.3.0 left behind); design `998a4ae`, `a11d1ef`, `851a14f`, `ebdba28`, `f217e7d` | `src/shared/{config,settings,setting-labels}.ts`, `src/project-handoff/{command,index}.ts`, `src/project-memory/index.ts`, `client/locales.ts` | yes — seven keys are user-visible and persisted *outside* this repo |
 | **docs** | a project-owned vocabulary conventions file, so a rename cannot land half-done twice | `a11d1ef` → `.codestable/reference/vocabulary-conventions.md` | a `docs/` file; our nearest counterpart today is `docs/batch-e-command-surface-ruling.md` | small; port the rules, not pi's file |
 
 `2177386`'s body states the obligation rather than implying it: "Six of these keys were shared with dsh, so the two
@@ -610,9 +610,12 @@ a *project* file (`.agents/memory/project-context.json`). Our settings are parse
 (`src/shared/config.ts`'s `resolvePluginConfig`) and the platform persists the values the card writes into each
 profile's own `cordis.patch.yml` — files outside this repo. `git grep -in legacy -- src/shared/config.ts` → **0
 hits**: there is no legacy-name reader to add a term to. So renaming `handoffKeepTokens` without a compatibility
-reader would orphan the profiles' explicit `handoffKeepTokens: 0` (their comments say it is deliberate: hand off the
-summary only) and let it fall back to our `20000` default on the next restart — a silent behaviour change produced by
-a *naming* commit, in files this repo does not own.
+reader would leave the profiles' explicit `handoffKeepTokens: 0` (their comments say it is deliberate: hand off
+the summary only) as an **unknown key**, and `resolvePluginConfig` throws on unknown keys
+(`src/shared/config.ts:105-107`). The settings namespace's live reader swallows that and falls back
+(`src/shared/settings.ts:94-101`), but the four `apply()` call sites call `resolvePluginConfig` unguarded, so the
+observable is a thrown `unknown config key` at plugin apply — not a quiet return to the `20000` default. Either
+way, a *naming* commit would change behaviour in files this repo does not own.
 
 ### Reproducible commands
 
