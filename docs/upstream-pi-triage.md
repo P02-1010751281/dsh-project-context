@@ -520,3 +520,128 @@ pi caps a description because it injects it into every session prompt; ours is
 `MAX_SKILL_DESCRIPTION_CHARS = 1024`) describe pi's own surface. Two traps from the earlier passes stand:
 pi's finish reason is `length` where dsh's is `max-tokens`, and pi's `R3` table is pi's design-review
 audit, not this repo's R3 batch — do not cross-cite either.
+
+## Fifth pass — 2026-10-05 (22 commits after the fourth pass)
+
+The fourth pass stopped at `f6bea1d`. pi's `master` has since reached `ca71fd3` — **22 commits**, covering pi's
+v0.3.2 and v0.4.0. Both tags sit *inside* the range and both peel to a **docs** commit, one above the code commit
+that carries the change: `v0.3.2` → `8b4550a` over `997447a`, `v0.4.0` → `f217e7d` over `2177386`. `v0.3.1` peels
+to `12c6390`, which is below the range. State which revision and which tag you mean rather than pairing them.
+
+**Read the checkout honestly.** This checkout's branch `master` is still at `6707376` while `origin/master` is
+`ca71fd3` (`git rev-list --left-right --count master...origin/master` → `0 78`), so the tree is *behind*, not
+diverted, and every pi read behind this section is `git show ca71fd3:<path>` or `git grep <pattern> ca71fd3 -- <path>`
+— never the working tree, which answers with pre-change files.
+
+Unlike the fourth pass, this range is not record-keeping: 3 commits touch code, tests or skills and 19 touch only
+docs, audits or evidence, but the two code commits are the largest pi has sent since the third pass, and one of them
+**names dsh in its own body**.
+
+| batch | what | pi reference | dsh target | ruling needed |
+| --- | --- | --- | --- | --- |
+| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
+| **H** | a key mirrors the command path that changes it; one notification prefix per layer | `2177386` (code) + `b869be3` (the six strings v0.3.0 left behind); design `998a4ae`, `a11d1ef`, `851a14f`, `ebdba28`, `f217e7d` | `src/shared/{config,settings,setting-labels}.ts`, `src/project-handoff/{command,index}.ts`, `src/project-memory/index.ts`, `client/locales.ts` | yes — seven keys are user-visible and persisted *outside* this repo |
+| **docs** | a project-owned vocabulary conventions file, so a rename cannot land half-done twice | `a11d1ef` → `.codestable/reference/vocabulary-conventions.md` | a `docs/` file; our nearest counterpart today is `docs/batch-e-command-surface-ruling.md` | small; port the rules, not pi's file |
+
+`2177386`'s body states the obligation rather than implying it: "Six of these keys were shared with dsh, so the two
+config surfaces now differ and dsh has to adopt the new spellings; that is recorded in the file header, the docs and
+the changelog rather than left implicit."
+
+### The three commits that carry code, tests or skills
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `2177386` | feat(config)!: make config keys, notification prefixes and status renderers say the same fact the same way | **PORT-WORTHY** — batch H — but the mechanical half is *not* portable: pi's seam is `legacyConfigPatch` reading a project file, and dsh's settings are persisted by the platform outside the repo (see below) |
+| `997447a` | feat(autolearn): make the pass pull a learned skill's body instead of pushing every body it can fit | **PORT-WORTHY** — batch G — dsh has the identical defect shape. `learnedBodiesText` (`inventory.ts:73-84`) pushes whole bodies until `MAX_LEARNED_BODY_CHARS` (= `MAX_SKILL_BODY_CHARS` = `20000`) runs out and `continue`s a body that does not fit, while `inventoryText` still lists its name; the gate `rejectionReason` (`candidate.ts:53-68`) reads only `collision.autolearn`. "Not shown" and "may not be superseded" are therefore **two** rules here, and only the prompt states the second (`prompt.ts:16`: "Never reuse the name of a learned skill whose body is not shown"). pi's fix computes the shown set once and reads it from both guards. `git grep -cn 'shown' -- src/project-autolearn/candidate.ts` → 0 is the whole gap |
+| `b869be3` | docs(handoff): finish the vocabulary v0.3.0 left behind in the handoff notifications | **ALREADY IN DSH (command names), divergent wording** — none of the six retired strings exists here (`Auto summarize target`, `summary target`, `recent kept`, `keep ~` → 0 hits) and our command names already match (`budget summary\|recent`, the `summary only` literal). What differs is the *receipt*: ours names the recent window by the settings-card label (`src/shared/setting-labels.ts` en `Recent tokens kept`) where pi's terminal is `~N recent carried` (`run.ts:28`), and our line is `summary thinking N` where pi's key is `handoffThinking`. Fold this into batch H's ruling; it is not a port of its own |
+
+### The 19 commits that touch only docs, audits, evidence or skills
+
+pi's own process records; the default disposition is PI-ONLY and none needs a port. The tags name the ones that are
+design input for a batch above.
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `ca71fd3` | docs(evidence): record the v0.4.0 vocabulary release and freeze the design | PI-ONLY (record) — evidence for batch H |
+| `ab1a1d1` | docs(memory): refresh the render for v0.4.0 | PI-ONLY (record) |
+| `f217e7d` | docs(configuration,handoff): document the renamed keys, the prefixes and the conventions file | PI-ONLY (record) — design input for batch H (the rename table and the "new name wins" rule) |
+| `34fc32d` | docs(evidence): record the v0.3.2 release for the ask-first body flow | PI-ONLY (record) — evidence for batch G |
+| `7bbf93c` | docs(memory): refresh the render for v0.3.2 | PI-ONLY (record) |
+| `8b4550a` | docs(architecture,configuration): describe the ask-first body flow and cut v0.3.2 | PI-ONLY (record) — design input for batch G |
+| `851a14f` | docs(vocabulary): settle the four open questions and clear two dead skill pointers | PI-ONLY (record) — design input for batch H (the settled rename set) |
+| `5eec054` | docs(memory): record the decided run-it-now verbs and point at the vocabulary conventions | ALREADY IN DSH — that four layers word "run it now" differently is a decision, not drift, and it is already our ruling's shape (`/memory update`, `/session-log write`, `/handoff now`, bare `/autolearn`) |
+| `ebdba28` | docs(design): open the vocabulary-consistency issue and record the audit's dispositions | PI-ONLY (record) — design input for batch H |
+| `a11d1ef` | docs(spec): write down the vocabulary and naming conventions, and where they are enforced | **PORT-WORTHY (docs)** — the third row above; §2.2 (keys) is pi-file-specific and must be rewritten for our settings card |
+| `998a4ae` | docs(design): record the naming decisions and audit the vocabulary that v0.3.0 did not converge | PI-ONLY (record) — design input for batch G (`inspectSkill`, the two-item cap, the `body not shown this pass` literal, the show/merge/supersede verbs) |
+| `3859d3d` | docs(design): finish the r2 constant sweep — the budget tables still said 2500 | PI-ONLY (record) — pi's own design constants |
+| `8bcba99` | docs(design): revise progressive disclosure to r2 on what the literature and specs actually say | PI-ONLY (record) — cites the Agent Skills spec's own levels; our `MAX_SKILL_BODY_CHARS` is a *character* cap of 20000, a different base, so batch G's brief must say which it uses |
+| `1367027` | docs(design): draft progressive disclosure for autolearn — on-demand bodies and layered skills | PI-ONLY (record) — the design batch G implements |
+| `9e87671` | docs(fix-note): correct the budget arithmetic and name the thirteen excluded skills | PI-ONLY (record) — evidence for batch G |
+| `1029b44` | docs(memory): correct the learned-body arithmetic — four skills are shown, not seventeen | PI-ONLY (record) — evidence for batch G |
+| `bd8b089` | docs(memory): refresh the memory render for the backfill and correct the add-only sentence | ALREADY IN DSH — the lesson (a render rebuilt from the journal drops facts written into the document by hand) is `.agents/skills/dsh-memory-doc-loss-repair/`'s headline rule |
+| `23775db` | docs(fix-note): record the owner-directed marker backfill and the budget it consumes | PI-ONLY (record) — evidence for batch G; the *backfill decision* it records is a ruling for us, not a port |
+| `0ca0d91` | chore(skills): mark the seventeen existing skills with the autolearn provenance marker | **PI-ONLY as a file change** (pi's own 17 skills) — but the analogous owner decision for our 21 is what *arms* batch G's trap, so record it as a ruling and never copy the file edits |
+
+### Why batch G is not merely pi's problem
+
+pi reached the trap by doing exactly what this repo's batch D made possible, one release later. `0ca0d91` marked
+seventeen hand-written skills as pipeline provenance on the owner's convention; `23775db` then recorded what that
+cost, and `1029b44` corrected the arithmetic: **96975 characters of marked bodies against the 20000-character total
+cap, so four are shown and thirteen are dropped while the code gate still treats their thirteen names as reusable.**
+`997447a` is the code-level guard that fix-note had explicitly deferred to the owner.
+
+Our numbers are the same shape and a different count: `MAX_SKILL_BODY_CHARS` is `20000` here too, and
+`0 of 21` skills in this repo carry the marker — so nothing is superseded blind *today*. The defect is latent, not
+absent, and it is one owner decision away from being live: marking our own corpus is precisely the step that took pi
+from "add-only in code" to thirteen invisible-but-overwritable names. That is why batch G deserves a brief even
+though no user-visible behaviour is wrong at this revision.
+
+### Why batch H is riskier here than in pi
+
+The seven new spellings are `memoryEnabled`, `autolearnEnabled`, `handoffBudgetSummaryTokens`,
+`handoffBudgetRecentTokens`, `handoffThinking`, `handoffThresholdAuto`, `handoffLang`; all seven are **0 exact
+matches** in our `src/`, and all seven old names (`autoConsolidate`, `autoLearn`, `handoffTargetTokens`,
+`handoffKeepTokens`, `handoffSummaryThinking`, `handoffAdaptive`, `handoffLanguage`) are present. pi's header says
+six were shared; our grep says seven old spellings exist here, so treat pi's six/seven split as pi's accounting and
+read our own tree.
+
+The mechanical half does not transfer. pi folds an old name into the new one inside `legacyConfigPatch`, which reads
+a *project* file (`.agents/memory/project-context.json`). Our settings are parsed from the Loader entry's config
+(`src/shared/config.ts`'s `resolvePluginConfig`) and the platform persists the values the card writes into each
+profile's own `cordis.patch.yml` — files outside this repo. `git grep -in legacy -- src/shared/config.ts` → **0
+hits**: there is no legacy-name reader to add a term to. So renaming `handoffKeepTokens` without a compatibility
+reader would orphan the profiles' explicit `handoffKeepTokens: 0` (their comments say it is deliberate: hand off the
+summary only) and let it fall back to our `20000` default on the next restart — a silent behaviour change produced by
+a *naming* commit, in files this repo does not own.
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P rev-parse HEAD origin/master                                           # 6707376 / ca71fd3
+git -C $P rev-list --left-right --count master...origin/master                   # 0 78 (behind, not diverted)
+git -C $P rev-list --count f6bea1d..ca71fd3                                      # 22
+git -C $P log --oneline f6bea1d..ca71fd3 -- 'extensions/**' 'tests/**'           # the three above
+for t in v0.3.1 v0.3.2 v0.4.0; do git -C $P rev-parse "$t^{commit}"; done        # 12c6390 / 8b4550a / f217e7d
+git -C $P show 2177386 -- extensions/project-context/shared/config.ts            # the 7-entry RENAMED_KEYS table
+git -C $P show ca71fd3:extensions/project-context/autolearn/inventory.ts         # learnedBodies: text + names
+D=/mnt/Data/Projects/dsh-project-context
+git -C $D grep -cE '\b(memoryEnabled|autolearnEnabled|handoffBudgetSummaryTokens|handoffBudgetRecentTokens|handoffThinking|handoffThresholdAuto|handoffLang)\b' -- src/   # 0: batch H not started
+git -C $D grep -n 'collision && !collision.autolearn' -- src/project-autolearn/candidate.ts   # the whole gate
+git -C $D grep -cn 'shown' -- src/project-autolearn/candidate.ts                 # 0: the gate has no shown set
+git -C $D grep -n 'whose body is not shown' -- src/project-autolearn/prompt.ts   # the rule lives in the prompt only
+git -C $D grep -in legacy -- src/shared/config.ts                                # 0: no legacy-name reader exists
+grep -rl autolearn-generated $D/.agents/skills/*/SKILL.md | wc -l                # 0 of 21: batch G is latent here
+grep -n 'handoffKeepTokens\|handoffAdaptive' ~/.dsh/profiles/*/cordis.patch.yml  # the values a rename would orphan
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a semantic diff of
+the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`, the profile files under
+`~/.dsh`) is not owned here. Both batches are *proposals with evidence*, not landed work: `src/` was not touched by
+this pass, nothing was ported, and no host restart is owed. The pi measurements quoted (`96975` characters of marked
+bodies against `20000`, four shown of seventeen) are pi's, taken from its own commits; our counterpart is the count
+`0 of 21` markers, not a byte total, because a repo with no marked skills has no bodies to weigh. The three standing
+traps hold: pi's finish reason is `length` where dsh's is `max-tokens`, pi's `R3` table is pi's audit and not this
+repo's R3 batch, and pi's `R4`/`r2` revision labels are its own design rounds.
