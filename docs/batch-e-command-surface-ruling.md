@@ -111,3 +111,15 @@ directory layouts rather than config shapes. The umbrella command pi retired doe
    `keep ~N recent tokens` lines moved with it. The two-branch exclusion is unchanged. The rest of the status
    receipt (`context …`, `harness envelope …`, `adaptive target …`) is English in both languages — localizing
    every fragment is a separate decision, not a side effect of this one.
+
+## 6. Addendum (2026-10-05, batch H): the key column is superseded
+
+This ruling's tables name the config keys as they were at `v0.3.0`, which is the point of a ruling record; they are
+kept verbatim. Batch H then renamed seven of them so each mirrors the command path that changes it
+(`handoffTargetTokens` → `handoffBudgetSummaryTokens`, `handoffKeepTokens` → `handoffBudgetRecentTokens`,
+`autoConsolidate` → `memoryEnabled`, `autoLearn` → `autolearnEnabled`, `handoffSummaryThinking` → `handoffThinking`,
+`handoffAdaptive` → `handoffThresholdAuto`, `handoffLanguage` → `handoffLang`), with **no compatibility reader** —
+the profiles persist those keys and this repo cannot rewrite them. Read this file's key names as the pre-rename
+spelling and `docs/vocabulary-conventions.md` §5 K as the terminal state. The *command* spellings this ruling
+settled (`threshold auto`, `budget summary|recent`, `thinking off|session`, `lang`, `pending`, `now`) are unchanged
+by batch H and still current, as is item 5's "the `keep` shorthand is gone from everything the user can see".

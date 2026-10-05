@@ -1,8 +1,16 @@
 # Batch H port brief — config keys mirror the command path, and one notification prefix per layer
 
-**Status: not started.** Opened by the fifth pi triage pass (`docs/upstream-pi-triage.md` §"Fifth pass",
+**Status: implemented 2026-10-05** — rulings in `docs/batch-h-vocabulary-keys-ruling.md`, standing rules in
+`docs/vocabulary-conventions.md`. Opened by the fifth pi triage pass (`docs/upstream-pi-triage.md` §"Fifth pass",
 commit `2177386` of the range `f6bea1d..ca71fd3`, pi's v0.4.0, plus `b869be3` for the strings v0.3.0 left
-behind). No code has moved. Every claim here is either a pi path at a stated revision or a read-now command.
+behind). Every claim here is either a pi path at a stated revision or a read-now command.
+
+> **Dated addendum (2026-10-05, this file is kept as the pre-change record):** two of its sections are superseded.
+> §4's target table **omits `client/card-fields.ts`**, which carries the same seven keys twice (the settings
+> interface and the row table) and has to move with them — `test/settings-form.test.mjs` compares the row-key set
+> with the schema's, and `FieldRow.key` is `keyof ProjectContextSettings`, so skipping it fails to compile. §7's
+> H2/H3 and the compat half of H8 describe a compatibility reader; H-D2 was ruled as option (b), so they are
+> replaced by their negation (a retired spelling must throw), as the ruling's §5 tabulates.
 
 ## 1. Why — pi says outright that dsh has to adopt the new spellings
 

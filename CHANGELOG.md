@@ -70,6 +70,45 @@
 - 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28529 字节，客户端未动）、
   `node --test` **340 pass / 0 fail**（336 → +4：拉取模型、计数上限、拒绝路径、schema 与单元）。
 
+**project-context / project-memory（批 H：配置键镜射命令路径）**
+
+- 破坏性变更：七个配置键改名，让键名镜射改变它的那条命令路径——`autoConsolidate`→`memoryEnabled`（**设置卡开关；dsh 没有改这个键的命令**）、
+  `autoLearn`→`autolearnEnabled`、`handoffTargetTokens`→`handoffBudgetSummaryTokens`（`/handoff budget summary`）、
+  `handoffKeepTokens`→`handoffBudgetRecentTokens`（`/handoff budget recent`）、`handoffSummaryThinking`→`handoffThinking`
+  （`/handoff thinking`）、`handoffAdaptive`→`handoffThresholdAuto`（`/handoff threshold auto`，与既有的 `handoffThresholdRatio`
+  成对）、`handoffLanguage`→`handoffLang`（`/handoff lang`）。规则与终态表见新增的 `docs/vocabulary-conventions.md`。
+- **没有兼容读取，这是裁定而不是遗漏**：值由平台持久化进各 profile 自己的 `cordis.patch.yml`，dsh 无法改写该文件，所以旧名别名
+  永远无法退休——本仓此前拒绝过命令层别名（`/context-update`、`/handoff force`），这次同样拒绝配置层别名。代价分两半，**不是单纯的
+  响亮失败**（独立审查 F2 纠正了本条初稿）：`project-context` 这条 entry（settings 命名空间的 owner）在 apply 期抛
+  `dsh-project-context: unknown config key "<旧名>"`，它的卡片随之消失；另外三条插件各自的 entry 本来就**不带 config**，owner 抛错时
+  `publishProjectContextSettings` 还没执行，于是它们回落到 `DEFAULT_CONFIG` **静默**运行——用户的 `handoffBudgetRecentTokens: 0` 变成
+  20000、`handoffPendingQuestion: wait` 变成 `defer`（`src/shared/settings.ts` 的文件头本来就写着这个回落）。**因此部署顺序是「先改两个
+  profile，再重启」**，而不是重启之后再补。
+- 数据流五层同轮改齐，缺一层就等于没改：`src/shared/config.ts`（接口 / `DEFAULT_CONFIG` / 读取器 / 内联校验与报错 /
+  文件头记录规则）、`src/shared/settings.ts`（`PluginSettingsSchema`）、`client/card-fields.ts`（接口与行表，**brief 漏列的一层**）、
+  `client/locales.ts`（`field.*` 键随之搬迁；**文案一字未改**，H-D5 裁定不采用 pi 的终端措辞）、以及全部运行期 reader 与
+  `settingPatch` 回写的键。`HANDOFF_KEEP_TOKENS_LABEL` 随之改名 `HANDOFF_BUDGET_RECENT_LABEL`（它命名的键已不存在）。
+- 新增 `test/config-vocabulary.test.mjs`：旧名必须抛错（(b) 契约）、两个 profile 的**真实形状**在四个 `apply()` 下都不抛且同一
+  调用点对旧键确实抛（阳性对照）、`/handoff` 各动词回写的键 ⊆ schema 键、`src/`+`client/` 源码扫描里旧名清零。
+- `project-memory`：通知前缀按 pi 的规则收敛为 `Memory: `（一个层一个前缀，前缀之后不再重复层名），并保留 pi 的两条豁免
+  （`Usage:` 行、多行 status 报表——本仓即 `/context` 那份路径报表）。dsh 独有的 `writtenTarget` 改按**文件名**报产物
+  （`MEMORY.md` / `CONTEXT.md` / `MEMORY.md and CONTEXT.md`）：既服从"不重复层名"（不写成 `Memory: memory …`），又保住
+  "不得声称某个没落地的产物已更新"这条不变量。**有意不收敛**：`Consolidation ran but produced no new memory or context.`
+  不在 `Project memory…` 一族内，pi 也原样保留；`handoffPendingQuestion` / `handoffThresholdRatio` 不在改名集内（pi 未改）。
+- 变异校验（**5 个有效变异体**，各自 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：在未知键检查里给一个旧名开兼容口 → (b) 契约用例
+  与它的阳性对照红，连带源码扫描红；把 `/handoff budget recent` 的回写改成旧键 → 回写守卫与源码扫描红，并连带 `test/logic.test.mjs`
+  两条既有字面量断言红；把一处 `Memory:` 前缀改回 `Project memory:` → `test/logic.test.mjs` 两条红；让 memory pass 读兄弟开关
+  （`memoryEnabled` → `autolearnEnabled`，后者默认 true）→ 本轮新加的 `memoryEnabled: false` 负例红；把卡片 `handoffLang` 的选项砍成
+  `["auto","zh"]` → 本轮新加的"行选项 == schema 联合成员"断言红。另有 1 个**无效变异**按规则作废：把卡片字典键改回旧名不编译
+  （`SettingsCardKey` 是封闭字面量联合），无效变异的红不是证据——顺带证明卡片文案层不可能漏改一半。收尾从 `sha256sum -c` 校验过的
+  `/tmp` 快照恢复 `src/ client/ test/`，重建后 `lib/` 标记 0。细节与复现脚本见 `.agents/evidence/2026-10-05-config-vocabulary/`。
+- 独立对抗审查结论：**可落地** —— 七键改名在每一层都有类型与探针双重钉住，七个键的消费者逐个验过行为，改名后的路径无行为回归。
+  它同时证伪了本批自己写下的两条说法并指出两个真测试缺口，均已在本轮修掉：① `memoryEnabled` 的命令路径误写成 pi 的 `/memory on|off`
+  （dsh 没有这个命令，该键只由设置卡改）；② "旧 profile 只响亮失败、绝不静默回落"只有一半为真（见上一条的 F2 纠正，并改写部署顺序）；
+  ③ memory 开关此前没有负例；④ 卡片的联合行选项从未与 schema 比对。低危项 F6 亦已改为与 `PluginSettingsSchema` 比对。
+- 门禁（现跑现读）：`pnpm typecheck` 0 错、`pnpm build` 通过（`lib/client.js` 28605 字节）、`node --test` **347 pass / 0 fail**
+  （340 → +7：新测试文件 6 条 + 审查要求的 memory 开关负例）。
+
 ### v0.3.0（2026-10-05）
 
 **project-context（归档范围）**

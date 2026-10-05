@@ -650,7 +650,10 @@ state and were annotated in place: the `collision && !collision.autolearn` grep 
 `if (collision) { if (!collision.autolearn) … }`), `git grep -cn 'shown' …` reads 9 instead of 0, and the prompt rule
 now says `was not shown`. The `0 of 21` marker count is unchanged and is a fact about the corpus rather than about
 the code — nothing was ever superseded blind *because nothing was marked*, which is exactly why the defect was
-latent. **Batch H is still not started**, so its `0` above stands. The pi measurements quoted (`96975` characters of marked
+latent. **Batch H has since landed too** (2026-10-05: all seven keys renamed with no compatibility reader, plus the
+`project-memory` prefix convergence — rulings in `docs/batch-h-vocabulary-keys-ruling.md`, standing rules in
+`docs/vocabulary-conventions.md`), so the `0` above describes only the pre-port state; the seven new spellings now
+appear in `src/`, `client/` and the tests. The pi measurements quoted (`96975` characters of marked
 bodies against `20000`, four shown of seventeen) are pi's, taken from its own commits; our counterpart is the count
 `0 of 21` markers, not a byte total, because a repo with no marked skills has no bodies to weigh. The two standing
 traps hold: pi's finish reason is `length` where dsh's is `max-tokens`, and pi's `R3` table is pi's audit and not

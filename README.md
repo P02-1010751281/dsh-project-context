@@ -243,23 +243,23 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `archiveEnabled` | `true` | 关掉后不再自动写会话存档与索引（`/session-log write` 仍可用） |
-| `autoConsolidate` | `true` | 关掉后不再自动整理（命令仍可用） |
+| `memoryEnabled` | `true` | 关掉后不再自动整理（命令仍可用） |
 | `consolidateTurns` | `6` | 较上次整理新增的用户消息数达到后在 idle 触发 |
 | `consolidateIntervalMs` | `300000` | 自动整理最小间隔 |
 | `forceDedupeMs` | `15000` | 强制调用去重窗口 |
-| `autoLearn` | `true` | 关掉后不再自动沉淀技能（命令仍可用） |
+| `autolearnEnabled` | `true` | 关掉后不再自动沉淀技能（命令仍可用） |
 | `autolearnTurns` | `20` | 自上次沉淀累计的用户消息数阈值 |
 | `autolearnIntervalMs` | `1800000` | 自动沉淀最小间隔；仅在有新 MEMORY/CONTEXT 内容时执行 |
 | `maxTokens` | `8192` | 辅助模型调用的起始输出上限；整理会按「记忆+上下文需回吐的 token 数」自适应上调 |
 | `maxOutputTokens` | `32768` | 自适应上调的边界（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准。交接摘要的失败重试同样被该边界压住（`min(2×maxTokens 或 32768 的较大者, max(maxTokens, maxOutputTokens))`；边界低于起始上限时重试被取消，只发一次原请求） |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接，`/handoff` 仍可用 |
-| `handoffAdaptive` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
-| `handoffThresholdRatio` | `0.4` | `handoffAdaptive: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值 |
-| `handoffTargetTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000）。这是**手动设定**的阈值请求，触发点由护栏决定；一旦被护栏压掉，`/handoff status` 点名被覆盖的值与压住它的那条护栏，不静默 |
-| `handoffKeepTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符） |
-| `handoffSummaryThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
-| `handoffLanguage` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
+| `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
+| `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值 |
+| `handoffBudgetSummaryTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000）。这是**手动设定**的阈值请求，触发点由护栏决定；一旦被护栏压掉，`/handoff status` 点名被覆盖的值与压住它的那条护栏，不静默 |
+| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符） |
+| `handoffThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
+| `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
 
 ## 命令（web/交互 profile）
@@ -345,9 +345,9 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
   的回执里报告**从何时起被跳过、以及原因**（同一个会话一旦重新变得可摘要，这条报告随即清除）——dsh
   没有 host 侧的通知服务，UI 里不会主动弹提示，`/handoff status`
   是唯一可见面；要看当时的上下文占用也用它，要强制移交用 `/handoff now`（手动路径的回执是可见的）。
-  没有可摘要的更早消息时（空会话，或整段对话都落在 `handoffKeepTokens` 原文窗口内）直接拒绝，手动
+  没有可摘要的更早消息时（空会话，或整段对话都落在 `handoffBudgetRecentTokens` 原文窗口内）直接拒绝，手动
   `/handoff now` 回一条错误说明而不是伪造摘要，并提示用 `/handoff budget recent 0`
-  摘要整段对话。交接**跟随对话语言**（`handoffLanguage`，含摘要指令、六个段落标题与首条消息）；
+  摘要整段对话。交接**跟随对话语言**（`handoffLang`，含摘要指令、六个段落标题与首条消息）；
   重放中**上一轮交接提示会被替换成一行标记**，不再把陈旧的交接提示原样带进孙会话。
   带入的"最近对话原文"是把消息渲染成文本（`## user` / `## assistant` /
   `## tool result`，助手只调工具时是 `[tool: 名称]`）——dsh 的交接只能把文本投给子会话、
