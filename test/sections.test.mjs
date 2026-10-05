@@ -24,15 +24,15 @@ import {
 	sectionsFromToolCall,
 	sectionsSemanticallyEmpty,
 } from "../lib/project-memory/sections.js";
-import { MEMORY_SECTIONS, memorySchemaOverheadChars, memorySectionBudgets } from "../lib/project-memory/memory-schema.js";
+import { MEMORY_SECTIONS, MEMORY_SECTION_PROMPT_SHARE, memorySchemaOverheadChars, memorySectionBudgets, memorySectionPromptBudgets } from "../lib/project-memory/memory-schema.js";
 import { MAX_MEMORY_CHARS } from "../lib/shared/project-state.js";
 
 /** The documented contract, spelled out here so a silent table edit is caught. */
 const DOCUMENTED = [
-	["Project", "purpose, stack, structure", 0.2],
-	["Invariants", "standing decisions, conventions, hard constraints, user preferences", 0.4],
-	["Pitfalls", "operational traps and the lessons behind them", 0.25],
-	["Index", "pointers to docs, source files, and commands", 0.15],
+	["Project", "purpose, stack, structure", 0.17],
+	["Invariants", "standing decisions, conventions, hard constraints, user preferences", 0.45],
+	["Pitfalls", "operational traps and the lessons behind them", 0.29],
+	["Index", "pointers to docs, source files, and commands", 0.09],
 ];
 
 test("the section table matches the documented contract and the shares sum to 1", () => {
@@ -56,6 +56,43 @@ test("the per-section budgets divide the remainder after the fixed layout and su
 		MEMORY_SECTIONS.reduce((sum, section) => sum + Math.floor(body * section.share), 0),
 	);
 	assert.ok(budgets.reduce((sum, budget) => sum + budget.chars, 0) + memorySchemaOverheadChars() <= MAX_MEMORY_CHARS);
+});
+
+test("the prompt asks for less than the hard budget, and a section written to it stores clean", () => {
+	const cap = MAX_MEMORY_CHARS;
+	const hard = memorySectionBudgets(cap);
+	const targets = memorySectionPromptBudgets(cap);
+	assert.ok(MEMORY_SECTION_PROMPT_SHARE < 1, "the margin has to be a margin");
+	assert.deepEqual(
+		targets.map((target) => target.heading),
+		hard.map((section) => section.heading),
+	);
+	for (const [index, target] of targets.entries()) {
+		assert.equal(target.chars, Math.floor(hard[index].chars * MEMORY_SECTION_PROMPT_SHARE));
+		assert.ok(target.chars > 0 && target.chars < hard[index].chars, `${target.heading}: the stated target is inside the hard budget`);
+	}
+
+	// Filled to the stated target, every section must store without a drop — that is the whole point of
+	// the gap. Entries stay under the per-item cap so this measures the section budget and nothing else.
+	const fill = (factor) => {
+		const sections = { project: [], invariants: [], pitfalls: [], index: [] };
+		for (const section of hard) {
+			const entries = [];
+			for (let spent = 0; spent + 103 <= section.chars * factor; spent += 103) entries.push("x".repeat(100));
+			sections[section.heading.toLowerCase()] = entries;
+		}
+		return sections;
+	};
+	const atTarget = renderMemoryDocument(fill(MEMORY_SECTION_PROMPT_SHARE), cap);
+	assert.equal(atTarget.sectionDropped, 0, "no section filled to its stated target is over its budget");
+	assert.equal(atTarget.droppedItems, 0, "nothing is dropped whole");
+	assert.equal(atTarget.itemTruncated, 0, "no entry was clipped");
+
+	// Positive control: the same shape pushed past the hard budget must lose whole entries, so the
+	// assertion above cannot pass vacuously.
+	const overshot = renderMemoryDocument(fill(1.5), cap);
+	assert.ok(overshot.droppedItems > 0, "a section past its hard budget drops whole entries");
+	assert.ok(overshot.sectionDropped > 0, "and the section that overflowed is named");
 });
 
 test("the record_memory tool is strict-by-construction and declares both members", () => {

@@ -18,7 +18,7 @@ import { RETRY_OUTPUT_HEADROOM_TOKENS } from "../shared/output-budget.js";
 import { type ConsolidationResult, type ContextUpdate, parseConsolidation, parseContextMember, parseToolArguments } from "../shared/reply-json.js";
 import { MAX_CONSOLE_REPLY_CHARS, replyHead } from "../shared/text.js";
 import { contextSectionBudgets } from "./context-schema.js";
-import { memorySectionBudgets } from "./memory-schema.js";
+import { memorySectionBudgets, memorySectionPromptBudgets } from "./memory-schema.js";
 import {
 	type MemoryRender,
 	type MemorySectionOverage,
@@ -163,14 +163,22 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
  * each section's share of the cap by dropping whole entries. The cap is per project, so the section
  * budgets have to be built per pass instead of sitting in the static rules — and like
  * `memoryBudgetRule`, every number here is in characters.
+ *
+ * Each section states two numbers: the figure the prompt asks for, and the hard budget the renderer
+ * refuses past. The gap is deliberate — a reply written to the hard budget spends the headroom the
+ * next pass needs, and the model cannot count characters — so the target, not the refusal bound, is
+ * what the model is told to aim at. Both come from the one table so neither can drift.
  */
 export function memorySectionRule(maxMemoryChars: number): string {
-	const budgets = memorySectionBudgets(maxMemoryChars).map(
-		(section) => `- ## ${section.heading}: ${section.description} (about ${section.chars} characters)`,
+	const budgets = memorySectionBudgets(maxMemoryChars);
+	const targets = new Map(memorySectionPromptBudgets(maxMemoryChars).map((section) => [section.heading, section.chars]));
+	const lines = budgets.map(
+		(section) =>
+			`- ## ${section.heading}: ${section.description} (aim for about ${targets.get(section.heading)} characters; never past ${section.chars})`,
 	);
 	return [
 		"Either way, the memory carries these exact sections, in this order, each within its budget:",
-		...budgets,
+		...lines,
 		"Each entry is one self-contained statement on one line: no bullet prefix and no headings. When over budget, merge duplicates within a section, then drop the least durable entries.",
 	].join("\n");
 }

@@ -103,6 +103,11 @@ export declare const CONSOLIDATION_PROMPT_RULES: readonly string[];
  * each section's share of the cap by dropping whole entries. The cap is per project, so the section
  * budgets have to be built per pass instead of sitting in the static rules — and like
  * `memoryBudgetRule`, every number here is in characters.
+ *
+ * Each section states two numbers: the figure the prompt asks for, and the hard budget the renderer
+ * refuses past. The gap is deliberate — a reply written to the hard budget spends the headroom the
+ * next pass needs, and the model cannot count characters — so the target, not the refusal bound, is
+ * what the model is told to aim at. Both come from the one table so neither can drift.
  */
 export declare function memorySectionRule(maxMemoryChars: number): string;
 /**

@@ -29,7 +29,7 @@ import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runt
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, CONVERSATION_CAPTION, FOREIGN_STATE_RULE, fallbackUpdate, memorySectionRule } from "../lib/project-memory/consolidate.js";
-import { memorySectionBudgets } from "../lib/project-memory/memory-schema.js";
+import { memorySectionBudgets, memorySectionPromptBudgets } from "../lib/project-memory/memory-schema.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation, parseContextMember, parseToolArguments } from "../lib/shared/reply-json.js";
 import { fitMemoryInput, conversationText, userTurnCount } from "../lib/shared/conversation.js";
@@ -4904,8 +4904,17 @@ test("the memory section rule states the same sections, order and character budg
 	const cap = 40_000;
 	const rule = memorySectionRule(cap);
 	const budgets = memorySectionBudgets(cap);
-	for (const section of budgets) {
-		assert.ok(rule.includes(`## ${section.heading}: ${section.description} (about ${section.chars} characters)`), `the rule budgets ${section.heading}`);
+	const targets = memorySectionPromptBudgets(cap);
+	for (const [index, section] of budgets.entries()) {
+		const target = targets[index].chars;
+		assert.equal(targets[index].heading, section.heading);
+		// Both numbers are stated, and they come from the one table: the figure the prompt asks for and
+		// the budget the renderer refuses past.
+		assert.ok(
+			rule.includes(`## ${section.heading}: ${section.description} (aim for about ${target} characters; never past ${section.chars})`),
+			`the rule budgets ${section.heading}`,
+		);
+		assert.ok(target < section.chars, `${section.heading}: the stated target is inside the hard budget`);
 	}
 	for (const [index, section] of budgets.entries()) {
 		if (index === 0) continue;

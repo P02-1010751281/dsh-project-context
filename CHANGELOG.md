@@ -7,6 +7,25 @@
 
 ### 未发布（`v0.4.1` 之后）
 
+**project-memory（记忆分区预算）**
+
+- 修复：**分区份额与内容形状不符，使每次 `/memory update` 都变成概率事件**。四分区端口沿用 pi 的
+  `0.2 / 0.4 / 0.25 / 0.15`，而本项目记忆实际按 `17.6 / 45.1 / 29.2 / 8.7`（占正文）堆积：Invariants 与
+  Pitfalls 顶到 96–97%，Index 只用 48%。`renderMemoryDocument` 对超预算的分区**整条丢弃**，随后 tier C 拒写，
+  于是把分区写到硬预算上正好吃掉下一次整理需要的余量——2026-10-05 三次 `/memory update` 只成功一次
+  （`errors.log`：一次被输出上限截断、两次 `lossy-refused`），而成功那次还把 Project 一条写成 810 字符、
+  被 800 的**单条上限**中句截断。份额改为 `0.17 / 0.45 / 0.29 / 0.09`：对当前 33822 字符的 `MEMORY.md`，
+  四个分区各留 937 / 2656 / 1860 / 714 字符（13–20%），且新旧份额下渲染都不丢条。
+- 新增：提示词不再只报硬预算，而是同时给出**目标值与硬上限**（`memorySectionPromptBudgets` = 硬预算的
+  `MEMORY_SECTION_PROMPT_SHARE`，0.9）。硬预算是拒写线而不是目标——模型数不准字符，写到硬预算上的分区会
+  把余量花光；两个数字都从 `MEMORY_SECTIONS` 这一张表推得，不另立第二套数字。
+- 变异校验（2 个变异体，均被杀死）：① `MEMORY_SECTION_PROMPT_SHARE` 改回 `1` —— `tsc` 0 错、标记
+  `MEMORY_SECTION_PROMPT_SHARE = 1;` 进 `lib/`、探针显示目标 == 硬预算，`test/sections.test.mjs` 的
+  “the prompt asks for less than the hard budget…” 与 `test/logic.test.mjs` 的 section rule 用例双双变红；
+  ② 份额改回 `0.2 / 0.4 / 0.25 / 0.15` —— 标记进 `lib/`、探针显示预算回到 7984/15969/9981/5988，
+  `test/sections.test.mjs` 的 “the section table matches the documented contract…” 变红。恢复后
+  `sha256sum -c` 通过、重建后 `lib/` 无残留标记、`pnpm test` 353 通过 / 0 失败。
+
 ### v0.4.1（2026-10-05）
 
 **仓库打包（`lib/` 纳入跟踪）**
