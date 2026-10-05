@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-10-05T12:12:00.000Z
+Last updated: 2026-10-05T12:40:29.000Z
 
 ## Summary
 
@@ -8,7 +8,7 @@ This session continued from handoff session-5d0ef0a3. It first ran the read-only
 
 ## Key points
 
-- Disk state: `HEAD == origin/main == 8174aed` (the CONTEXT.md docs commit), clean tree; the last `src/` commit is still **904152d** (2026-10-05T20:08:18+08:00) and it carries the rebuilt `lib/`, including `lib/client.js` because `client/locales.ts` moved. `git diff --exit-code -- lib` is empty, so the committed artifacts match `src/` and no rebuild is owed before the restart.
+- Disk state: `HEAD == origin/main` on a clean tree — read it with `git rev-parse HEAD origin/main` rather than a hash written here, because the pointer moves under every docs commit and a literal goes stale immediately; the last `src/` commit is still **904152d** (2026-10-05T20:08:18+08:00) and it carries the rebuilt `lib/`, including `lib/client.js` because `client/locales.ts` moved. `git diff --exit-code -- lib` is empty, so the committed artifacts match `src/` and no rebuild is owed before the restart.
 - Load state: NOT loaded. The 19387 holder's 17:17:29 start is earlier than **both** f38a0ba (18:14:04+08:00) and 904152d, so one restart loads the share rebalance and the decision carry together. `errors.log` has had no pass since 18:04:16Z.
 - The share rebalance's budget half is verified **offline**, ahead of the restart, because the running host still holds the old table: `.agents/evidence/2026-10-05-memory-share-fix-offline-verify/` runs `sectionsFromMarkdown` → `renderMemoryDocument` → `fitMemoryInput` from `lib/` against the stored `MEMORY.md`/`CONTEXT.md`. Result: `sectionDropped 0`, `droppedItems 0`, `itemTruncated 0`, byte-identical round trip; all four sections sit at 84–87% of the hard budget and inside the 90% prompt target, so tier C's whole-entry-drop refusal has nothing to fire on. The output half is only **bounded**, not tested: the fit clips nothing at the current sizes and the requested cap stays under the 32768 ceiling, while an adapter cap of 16384 would instead clip the input — and the 09:20:54 truncation logged 27816 tokens for a then-larger document, so size is the lever. Only a real post-restart run settles it; the exact token figures move with the document sizes, so read them from the script rather than from here.
 - What the carry does: the user's own last input rides into the continuation independently of `handoffBudgetRecentTokens` — a typed message (`source.kind === "user"`) or an `ask_user_question` answer rendered from the call's `questions[]` and the result's `answers[]`. Only the newest of that input and the last assistant question rides, compared by position on their own axes; a carried decision replaces the "otherwise ask" closing with "do not ask again for something the user has already stated".
