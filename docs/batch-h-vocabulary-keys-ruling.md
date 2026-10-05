@@ -209,6 +209,16 @@ it here. Two batch-specific reads on top: the settings card must be **back** and
 predicts; and the batch G observable, which only a real pass produces, is a marked skill name whose body that round
 did not render being refused with `body not shown this pass`.
 
+**Observed, 2026-10-05 (post-restart close-out).** The card read passed — both halves — and the deployment
+block was run by the owner at 13:55–13:57 (`RESULT: PASS`; `electron:242727`, `host:243659`): retired names
+0 in both profiles, desktop keeps `handoffThresholdAuto: true` / `handoffBudgetRecentTokens: 0` /
+`handoffPendingQuestion: wait`, holder `pid=243659` started 13:57:02 — later than `d0d9dcd` (11:35:56) —
+`lib/` differs from a fresh `tsc` only by `client.js`, the settings-namespace owner projects a `schema`
+entry carrying the seven new names with every field `volatile`, and the three config-less entries read
+`absent` (no Config of their own, not `inactive`). The second read in this section, the batch G real-pass
+observable, is **not** covered by this round — no autolearn pass ran. Commands, values and the one residual
+are in `.agents/evidence/2026-10-05-batch-h-deployment/README.md`.
+
 ## 8. Deliberate non-goals
 
 - pi's terminal wording for the handoff receipt (H-D5).
