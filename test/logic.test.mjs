@@ -3029,10 +3029,11 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.equal(thresholdRefusal(heavyConfig, heavy, 1_000_000), "quality-knee");
 	const kneeSqueezed = await statusAt(1_000_000, heavyConfig, heavy);
 	assert.match(kneeSqueezed, /the model's quality knee allows only 157000 at this window/);
-	// A 200K envelope leaves no `keep` that clears a 157K knee, so the receipt must not name `keep` as the
-	// lever here — that is the same dead-lever defect the old "a smaller baseline" wording had.
-	assert.match(kneeSqueezed, /no `keep` value clears this/);
-	assert.doesNotMatch(kneeSqueezed, /lower `keep`/, "an inert lever must not be named");
+	// A 200K envelope leaves no value of that setting that clears a 157K knee, so the receipt must not
+	// name it as the lever here — that is the same dead-lever defect the old "a smaller baseline" wording
+	// had. The name it must use is the settings card's own label, not the internal `keep` shorthand.
+	assert.match(kneeSqueezed, /no "Recent tokens kept" value clears this/);
+	assert.doesNotMatch(kneeSqueezed, /lower "Recent tokens kept"/, "an inert lever must not be named");
 	assert.match(kneeSqueezed, /raising it lowers the knee/, "the receipt corrects the backwards advice");
 
 	// The reachable-today path is `keep` itself: it is bounded at 200_000, so at a 1M window 149_000
@@ -3040,7 +3041,7 @@ test("the status receipt names the term that refused the threshold, not always t
 	const kneeByKeep = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_001 });
 	assert.equal(thresholdRefusal(kneeByKeep, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), "quality-knee");
 	const keepSqueezed = await statusAt(1_000_000, kneeByKeep, { totalTokens: 11_800, surfaceTokens: 0 });
-	assert.match(keepSqueezed, /lower `keep`/, "the lever that really binds is named");
+	assert.match(keepSqueezed, /lower "Recent tokens kept"/, "the lever that really binds is named");
 	// One token less of carried tail clears it, which is what makes `keep` the lever rather than a slogan.
 	const oneLess = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_000 });
 	assert.notEqual(resolveThreshold(oneLess, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), undefined);

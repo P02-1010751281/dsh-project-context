@@ -120,8 +120,8 @@ export function thresholdRefusalText(
 		// The envelope term exists only when the harness reports one; printing "0-token envelope" would
 		// invent a term that took no part in the comparison.
 		const assembly = envelope > 0
-			? `the ${envelope}-token envelope the harness reports + keep ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
-			: `keep ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
+			? `the ${envelope}-token envelope the harness reports + "Recent tokens kept" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
+			: `"Recent tokens kept" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
 		return `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (${assembly})`;
 	}
 	if (reason === "quality-knee") {
@@ -151,13 +151,13 @@ export function thresholdRefusalText(
 		const keepClears = knee - envelope - MIN_SUMMARIZE_TOKENS > 0;
 		const lever = envelope > 0
 			? keepClears
-				? `lower \`keep\` (the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever — raising it lowers the knee)`
-				: `no \`keep\` value clears this: the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever (raising it lowers the knee)`
-			: "lower `keep` (the window is the wrong lever — raising it lowers the knee)";
+				? `lower "Recent tokens kept" (the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever — raising it lowers the knee)`
+				: `no "Recent tokens kept" value clears this: the ${envelope}-token envelope the harness reports is not a setting, and the window is the wrong lever (raising it lowers the knee)`
+			: `lower "Recent tokens kept" (the window is the wrong lever — raising it lowers the knee)`;
 		return `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff threshold 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
 	if (reason === "summarizer-floor") {
-		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or a smaller keep) is the lever, not this window alone`;
+		return `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or lowering "Recent tokens kept") is the lever, not this window alone`;
 	}
 	// Fixed mode refuses exactly when `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the
 	// ratio is validated into [0.1, 0.95], the second term binds first and the condition reduces to
