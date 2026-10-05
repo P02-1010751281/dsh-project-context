@@ -2564,6 +2564,13 @@ test("the /handoff command routes the new verbs and rejects the retired spelling
 	}
 	assert.deepEqual(writes, [], "no retired spelling reached the settings service");
 
+	// `force` is the one retirement that names a replacement instead of the usage line: it was a
+	// synonym of `now`, so it is told the surviving spelling rather than having to infer it from usage.
+	const forced = await call("force");
+	assert.equal(forced.kind, "error", "`force` must not act");
+	assert.equal(forced.text, "`/handoff force` was retired; use `/handoff now`.");
+	assert.deepEqual(writes, [], "`force` did not reach the settings service");
+
 	assert.equal((await call("threshold auto")).kind, "success");
 	assert.deepEqual(writes.at(-1).patch, { handoffAdaptive: true });
 	assert.equal((await call("threshold 0.6")).kind, "success");

@@ -153,7 +153,10 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		input: { hint: "status | now | on|off | threshold auto|0.4 | budget summary 64k | budget recent 20k | thinking off|session | pending defer|wait | lang auto|zh|en" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const args = rawInput.trim();
-			if (args === "" || args === "now" || args === "force") return runManual(ctx, agent.session, entry, signal);
+			if (args === "" || args === "now") return runManual(ctx, agent.session, entry, signal);
+			// `force` was the third spelling of `now` and is retired rather than kept as an alias (one
+			// fact, one spelling), so it is told which name to use instead of quietly doing nothing.
+			if (args === "force") return { kind: "error" as const, text: "`/handoff force` was retired; use `/handoff now`." };
 			if (args === "status") return { kind: "success" as const, text: await statusText(ctx, agent.session, entry, signal) };
 
 			const parsed = settingPatch(args);
