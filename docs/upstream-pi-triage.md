@@ -642,6 +642,9 @@ the two trees; anything outside this repo (dsh core, the delivery line in `/etc/
 `~/.dsh`) is not owned here. Both batches are *proposals with evidence*, not landed work: `src/` was not touched by
 this pass, nothing was ported, and no host restart is owed. The pi measurements quoted (`96975` characters of marked
 bodies against `20000`, four shown of seventeen) are pi's, taken from its own commits; our counterpart is the count
-`0 of 21` markers, not a byte total, because a repo with no marked skills has no bodies to weigh. The three standing
-traps hold: pi's finish reason is `length` where dsh's is `max-tokens`, pi's `R3` table is pi's audit and not this
-repo's R3 batch, and pi's `R4`/`r2` revision labels are its own design rounds.
+`0 of 21` markers, not a byte total, because a repo with no marked skills has no bodies to weigh. The two standing
+traps hold: pi's finish reason is `length` where dsh's is `max-tokens`, and pi's `R3` table is pi's audit and not
+this repo's R3 batch. A related caution this pass's own reading produced: pi's `R<n>` labels are **per-issue, not
+global** — `R2`/`R4` name structural counterexamples in `2026-09-15-consolidated-memory-json-poison` and review
+rounds in `2026-10-03-design-complexity-audit`, so never carry an `Rn` across issues or into this repo without its
+issue path.
