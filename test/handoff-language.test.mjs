@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { settingPatch } from "../lib/project-handoff/command.js";
-import { handoffSplit, pendingQuestionFor, resolveHandoffLanguage, sessionLanguageMessages } from "../lib/project-handoff/conversation.js";
+import { handoffCarry, handoffSplit, resolveHandoffLanguage, sessionLanguageMessages } from "../lib/project-handoff/conversation.js";
 import { outstandingSubagents } from "../lib/project-handoff/guard.js";
 import { assertHandoffSummarizable, handoffArtifacts } from "../lib/project-handoff/perform.js";
 import { continuation, handoffPrompt, summaryAttemptBudgets } from "../lib/project-handoff/summary.js";
@@ -302,13 +302,21 @@ test("a wait handoff carries the open question into the continuation", () => {
 	assert.ok(blank.endsWith(SCAFFOLDING.en.continuationClosing));
 });
 
-test("pendingQuestionFor only carries the question when the config says wait", () => {
+test("handoffCarry only carries the question when the config says wait", () => {
 	const session = fakeSession([
 		message("user", "please pick a branch"),
 		message("assistant", "Should I push to main or to the feature branch?"),
 	]);
-	assert.match(pendingQuestionFor({ ...DEFAULT_CONFIG, handoffPendingQuestion: "wait" }, session), /push to main/);
-	assert.equal(pendingQuestionFor({ ...DEFAULT_CONFIG, handoffPendingQuestion: "defer" }, session), undefined);
+	assert.match(handoffCarry(session, true).pending, /push to main/);
+	// `defer` carries no question, and a question newer than the user's input then carries nothing at
+	// all rather than the superseded input under a "do not ask again" closing.
+	assert.deepEqual(handoffCarry(session, false), {});
+	// An input newer than the question is still carried under `defer`.
+	const answered = fakeSession([
+		message("assistant", "Should I push to main or to the feature branch?"),
+		message("user", "please pick a branch"),
+	]);
+	assert.equal(handoffCarry(answered, false).decision?.text, "please pick a branch");
 });
 
 test("/handoff lang accepts auto, zh and en only", () => {

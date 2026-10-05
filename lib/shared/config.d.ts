@@ -47,7 +47,7 @@ export interface PluginConfig {
     handoffThresholdRatio: number;
     /** Adaptive mode: conversation tokens handed to each summary. */
     handoffBudgetSummaryTokens: number;
-    /** Recent conversation tokens carried into the continuation verbatim (0 = summary only). */
+    /** Recent conversation tokens carried into the continuation verbatim (0 = no verbatim tail). */
     handoffBudgetRecentTokens: number;
     /** Thinking for the summary call: "off" (fast) or the session's routed level. */
     handoffThinking: "off" | "session";

@@ -8,6 +8,7 @@ import { type LlmResolvedModelInfo } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { requestPluginText } from "../shared/model-call.js";
+import { type UserDecision } from "./conversation.js";
 import { type HandoffLanguage, SCAFFOLDING } from "./language.js";
 
 /** Minimum room for the summary retry after a token-cap truncation. */
@@ -70,6 +71,7 @@ export function continuation(
 	archive: { log: string; index: string },
 	language: HandoffLanguage = "en",
 	pending?: string,
+	decision?: UserDecision,
 ): string {
 	const text = SCAFFOLDING[language];
 	const parts = [
@@ -85,13 +87,34 @@ export function continuation(
 	if (tail.length > 0) {
 		parts.push("", "<recent-conversation>", text.continuationCarried, tail, "</recent-conversation>");
 	}
-	// With `handoffBudgetRecentTokens: 0` the tail cannot carry the open question, so the
+	// The user's own last input. A decision arrives either as a typed message or as the tool result
+	// answering `ask_user_question`, and with `handoffBudgetRecentTokens: 0` the tail carries neither,
+	// so summary prose was the only place it could survive — which is how a session that had already
+	// settled a question handed its successor the same question to ask again.
+	// With `handoffBudgetRecentTokens: 0` the tail cannot carry the open question either, so the
 	// explicit block is the only thing that keeps a `wait` handoff from silently
 	// dropping the decision the previous session stopped on. It also replaces the
 	// usual closing: "start with the next concrete step" immediately after "wait for
 	// the user" reads as the last instruction and cancels the wait.
 	if (pending !== undefined && pending.trim().length > 0) {
 		parts.push("", text.pendingHeading, "", pending.trim(), "", text.pendingWait);
+	} else if (decision !== undefined) {
+		// `readSessionInputs` only produces a decision with content: a message carries non-empty text
+		// and an answer carries at least one answered question, so there is no empty block to guard.
+		parts.push("", text.decisionHeading, "");
+		if (decision.kind === "message") {
+			parts.push(decision.text.trim());
+		} else {
+			for (const entry of decision.entries) {
+				if (entry.question.length > 0) parts.push(text.decisionQuestion(entry.question));
+				if (entry.options.length > 0) parts.push(text.decisionOptions(entry.options.join(" | ")));
+				if (entry.selected.length > 0) parts.push(text.decisionSelected(entry.selected.join(" | ")));
+				if (entry.custom.length > 0) parts.push(text.decisionCustom(entry.custom));
+			}
+		}
+		// A carried decision is exactly what makes "otherwise ask" wrong: the user has already
+		// spoken, so the successor continues from it instead of putting the question back to them.
+		parts.push("", text.decisionClosing);
 	} else {
 		parts.push("", text.continuationClosing);
 	}

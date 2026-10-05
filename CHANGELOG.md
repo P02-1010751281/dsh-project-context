@@ -28,6 +28,59 @@
   `test/sections.test.mjs` 的 “the section table matches the documented contract…” 变红。恢复后
   `sha256sum -c` 通过、重建后 `lib/` 无残留标记、全量门禁恢复绿色（现状现跑 `pnpm test` 读）。
 
+**project-handoff（交接不再把用户已定的动作问回去）**
+
+- 修复：**交接只有「等未答问题」和「做下一步，否则问」两种收尾，缺「用户已表态、球在用户手上」这第三种
+  状态**。两个 profile 都设 `handoffBudgetRecentTokens: 0`，逐字尾料为空，于是用户的决定只剩摘要散文这
+  一条通道；而唯一的显式通道 `pendingQuestion()` 只读 `user`/`assistant` 消息的文本块，既不认
+  `ask_user_question` 的 tool 结果（答案落在 `role: "tool"` 的消息里，不在 user 消息里），也不认被摘要
+  压掉的普通对话。后果是后继会话在用户已经选完之后，把同一个问题再问一遍——实测于
+  `session-8370820f`：用户在 turn 1 step 15 经 `ask_user_question` 选了「我去重启桌面宿主（推荐）」
+  （seq 120/121），交接文档只留下散文，`session-5d0ef0a3` 的日志里 `ask_user_question` 调用数为 0。
+- 新增：**用户自己的最后一次输入**无论走哪条通道都单独带进续会话，不依赖
+  `handoffBudgetRecentTokens`。手打消息取 `source.kind === "user"`（并沿用 `isHandoffContinuationText`
+  跳过交接自己的续会话提示词与注入上下文）；`ask_user_question` 的答案由调用参数（`questions[]` 的
+  `question` / `options[].label`）与结果（`answers[].selected` **和** `answers[].custom`）配对渲染，
+  按**位置**配对（上游文档写明 `answers` 是 “one item per question”，`id` 只作确认；仅在 id 唯一时才
+  回退到按 id 查，否则重复 id 会让同一个答案落到多个问题上——上游只有 timed 那个工具校验 id 唯一）。
+  **没表态的一律不带入**：上游两种结果形状里只有 `answers` 是答案——timed 模式超时返回的
+  `{"pending":true,…}`、用户**跳过**的问题（`selected: []` 且无 `custom`，上游原文 “the user explicitly
+  skipped this question”）、`isError: true` 的失败调用、解析不出的结果，都不算回答。把插件自己复制的
+  提示文本或错误文本当成“用户说的话”，正是本项目最忌的**错因**；此时更早的真实输入仍是带入的那一条，
+  没有更早输入就退回常规结尾。
+- 行为：该段落与「未答问题」段落**按位置取最新者**，只有更新的那一项进入续会话。这不是随便定的优先级——
+  两个混合情形都够得着：已答的 `ask_user_question` 会把助手那句提问留成最后一条会话消息，若「未答问题」
+  压过答案，就会让新会话去等一个用户已经给过的答复；而答案之后**新问**的问题确实更新，不能被旧答案顶掉。
+  比较的两端是「最后一次助手提问」与「用户最后一次输入」各自的位置，不是「最后一条会话消息」的位置，
+  否则一个注入的用户角色块就会把仍开着的问题顶掉。`handoffPendingQuestion: defer` 下不带走问题，此时若
+  问题更新就**什么都不带**，而不是把已过时的输入配上「不要再问」的结尾。带入该段落时结尾由「若没有可
+  执行的下一步就询问」改为「用户已经表态，不要再问一遍；若球在用户手上就说清在等什么」，后者注册进
+  `isHandoffContinuationText` 的结尾集合（否则下一次交接会把上一份续会话提示词当成人的发言）。
+- 配套：`/handoff status` 回执与设置卡片里「`handoffBudgetRecentTokens: 0` = 只带摘要」的说法已不成立
+  （决定段不受该值控制），改为「不逐字带入对话尾料」，并在卡片提示里写明用户最后一次输入另算。
+- 独立对抗复核（read-only，独立于实现）：抓出四处真问题并已修——(a) **把「跳过」和 timed 模式的
+  `pending` 当成用户表态**（上游 `tool-ask-user` 里跳过的原话是 “the user explicitly skipped this
+  question”，`pending` 更是明确的“不是跳过的答案”），(b) **前置比较用错了轴**：拿「最后一条会话消息」的
+  位置比，于是注入的用户角色块会把仍开着的问题顶掉，(c) **重复 id 让一个答案落到多个问题上**，(d)
+  `summary.ts` 里那个 `carried` 守卫只挡住不可达分支。另外修掉了五处失效措辞（`/handoff status` 回执与
+  设置卡片的「只带摘要」、以及若干注释）。
+- 变异校验（9 个变异体，全部被杀死）：① 决策段永不渲染（`MUTANT_DECISION_BLOCK = false` 进 `lib/`）——
+  `test/handoff-decision.test.mjs` 的 “a carried decision replaces the closing…” 与 “the wiring carries the
+  decision into the seed prompt” 变红；② 忽略 tool 答案通道（`MUTANT_IGNORE_TOOL_ANSWER = true`）—— 6 个
+  用例变红（答案携带、自填答案、已答问题不再显示为待答、最新输入取胜、多问题按位置配对、跳过项不遮蔽已答
+  项）；③ 忽略 `custom` 字段（`MUTANT_IGNORE_CUSTOM = true`）—— “a typed answer to ask_user_question is
+  carried…” 变红；④ 把失败的调用当成回答（`MUTANT_CARRY_ERRORS = false`）—— **第一轮 SURVIVED**：修好
+  「只有 `answers` 才算答案」之后，普通错误文本已经因为“没有 answers”而落空，这个守卫对那种输入不可见。
+  按规程补测而不是重跑：新增一条能把两者分开的用例（错误结果的文本**恰好长得像** `answers`），再跑该变异
+  体即变红；⑤ 把跳过项当成回答（`MUTANT_CARRY_SKIPS = false`）—— 2 个用例变红；⑥ 先按 id 配对
+  （`MUTANT_ID_FIRST = true`）—— “multiple questions are paired by position…” 变红；⑦ 决策恒压过待答问题
+  （`MUTANT_DECISION_OUTRANKS_PENDING = true`）—— 3 个用例变红（答后新问、注入块不关闭问题、defer 下什么
+  都不带）；⑧ 接受一个什么都没答的答案批次（`MUTANT_ACCEPT_EMPTY_ENTRIES = false`）—— 2 个用例变红；
+  ⑨ 把带入段落的结尾从 `isHandoffContinuationText` 的结尾集合里摘掉
+  （`MUTANT_UNREGISTER_DECISION_CLOSING = true`）—— 2 个用例变红（可见漏注册会让下一份续会话提示词被当成
+  人的发言）。九个变异体都是 `tsc` 0 错、标记进 `lib/`、且改变了行为；恢复后 `sha256sum -c` 通过、重建后
+  `lib/` 无残留标记、全量门禁恢复绿色（现状现跑 `pnpm test` 读）。
+
 ### v0.4.1（2026-10-05）
 
 **仓库打包（`lib/` 纳入跟踪）**

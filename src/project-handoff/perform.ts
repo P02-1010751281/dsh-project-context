@@ -15,7 +15,7 @@ import { type HandoffLanguage, localizeSummaryHeadings } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement, seedChildSession } from "./child.js";
 import { transientIfRetryable } from "./classify.js";
-import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffSplit, pendingQuestionFor, resolveHandoffLanguage } from "./conversation.js";
+import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, handoffSplit, resolveHandoffLanguage } from "./conversation.js";
 import { assertSessionSettled } from "./guard.js";
 import { type SessionControllerLike } from "./runtime.js";
 import { handedOff } from "./state.js";
@@ -25,7 +25,8 @@ import { continuation, handoffPrompt, renderHandoff, resolveSummaryEffort, summa
  * The two language-dependent artifacts of one handoff: the `HANDOFF.md` document and the child's
  * first message. The summary headings are normalized to the resolved language here, so the stored
  * document and the seed prompt can never disagree about it. Exported so a test can pin the wiring
- * (the resolved language and the pending-question carry) rather than only the pure helpers.
+ * (the resolved language, the pending-question carry and the carried user decision) rather than only
+ * the pure helpers.
  * @param args - session, resolved language, the raw model summary, archive pointers and the tail.
  * @returns the document to persist and the prompt to admit to the child.
  */
@@ -39,9 +40,10 @@ export function handoffArtifacts(args: {
 	tail: string;
 }): { document: string; prompt: string } {
 	const summary = localizeSummaryHeadings(args.rawSummary, args.language);
+	const carry = handoffCarry(args.session, args.config.handoffPendingQuestion === "wait");
 	return {
 		document: renderHandoff(args.session, summary, args.archive, args.language),
-		prompt: continuation(String(args.session.id), summary, args.tail, args.pointers, args.language, pendingQuestionFor(args.config, args.session)),
+		prompt: continuation(String(args.session.id), summary, args.tail, args.pointers, args.language, carry.pending, carry.decision),
 	};
 }
 

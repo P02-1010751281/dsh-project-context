@@ -2541,13 +2541,21 @@ test("resolvePluginConfig, settingPatch and the pending-question check behave", 
 		id: "s1",
 		header: {},
 		snapshotEvents: () => [],
+		// `MessageBase.source` is required on every derived message; a fixture without it would not
+		// be a Session shape at all.
 		deriveMessages: () => [
-			{ role: "user", content: [{ type: "text", text: "go on" }] },
-			{ role: "assistant", content: [{ type: "text", text: "Which branch should I use?" }] },
+			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "go on" }] },
+			{ role: "assistant", source: { kind: "model" }, content: [{ type: "text", text: "Which branch should I use?" }] },
 		],
 	};
 	assert.match(pendingQuestion(asking), /Which branch/);
-	const answered = { ...asking, deriveMessages: () => [...asking.deriveMessages(), { role: "user", content: [{ type: "text", text: "main" }] }] };
+	const answered = {
+		...asking,
+		deriveMessages: () => [
+			...asking.deriveMessages(),
+			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "main" }] },
+		],
+	};
 	assert.equal(pendingQuestion(answered), undefined);
 });
 

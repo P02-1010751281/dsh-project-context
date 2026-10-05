@@ -147,7 +147,7 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 		? (language === "zh"
 			? `「${HANDOFF_BUDGET_RECENT_LABEL.zh}」 ~${config.handoffBudgetRecentTokens}`
 			: `"${HANDOFF_BUDGET_RECENT_LABEL.en}" ~${config.handoffBudgetRecentTokens}`)
-		: "summary only");
+		: (language === "zh" ? "0（不逐字带入对话尾料）" : "0 (no verbatim conversation tail)"));
 	parts.push(`summary thinking ${config.handoffThinking}`);
 	parts.push(`pending question ${config.handoffPendingQuestion}`);
 	parts.push(config.handoffLang === "auto" ? `lang auto (${language})` : `lang ${language}`);

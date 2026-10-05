@@ -259,7 +259,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
 | `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值 |
 | `handoffBudgetSummaryTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000）。这是**手动设定**的阈值请求，触发点由护栏决定；一旦被护栏压掉，`/handoff status` 点名被覆盖的值与压住它的那条护栏，不静默 |
-| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符） |
+| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
 | `handoffThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
@@ -306,6 +306,13 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
   分钟；未答问题按 `handoffPendingQuestion` 处理——`wait`
   会把问题原文作为独立段落带进新会话（此前只跳过延后、问题实际会丢），
   并以该段落**取代**常规的“先做下一步”结尾。
+  **用户自己的最后一次输入**会被单独带入，且不依赖 `handoffBudgetRecentTokens`：它既可能是用户手打
+  的消息，也可能是 `ask_user_question` 的选择或自填答案（读 `answers[].selected` 与
+  `answers[].custom` 两者）。它与“未答问题”段落**按位置取胜者**，只有更新的那一项进入续会话——所以
+  用户刚答完的问题不会被当成“仍在等他回答”，而答案之后新问的问题也不会被旧答案顶掉。用户**跳过**的
+  问题、以及 timed 模式返回的 `{"pending":true,…}` 都不算表态，不会被当成“用户说过的话”带入（上游
+  `tool-ask-user` 的两种结果形状里只有 `answers` 是答案）。带入该段落时结尾改为「用户已经表态，不要
+  再问一遍；若球在用户手上就说清在等什么」，正是为了拆掉“没有下一步就再问一次”那条指令。
   自动交接在**本会话还有未结束的后台子代理时延后**（枚举读 `subagents.listChildren()` 并取其中
   `mode: continuable` 的直接子会话：0.1.6 的分类行与 0.1.7-alpha.1 的裸目录行
   `{id, createdAt, mode, label}` 都带 `mode`，一次读取同时覆盖两个版本；**是否在跑读活体注册表**

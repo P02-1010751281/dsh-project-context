@@ -65,6 +65,12 @@ export interface HandoffScaffolding {
     readonly continuationCarried: string;
     readonly pendingHeading: string;
     readonly pendingWait: string;
+    readonly decisionHeading: string;
+    readonly decisionQuestion: (question: string) => string;
+    readonly decisionOptions: (labels: string) => string;
+    readonly decisionSelected: (labels: string) => string;
+    readonly decisionCustom: (text: string) => string;
+    readonly decisionClosing: string;
     readonly continuationClosing: string;
 }
 export declare const SCAFFOLDING: Record<HandoffLanguage, HandoffScaffolding>;

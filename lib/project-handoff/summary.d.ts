@@ -6,6 +6,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type LlmResolvedModelInfo } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
+import { type UserDecision } from "./conversation.js";
 import { type HandoffLanguage } from "./language.js";
 /** Summary thinking: "off" when the adapter exposes that effort, else the session's routed level. */
 export declare function resolveSummaryEffort(config: PluginConfig, session: Session, resolved: LlmResolvedModelInfo): string | undefined;
@@ -19,7 +20,7 @@ export declare function renderHandoff(session: Session, summary: string, archive
 export declare function continuation(parentId: string, summary: string, tail: string, archive: {
     log: string;
     index: string;
-}, language?: HandoffLanguage, pending?: string): string;
+}, language?: HandoffLanguage, pending?: string, decision?: UserDecision): string;
 /** Bound one summary call by the caller signal and the summary timeout. */
 export declare function withTimeout(signal: AbortSignal | undefined): AbortSignal;
 /**

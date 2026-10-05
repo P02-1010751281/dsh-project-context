@@ -188,6 +188,12 @@ export interface HandoffScaffolding {
 	readonly continuationCarried: string;
 	readonly pendingHeading: string;
 	readonly pendingWait: string;
+	readonly decisionHeading: string;
+	readonly decisionQuestion: (question: string) => string;
+	readonly decisionOptions: (labels: string) => string;
+	readonly decisionSelected: (labels: string) => string;
+	readonly decisionCustom: (text: string) => string;
+	readonly decisionClosing: string;
 	readonly continuationClosing: string;
 }
 
@@ -207,6 +213,12 @@ export const SCAFFOLDING: Record<HandoffLanguage, HandoffScaffolding> = {
 		continuationCarried: "The most recent messages of the previous session are carried over verbatim for continuity.",
 		pendingHeading: "## Pending question (waiting for the user)",
 		pendingWait: "The previous session stopped on this question; wait for the user's answer instead of choosing an option or starting new work.",
+		decisionHeading: "## The user's last input",
+		decisionQuestion: (question) => `The user was asked: ${question}`,
+		decisionOptions: (labels) => `Options offered: ${labels}`,
+		decisionSelected: (labels) => `The user chose: ${labels}`,
+		decisionCustom: (text) => `The user answered: ${text}`,
+		decisionClosing: "Continue from the user's own input above. Do not ask again for something the user has already stated; if that input leaves the next move with the user, say what you are waiting for and stop.",
 		continuationClosing: "Start with the next concrete step. If there is no actionable next step, summarize the current state and ask what to do next.",
 	},
 	zh: {
@@ -224,6 +236,12 @@ export const SCAFFOLDING: Record<HandoffLanguage, HandoffScaffolding> = {
 		continuationCarried: "上一会话最近的消息已原文带入，用于保持连续性。",
 		pendingHeading: "## 待用户回答的问题",
 		pendingWait: "上一会话停在这个问题上；先等用户回答，不要替用户选择，也不要开始新的工作。",
+		decisionHeading: "## 用户最后一次输入",
+		decisionQuestion: (question) => `用户被问到：${question}`,
+		decisionOptions: (labels) => `给出的选项：${labels}`,
+		decisionSelected: (labels) => `用户选择：${labels}`,
+		decisionCustom: (text) => `用户回答：${text}`,
+		decisionClosing: "接着上面用户自己的输入继续。用户已经表态的事不要再问一遍；如果这一步的球在用户手上，就说清你在等什么并停下。",
 		continuationClosing: "先做下一步具体动作；若没有可执行的下一步，就总结当前状态并询问接下来做什么。",
 	},
 };
@@ -243,13 +261,16 @@ export function isHandoffContinuationText(text: string): boolean {
 	const prefixes = [SCAFFOLDING.en.continuationPrefix, SCAFFOLDING.zh.continuationPrefix];
 	if (!prefixes.some((prefix) => trimmed.startsWith(prefix))) return false;
 	if (!CONTINUATION_MARKERS.every((marker) => trimmed.includes(marker))) return false;
-	// A `wait` handoff ends on the pending-question line instead of the usual closing, so both are
-	// recognized; accepting only the usual one made every carried-over wait prompt unrecognizable.
+	// A `wait` handoff ends on the pending-question line and a carried decision ends on the
+	// decision line, instead of the usual closing, so all of them are recognized; accepting only
+	// the usual one made every carried-over wait prompt unrecognizable.
 	const closings = [
 		SCAFFOLDING.en.continuationClosing,
 		SCAFFOLDING.en.pendingWait,
+		SCAFFOLDING.en.decisionClosing,
 		SCAFFOLDING.zh.continuationClosing,
 		SCAFFOLDING.zh.pendingWait,
+		SCAFFOLDING.zh.decisionClosing,
 	];
 	return closings.some((closing) => trimmed.endsWith(closing));
 }

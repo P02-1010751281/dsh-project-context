@@ -38,16 +38,271 @@ export function textAsksQuestion(text: string): boolean {
 	return PENDING_QUESTION_PATTERNS.test(clean.slice(-400));
 }
 
-/** The question the session is waiting on, when its last conversational message is an assistant question. Exported for tests. */
+/**
+ * The question the session is waiting on, when its last conversational message is an assistant
+ * question. Exported for tests, and this is the definition `auto.ts`'s `defer` gate has always used:
+ * every user-role message counts as the last conversational one, injected context included, so an
+ * injected block after a question means "no pending question" here, exactly as it did before the
+ * decision carry existed.
+ *
+ * {@link handoffCarry} deliberately does NOT reuse this notion: it compares the last assistant
+ * question against the user's own last input, because it must never present an answered question as
+ * open. The two can disagree when an injected user-role block follows an open question — this rule
+ * then reports no pending question while the carry still reports the question, which is the safe
+ * direction: the child waits for the user instead of re-asking.
+ */
 export function pendingQuestion(session: Session): string | undefined {
-	let last: { role: string; text: string } | undefined;
-	for (const message of session.deriveMessages()) {
-		if (message.role !== "user" && message.role !== "assistant") continue;
-		const text = messageText(message.content);
-		if (text.length > 0) last = { role: message.role, text };
+	const { conversational } = readSessionInputs(session);
+	if (conversational === undefined || conversational.role !== "assistant") return undefined;
+	return textAsksQuestion(conversational.text) ? conversational.text : undefined;
+}
+
+/** The tool whose result carries a user's choice, and the only one whose call/result pair is read. */
+const ASK_USER_QUESTION = "ask_user_question";
+
+/** One prompt the model asked through `ask_user_question`, as the call recorded it. */
+interface AskedQuestion {
+	/** The question's own id, which ties it to one entry of the result's `answers`. */
+	readonly id: string;
+	readonly question: string;
+	readonly options: readonly string[];
+}
+
+/** One question of a carried decision, with the answer the result supplied for it. */
+export interface UserDecisionEntry {
+	readonly question: string;
+	readonly options: readonly string[];
+	/** Labels the user picked; empty when they typed an answer instead. */
+	readonly selected: readonly string[];
+	/** Text the user typed instead of picking a label; empty when they picked. */
+	readonly custom: string;
+}
+
+/**
+ * The user's own last input, whichever channel carried it.
+ *
+ * A decision reaches a session two ways and both were lost the same way: the user types a message
+ * (`kind: "message"`), or they answer `ask_user_question`, which lands as a *tool result* rather than
+ * a user message (`kind: "answer"`). Reading only the tool channel misses plain conversation; reading
+ * only text blocks of user messages misses an answer and any decision the summary prose dropped.
+ * `handoffBudgetRecentTokens: 0` leaves no verbatim tail, so this is the only carrier that survives
+ * independently of that budget.
+ *
+ * "Input" is meant strictly: a question the user skipped and the timed tool's `pending` placeholder
+ * are not inputs and produce no decision at all (see {@link decisionEntries}).
+ */
+export interface UserDecision {
+	readonly kind: "message" | "answer";
+	/** The user's own words for `kind: "message"`; empty for an answer. */
+	readonly text: string;
+	/** The questions the user actually answered; empty for a message, and never empty for an answer. */
+	readonly entries: readonly UserDecisionEntry[];
+}
+
+/**
+ * Parse an `ask_user_question` call's `arguments`. `undefined` when the payload is not the expected
+ * shape, so an unreadable call carries nothing instead of a guess.
+ */
+function askedQuestions(argumentsText: string): readonly AskedQuestion[] | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(argumentsText);
+	} catch {
+		return undefined;
 	}
-	if (last === undefined || last.role !== "assistant") return undefined;
-	return textAsksQuestion(last.text) ? last.text : undefined;
+	const questions = (parsed as { questions?: unknown } | null)?.questions;
+	if (!Array.isArray(questions)) return undefined;
+	const asked: AskedQuestion[] = [];
+	for (const entry of questions) {
+		const record = entry as { id?: unknown; question?: unknown; options?: unknown } | null;
+		const question = typeof record?.question === "string" ? record.question.trim() : "";
+		const id = typeof record?.id === "string" ? record.id : String(asked.length);
+		const options = Array.isArray(record?.options)
+			? record.options
+					.map((option) => (typeof (option as { label?: unknown } | null)?.label === "string" ? (option as { label: string }).label : ""))
+					.filter((label) => label.length > 0)
+			: [];
+		asked.push({ id, question, options });
+	}
+	return asked.length > 0 ? asked : undefined;
+}
+
+/** One answered question, as the result's `answers` entry records it. */
+interface GivenAnswer {
+	readonly id: string;
+	readonly selected: readonly string[];
+	readonly custom: string;
+}
+
+/**
+ * Parse an `ask_user_question` result's answer batch.
+ *
+ * Upstream defines exactly two result shapes: `{answers:[{id,selected,custom?}]}` (one item per
+ * question) and, in the opt-in timed mode, `{pending:true,callId,message}`. Only the first carries an
+ * answer, and this returns `undefined` for anything else — including the timed `pending` placeholder,
+ * whose `message` must never be mistaken for something the user said. A selection arrives as
+ * `selected` and a free-form answer as `custom`; both are read, because a carrier that dropped
+ * `custom` would lose exactly the replies a user bothered to write out.
+ */
+function givenAnswers(text: string): readonly GivenAnswer[] | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+	const answers = (parsed as { answers?: unknown } | null)?.answers;
+	if (!Array.isArray(answers)) return undefined;
+	const given: GivenAnswer[] = [];
+	for (const entry of answers) {
+		const record = entry as { id?: unknown; selected?: unknown; custom?: unknown } | null;
+		const id = typeof record?.id === "string" ? record.id : String(given.length);
+		const selected = Array.isArray(record?.selected)
+			? record.selected.filter((label): label is string => typeof label === "string" && label.length > 0)
+			: [];
+		const custom = typeof record?.custom === "string" ? record.custom.trim() : "";
+		given.push({ id, selected, custom });
+	}
+	return given.length > 0 ? given : undefined;
+}
+
+/**
+ * Pair each asked question with the answer recorded for it, dropping the questions the user did not
+ * answer.
+ *
+ * The tool documents `answers` as "one item per question", so POSITION is the contract and a matching
+ * `id` confirms it; the id is only a fallback, and only while it is unambiguous. Looking the id up
+ * first would let one answer answer every question that repeats that id, and the blocking tool does
+ * not require unique ids — only the opt-in timed one validates them.
+ *
+ * A skipped question arrives as `selected: []` with no `custom` ("the user explicitly skipped this
+ * question"), which is not something the user said; it is dropped rather than rendered as an answer,
+ * so an all-skipped batch carries nothing at all. An unreadable result is likewise not an answer: it
+ * may be the timed form's `{pending:true, …}` notice, and printing that notice as the user's own
+ * words is exactly the misattribution this repo treats as its worst defect.
+ */
+function decisionEntries(asked: readonly AskedQuestion[], rawResult: string): readonly UserDecisionEntry[] {
+	const answers = givenAnswers(rawResult) ?? [];
+	const entries: UserDecisionEntry[] = [];
+	asked.forEach((question, index) => {
+		const at = answers[index];
+		const unambiguousId =
+			answers.filter((entry) => entry.id === question.id).length === 1 && asked.filter((other) => other.id === question.id).length === 1;
+		const answer =
+			at !== undefined && at.id === question.id ? at : unambiguousId ? answers.find((entry) => entry.id === question.id) : undefined;
+		if (answer === undefined) return;
+		if (answer.selected.length === 0 && answer.custom.length === 0) return;
+		entries.push({ question: question.question, options: question.options, selected: answer.selected, custom: answer.custom });
+	});
+	return entries;
+}
+
+/** What one pass over the derived messages found, and where it sat. */
+interface SessionInputs {
+	/** The last conversational message, for {@link pendingQuestion}'s own definition. */
+	readonly conversational: { readonly role: string; readonly text: string; readonly index: number } | undefined;
+	/** The last assistant message whose text asks a question, and its position. */
+	readonly question: { readonly text: string; readonly index: number } | undefined;
+	/** The user's own last input, whichever channel carried it. */
+	readonly decision: UserDecision | undefined;
+	/** Position of `decision`, or -1 when there is none. */
+	readonly decisionIndex: number;
+}
+
+/**
+ * One pass over the derived messages, in order. See {@link UserDecision} for why this exists.
+ *
+ * Positions are kept, not just the winners: the user's last input and an open question can both be
+ * present, and which of them owns the continuation's closing depends on which came last. The question
+ * is tracked on its own axis rather than as "the last conversational message", because an injected
+ * user-role block arriving after an open question would otherwise look like it superseded it.
+ */
+function readSessionInputs(session: Session): SessionInputs {
+	const asked = new Map<string, readonly AskedQuestion[]>();
+	let conversational: { role: string; text: string; index: number } | undefined;
+	let question: { text: string; index: number } | undefined;
+	let decision: UserDecision | undefined;
+	let decisionIndex = -1;
+	let index = 0;
+	for (const message of session.deriveMessages()) {
+		const at = index;
+		index += 1;
+		if (message.role === "assistant") {
+			for (const block of message.content) {
+				if (block.type !== "tool-call" || block.name !== ASK_USER_QUESTION) continue;
+				const questions = askedQuestions(block.arguments);
+				if (questions !== undefined) asked.set(block.id, questions);
+			}
+			const text = messageText(message.content);
+			if (text.length > 0) {
+				conversational = { role: "assistant", text, index: at };
+				if (textAsksQuestion(text)) question = { text, index: at };
+			}
+			continue;
+		}
+		if (message.role === "tool") {
+			// A failed invocation is not an answer. Carrying its error text as the user's own words
+			// would be the misattribution this repo treats as its worst defect class, so an errored
+			// result contributes nothing and any earlier real input stays the carried decision.
+			if (message.isError === true) continue;
+			const questions = asked.get(message.toolCallId);
+			if (questions === undefined) continue;
+			const entries = decisionEntries(questions, messageText(message.content));
+			// Nothing was answered — a skipped batch, the timed form's `pending` notice, or an
+			// unreadable result — so the user said nothing and this channel records no decision.
+			if (entries.length === 0) continue;
+			decision = { kind: "answer", text: "", entries };
+			decisionIndex = at;
+			continue;
+		}
+		if (message.role !== "user") continue;
+		const text = messageText(message.content);
+		if (text.length === 0) continue;
+		// `conversational` counts every user-role message — injected context and the handoff's own
+		// banner included — because that is exactly what {@link pendingQuestion} has always counted.
+		// Only the decision below skips them, so the carrier never hands the child our own prompt back
+		// as something the user said. The asymmetry is deliberate and observable: a session whose last
+		// message is an injected context block has no question to defer on, exactly as before.
+		conversational = { role: "user", text, index: at };
+		if (message.source.kind !== "user" || isHandoffContinuationText(text)) continue;
+		decision = { kind: "message", text, entries: [] };
+		decisionIndex = at;
+	}
+	return { conversational, question, decision, decisionIndex };
+}
+
+/**
+ * What the continuation carries. At most one block owns the closing, so the seed can never tell the
+ * child both "wait for the user" and "the user has already decided".
+ */
+export interface HandoffCarry {
+	/** The assistant question still awaiting an answer, when it is the newest of the two. */
+	readonly pending?: string;
+	/** The user's own last input, when it is the newest of the two. */
+	readonly decision?: UserDecision;
+}
+
+/**
+ * The current state to carry into the continuation. Exported for tests.
+ *
+ * The newest of the user's own last input and the last assistant question wins, compared by position
+ * on their own axes. A fixed precedence cannot do this job: an answered `ask_user_question` leaves
+ * the assistant's asking text as the last conversational message, so a question that outranked the
+ * answer would tell the child to wait for something the user already supplied — while a question
+ * asked *after* an answer is genuinely newer and must not be dropped for the older input.
+ *
+ * `pendingEnabled` is the `handoffPendingQuestion: "wait"` opt-in. With `defer` no question is carried
+ * here, because the automatic path defers the whole handoff instead (`auto.ts`) and only a manual
+ * `/handoff now` reaches this with the opt-in off; a question newer than the user's input then carries
+ * nothing at all, rather than the superseded input under a "do not ask again" closing.
+ */
+export function handoffCarry(session: Session, pendingEnabled: boolean): HandoffCarry {
+	const { question, decision, decisionIndex } = readSessionInputs(session);
+	if (question !== undefined && question.index > decisionIndex) {
+		return pendingEnabled ? { pending: question.text } : {};
+	}
+	if (decision !== undefined) return { decision };
+	return pendingEnabled && question !== undefined ? { pending: question.text } : {};
 }
 
 /** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
@@ -142,11 +397,6 @@ export function handoffSplit(session: Session, keepChars: number): HandoffSplit 
 		tail: tailSections.map(replaySection).join("\n\n"),
 		languageMessages: languageMessagesOf([...olderSections, ...tailSections]),
 	};
-}
-
-/** The pending question carried into the continuation when the config opts into `wait`. */
-export function pendingQuestionFor(config: PluginConfig, session: Session): string | undefined {
-	return config.handoffPendingQuestion === "wait" ? pendingQuestion(session) : undefined;
 }
 
 /** Resolve the language for one handoff: explicit config wins, otherwise the conversation decides. */

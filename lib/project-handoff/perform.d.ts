@@ -13,7 +13,8 @@ import { type HandoffSplit } from "./conversation.js";
  * The two language-dependent artifacts of one handoff: the `HANDOFF.md` document and the child's
  * first message. The summary headings are normalized to the resolved language here, so the stored
  * document and the seed prompt can never disagree about it. Exported so a test can pin the wiring
- * (the resolved language and the pending-question carry) rather than only the pure helpers.
+ * (the resolved language, the pending-question carry and the carried user decision) rather than only
+ * the pure helpers.
  * @param args - session, resolved language, the raw model summary, archive pointers and the tail.
  * @returns the document to persist and the prompt to admit to the child.
  */
