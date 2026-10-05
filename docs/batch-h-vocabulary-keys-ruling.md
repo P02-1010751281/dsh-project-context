@@ -159,6 +159,34 @@ Editing first has the mirror-image transient — the running host's live reader 
 — but the restart is the very next step, so that window is the harmless direction.
 `handoffPendingQuestion: wait` and `maxMemoryChars: 40000` are unaffected either way.
 
+**Corrigendum (2026-10-05, source- and kernel-verified; the deployment had not run yet, so the breakage below is
+predicted from the code path and not observed).** The transient above is *not* swallowed, so the window is not
+harmless. `@deepseek-ai/dsh-base` — in both profiles' bundle list — mounts `hmr` (`@deepseek-ai/dsh-hmr`):
+`disabled: !!js "!ctx.get('profileContext')"`, `config.root: []`, commented "Profile configuration reloads by
+default". That watcher roots itself at each live patch file's **directory**
+(`patchFiles = [profile.patchPath, join(profile.home, PROFILE_PATCH_FILENAME)]` in
+`packages/boot/hmr/src/index.ts`, `PROFILE_PATCH_FILENAME = 'cordis.patch.yml'`), so an external edit to
+`cordis.patch.yml` is reconciled into the **running** Loader tree by `reconcileProfilePatches`
+(`packages/boot/app-boot/src/index.ts`), whose last act is
+`entry.update({ config: { ...includeConfig, patches: prepared } })`; the Include re-composes the changed entry and
+`apply()` re-runs. All four plugins resolve their config in the **first statement** of that apply, unguarded:
+`src/project-context/index.ts:61`, `src/project-memory/index.ts:361`, `src/project-autolearn/index.ts:57`,
+`src/project-handoff/index.ts:84`. New keys under the old code therefore throw there exactly as the old keys
+under the new code do, `introduced` is non-empty, and the reconcile **throws** — the HMR watcher only logs
+`config reload at <file> failed` and the failed entry stays. Observable without any restart: the
+`project-context` card disappears and the other three fall back to `DEFAULT_CONFIG`, i.e. §7's "restart first"
+failure mode, reached earlier. The surviving watches are visible from the live host alone: take the 19387 holder
+from `ss -ltnp | grep 19387`, then `grep -oE 'ino:[0-9a-f]+' /proc/<pid>/fdinfo/*` resolves to `~/.dsh` **and**
+`~/.dsh/profiles/desktop` (the second patch path, `~/.dsh/cordis.patch.yml`, does not exist, which is exactly why
+one root walks up to `~/.dsh`).
+
+Consequence for the order: **edit and restart must be back-to-back**, which the command block below does in
+seconds. "Edit now, restart when convenient" is not the safe half of this choice — it is the same half-loud
+breakage as restarting first, reached earlier. The `src/shared/settings.ts:95` reader that does swallow an unknown
+key is the settings *projection*, not the apply path, which is where §7's original reading of the transient went
+wrong. This closes the live-reload question §6 left open ("a retained old fiber could keep an older publication
+alive"): a retained fiber does not save the entry.
+
 ## 8. Deliberate non-goals
 
 - pi's terminal wording for the handoff receipt (H-D5).
