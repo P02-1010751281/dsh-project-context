@@ -7,7 +7,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
-import { HANDOFF_KEEP_TOKENS_LABEL } from "../shared/setting-labels.js";
+import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { pendingSubagentWork } from "./guard.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
 import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
@@ -40,20 +40,20 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	if (args === "on") return { patch: { handoffEnabled: true } };
 	if (args === "off") return { patch: { handoffEnabled: false } };
 	const thinking = /^thinking\s+(off|session)$/.exec(args);
-	if (thinking) return { patch: { handoffSummaryThinking: thinking[1] } };
+	if (thinking) return { patch: { handoffThinking: thinking[1] } };
 	const pending = /^pending\s+(defer|wait)$/.exec(args);
 	if (pending) return { patch: { handoffPendingQuestion: pending[1] } };
 	const language = /^lang\s+(auto|zh|en)$/.exec(args);
-	if (language) return { patch: { handoffLanguage: language[1] } };
+	if (language) return { patch: { handoffLang: language[1] } };
 	// One name for the fact "how the threshold is decided": `threshold auto`, or a ratio. The bare
 	// ratio and the bare `auto` are retired rather than aliased — a second spelling is what let the two
 	// drift apart, and an old spelling must not act.
 	const threshold = /^threshold\s+(\S+)$/.exec(args);
 	if (threshold) {
-		if (threshold[1] === "auto") return { patch: { handoffAdaptive: true } };
+		if (threshold[1] === "auto") return { patch: { handoffThresholdAuto: true } };
 		const ratio = parseRatio(threshold[1]);
 		if (ratio === undefined) return { error: "threshold needs auto or a ratio between 0.1 and 0.95 (e.g. threshold 0.4)" };
-		return { patch: { handoffAdaptive: false, handoffThresholdRatio: ratio } };
+		return { patch: { handoffThresholdAuto: false, handoffThresholdRatio: ratio } };
 	}
 	// `budget summary|recent`, because the two amounts size different things and `target`/`keep` did not
 	// say which was which: `summary` is what each summary asks for, `recent` is what is carried
@@ -63,10 +63,10 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 		const tokens = parseTokenCount(budget[2]);
 		if (budget[1] === "summary") {
 			if (tokens === undefined || tokens < 8_000 || tokens > 200_000) return { error: "budget summary needs 8000–200000 tokens (e.g. budget summary 64k)" };
-			return { patch: { handoffTargetTokens: tokens } };
+			return { patch: { handoffBudgetSummaryTokens: tokens } };
 		}
 		if (tokens === undefined || tokens > 200_000) return { error: "budget recent needs 0–200000 tokens (e.g. budget recent 20k, budget recent 0)" };
-		return { patch: { handoffKeepTokens: tokens } };
+		return { patch: { handoffBudgetRecentTokens: tokens } };
 	}
 	// A verb used without its argument names its own sub-verbs rather than falling through to the whole
 	// usage line, so the receipt says which spelling is missing.
@@ -140,25 +140,25 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			if (threshold?.override !== undefined) parts.push(thresholdOverrideText(threshold.override, config, contextWindow));
 		}
 	}
-	parts.push(config.handoffAdaptive ? `adaptive target ${config.handoffTargetTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);
+	parts.push(config.handoffThresholdAuto ? `adaptive target ${config.handoffBudgetSummaryTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);
 	// The setting's name is the settings card's, in the receipt's own language — `keep` is an internal
 	// shorthand that appears nowhere the user can see it.
-	parts.push(config.handoffKeepTokens > 0
+	parts.push(config.handoffBudgetRecentTokens > 0
 		? (language === "zh"
-			? `「${HANDOFF_KEEP_TOKENS_LABEL.zh}」 ~${config.handoffKeepTokens}`
-			: `"${HANDOFF_KEEP_TOKENS_LABEL.en}" ~${config.handoffKeepTokens}`)
+			? `「${HANDOFF_BUDGET_RECENT_LABEL.zh}」 ~${config.handoffBudgetRecentTokens}`
+			: `"${HANDOFF_BUDGET_RECENT_LABEL.en}" ~${config.handoffBudgetRecentTokens}`)
 		: "summary only");
-	parts.push(`summary thinking ${config.handoffSummaryThinking}`);
+	parts.push(`summary thinking ${config.handoffThinking}`);
 	parts.push(`pending question ${config.handoffPendingQuestion}`);
-	parts.push(config.handoffLanguage === "auto" ? `lang auto (${language})` : `lang ${language}`);
+	parts.push(config.handoffLang === "auto" ? `lang auto (${language})` : `lang ${language}`);
 	// The automatic path skips this session while the conversation fits the recent window; without
 	// this line the only trace is a rate-limited server log the user cannot see.
 	const skippedAt = skippedSince.get(String(session.id));
 	if (skippedAt !== undefined) {
 		const at = new Date(skippedAt).toISOString();
 		parts.push(language === "zh"
-			? `自 ${at} 起自动跳过 —— 全部对话都在「${HANDOFF_KEEP_TOKENS_LABEL.zh}」（~${config.handoffKeepTokens} token）之内，没有更早的内容可摘要`
-			: `auto skipped since ${at} — everything is inside "${HANDOFF_KEEP_TOKENS_LABEL.en}" (~${config.handoffKeepTokens} tokens), so nothing older is left to summarize`);
+			? `自 ${at} 起自动跳过 —— 全部对话都在「${HANDOFF_BUDGET_RECENT_LABEL.zh}」（~${config.handoffBudgetRecentTokens} token）之内，没有更早的内容可摘要`
+			: `auto skipped since ${at} — everything is inside "${HANDOFF_BUDGET_RECENT_LABEL.en}" (~${config.handoffBudgetRecentTokens} tokens), so nothing older is left to summarize`);
 	}
 	if (handedOff.has(String(session.id))) parts.push("already handed off in this process");
 	return parts.join(" · ");

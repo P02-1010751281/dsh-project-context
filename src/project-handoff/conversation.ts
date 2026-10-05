@@ -151,5 +151,5 @@ export function pendingQuestionFor(config: PluginConfig, session: Session): stri
 
 /** Resolve the language for one handoff: explicit config wins, otherwise the conversation decides. */
 export function resolveHandoffLanguage(messages: readonly HandoffLanguageMessage[], config: PluginConfig): HandoffLanguage {
-	return resolveLanguage(messages, config.handoffLanguage);
+	return resolveLanguage(messages, config.handoffLang);
 }

@@ -70,7 +70,7 @@ const NOT_A_COUNT = String.raw`(?!\s*(?:tokens?|chars?|bytes?|ms\b|sec(?:onds?)?
  * when no such noun stands shortly before it.
  *
  * Only a **leading** boundary is required. The forms that actually appear are the project's own config
- * keys — `max_tokens`, `maxTokens`, `token_limit`, `window_size`, `handoffTargetTokens` — and a
+ * keys — `max_tokens`, `maxTokens`, `token_limit`, `window_size`, `handoffBudgetSummaryTokens` — and a
  * trailing boundary would reject every one of them, because the noun continues as `_x` or camelCase.
  * A leading boundary still keeps a word that merely *contains* the noun (`unlimited`) out.
  */
@@ -185,7 +185,7 @@ const TRAILING_STATUS = new RegExp(String.raw`(?<![\p{L}\p{N}_-])(?:${TRANSIENT_
 const VALUE_NOUN_PATTERN = new RegExp([
 	// A value noun at the start of a word (`the limit is 429`, `limits: 503`).
 	String.raw`(?<![\p{L}\p{N}])(?:${VALUE_NOUN})`,
-	// A value noun *inside* an identifier assigned to (`handoffTargetTokens=429`,
+	// A value noun *inside* an identifier assigned to (`handoffBudgetSummaryTokens=429`,
 	// `maxTokens: 429`). Camel-case and snake-case config keys are the forms this exists for, and the
 	// assignment operator is what keeps an ordinary word containing the noun (`unlimited`) out.
 	String.raw`[\p{L}][\p{L}\p{N}_]*(?:${VALUE_NOUN})[\p{L}\p{N}_]*\s*[=:]`,

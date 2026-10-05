@@ -312,9 +312,9 @@ test("pendingQuestionFor only carries the question when the config says wait", (
 });
 
 test("/handoff lang accepts auto, zh and en only", () => {
-	assert.deepEqual(settingPatch("lang auto"), { patch: { handoffLanguage: "auto" } });
-	assert.deepEqual(settingPatch("lang zh"), { patch: { handoffLanguage: "zh" } });
-	assert.deepEqual(settingPatch("lang en"), { patch: { handoffLanguage: "en" } });
+	assert.deepEqual(settingPatch("lang auto"), { patch: { handoffLang: "auto" } });
+	assert.deepEqual(settingPatch("lang zh"), { patch: { handoffLang: "zh" } });
+	assert.deepEqual(settingPatch("lang en"), { patch: { handoffLang: "en" } });
 	assert.equal(settingPatch("lang fr"), undefined);
 	assert.equal(settingPatch("lang"), undefined);
 	assert.equal(settingPatch("lang zh extra"), undefined);
@@ -332,21 +332,21 @@ test("the summarizer prompt carries the resolved language next to its section li
 	assert.ok(!zh.includes(SCAFFOLDING.en.summaryDirective));
 });
 
-test("handoffLanguage and maxOutputTokens are wired through every layer", () => {
-	assert.equal(DEFAULT_CONFIG.handoffLanguage, "auto");
+test("handoffLang and maxOutputTokens are wired through every layer", () => {
+	assert.equal(DEFAULT_CONFIG.handoffLang, "auto");
 	assert.equal(DEFAULT_CONFIG.maxOutputTokens, 32_768);
 
 	const resolved = resolvePluginConfig({});
-	assert.equal(resolved.handoffLanguage, "auto");
+	assert.equal(resolved.handoffLang, "auto");
 	assert.equal(resolved.maxOutputTokens, 32_768);
-	assert.equal(resolvePluginConfig({ handoffLanguage: "zh" }).handoffLanguage, "zh");
-	assert.throws(() => resolvePluginConfig({ handoffLanguage: "fr" }), /handoffLanguage/);
+	assert.equal(resolvePluginConfig({ handoffLang: "zh" }).handoffLang, "zh");
+	assert.throws(() => resolvePluginConfig({ handoffLang: "fr" }), /handoffLang/);
 	assert.throws(() => resolvePluginConfig({ maxOutputTokens: 12 }), /maxOutputTokens/);
 
 	const schemaDefaults = PluginSettingsSchema({});
-	assert.equal(schemaDefaults.handoffLanguage, "auto");
+	assert.equal(schemaDefaults.handoffLang, "auto");
 	assert.equal(schemaDefaults.maxOutputTokens, 32_768);
-	assert.equal(PluginSettingsSchema({ handoffLanguage: "en" }).handoffLanguage, "en");
+	assert.equal(PluginSettingsSchema({ handoffLang: "en" }).handoffLang, "en");
 });
 
 test("headings are localized only outside a code fence that really closes", () => {

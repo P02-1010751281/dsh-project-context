@@ -18,7 +18,7 @@ import type { SettingsCardKey } from "./locales.ts";
 /** The `project-context` settings section shape (mirrors the host schema). */
 export interface ProjectContextSettings {
 	archiveEnabled: boolean;
-	autoConsolidate: boolean;
+	memoryEnabled: boolean;
 	consolidateTurns: number;
 	consolidateIntervalMs: number;
 	forceDedupeMs: number;
@@ -27,17 +27,17 @@ export interface ProjectContextSettings {
 	maxMemoryChars: number;
 	provider: string;
 	model: string;
-	autoLearn: boolean;
+	autolearnEnabled: boolean;
 	autolearnTurns: number;
 	autolearnIntervalMs: number;
 	handoffEnabled: boolean;
-	handoffAdaptive: boolean;
+	handoffThresholdAuto: boolean;
 	handoffThresholdRatio: number;
-	handoffTargetTokens: number;
-	handoffKeepTokens: number;
-	handoffSummaryThinking: "off" | "session";
+	handoffBudgetSummaryTokens: number;
+	handoffBudgetRecentTokens: number;
+	handoffThinking: "off" | "session";
 	handoffPendingQuestion: "defer" | "wait";
-	handoffLanguage: "auto" | "zh" | "en";
+	handoffLang: "auto" | "zh" | "en";
 }
 
 /** How one row is edited. */
@@ -67,7 +67,7 @@ export const SECTIONS: readonly FieldSection[] = [
 		descriptionKey: "section.memory.description",
 		rows: [
 			{ key: "archiveEnabled", kind: "boolean" },
-			{ key: "autoConsolidate", kind: "boolean" },
+			{ key: "memoryEnabled", kind: "boolean" },
 			{ key: "consolidateTurns", kind: "number" },
 			{ key: "consolidateIntervalMs", kind: "number" },
 			{ key: "forceDedupeMs", kind: "number" },
@@ -83,7 +83,7 @@ export const SECTIONS: readonly FieldSection[] = [
 		titleKey: "section.autolearn.title",
 		descriptionKey: "section.autolearn.description",
 		rows: [
-			{ key: "autoLearn", kind: "boolean" },
+			{ key: "autolearnEnabled", kind: "boolean" },
 			{ key: "autolearnTurns", kind: "number" },
 			{ key: "autolearnIntervalMs", kind: "number" },
 		],
@@ -93,13 +93,13 @@ export const SECTIONS: readonly FieldSection[] = [
 		descriptionKey: "section.handoff.description",
 		rows: [
 			{ key: "handoffEnabled", kind: "boolean" },
-			{ key: "handoffAdaptive", kind: "boolean" },
+			{ key: "handoffThresholdAuto", kind: "boolean" },
 			{ key: "handoffThresholdRatio", kind: "number" },
-			{ key: "handoffTargetTokens", kind: "number" },
-			{ key: "handoffKeepTokens", kind: "number" },
-			{ key: "handoffSummaryThinking", kind: "union", options: ["off", "session"] },
+			{ key: "handoffBudgetSummaryTokens", kind: "number" },
+			{ key: "handoffBudgetRecentTokens", kind: "number" },
+			{ key: "handoffThinking", kind: "union", options: ["off", "session"] },
 			{ key: "handoffPendingQuestion", kind: "union", options: ["defer", "wait"] },
-			{ key: "handoffLanguage", kind: "union", options: ["auto", "zh", "en"] },
+			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
 		],
 	},
 ];

@@ -170,7 +170,7 @@ const {
 /** A section value that carries every field of the table. */
 const VALUE = {
 	archiveEnabled: true,
-	autoConsolidate: true,
+	memoryEnabled: true,
 	consolidateTurns: 12,
 	consolidateIntervalMs: 600000,
 	forceDedupeMs: 60000,
@@ -179,17 +179,17 @@ const VALUE = {
 	maxMemoryChars: 32000,
 	provider: "deepseek",
 	model: "deepseek-chat",
-	autoLearn: true,
+	autolearnEnabled: true,
 	autolearnTurns: 12,
 	autolearnIntervalMs: 600000,
 	handoffEnabled: true,
-	handoffAdaptive: true,
+	handoffThresholdAuto: true,
 	handoffThresholdRatio: 0.8,
-	handoffTargetTokens: 64000,
-	handoffKeepTokens: 20000,
-	handoffSummaryThinking: "session",
+	handoffBudgetSummaryTokens: 64000,
+	handoffBudgetRecentTokens: 20000,
+	handoffThinking: "session",
 	handoffPendingQuestion: "defer",
-	handoffLanguage: "auto",
+	handoffLang: "auto",
 };
 
 /** The table's shape, read from the source of truth rather than restated here. */

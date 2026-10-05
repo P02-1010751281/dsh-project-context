@@ -7,8 +7,8 @@
  * copy per bundle that can drift. Add a label here only when a receipt needs to name it.
  */
 
-/** `handoffKeepTokens` — "keep" is never the user-visible name of this setting. */
-export const HANDOFF_KEEP_TOKENS_LABEL = {
+/** `handoffBudgetRecentTokens` — "keep" is never the user-visible name of this setting. */
+export const HANDOFF_BUDGET_RECENT_LABEL = {
 	zh: "保留最近对话（token）",
 	en: "Recent tokens kept",
 } as const;

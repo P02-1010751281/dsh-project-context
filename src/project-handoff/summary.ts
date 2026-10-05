@@ -19,7 +19,7 @@ const SUMMARY_TIMEOUT_MS = 180_000;
 /** Summary thinking: "off" when the adapter exposes that effort, else the session's routed level. */
 export function resolveSummaryEffort(config: PluginConfig, session: Session, resolved: LlmResolvedModelInfo): string | undefined {
 	const efforts = resolved.reasoning?.efforts ?? [];
-	if (config.handoffSummaryThinking === "session") {
+	if (config.handoffThinking === "session") {
 		const routed = (session.requestHeader()?.config as { reasoningEffort?: unknown } | undefined)?.reasoningEffort;
 		return typeof routed === "string" ? routed : undefined;
 	}
@@ -85,7 +85,7 @@ export function continuation(
 	if (tail.length > 0) {
 		parts.push("", "<recent-conversation>", text.continuationCarried, tail, "</recent-conversation>");
 	}
-	// With `handoffKeepTokens: 0` the tail cannot carry the open question, so the
+	// With `handoffBudgetRecentTokens: 0` the tail cannot carry the open question, so the
 	// explicit block is the only thing that keeps a `wait` handoff from silently
 	// dropping the decision the previous session stopped on. It also replaces the
 	// usual closing: "start with the next concrete step" immediately after "wait for

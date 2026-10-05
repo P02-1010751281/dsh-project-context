@@ -7,7 +7,7 @@
  */
 
 import { type PluginConfig } from "../shared/config.js";
-import { HANDOFF_KEEP_TOKENS_LABEL } from "../shared/setting-labels.js";
+import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { type HandoffLanguage } from "./language.js";
 
 // Threshold math, ported from pi's auto-handoff.
@@ -55,7 +55,7 @@ export interface ContextMeasurement {
  */
 function thresholdFloor(config: PluginConfig, measurement: ContextMeasurement): number {
 	const overhead = measurement.overheadTokens ?? 0;
-	return Math.max(0, overhead) + config.handoffKeepTokens + MIN_SUMMARIZE_TOKENS;
+	return Math.max(0, overhead) + config.handoffBudgetRecentTokens + MIN_SUMMARIZE_TOKENS;
 }
 
 /**
@@ -85,7 +85,7 @@ export function thresholdRefusal(
 	contextWindow: number,
 ): ThresholdRefusal | undefined {
 	if (resolveThreshold(config, measurement, contextWindow) !== undefined) return undefined;
-	if (!config.handoffAdaptive) return "no-positive-threshold";
+	if (!config.handoffThresholdAuto) return "no-positive-threshold";
 	// Reuse the orchestrator's own feasibility helper rather than re-deriving its terms: the two can
 	// then only disagree if the *composition* changes, and the clamp is the only remaining refusal.
 	const room = handoffRoom(config, measurement, contextWindow);
@@ -104,7 +104,7 @@ export function thresholdRefusal(
  * `resolveHandoffLanguage` already picks one language per handoff for `HANDOFF.md`, and the receipt
  * explains the same decision, so it follows that language rather than leaving a Chinese session with
  * an English account of why nothing started. The setting is named by the settings card's label
- * ({@link HANDOFF_KEEP_TOKENS_LABEL}) — `keep` is not a name the user can see anywhere.
+ * ({@link HANDOFF_BUDGET_RECENT_LABEL}) — `keep` is not a name the user can see anywhere.
  */
 export function thresholdRefusalText(
 	reason: ThresholdRefusal,
@@ -114,7 +114,7 @@ export function thresholdRefusalText(
 	language: HandoffLanguage,
 ): string {
 	const zh = language === "zh";
-	const label = HANDOFF_KEEP_TOKENS_LABEL[language];
+	const label = HANDOFF_BUDGET_RECENT_LABEL[language];
 	const floor = thresholdFloor(config, measurement);
 	const usable = contextWindow - WINDOW_RESERVE_TOKENS;
 	if (reason === "window-headroom") {
@@ -132,16 +132,16 @@ export function thresholdRefusalText(
 				: zh
 					? `没有任何可用 token —— ${WINDOW_RESERVE_TOKENS} token 的请求预留比 ${contextWindow} token 的窗口还多 ${-usable}`
 					: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve exceeds the ${contextWindow}-token window by ${-usable}`;
-		const envelope = floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS;
+		const envelope = floor - config.handoffBudgetRecentTokens - MIN_SUMMARIZE_TOKENS;
 		// The envelope term exists only when the harness reports one; printing "0-token envelope" would
 		// invent a term that took no part in the comparison.
 		const assembly = envelope > 0
 			? zh
-				? `harness 报出的 ${envelope} token 包络 + 「${label}」 ${config.handoffKeepTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
-				: `the ${envelope}-token envelope the harness reports + "${label}" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
+				? `harness 报出的 ${envelope} token 包络 + 「${label}」 ${config.handoffBudgetRecentTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
+				: `the ${envelope}-token envelope the harness reports + "${label}" ${config.handoffBudgetRecentTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
 			: zh
-				? `「${label}」 ${config.handoffKeepTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
-				: `"${label}" ${config.handoffKeepTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
+				? `「${label}」 ${config.handoffBudgetRecentTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
+				: `"${label}" ${config.handoffBudgetRecentTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
 		return zh
 			? `阈值不可用：窗口太小 —— ${contextWindow} token 的窗口只剩 ${room}，低于 ${floor} token 的下限（${assembly}）`
 			: `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (${assembly})`;
@@ -152,7 +152,7 @@ export function thresholdRefusalText(
 		// control actually helps rather than reusing the margin sentence.
 		//
 		// The floor's terms are the harness-reported envelope, the kept tail and the summarize minimum.
-		// Only `handoffKeepTokens` is a config key, and it reaches this refusal on its own **today**: it
+		// Only `handoffBudgetRecentTokens` is a config key, and it reaches this refusal on its own **today**: it
 		// is bounded at 200_000 (`config.ts`), so at a 1M window `keep >= 149_001` puts the floor past the
 		// 157_000 knee (measured: 149_000 resolves, 149_001 refuses). A reported envelope can reach it too.
 		// Neither the window nor the target is a lever here — the window is the *opposite* lever (the curve
@@ -170,7 +170,7 @@ export function thresholdRefusalText(
 		// MIN` is the envelope, so the setting helps iff `knee − envelope − MIN > 0`. In the
 		// envelope-driven case no value of it clears the refusal, and naming one would be the same
 		// dead-lever defect the baseline wording had.
-		const envelope = floor - config.handoffKeepTokens - MIN_SUMMARIZE_TOKENS;
+		const envelope = floor - config.handoffBudgetRecentTokens - MIN_SUMMARIZE_TOKENS;
 		const keepClears = knee - envelope - MIN_SUMMARIZE_TOKENS > 0;
 		const lever = envelope > 0
 			? keepClears
@@ -245,7 +245,7 @@ function handoffRoom(
 	contextWindow: number,
 ): HandoffRoom | undefined {
 	const overhead = Math.max(0, measurement.overheadTokens ?? 0);
-	const keep = config.handoffKeepTokens;
+	const keep = config.handoffBudgetRecentTokens;
 	// One definition of the floor, shared with the receipt's `thresholdRefusalText`: a rule written twice
 	// is this repo's documented recurring root cause, and the two copies had already drifted once.
 	const floor = thresholdFloor(config, measurement);
@@ -302,7 +302,7 @@ export interface ThresholdOverride {
  * ④ Orchestrator: mode selection and the composition of ①–③.
  *
  * The trigger is the **two-term** rule `min(quality(window), capacity(room))`: the quality layer is the
- * base and the capacity cap has the last word. The manually-set `handoffTargetTokens` deliberately does
+ * base and the capacity cap has the last word. The manually-set `handoffBudgetSummaryTokens` deliberately does
  * not appear — a local preference must not lift the trigger above the honest quality knee, because
  * distrusting a declared window is the entire purpose of the curve. pi's `max(boundary, targetValue)`
  * does lift it (`handoff.ts:785` upstream), and dsh's earlier `min(configured, knee)` was the same
@@ -318,7 +318,7 @@ export function resolveThreshold(
 	measurement: ContextMeasurement,
 	contextWindow: number,
 ): { tokens: number; label: string; override?: ThresholdOverride } | undefined {
-	if (!config.handoffAdaptive) {
+	if (!config.handoffThresholdAuto) {
 		// Fixed mode: the manual setting *is* the trigger, so the safety margin is the only guardrail
 		// above it. Clamping `0.95` on a small window is real (65_536 → 61_536) and the label alone
 		// would keep claiming the full ratio.
@@ -343,7 +343,7 @@ export function resolveThreshold(
 	if (tokens < room.floor) return undefined;
 	// The threshold the configured target needs for its fold to fit under the trigger. Above the
 	// guardrail's value the setting cannot be honoured, and the guardrail that bound it is named.
-	const asked = room.overhead + room.keep + config.handoffTargetTokens;
+	const asked = room.overhead + room.keep + config.handoffBudgetSummaryTokens;
 	return {
 		tokens,
 		label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)`,
@@ -364,5 +364,5 @@ export function thresholdOverrideText(override: ThresholdOverride, config: Plugi
 	const guardrail = override.by === "quality"
 		? `the model's quality knee allows ${override.tokens} at this window`
 		: `only ${override.tokens} tokens fit this ${contextWindow}-token window after the ${WINDOW_RESERVE_TOKENS}-token request reserve and the ${SAFETY_MARGIN_TOKENS}-token safety margin`;
-	return `handoff budget summary ${config.handoffTargetTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff budget summary, or use /handoff threshold 0.4 for a fixed ratio`;
+	return `handoff budget summary ${config.handoffBudgetSummaryTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff budget summary, or use /handoff threshold 0.4 for a fixed ratio`;
 }

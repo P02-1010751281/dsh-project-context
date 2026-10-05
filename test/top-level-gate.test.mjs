@@ -209,7 +209,7 @@ async function handoffCreates(origin) {
 				stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
 			},
 		},
-		resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }),
+		resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }),
 	);
 	const listener = handlers.get("session/event")?.[0];
 	assert.ok(listener, "apply registers a session/event listener");

@@ -4,7 +4,7 @@
  * Trigger (per top-level session, on `turn/end`):
  *   - adaptive threshold (default): `min(quality(window), capacity(room))` — the quality
  *     layer (the upstream usable-input field when the harness exposes one, else the fitted
- *     knee) as the base, and the usable window as the only ban. `handoffTargetTokens` does
+ *     knee) as the base, and the usable window as the only ban. `handoffBudgetSummaryTokens` does
  *     not take part (see `resolveThreshold`);
  *   - fixed threshold: `handoffThresholdRatio` × window.
  * A handoff is deferred while the last assistant message is an open question
@@ -31,7 +31,7 @@
  * *failed* keeps its backoff, so the retry waits it out), so a settled turn is
  * not passed over.
  * One auxiliary model call distills the older conversation; the recent tail
- * (`handoffKeepTokens`) is carried into the continuation verbatim. The
+ * (`handoffBudgetRecentTokens`) is carried into the continuation verbatim. The
  * document is archived to `.agents/memory/HANDOFF.md`, a fresh session is
  * created in the same workspace, renamed with `HANDOFF_TITLE_PREFIX`, and
  * seeded with the continuation as its first prompt (the browser half switches
@@ -47,7 +47,7 @@
  *   - dsh model metadata exposes no cost tiers: the adaptive threshold is
  *     bounded by the window reserve and the keep budget only;
  *   - summary thinking defaults to `off` when the adapter exposes that effort;
- *   - `handoffLanguage: "auto"` follows the conversation (see `project-handoff/language.ts`)
+ *   - `handoffLang: "auto"` follows the conversation (see `project-handoff/language.ts`)
  *     and a previous continuation prompt in the carried tail is replaced by a one-line
  *     marker so it cannot read as a fresh instruction.
  *

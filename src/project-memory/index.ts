@@ -410,14 +410,14 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autoConsolidate) return;
+		if (!current.memoryEnabled) return;
 		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: false, silent: false }));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autoConsolidate) return;
+		if (!current.memoryEnabled) return;
 		// Silent: the UI may already be rebuilding for a session switch.
 		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: true, silent: true }));
 	});
@@ -475,17 +475,17 @@ export function memoryStatusReply(
 		const hint = memory.source.endsWith("memory.jsonl")
 			? `Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl`
 			: `check its permissions`;
-		return { kind: "error", text: `Project memory exists but cannot be read: ${memory.source}; ${hint}.` };
+		return { kind: "error", text: `Memory: exists but cannot be read — ${memory.source}; ${hint}.` };
 	}
 	if (memory.damaged) {
-		return { kind: "success", text: `Project memory: ${context.journal} (${memory.damaged} unusable line(s) skipped; see .agents/memory/errors.log).${capped}` };
+		return { kind: "success", text: `Memory: ${context.journal} (${memory.damaged} unusable line(s) skipped; see .agents/memory/errors.log).${capped}` };
 	}
 	if (memory.poisoned) {
-		return { kind: "success", text: `Project memory: ${memory.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).${capped}` };
+		return { kind: "success", text: `Memory: ${memory.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).${capped}` };
 	}
 	return {
 		kind: "success",
-		text: memory.text.trim() ? `Project memory: ${memory.source}${capped}` : `No project memory yet: ${memoryFile(context.projectRoot)}`,
+		text: memory.text.trim() ? `Memory: ${memory.source}${capped}` : `Memory: none yet — ${memoryFile(context.projectRoot)}`,
 	};
 }
 
@@ -533,10 +533,15 @@ function refusedLossCause(report: ConsolidateReport): string {
 	return parts.length === 0 ? "the reply would have been stored lossily" : `the reply would have been stored lossily (${parts.join("; ")})`;
 }
 
-/** Name the artifact(s) a pass wrote, so no receipt claims one that did not land. */
+/**
+ * Name the artifact(s) a pass wrote, so no receipt claims one that did not land.
+ *
+ * The files are named rather than the layer word repeated after the `Memory: ` prefix, so "both
+ * landed" stays distinguishable from "only one did" without reading as `Memory: memory …`.
+ */
 function writtenTarget(report: ConsolidateReport): string {
-	if (report.memoryWritten && report.contextWritten) return "Project memory and context";
-	return report.memoryWritten ? "Project memory" : "Project context";
+	if (report.memoryWritten && report.contextWritten) return "MEMORY.md and CONTEXT.md";
+	return report.memoryWritten ? "MEMORY.md" : "CONTEXT.md";
 }
 
 /**
@@ -544,9 +549,8 @@ function writtenTarget(report: ConsolidateReport): string {
  * error (it is also logged to `errors.log`), so the reply must not claim success
  * for a failure or for a deduped no-op. Exported for tests.
  *
- * A clean pass that wrote both artifacts reads exactly as it did before the report carried counts —
- * the wording only changes when the pass lost something or wrote only one of the two, so an unchanged
- * sentence keeps meaning "both landed, nothing was lost".
+ * A loss count only ever extends the sentence, so `detail === ""` keeps meaning "what the sentence
+ * names landed, and nothing was lost" — a reworded base is caught rather than silently accepted.
  * @param report - what the consolidation attempt did, including the loss it caused.
  * @returns the command result.
  */
@@ -554,7 +558,7 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	const detail = memoryLossDetail(report);
 	const refused = refusedLossCause(report);
 	if (report.status === "failed") {
-		const base = "Project memory update failed; see .agents/memory/errors.log.";
+		const base = "Memory: update failed; see .agents/memory/errors.log.";
 		// A write that landed before the failure is not part of the failure; say which one survived.
 		if (!report.memoryWritten && !report.contextWritten) {
 			// A refusal decided before the failure is not the failure either: the memory was kept on
@@ -564,23 +568,23 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		const what = report.memoryWritten && report.contextWritten ? "The memory and the context" : report.memoryWritten ? "The memory" : "The context";
 		return { kind: "error", text: `${base} ${what} had already landed${detail === "" ? "" : `, with this loss: ${detail}`}.` };
 	}
-	if (report.status === "deduped") return { kind: "success", text: "Project memory and context are already up to date (deduped recently); nothing was rewritten." };
+	if (report.status === "deduped") return { kind: "success", text: "Memory: already up to date (deduped recently); nothing was rewritten." };
 	if (report.status === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
 	const target = writtenTarget(report);
 	if (report.status === "clipped") {
 		// Mechanism-neutral on purpose: the landed hidden count covers the read cap (`maxMemoryChars`,
 		// `MAX_CONTEXT_CHARS`) as well as the output fit, so naming the output budget alone would be a
 		// wrong cause for an over-cap stored document.
-		const base = `${target} updated, but the pass was given a shortened version of the existing content`;
+		const base = `Memory: updated ${target}, but the pass was given a shortened version of the existing content`;
 		return { kind: "success", text: detail === "" ? `${base}.` : `${base}: ${detail}.` };
 	}
 	// A refused reply is not a write: the memory changed while the reply was being built, so the
 	// newer bytes stay effective. Neither wording may claim that memory was rewritten.
-	if (report.status === "stale") return { kind: "success", text: "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };
+	if (report.status === "stale") return { kind: "success", text: "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };
 	if (report.status === "stale-context") {
 		// The context did land, so a context this pass was shown only part of is a real loss and is
 		// named; the memory's own counts stay 0 because that document was refused.
-		const base = "Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.";
+		const base = "Memory: context updated; memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.";
 		return { kind: "success", text: detail === "" ? base : `${base} ${detail}.` };
 	}
 	if (report.status === "lossy-refused") {
@@ -588,11 +592,11 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		// is named through its own counts so the operator can act (usually by raising `maxMemoryChars`).
 		// The memory-side landed counts are all 0 by contract; `detail` can still carry a context loss
 		// that landed in the same pass, and leaving it out would report that context as clean.
-		const base = `Project memory was kept unchanged: ${refused} and the one targeted retry did not fix it.`;
+		const base = `Memory: was kept unchanged — ${refused} and the one targeted retry did not fix it.`;
 		const context = report.contextWritten ? ` The context was updated${detail === "" ? "" : `, with this loss: ${detail}`}.` : "";
 		// The pass itself is cached for `forceDedupeMs`, so an immediate re-run can only re-report this
 		// refusal; the lever that actually gives the reply room is the cap.
 		return { kind: "success", text: `${base}${context} Raise maxMemoryChars, or retry the pass later, to give the reply more room.` };
 	}
-	return { kind: "success", text: detail === "" ? `${target} updated.` : `${target} updated, but the rewrite was lossy: ${detail}.` };
+	return { kind: "success", text: detail === "" ? `Memory: updated ${target}.` : `Memory: updated ${target}, but the rewrite was lossy: ${detail}.` };
 }

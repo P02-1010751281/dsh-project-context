@@ -107,7 +107,7 @@ test("a boolean row stages the two literals and refuses any other draft", () => 
 });
 
 test("a union row accepts only its declared values, and blocks the save on anything else", () => {
-	const spec = fields.unionField("handoffLanguage", ["auto", "zh", "en"]);
+	const spec = fields.unionField("handoffLang", ["auto", "zh", "en"]);
 	assert.equal(spec.format("zh"), "zh");
 	assert.equal(spec.format("klingon"), "", "a value outside the set is not shown as the selection");
 	assert.equal(spec.format(undefined), "");
@@ -116,7 +116,7 @@ test("a union row accepts only its declared values, and blocks the save on anyth
 	// The schema's union would refuse these; staging them would turn a typo into a failed save with
 	// no explanation, so the field refuses them first.
 	assert.equal(spec.parse("zh-CN"), undefined);
-	assert.equal(spec.parse("handoffLanguage"), undefined);
+	assert.equal(spec.parse("handoffLang"), undefined);
 });
 
 test("the archive entry exports the Config schema the Host projects a settings form from", async () => {
@@ -166,11 +166,11 @@ test("volatile settings are read through their live references, not snapshotted"
 	};
 
 	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	assert.equal(resolvePluginConfig({ handoffSummaryThinking: reference("session") }).handoffSummaryThinking, "session");
+	assert.equal(resolvePluginConfig({ handoffThinking: reference("session") }).handoffThinking, "session");
 	assert.equal(resolvePluginConfig({ archiveEnabled: reference(false) }).archiveEnabled, false);
 
 	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
-	const fiberConfig = { archiveEnabled: reference(true), handoffTargetTokens: reference(64_000) };
+	const fiberConfig = { archiveEnabled: reference(true), handoffBudgetSummaryTokens: reference(64_000) };
 	let release;
 	const ctx = {
 		effect: (callback) => { release = callback(); return release; },

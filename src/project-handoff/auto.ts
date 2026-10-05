@@ -61,7 +61,7 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 		return;
 	}
 
-	const split = handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
+	const split = handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_SUMMARIZE_TOKENS) {
 		// Nothing worth summarizing: the conversation fits the recent window. Not a failure, and
 		// dsh has no host-side notification channel, so the reason is a rate-limited log line and a
@@ -69,7 +69,7 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 		if (!skippedSince.has(key)) skippedSince.set(key, now);
 		if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 			skippedLoggedAt.set(key, now);
-			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffKeepTokens), so there is nothing older to summarize");
+			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to summarize");
 		}
 		return;
 	}

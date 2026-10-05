@@ -3,7 +3,7 @@
  * scaffolding, and recognize the handoff's own continuation prompts.
  *
  * A Chinese session used to continue in English because every handoff string was
- * English. `handoffLanguage: "auto"` now resolves from the user's own messages
+ * English. `handoffLang: "auto"` now resolves from the user's own messages
  * (CJK first, then substantial Latin, then the language of the newest carried
  * continuation prompt), while an explicit `"zh"`/`"en"` wins outright. The
  * summarizer's template demands an EXACT section format, so models keep copying

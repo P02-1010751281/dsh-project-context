@@ -61,14 +61,14 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autoLearn) return;
+		if (!current.autolearnEnabled) return;
 		pending.track(agent.session, runAutolearn(ctx, current, agent, { force: false, silent: false }).then(() => undefined));
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autoLearn) return;
+		if (!current.autolearnEnabled) return;
 		// Silent: the UI may already be rebuilding for a session switch.
 		pending.track(agent.session, runAutolearn(ctx, current, agent, { force: false, silent: true }).then(() => undefined));
 	});

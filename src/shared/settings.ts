@@ -40,7 +40,7 @@ export const SETTINGS_NAMESPACE = "project-context" as const;
  */
 export const PluginSettingsSchema = z.object({
 	archiveEnabled: z.boolean().default(DEFAULT_CONFIG.archiveEnabled).extra("volatile", true),
-	autoConsolidate: z.boolean().default(DEFAULT_CONFIG.autoConsolidate).extra("volatile", true),
+	memoryEnabled: z.boolean().default(DEFAULT_CONFIG.memoryEnabled).extra("volatile", true),
 	consolidateTurns: z.natural().min(1).default(DEFAULT_CONFIG.consolidateTurns).extra("volatile", true),
 	consolidateIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.consolidateIntervalMs).extra("volatile", true),
 	forceDedupeMs: z.natural().default(DEFAULT_CONFIG.forceDedupeMs).extra("volatile", true),
@@ -49,17 +49,17 @@ export const PluginSettingsSchema = z.object({
 	maxMemoryChars: z.natural().min(MIN_MEMORY_CHARS).max(MAX_MEMORY_CHARS_LIMIT).default(DEFAULT_CONFIG.maxMemoryChars).extra("volatile", true),
 	provider: z.string().default(DEFAULT_CONFIG.provider).extra("volatile", true),
 	model: z.string().default(DEFAULT_CONFIG.model).extra("volatile", true),
-	autoLearn: z.boolean().default(DEFAULT_CONFIG.autoLearn).extra("volatile", true),
+	autolearnEnabled: z.boolean().default(DEFAULT_CONFIG.autolearnEnabled).extra("volatile", true),
 	autolearnTurns: z.natural().min(1).default(DEFAULT_CONFIG.autolearnTurns).extra("volatile", true),
 	autolearnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.autolearnIntervalMs).extra("volatile", true),
 	handoffEnabled: z.boolean().default(DEFAULT_CONFIG.handoffEnabled).extra("volatile", true),
-	handoffAdaptive: z.boolean().default(DEFAULT_CONFIG.handoffAdaptive).extra("volatile", true),
+	handoffThresholdAuto: z.boolean().default(DEFAULT_CONFIG.handoffThresholdAuto).extra("volatile", true),
 	handoffThresholdRatio: z.number().min(0.1).max(0.95).default(DEFAULT_CONFIG.handoffThresholdRatio).extra("volatile", true),
-	handoffTargetTokens: z.natural().min(8_000).max(200_000).default(DEFAULT_CONFIG.handoffTargetTokens).extra("volatile", true),
-	handoffKeepTokens: z.natural().max(200_000).default(DEFAULT_CONFIG.handoffKeepTokens).extra("volatile", true),
-	handoffSummaryThinking: z.union(["off", "session"]).default(DEFAULT_CONFIG.handoffSummaryThinking).extra("volatile", true),
+	handoffBudgetSummaryTokens: z.natural().min(8_000).max(200_000).default(DEFAULT_CONFIG.handoffBudgetSummaryTokens).extra("volatile", true),
+	handoffBudgetRecentTokens: z.natural().max(200_000).default(DEFAULT_CONFIG.handoffBudgetRecentTokens).extra("volatile", true),
+	handoffThinking: z.union(["off", "session"]).default(DEFAULT_CONFIG.handoffThinking).extra("volatile", true),
 	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion).extra("volatile", true),
-	handoffLanguage: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLanguage).extra("volatile", true),
+	handoffLang: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLang).extra("volatile", true),
 });
 
 let live: (() => PluginConfig) | undefined;

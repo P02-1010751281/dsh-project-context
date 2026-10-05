@@ -69,13 +69,13 @@ function fakeSession(messages) {
 }
 
 test("fixed threshold is a window share, clamped below the safety margin", () => {
-	const config = { ...DEFAULT_CONFIG, handoffAdaptive: false };
+	const config = { ...DEFAULT_CONFIG, handoffThresholdAuto: false };
 	assert.equal(resolveThreshold(config, { totalTokens: 0, surfaceTokens: 0 }, 100_000)?.tokens, 40_000);
 	assert.equal(resolveThreshold(config, { totalTokens: 0, surfaceTokens: 0 }, 8_000)?.tokens, 3_200);
 });
 
 test("adaptive threshold reserves room for the summary and the carried tail", () => {
-	const config = { ...DEFAULT_CONFIG, handoffKeepTokens: 1_000, handoffTargetTokens: 8_000 };
+	const config = { ...DEFAULT_CONFIG, handoffBudgetRecentTokens: 1_000, handoffBudgetSummaryTokens: 8_000 };
 	const threshold = resolveThreshold(config, { totalTokens: 20_000, surfaceTokens: 18_000 }, 32_000);
 	assert.ok(threshold);
 	// The quality layer is the base and `capacityLimit` has the last word, so a small window triggers
@@ -1349,7 +1349,7 @@ test("the memory command carries status and update, and the removed /context-upd
 
 	const status = await command.handler({ agent, rawInput: "" });
 	assert.equal(status.kind, "success");
-	assert.match(status.text, /Project memory:/);
+	assert.match(status.text, /Memory:/);
 
 	const unknown = await command.handler({ agent, rawInput: "frobnicate" });
 	assert.equal(unknown.kind, "error");
@@ -1459,7 +1459,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// much: before this, a pass that dropped twelve entries and a pass that dropped none produced a
 	// text that was identical character for character.
 	const clean = memoryUpdateReply(plainReport("updated")).text;
-	assert.equal(clean, "Project memory and context updated.", "a clean pass keeps its exact wording");
+	assert.equal(clean, "Memory: updated MEMORY.md and CONTEXT.md.", "a clean pass keeps its exact wording");
 
 	// A `clipped` report always carries a landed hidden count, because the pass derives the status
 	// from the counts — a shortening that belonged to an artifact which did not land leaves every
@@ -1468,7 +1468,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// report would get, so a reworded base is caught rather than silently accepted.
 	assert.equal(
 		memoryUpdateReply(plainReport("clipped")).text,
-		"Project memory and context updated, but the pass was given a shortened version of the existing content.",
+		"Memory: updated MEMORY.md and CONTEXT.md, but the pass was given a shortened version of the existing content.",
 		"the clipped sentence names a shortened input, not the output budget it may not have been",
 	);
 
@@ -1497,10 +1497,10 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 
 	// A refused memory write lost nothing from the stored file, so its report must carry no counts —
 	// otherwise the receipt would blame the context for a memory that was never written.
-	assert.equal(memoryUpdateReply(plainReport("stale")).text, "Project memory was not rewritten: it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it.");
+	assert.equal(memoryUpdateReply(plainReport("stale")).text, "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it.");
 	assert.equal(
 		memoryUpdateReply(plainReport("stale-context")).text,
-		"Project context updated; project memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.",
+		"Memory: context updated; memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.",
 		"a stale-context receipt with no landed loss keeps its exact wording",
 	);
 	assert.match(memoryUpdateReply(plainReport("stale-context", { contextHiddenChars: 40 })).text, /40 character\(s\) of the stored context/, "the context landed, so a context hidden from the model is reported");
@@ -1519,17 +1519,17 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// reachable single-artifact clipped shape is the one below (the memory landed, and the account of
 	// what was shortened is in the detail); the zero-count variant is pinned above as a pure-function
 	// boundary and is never produced by a pass.
-	assert.equal(memoryUpdateReply(plainReport("updated", { contextWritten: false })).text, "Project memory updated.");
-	assert.equal(memoryUpdateReply(plainReport("updated", { memoryWritten: false })).text, "Project context updated.");
-	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false, memoryHiddenChars: 5 })).text, "Project memory updated, but the pass was given a shortened version of the existing content: the model was not shown 5 character(s) of the stored memory.");
-	// Tier C added a status but changed no existing one: a clean pass that wrote both artifacts still
-	// reads exactly as it did before the report carried any counts.
-	assert.equal(memoryUpdateReply(plainReport("updated")).text, "Project memory and context updated.");
+	assert.equal(memoryUpdateReply(plainReport("updated", { contextWritten: false })).text, "Memory: updated MEMORY.md.");
+	assert.equal(memoryUpdateReply(plainReport("updated", { memoryWritten: false })).text, "Memory: updated CONTEXT.md.");
+	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false, memoryHiddenChars: 5 })).text, "Memory: updated MEMORY.md, but the pass was given a shortened version of the existing content: the model was not shown 5 character(s) of the stored memory.");
+	// Tier C added a status but reworded no other one: a clean pass that wrote both artifacts is still
+	// one clause with no loss account.
+	assert.equal(memoryUpdateReply(plainReport("updated")).text, "Memory: updated MEMORY.md and CONTEXT.md.");
 	assert.doesNotMatch(memoryUpdateReply(plainReport("updated")).text, /refus|kept unchanged/i, "a clean pass never reads like a refusal");
 
 	// A failure that happened after a write landed must not hide what landed.
 	const partial = memoryUpdateReply(plainReport("failed", { memoryWritten: true, contextWritten: false, sectionDropped: 1, droppedItems: 4 })).text;
-	assert.match(partial, /^Project memory update failed; see \.agents\/memory\/errors\.log\. The memory had already landed, with this loss: 1 section\(s\) exceeded their budget and 4 whole entry\(ies\) were dropped\.$/);
+	assert.match(partial, /^Memory: update failed; see \.agents\/memory\/errors\.log\. The memory had already landed, with this loss: 1 section\(s\) exceeded their budget and 4 whole entry\(ies\) were dropped\.$/);
 });
 
 test("fitMemoryInput reports the hidden characters per artifact, and clipped stays their summary", () => {
@@ -2041,7 +2041,7 @@ test("counts describe only what landed, and a receipt never claims an artifact t
 	assert.equal(report.contextWritten, false, "an unusable context leaves CONTEXT.md unchanged");
 	assert.equal(report.contextHiddenChars, 0, "a context that never landed reports no hidden characters");
 	assert.equal(report.contextDroppedChars, 0);
-	assert.equal(memoryUpdateReply(report).text, "Project memory updated.", "the receipt must not claim the context was updated");
+	assert.equal(memoryUpdateReply(report).text, "Memory: updated MEMORY.md.", "the receipt must not claim the context was updated");
 	const unusable = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("context whose shape is unusable"));
 	assert.equal(unusable.length, 1, "the first pass reports it");
 	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
@@ -2077,7 +2077,7 @@ test("a shortening that did not land is never receipted as clipped", async () =>
 	assert.equal(report.contextWritten, true, "the context landed");
 	assert.equal(report.memoryHiddenChars, 0, "no landed artifact lost characters");
 	assert.equal(report.contextHiddenChars, 0, "the context the model was shown whole");
-	assert.equal(memoryUpdateReply(report).text, "Project context updated.", "the receipt must not claim a shortening");
+	assert.equal(memoryUpdateReply(report).text, "Memory: updated CONTEXT.md.", "the receipt must not claim a shortening");
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
 	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
@@ -2268,7 +2268,7 @@ test("a reply below the length floor is logged instead of discarded silently", a
 
 	assert.equal(report.memoryWritten, false, "the floor keeps the stored memory");
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored);
-	assert.equal(memoryUpdateReply(report).text, "Project context updated.", "the receipt no longer claims a memory that was not written");
+	assert.equal(memoryUpdateReply(report).text, "Memory: updated CONTEXT.md.", "the receipt no longer claims a memory that was not written");
 	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /below the 40-character floor/);
 });
 
@@ -2313,12 +2313,12 @@ test("the /memory reply reports a memory that is riding the character cap", () =
 	assert.equal(reply.kind, "success");
 	assert.match(reply.text, /32000-character cap/, "the note names the configured cap");
 	assert.match(reply.text, /dropped on write/, "and says what the consequence is");
-	assert.match(reply.text, /Project memory: \.agents\/memory\/MEMORY\.md/, "the normal line is still there");
+	assert.match(reply.text, /Memory: \.agents\/memory\/MEMORY\.md/, "the normal line is still there");
 
 	// An uncapped memory must not cry wolf, or the warning stops meaning anything.
 	const healthy = memoryStatusReply({ text: "# Project Memory\n\n- a fact\n", source: ".agents/memory/MEMORY.md" }, context);
 	assert.doesNotMatch(healthy.text, /cap|dropped|truncat/i, "a memory inside the cap is reported as plain healthy");
-	assert.equal(healthy.text, "Project memory: .agents/memory/MEMORY.md");
+	assert.equal(healthy.text, "Memory: .agents/memory/MEMORY.md");
 
 	// The loader's own cut raises the warning by itself: the no-journal read clips without writing a
 	// marker into the document, so a marker-only trigger stayed silent about exactly the read the
@@ -2329,7 +2329,7 @@ test("the /memory reply reports a memory that is riding the character cap", () =
 
 	// No memory yet keeps its own wording and gains no warning.
 	const empty = memoryStatusReply({ text: "", source: ".agents/memory/MEMORY.md" }, context);
-	assert.match(empty.text, /No project memory yet: \/tmp\/project\/\.agents\/memory\/MEMORY\.md/);
+	assert.match(empty.text, /Memory: none yet — \/tmp\/project\/\.agents\/memory\/MEMORY\.md/);
 	assert.doesNotMatch(empty.text, /cap/i);
 
 	// The cap must not replace the other degraded states: a damaged journal that is also capped
@@ -2357,8 +2357,8 @@ test("resolvePluginConfig validates every documented bound", () => {
 	assert.throws(() => resolvePluginConfig({ archiveEnabled: "yes" }), /archiveEnabled must be a boolean/);
 	assert.throws(() => resolvePluginConfig({ consolidateTurns: 0 }), /consolidateTurns must be a number >= 1/);
 	assert.throws(() => resolvePluginConfig({ handoffThresholdRatio: 0.96 }), /between 0.1 and 0.95/);
-	assert.throws(() => resolvePluginConfig({ handoffTargetTokens: 7_999 }), /between 8000 and 200000/);
-	assert.throws(() => resolvePluginConfig({ handoffSummaryThinking: "high" }), /handoffSummaryThinking/);
+	assert.throws(() => resolvePluginConfig({ handoffBudgetSummaryTokens: 7_999 }), /between 8000 and 200000/);
+	assert.throws(() => resolvePluginConfig({ handoffThinking: "high" }), /handoffThinking/);
 	assert.throws(() => resolvePluginConfig({ handoffPendingQuestion: "skip" }), /handoffPendingQuestion/);
 	assert.equal(resolvePluginConfig({ handoffPendingQuestion: "wait" }).handoffPendingQuestion, "wait");
 	assert.throws(() => resolvePluginConfig("nope"), /config must be an object/);
@@ -2370,12 +2370,12 @@ test("resolvePluginConfig validates every documented bound", () => {
 	assert.equal(resolvePluginConfig({ maxMemoryChars: 5_000 }).maxMemoryChars, 5_000);
 	assert.equal(DEFAULT_CONFIG.maxMemoryChars, 40_000, "the default cap is the documented 40000");
 
-	const parsed = resolvePluginConfig({ consolidateTurns: 9.6, provider: "p", model: "m", handoffSummaryThinking: "session" });
+	const parsed = resolvePluginConfig({ consolidateTurns: 9.6, provider: "p", model: "m", handoffThinking: "session" });
 	assert.equal(parsed.consolidateTurns, 10, "whole-number fields round");
 	assert.equal(parsed.provider, "p");
 	assert.equal(parsed.model, "m");
-	assert.equal(parsed.handoffSummaryThinking, "session");
-	assert.equal(parsed.autoConsolidate, DEFAULT_CONFIG.autoConsolidate);
+	assert.equal(parsed.handoffThinking, "session");
+	assert.equal(parsed.memoryEnabled, DEFAULT_CONFIG.memoryEnabled);
 });
 
 test("clip and truncateMiddle keep the head and the tail inside the budget", () => {
@@ -2510,16 +2510,16 @@ test("writeAtomic and the synchronous text cache agree on the file they serve", 
 
 test("resolvePluginConfig, settingPatch and the pending-question check behave", () => {
 	assert.deepEqual(settingPatch("on"), { patch: { handoffEnabled: true } });
-	assert.deepEqual(settingPatch("thinking session"), { patch: { handoffSummaryThinking: "session" } });
+	assert.deepEqual(settingPatch("thinking session"), { patch: { handoffThinking: "session" } });
 	assert.deepEqual(settingPatch("pending wait"), { patch: { handoffPendingQuestion: "wait" } });
 	assert.equal(settingPatch("pending sometimes"), undefined);
-	assert.deepEqual(settingPatch("threshold auto"), { patch: { handoffAdaptive: true } });
-	assert.deepEqual(settingPatch("threshold 0.5"), { patch: { handoffAdaptive: false, handoffThresholdRatio: 0.5 } });
-	assert.deepEqual(settingPatch("threshold 50%"), { patch: { handoffAdaptive: false, handoffThresholdRatio: 0.5 } });
+	assert.deepEqual(settingPatch("threshold auto"), { patch: { handoffThresholdAuto: true } });
+	assert.deepEqual(settingPatch("threshold 0.5"), { patch: { handoffThresholdAuto: false, handoffThresholdRatio: 0.5 } });
+	assert.deepEqual(settingPatch("threshold 50%"), { patch: { handoffThresholdAuto: false, handoffThresholdRatio: 0.5 } });
 	assert.match(settingPatch("threshold 0.96").error, /threshold needs auto or a ratio/);
-	assert.deepEqual(settingPatch("budget summary 64k"), { patch: { handoffTargetTokens: 64_000 } });
+	assert.deepEqual(settingPatch("budget summary 64k"), { patch: { handoffBudgetSummaryTokens: 64_000 } });
 	assert.match(settingPatch("budget summary 1k").error, /8000–200000/);
-	assert.deepEqual(settingPatch("budget recent 0"), { patch: { handoffKeepTokens: 0 } });
+	assert.deepEqual(settingPatch("budget recent 0"), { patch: { handoffBudgetRecentTokens: 0 } });
 	assert.match(settingPatch("budget recent 300k").error, /0–200000/);
 	assert.match(settingPatch("budget").error, /budget needs summary or recent/);
 	// One fact, one spelling: the retired spellings must not act, and the usage line names the new one.
@@ -2587,13 +2587,13 @@ test("the /handoff command routes the new verbs and rejects the retired spelling
 	assert.deepEqual(writes, [], "`force` did not reach the settings service");
 
 	assert.equal((await call("threshold auto")).kind, "success");
-	assert.deepEqual(writes.at(-1).patch, { handoffAdaptive: true });
+	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: true });
 	assert.equal((await call("threshold 0.6")).kind, "success");
-	assert.deepEqual(writes.at(-1).patch, { handoffAdaptive: false, handoffThresholdRatio: 0.6 });
+	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: false, handoffThresholdRatio: 0.6 });
 	assert.equal((await call("budget summary 64k")).kind, "success");
-	assert.deepEqual(writes.at(-1).patch, { handoffTargetTokens: 64_000 });
+	assert.deepEqual(writes.at(-1).patch, { handoffBudgetSummaryTokens: 64_000 });
 	assert.equal((await call("budget recent 20k")).kind, "success");
-	assert.deepEqual(writes.at(-1).patch, { handoffKeepTokens: 20_000 });
+	assert.deepEqual(writes.at(-1).patch, { handoffBudgetRecentTokens: 20_000 });
 });
 
 test("the session log appends incrementally and rebuilds after an external rewrite", async () => {
@@ -2827,7 +2827,7 @@ test("the automatic handoff waits for background subagents to settle", async () 
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
 		logger: { info() {}, warn() {} },
 	});
-	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
 
 	const running = makeSession([spawned]);
 	// Resolves without a model call: the guard returns before the summary is attempted.
@@ -2865,7 +2865,7 @@ test("subagent work is read as turn activity, not as residency", async () => {
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
 		logger: { info() {}, warn() {} },
 	});
-	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
 	// dsh 0.1.6's classified row, and dsh 0.1.7-alpha.1's bare catalog row. Both carry `mode`.
 	const classified = (mode, activity = "running") => ({ listChildren: async () => [{ kind: "child", id: "child-live", mode, activity, hasChildren: false }] });
 	const catalog = (mode) => ({ listChildren: async () => [{ id: "child-live", createdAt: Date.now(), mode, label: "child-live" }] });
@@ -2959,7 +2959,7 @@ test("a skipped automatic handoff says why in the server log", async () => {
 
 	await maybeAutoHandoff(ctx, session, config);
 	assert.equal(logs.filter((line) => line.includes("automatic handoff skipped")).length, 1);
-	assert.match(logs.join("\n"), /handoffKeepTokens/, "the log names the setting that decides it");
+	assert.match(logs.join("\n"), /handoffBudgetRecentTokens/, "the log names the setting that decides it");
 
 	// The log is not a surface the user can read, so the same skip is reported by `/handoff status`.
 	const signal = new AbortController().signal;
@@ -2977,7 +2977,7 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	// Once an idle finds something to summarize, the marker is cleared: the receipt describes the
 	// session as it is now, not a condition it has left. Every rendered message is clipped to
 	// 4000 chars, so the older span has to clear MIN_SUMMARIZE_TOKENS on its own.
-	const grown = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+	const grown = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
 	const many = Array.from({ length: 12 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(4_000)));
 	const grownSession = { ...session, deriveMessages: () => many };
 	await assert.rejects(() => maybeAutoHandoff(ctx, grownSession, grown), "the summarizable idle reaches the summary call");
@@ -2998,7 +2998,7 @@ test("the status receipt names the term that refused the threshold, not always t
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
 	};
-	// One measurement, three windows. `handoffKeepTokens: 0` makes the floor
+	// One measurement, three windows. `handoffBudgetRecentTokens: 0` makes the floor
 	// `overhead + 0 + MIN_SUMMARIZE_TOKENS`, and this fixture reports no envelope, so the floor is
 	// exactly MIN_SUMMARIZE_TOKENS and the refusals below come from the window and the margin alone.
 	const statusAt = async (contextWindow, config, measurement = { totalTokens: 11_800, surfaceTokens: 11_800 }, projections) => {
@@ -3010,7 +3010,7 @@ test("the status receipt names the term that refused the threshold, not always t
 		};
 		return statusText(ctx, session, config, signal);
 	};
-	const adaptive = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const adaptive = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	// W=27_000: usable = 27_000 − 16_384 = 10_616 > floor = 0 + 8_000, but the capacity cap
 	// (27_000 − 16_384 − 4_000 = 6_616) sits below that floor, so the summarize minimum refuses. The
 	// window is roomy, so blaming the window here is the bug.
@@ -3054,12 +3054,12 @@ test("the status receipt names the term that refused the threshold, not always t
 
 	// The reachable-today path is `keep` itself: it is bounded at 200_000, so at a 1M window 149_000
 	// resolves and 149_001 refuses. Here `keep` *is* the lever, and the receipt must say so.
-	const kneeByKeep = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_001 });
+	const kneeByKeep = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 149_001 });
 	assert.equal(thresholdRefusal(kneeByKeep, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), "quality-knee");
 	const keepSqueezed = await statusAt(1_000_000, kneeByKeep, { totalTokens: 11_800, surfaceTokens: 0 });
 	assert.match(keepSqueezed, /lower "Recent tokens kept"/, "the lever that really binds is named");
 	// One token less of carried tail clears it, which is what makes `keep` the lever rather than a slogan.
-	const oneLess = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_000 });
+	const oneLess = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 149_000 });
 	assert.notEqual(resolveThreshold(oneLess, { totalTokens: 11_800, surfaceTokens: 0 }, 1_000_000), undefined);
 	assert.doesNotMatch(kneeSqueezed, /is the lever, not this window alone/, "the margin sentence must not be reused");
 	assert.doesNotMatch(kneeSqueezed, /safety margin/, "the margin is not what bound here");
@@ -3075,9 +3075,9 @@ test("the status receipt names the term that refused the threshold, not always t
 	// evidence-backed rather than a matter of taste.
 	const bandW = 450_000;
 	const bandMeasurement = { totalTokens: 600_000, surfaceTokens: 300_000, overheadTokens: 300_000 };
-	const bandAuto = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const bandAuto = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	assert.equal(thresholdRefusal(bandAuto, bandMeasurement, bandW), "quality-knee", "W=450K with a 300K reported envelope is a knee refusal");
-	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffAdaptive: false, handoffThresholdRatio: 0.4 });
+	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: 0.4 });
 	const bandTrigger = resolveThreshold(bandFixed, bandMeasurement, bandW);
 	assert.ok(bandTrigger !== undefined && bandTrigger.tokens < qualityLimit(bandW),
 		`a 0.4 trigger sits below the knee here: ${bandTrigger?.tokens} vs ${qualityLimit(bandW)}`);
@@ -3091,7 +3091,7 @@ test("the status receipt names the term that refused the threshold, not always t
 	// Fixed mode refuses exactly when the window does not clear the safety margin, because the ratio
 	// is validated into [0.1, 0.95] and the margin term binds first. Naming the ratio as a lever
 	// would send the user to a control that cannot change the outcome.
-	const fixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffAdaptive: false });
+	const fixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false });
 	assert.equal(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), undefined, "W = SAFETY_MARGIN is the boundary");
 	assert.notEqual(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_001), undefined, "one token past the margin resolves");
 	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000), "no-positive-threshold");
@@ -3162,9 +3162,9 @@ test("the status receipt follows the handoff language and names the setting by i
 		get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 11_800, surfaceTokens: 0 }) } : undefined),
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 1_000_000 } }) },
 	};
-	// `handoffKeepTokens: 149_001` at a 1M window is the reachable knee refusal whose lever *is* the
+	// `handoffBudgetRecentTokens: 149_001` at a 1M window is the reachable knee refusal whose lever *is* the
 	// setting, so this fixture exercises the `lower …` sentence rather than the inert-lever branch.
-	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 149_001 });
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 149_001 });
 	const status = await statusText(ctx, session, config, signal);
 	assert.match(status, /lang auto \(zh\)/, "the receipt reports the language it resolved");
 	assert.match(status, /阈值不可用：不是窗口的问题/);
@@ -3258,7 +3258,7 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 	};
 
 	// Quality guardrail wins: at 1M the knee allows 157_000 while a 200_000 target needs 220_000.
-	const quality = await statusAt(1_000_000, { handoffTargetTokens: 200_000 });
+	const quality = await statusAt(1_000_000, { handoffBudgetSummaryTokens: 200_000 });
 	assert.match(quality, /not applied in full/, `expected a warning, got ${quality}`);
 	assert.match(quality, /needs a 220000-token threshold/);
 	assert.match(quality, /quality knee allows 157000/);
@@ -3271,11 +3271,11 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 	assert.match(capacity, /only 45152 tokens fit this 65536-token window/);
 	// Fixed mode: the ratio *is* the trigger, so a 95% ratio clamped by the safety margin on a small
 	// window is the same silent-override class (62_259 asked → 61_536 resolved).
-	const fixed = await statusAt(65_536, { handoffAdaptive: false, handoffThresholdRatio: 0.95 });
+	const fixed = await statusAt(65_536, { handoffThresholdAuto: false, handoffThresholdRatio: 0.95 });
 	assert.match(fixed, /fixed ratio 95% is not applied in full/);
 	assert.match(fixed, /asks for 62259 of this 65536-token window and the 4000-token safety margin leaves 61536/);
 	assert.match(fixed, /threshold 95% of window \(capped to 61536\)/, "the label stops claiming the full ratio");
-	const fixedFits = await statusAt(131_072, { handoffAdaptive: false, handoffThresholdRatio: 0.95 });
+	const fixedFits = await statusAt(131_072, { handoffThresholdAuto: false, handoffThresholdRatio: 0.95 });
 	assert.doesNotMatch(fixedFits, /not applied in full/, `unexpected warning: ${fixedFits}`);
 });
 
@@ -3306,23 +3306,23 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 	// Large windows: the curve saturates at 157K and becomes the binding term (983_616 of capacity).
 	assert.equal(at(1_000_000), 157_000);
 	assert.equal(at(2_000_000), 157_000);
-	// `handoffTargetTokens` must **not** lift the trigger above the curve: a local preference cannot
+	// `handoffBudgetSummaryTokens` must **not** lift the trigger above the curve: a local preference cannot
 	// reopen the hole the knee exists to close. pi's `max(boundary, targetValue)` lifts it (226_000
 	// here), which is the same defect as the earlier `min(configured, knee)` cap wearing the opposite
 	// sign; this port takes neither. Raising the key leaves the trigger identical.
-	assert.equal(at(1_000_000, { handoffTargetTokens: 200_000 }), 157_000, "the target cannot lift the trigger above the curve");
-	assert.equal(at(1_000_000, { handoffTargetTokens: 8_000 }), 157_000, "nor can lowering it move the trigger");
+	assert.equal(at(1_000_000, { handoffBudgetSummaryTokens: 200_000 }), 157_000, "the target cannot lift the trigger above the curve");
+	assert.equal(at(1_000_000, { handoffBudgetSummaryTokens: 8_000 }), 157_000, "nor can lowering it move the trigger");
 	// Capacity still has the last word over the curve: at 400K the curve allows 387_852 and the window
 	// caps it at 379_616, whatever the target says.
-	assert.equal(at(400_000, { handoffTargetTokens: 200_000 }), 379_616);
+	assert.equal(at(400_000, { handoffBudgetSummaryTokens: 200_000 }), 379_616);
 	// Fixed ratio mode returns before the curve entirely, so an explicit user ratio is never touched.
-	const fixed = resolveThreshold(config({ handoffAdaptive: false, handoffThresholdRatio: 0.5 }), measurement, 1_000_000);
+	const fixed = resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.5 }), measurement, 1_000_000);
 	assert.equal(fixed.tokens, 500_000);
 	// Regression: the W=40000 case the misattribution fix pinned as a refusal was a measurement-basis
 	// artifact, not model behaviour. The fixture keeps a non-zero `totalTokens − surfaceTokens` on purpose:
 	// with the subtraction restored the floor is 11_800 + 8_000 = 19_800, above the capacity cap 19_616, so
 	// this assertion is the one that fails under the bug rather than passing for the wrong reason.
-	const narrow = config({ handoffKeepTokens: 0 });
+	const narrow = config({ handoffBudgetRecentTokens: 0 });
 	assert.equal(resolveThreshold(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000)?.tokens, 19_616);
 	assert.equal(thresholdRefusal(narrow, { totalTokens: 11_800, surfaceTokens: 0 }, 40_000), undefined);
 	// The shape a real CJK session produces — a provider-anchored total far above the density-priced
@@ -3346,7 +3346,7 @@ test("a manual handoff on a conversation that fits the carried window is refused
 		},
 		logger: { info() {}, warn() {} },
 	};
-	// Three short messages fit entirely inside the default `handoffKeepTokens`, so `older` is empty
+	// Three short messages fit entirely inside the default `handoffBudgetRecentTokens`, so `older` is empty
 	// even though the conversation is not: the reply must say why instead of summarizing nothing.
 	const session = {
 		id: "session-short-000000000000",
@@ -3396,7 +3396,7 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 		ownEvents: () => [],
 		snapshotEvents: () => [],
 	};
-	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
+	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffEnabled: false, handoffBudgetRecentTokens: 0 });
 	// The switch is off, and the threshold gate is closed too — but at a narrower window than before: at
 	// 40K the capacity cap (19_616) now clears the floor (keep 0 + 8_000), so a refusal has to come from
 	// where it really binds, the summarize minimum at 27K.
@@ -3439,7 +3439,7 @@ test("a manual handoff refuses while a background subagent is still running", as
 		requestHeader: () => undefined,
 		snapshotEvents: () => events,
 	});
-	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 
 	// A registry reporting a running continuable child refuses before any child session exists.
 	const listed = await runManual(
@@ -3524,7 +3524,7 @@ test("a handoff child inherits the parent's session-local model and permission p
 			requestHeader,
 			snapshotEvents: () => [],
 		};
-		const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffKeepTokens: 0 });
+		const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
 		const reply = await runManual(ctx, session, entry, new AbortController().signal);
 		return { calls, reply, sessionId: session.id };
 	};
@@ -3652,7 +3652,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		};
 		let error;
 		try {
-			await maybeAutoHandoff(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), 10);
+			await maybeAutoHandoff(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), 10);
 		} catch (caught) {
 			error = caught;
 		}
@@ -3795,7 +3795,7 @@ test("the auto-handoff listener passes the trigger offset through to the settle 
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
 		},
 	};
-	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	const listener = handlers["session/event"]?.[0];
 	assert.ok(listener, "apply registers a session/event listener");
 	const waitFor = async (predicate) => {
@@ -3869,7 +3869,7 @@ test("a turn/end that lands while an attempt is in flight is re-evaluated, not l
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
 		},
 	};
-	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	const listener = handlers["session/event"]?.[0];
 	assert.ok(listener, "apply registers a session/event listener");
 
@@ -3935,7 +3935,7 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 				stream: stream ?? (() => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })()),
 			},
 		};
-		apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+		apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 		return { created, prompts, logs, listener: handlers["session/event"]?.[0], session };
 	};
 	const waitFor = async (predicate) => {
@@ -3992,7 +3992,7 @@ test("a disabled automatic handoff ignores turn/end entirely", async () => {
 			stream: () => { summaryCalls += 1; return (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(); },
 		},
 	};
-	apply(ctx, { provider: "test-provider", model: "test-model", handoffEnabled: false, handoffKeepTokens: 0 });
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffEnabled: false, handoffBudgetRecentTokens: 0 });
 	handlers["session/event"]?.[0](session, { type: "turn/end", seq: 10, time: Date.now() });
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	assert.deepEqual(created, [], "the switch is off");
@@ -4030,7 +4030,7 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
 		},
 	};
-	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 1_000 });
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 1_000 });
 	const listener = handlers["session/event"]?.[0];
 	const waitFor = async (predicate) => {
 		for (let i = 0; i < 400 && !predicate(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
@@ -4079,7 +4079,7 @@ test("an open question defers the handoff, and the answer’s first idle takes i
 		ownEvents: () => [],
 		snapshotEvents: () => [],
 	};
-	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 
 	await maybeAutoHandoff(ctx, session, config);
 	assert.deepEqual(calls, [], "an open question defers before any child exists");
@@ -4116,7 +4116,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 			},
 			logger: { info() {}, warn() {} },
 		};
-		return runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), new AbortController().signal);
+		return runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), new AbortController().signal);
 	};
 
 	// Retryable: a turn is still open on the child, which is exactly the condition the automatic
@@ -4233,7 +4233,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 		"response 503 records",
 		"error 429 quota",
 		// The value noun that explains a trailing code has to be recognized inside the project's own
-		// config keys — `max_tokens`, `maxTokens`, `token_limit`, `handoffTargetTokens`. Requiring a
+		// config keys — `max_tokens`, `maxTokens`, `token_limit`, `handoffBudgetSummaryTokens`. Requiring a
 		// *trailing* word boundary rejected every one of them, which is the over-promise direction:
 		// a configured limit was reported as a retryable server status. The suite was green for the
 		// whole class until these were named.
@@ -4243,7 +4243,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 		"maxTokens: 429",
 		"token_limit=429",
 		"window_size=503",
-		"handoffTargetTokens=429",
+		"handoffBudgetSummaryTokens=429",
 		// `timeout` must not match a config key being validated, and `overload` only counts next to a
 		// status or an actor — both were over-promises from a bare stem.
 		"timeout_ms must be positive",
@@ -4399,7 +4399,7 @@ test("the manual handoff stays exempt from the settle guard", async () => {
 		},
 		logger: { info() {}, warn() {} },
 	};
-	const reply = await runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffKeepTokens: 0 }), new AbortController().signal);
+	const reply = await runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), new AbortController().signal);
 	assert.equal(reply.kind, "success", `expected a handoff, got ${JSON.stringify(reply)}`);
 	assert.deepEqual(calls, ["create", "seed"]);
 	assert.equal(turnStartedAfter(session, 0), true, "the fixture really does look busy");
@@ -5078,7 +5078,7 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue the work" }; })(),
 		},
 	};
-	apply(ctx, { provider: "test-provider", model: "test-model", handoffKeepTokens: 0 });
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	const listener = handlers["session/event"]?.[0];
 	assert.ok(listener, "apply registers a session/event listener");
 

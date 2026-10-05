@@ -47,7 +47,7 @@ export function handoffArtifacts(args: {
 
 /**
  * The span a handoff summarizes, or an error when there is none. Two cases reach this: a session
- * with no messages at all, and — with the default `handoffKeepTokens` — a short conversation that
+ * with no messages at all, and — with the default `handoffBudgetRecentTokens` — a short conversation that
  * fits entirely inside the carried-over window. Both would otherwise pay for a model call and seed
  * the child with a fabricated summary; the error names the `budget recent 0` escape for the second case.
  * The automatic path cannot reach it (it refuses a span below `MIN_SUMMARIZE_TOKENS` first).
@@ -86,7 +86,7 @@ export async function performHandoff(
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
 	const memory = await loadMemory(projectRoot, config.maxMemoryChars);
-	const { older, tail, languageMessages } = split ?? handoffSplit(session, Math.round(config.handoffKeepTokens * CHARS_PER_TOKEN));
+	const { older, tail, languageMessages } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	assertHandoffSummarizable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
 	const raw = (
