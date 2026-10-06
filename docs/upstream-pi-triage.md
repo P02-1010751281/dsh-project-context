@@ -944,6 +944,29 @@ source. Nothing is ported yet.
 Items 1+2 are one change, 3+4 are one change, 5 stands alone: three groups, none large enough for a
 half-landed shape, and only 1+2 needs a ruling.
 
+### Batch K landed (2026-10-06, same day)
+
+All four items plus the inventory marker are **ported**, not pending. `src/shared/limits.ts` now owns
+`MIN_THRESHOLD_RATIO` / `MAX_THRESHOLD_RATIO` / `DEFAULT_THRESHOLD_RATIO` and every reader — the config
+validator, the settings schema, the command parser, both usage sentences and the card's two hints — reads the
+pair; fixed mode refuses under `thresholdFloor`; the two fixed refusals have separate causes and separate
+receipt sentences; `/handoff threshold <ratio>` answers with the status receipt; and `inventoryText` names its
+truncated tail.
+
+One implementation decision is not pi's shape and is worth recording. pi mutates its in-process `config` before
+rendering the receipt (`config.handoffThresholdRatio = ratio` then `notify(handoffStatusLine(ctx))`). dsh's
+write goes through the settings service, and the host's entry restart may not have republished the config by
+the time the reply is built — so reading the live config alone would explain the *previous* ratio in the one
+message whose entire purpose is to explain the new one. `statusText` therefore takes an optional `pending`
+patch and the command passes the patch it just wrote, which makes the receipt describe the write under review;
+`/handoff status` passes nothing and reports exactly what is in force.
+
+Five mutants were run against the new pins (four killed, one invalidated by `TS6133` and reshaped — a constant
+left unreferenced makes the mutant malformed, and an invalid mutant's red is not evidence). `src/` was restored
+from a hash-verified copy, `lib/` rebuilt with no residual marker, and the gate reads green. Nothing here has
+run on a host: it needs the same restart batches I and J are waiting for, and the CHANGELOG entry carries the
+per-mutant detail.
+
 ### What this pass does NOT find
 
 - pi's near-floor receipt fix (print the raw integers when `fmtTokens` rounds both sides of the comparison to

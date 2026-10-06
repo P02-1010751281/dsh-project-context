@@ -2,6 +2,7 @@
 
 import type { SettingsFormLabels } from "@deepseek-ai/dsh-client-ui-primitives";
 
+import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../src/shared/limits.ts";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../src/shared/setting-labels.ts";
 
 export const zh = {
@@ -52,7 +53,7 @@ export const zh = {
 	"field.handoffThresholdAuto": "自适应阈值",
 	"field.handoffThresholdAutoHint": "开启时按上下文窗口与保留量自动推导；关闭时用下面的固定比例",
 	"field.handoffThresholdRatio": "固定阈值（上下文窗口占比）",
-	"field.handoffThresholdRatioHint": "仅自适应关闭时生效；0.1–0.95，默认 0.4，早于 dsh 内置压缩的 0.8",
+	"field.handoffThresholdRatioHint": `仅自适应关闭时生效；${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}，默认 ${DEFAULT_THRESHOLD_RATIO}，早于 dsh 内置压缩的 0.8`,
 	"field.handoffBudgetSummaryTokens": "触发点目标（token）",
 	"field.handoffBudgetSummaryTokensHint": "自适应模式：阈值报告的目标请求量，不产生任何模型调用，默认 64000",
 	"field.handoffBudgetRecentTokens": HANDOFF_BUDGET_RECENT_LABEL.zh,
@@ -113,7 +114,7 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffThresholdAuto": "Adaptive threshold",
 	"field.handoffThresholdAutoHint": "Derive the trigger from the window and keep budget; off uses the fixed ratio below",
 	"field.handoffThresholdRatio": "Fixed threshold (share of window)",
-	"field.handoffThresholdRatioHint": "Only used when adaptive is off; 0.1–0.95, default 0.4, before dsh compaction's 0.8",
+	"field.handoffThresholdRatioHint": `Only used when adaptive is off; ${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}, default ${DEFAULT_THRESHOLD_RATIO}, before dsh compaction's 0.8`,
 	"field.handoffBudgetSummaryTokens": "Trigger target (tokens)",
 	"field.handoffBudgetSummaryTokensHint": "Adaptive mode: the trigger request the pass reports; no model call reads it, default 64000",
 	"field.handoffBudgetRecentTokens": HANDOFF_BUDGET_RECENT_LABEL.en,

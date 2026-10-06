@@ -7,6 +7,7 @@
  */
 
 import { type PluginConfig } from "../shared/config.js";
+import { MAX_THRESHOLD_RATIO } from "../shared/limits.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { type HandoffLanguage } from "./language.js";
 
@@ -59,20 +60,34 @@ function thresholdFloor(config: PluginConfig, measurement: ContextMeasurement): 
 }
 
 /**
+ * Fixed mode's trigger before the floor gate: `min(round(W × ratio), W − SAFETY_MARGIN)`.
+ *
+ * One definition for the three readers — {@link resolveThreshold} computes it, {@link thresholdRefusal}
+ * compares it against the floor, and {@link thresholdRefusalText} quotes it — because the small-window
+ * clamp is exactly the kind of rule this repo has twice let two copies drift apart.
+ */
+function fixedThreshold(config: PluginConfig, contextWindow: number): number {
+	return Math.min(Math.round(contextWindow * config.handoffThresholdRatio), contextWindow - SAFETY_MARGIN_TOKENS);
+}
+
+/**
  * Why {@link resolveThreshold} returned `undefined`, named as the term that actually binds.
  *
- * `resolveThreshold` has four `undefined` exits with four different causes, and the receipt used to
+ * `resolveThreshold` has five `undefined` exits with five different causes, and the receipt used to
  * render every one of them as "threshold unavailable at this window" — a claim about the window that
- * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the drop
+ * is *false* for four of the five. A roomy window (`usable > floor`) still refuses when the drop
  * minimum, the reported envelope + carried tail, the second 4K
- * {@link SAFETY_MARGIN_TOKENS} deduction, or the **quality knee** is what decided it, and "at this
- * window" sends the user to change the model or the target when neither is the lever.
+ * {@link SAFETY_MARGIN_TOKENS} deduction, the **quality knee**, or fixed mode's own floor is what
+ * decided it, and "at this window" sends the user to change the model or the target when neither is
+ * the lever.
  *
  * The knee and the margin want *opposite* levers, which is why they cannot share a cause: a larger
  * window raises the capacity deduction's headroom but lowers the knee, so advice written for one is
- * actively backwards for the other.
+ * actively backwards for the other. Fixed mode's two causes want opposite levers from each other too:
+ * at `tokens <= 0` only a larger window helps, while a positive trigger under the floor is cleared by
+ * raising the ratio or lowering the carried tail.
  */
-export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold";
+export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold" | "fixed-below-floor";
 
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
@@ -85,7 +100,12 @@ export function thresholdRefusal(
 	contextWindow: number,
 ): ThresholdRefusal | undefined {
 	if (resolveThreshold(config, measurement, contextWindow) !== undefined) return undefined;
-	if (!config.handoffThresholdAuto) return "no-positive-threshold";
+	if (!config.handoffThresholdAuto) {
+		// Two fixed-mode refusals, named apart because the levers are different: a trigger that rounds out
+		// (where no legal ratio could help, because `W − SAFETY_MARGIN <= 0` already decides it) and a
+		// positive trigger under the physical floor (where raising the ratio is the first lever).
+		return fixedThreshold(config, contextWindow) <= 0 ? "no-positive-threshold" : "fixed-below-floor";
+	}
 	// Reuse the orchestrator's own feasibility helper rather than re-deriving its terms: the two can
 	// then only disagree if the *composition* changes, and the clamp is the only remaining refusal.
 	const room = handoffRoom(config, measurement, contextWindow);
@@ -192,10 +212,29 @@ export function thresholdRefusalText(
 			? `阈值不可用：窗口不是限制 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但 ${SAFETY_MARGIN_TOKENS} token 的安全余量会让可丢弃的内容少于 ${MIN_DROP_TOKENS} token 的下限；杠杆是更大的上下文窗口（或调小「${label}」），而不是这个窗口本身`
 			: `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves less than the ${MIN_DROP_TOKENS}-token minimum worth dropping; a larger context window (or lowering "${label}") is the lever, not this window alone`;
 	}
-	// Fixed mode refuses exactly when `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the
-	// ratio is validated into [0.1, 0.95], the second term binds first and the condition reduces to
-	// `W ≤ SAFETY_MARGIN`: raising the ratio can never clear a refusal, so naming it would send the
-	// user to a lever that does nothing.
+	if (reason === "fixed-below-floor") {
+		// The floor binds, not the window: name both numbers and a lever that works with them. When even
+		// the largest legal ratio leaves the trigger under the floor, raising the ratio cannot help, and
+		// naming it anyway would be the dead-lever defect this receipt exists to prevent.
+		const shown = fixedThreshold(config, contextWindow);
+		const largest = Math.min(Math.round(MAX_THRESHOLD_RATIO * contextWindow), contextWindow - SAFETY_MARGIN_TOKENS);
+		const percent = Math.round(config.handoffThresholdRatio * 100);
+		const lever = largest >= floor
+			? zh
+				? `调大比例（/handoff threshold）或调小「${label}」`
+				: `raise the ratio (/handoff threshold) or lower "${label}"`
+			: zh
+				? `只有调小「${label}」有用 —— 这个窗口下任何合法比例都清不掉下限`
+				: `lower "${label}" — no legal ratio clears the floor at this window`;
+		return zh
+			? `阈值不可用：固定 ${percent}% 的 ${shown} token 触发器低于这个基线下的 ${floor} token 下限（丢弃不足 ${MIN_DROP_TOKENS} token 换不来上下文，只是换个会话）；${lever}`
+			: `threshold unavailable: the fixed ${percent}% trigger of ${shown} tokens is below the ${floor}-token floor a worthwhile handoff needs at this baseline (a drop under ${MIN_DROP_TOKENS} tokens only switches sessions); ${lever}`;
+	}
+	// `no-positive-threshold`: `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the ratio is
+	// validated into [MIN_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO], the second term binds first and the
+	// condition reduces to `W ≤ SAFETY_MARGIN`: raising the ratio can never clear *this* one, so naming it
+	// would send the user to a lever that does nothing. A positive trigger under the floor is the separate
+	// `fixed-below-floor` cause above, where the ratio *is* the first lever.
 	return zh
 		? `阈值不可用：${contextWindow} token 的窗口没有超过 ${SAFETY_MARGIN_TOKENS} token 的安全余量，所以固定 ${config.handoffThresholdRatio} 这一比例算不出正阈值；这里唯一的杠杆是更大的窗口（比例帮不上忙）`
 		: `threshold unavailable: the ${contextWindow}-token window does not exceed the ${SAFETY_MARGIN_TOKENS}-token safety margin, so a fixed ${config.handoffThresholdRatio} ratio resolves to no positive threshold; a larger window is the only lever here (the ratio cannot help)`;
@@ -319,12 +358,18 @@ export function resolveThreshold(
 	contextWindow: number,
 ): { tokens: number; label: string; override?: ThresholdOverride } | undefined {
 	if (!config.handoffThresholdAuto) {
-		// Fixed mode: the manual setting *is* the trigger, so the safety margin is the only guardrail
-		// above it. Clamping `0.95` on a small window is real (65_536 → 61_536) and the label alone
-		// would keep claiming the full ratio.
+		// Fixed mode: the manual setting *is* the trigger, so the ratio alone decides where it sits — but
+		// the two guardrails the adaptive branch owns still apply. The safety margin clamps it (clamping
+		// `0.95` on a small window is real: 65_536 → 61_536, and the label alone would keep claiming the
+		// full ratio), and the physical floor below refuses it outright.
 		const asked = Math.round(contextWindow * config.handoffThresholdRatio);
-		const tokens = Math.min(asked, contextWindow - SAFETY_MARGIN_TOKENS);
+		const tokens = fixedThreshold(config, contextWindow);
 		if (tokens <= 0) return undefined;
+		// The physical floor is a **refusal gate** in fixed mode too, not a lift: below it a handoff would
+		// drop less than `MIN_DROP_TOKENS`, replacing the session without buying context. It needs no
+		// model — only the measured envelope and the carried-tail setting — so both modes agree on what
+		// counts as worthwhile. The threshold itself still comes from the ratio alone.
+		if (tokens < thresholdFloor(config, measurement)) return undefined;
 		const percent = Math.round(config.handoffThresholdRatio * 100);
 		const clamped = tokens < asked;
 		return {

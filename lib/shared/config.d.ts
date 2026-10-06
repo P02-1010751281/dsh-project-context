@@ -42,7 +42,8 @@ export interface PluginConfig {
     handoffEnabled: boolean;
     /** Adaptive threshold derived from window/target/keep instead of a fixed ratio. */
     handoffThresholdAuto: boolean;
-    /** Context-window fraction (0.1–0.95) used when `handoffThresholdAuto` is false. */
+    /** Context-window fraction used when `handoffThresholdAuto` is false. The accepted range is the
+     * `MIN_THRESHOLD_RATIO`..`MAX_THRESHOLD_RATIO` pair in `limits.ts`; never write a literal here. */
     handoffThresholdRatio: number;
     /** Adaptive mode: the trigger request the pass reports (no model call reads it). */
     handoffBudgetSummaryTokens: number;

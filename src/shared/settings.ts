@@ -23,6 +23,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import { DEFAULT_CONFIG, resolvePluginConfig, type PluginConfig } from "./config.js";
+import { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "./limits.js";
 import { MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 
 /** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */
@@ -54,7 +55,7 @@ export const PluginSettingsSchema = z.object({
 	autolearnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.autolearnIntervalMs).extra("volatile", true),
 	handoffEnabled: z.boolean().default(DEFAULT_CONFIG.handoffEnabled).extra("volatile", true),
 	handoffThresholdAuto: z.boolean().default(DEFAULT_CONFIG.handoffThresholdAuto).extra("volatile", true),
-	handoffThresholdRatio: z.number().min(0.1).max(0.95).default(DEFAULT_CONFIG.handoffThresholdRatio).extra("volatile", true),
+	handoffThresholdRatio: z.number().min(MIN_THRESHOLD_RATIO).max(MAX_THRESHOLD_RATIO).default(DEFAULT_CONFIG.handoffThresholdRatio).extra("volatile", true),
 	handoffBudgetSummaryTokens: z.natural().min(8_000).max(200_000).default(DEFAULT_CONFIG.handoffBudgetSummaryTokens).extra("volatile", true),
 	handoffBudgetRecentTokens: z.natural().max(200_000).default(DEFAULT_CONFIG.handoffBudgetRecentTokens).extra("volatile", true),
 	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion).extra("volatile", true),

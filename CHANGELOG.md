@@ -148,6 +148,52 @@
   `sha256sum -c`（86 文件）证明；轮末 `lib/` 无残留标记、全量门禁 373/373 绿色。
 - 未证：本批没有真实宿主重启，只由构建后的 `lib/` 与测试证明，未在运行中的 dsh 上验证。
 
+**project-handoff（固定阈值不再自称成功）**
+
+- 修复：**固定比例模式的阈值可以低于「值得丢弃」的物理下限，却仍被当成可用触发器**。自适应分支一直由
+  `handoffRoom` / `thresholdFloor`（`harness 包络 + 「保留最近对话」 + 丢弃下限 8000`）挡住这种配置，固定分支
+  却只看 `tokens <= 0`：`0.1` 的比例在 10 000 token 窗口解析出 1 000 token 的触发器，交接只换会话不换上下文。
+  `resolveThreshold` 的固定分支现在把地板当**拒绝闸门**（不是抬升）：`tokens < floor` 直接拒绝，**等于**地板
+  时仍然放行。与 `auto.ts:65` 已有的「实测老跨度不足 8000 就跳过」是**部分重叠**：那读的是会话自身的填充量，
+  且是静默跳过而不是拒绝，阈值与回执仍在声称一个买不到上下文的触发器，所以两者不能互相顶替。
+- 修复：**固定模式只有一种拒绝原因，于是被当成窗口问题**。`thresholdRefusal` 过去对固定模式一律返回
+  `no-positive-threshold`，`thresholdRefusalText` 的收尾句还断言「比例帮不上忙」。地板落地后这句对「触发点低于
+  地板」是**假的**——此时比例恰是第一根杠杆。现在拆成两个原因：`no-positive-threshold`（
+  `min(round(W × ratio), W − 4000) <= 0`，只有更大的窗口有用）与 `fixed-below-floor`（引用两个真实数字，并且
+  **只在最大合法比例真能清掉地板时**才把比例当杠杆，否则只报「调小保留最近对话」）。两条必须一起落，否则拒绝
+  会把原因栽给窗口。`fixedThreshold()` 成为三个读者（计算、判定、回执）的唯一一份小窗口钳制定义。
+- 修复：**`/handoff threshold <ratio>` 把不可触发的配置报成成功**。该命令过去回
+  `Handoff setting updated: threshold 0.4`，什么都不解析。现在这一写入回显 `/handoff status` 回执，并且按**刚写入
+  的 patch** 解析（`statusText(..., pending)`）：宿主的条目重启可能晚于本次回执，只读实时配置会解释上一个比例，
+  那是在最不容忍错因的地方引入新的错因。其它动词（`on` / `off` / `budget` / `pending` / `lang`）保持原回执。
+- 修复：**比例范围被抄成多份**。`0.1` / `0.95` 曾出现在 10 处、5 个文件里，其中解析器、配置校验器、zod schema
+  是三份可执行副本。现在 `src/shared/limits.ts` 导出 `MIN_THRESHOLD_RATIO` / `MAX_THRESHOLD_RATIO` /
+  `DEFAULT_THRESHOLD_RATIO`，配置校验器、设置 schema、命令解析器、两条用法句与卡片 zh/en 提示全部读它。这是 pi
+  自己踩过的坑：**只导出对子的一半比都不导出更糟**——它移动上限而解析器保留字面量，守卫与配置测试仍全绿，而解析器
+  接受的值会被校验器在下次加载时静默丢回默认值。本轮守卫同时覆盖**两个**边界。
+- 变异校验（5 个变异体：4 个被杀，1 个因 `TS6133` 判为无效后重塑再杀；现状现跑 `pnpm test` 读）：① 地板比较
+  `<` 改 `<=` —— `tsc` 0 错、标记进 `lib/project-handoff/threshold.js:269`、探针显示「正好在地板上」由解析变
+  `undefined`，`test/threshold-floor.test.mjs` 的边界用例变红；② 固定模式的第二个原因改回 `no-positive-threshold`
+  —— 标记进 `lib/project-handoff/threshold.js:56`、探针显示 `W=8000` 的原因变为 `no-positive-threshold`，原因
+  用例与回执用例双双变红；③ 下限移动为 0.2 而解析器保留 `0.1` —— 标记进 `lib/shared/limits.js:27` 与
+  `lib/project-handoff/command.js:28`、探针显示解析器仍接受 `0.19`，单源守卫变红；④ 上限移动为 0.9 而校验器保留
+  `0.95` —— 首次形态让 `MAX_THRESHOLD_RATIO` 变成未引用、`tsc` 报 `TS6133`，按有效性三条判为**无效**并重塑为
+  「常量移动 + 校验器字面量」后：`tsc` 0 错、标记进 `lib/shared/config.js:99`、探针显示校验器接受 `0.91`，单源
+  守卫变红；⑤ `/handoff threshold` 的条件键改名 —— 标记进 `lib/project-handoff/index.js:173`，回执用例变红。
+  恢复均以 `sha256sum -c`（90 文件）证明；轮末 `lib/` 无残留标记、门禁 387/387 绿色。
+- 未证：本批同样没有真实宿主重启，只由构建后的 `lib/` 与测试证明。
+
+**project-autolearn（清单不再隐藏被截断的尾部）**
+
+- 修复：**技能清单在 8000 字符上限处静默截断**，模型看不到的名字与不存在的名字无法区分，运维也看不出上限已经
+  顶到。`inventoryText` 现在在尾部追加
+  `- (N more skill(s) not listed: the 8000-character inventory cap was reached)`，`N` 正好是被丢掉的数量；标记
+  本身不计入上限（文本可能超出自身一行的长度），并且**第一行就超限时同样输出**——那种情况下 `lines` 为空，若渲染成
+  `(none)` 就是对「项目没有任何技能」的错误断言。
+- 变异校验（1 个变异体，被杀）：把 `lines.length < skills.length` 翻成 `>` —— `tsc` 0 错、标记进
+  `lib/project-autolearn/inventory.js:60`、探针显示 120 条技能只有 41 行且无标记，
+  `test/autolearn.test.mjs` 的清单用例变红。
+
 ### v0.4.1（2026-10-05）
 
 **仓库打包（`lib/` 纳入跟踪）**

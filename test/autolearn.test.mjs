@@ -17,7 +17,7 @@ import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
 import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
 import { MAX_SKILL_DESCRIPTION_CHARS, autolearnProvenance, promotedDocument } from "../lib/project-autolearn/skill.js";
-import { MAX_INSPECT_SKILLS, collectSkillInventory, learnedBodies } from "../lib/project-autolearn/inventory.js";
+import { MAX_INSPECT_SKILLS, collectSkillInventory, inventoryText, learnedBodies } from "../lib/project-autolearn/inventory.js";
 import { RECORD_SKILL_TOOL } from "../lib/project-autolearn/schema.js";
 import { parseAutolearnReply } from "../lib/project-autolearn/parse.js";
 import { adaptiveOutputTokens } from "../lib/shared/output-budget.js";
@@ -563,6 +563,30 @@ test("learnedBodies renders only requested, marked bodies and reports exactly wh
 	// G3: the cap is the function's own contract, not only the pass's.
 	const many = learnedBodies(skills, ["alpha-workflow", "beta-workflow", "huge-workflow"]);
 	assert.deepEqual(many.names, ["alpha-workflow", "beta-workflow"]);
+});
+
+test("the inventory names its truncated tail instead of hiding it", () => {
+	// Batch K: a name that fell outside the cap is not a name that does not exist. The marker says so, and
+	// its count is exactly what was dropped — an operator reading the prompt sees the cap being reached.
+	const skills = Array.from({ length: 120 }, (_, index) => ({
+		name: `skill-${String(index).padStart(3, "0")}`,
+		description: "x".repeat(180),
+		autolearn: false,
+	}));
+	const truncated = inventoryText(skills);
+	const lines = truncated.split("\n");
+	const marker = lines.at(-1);
+	assert.match(marker, /^- \(\d+ more skill\(s\) not listed: the 8000-character inventory cap was reached\)$/, `the tail is named: ${marker}`);
+	const listed = lines.slice(0, -1);
+	assert.ok(listed.length > 0 && listed.length < skills.length, `the fixture must really truncate: ${listed.length} of ${skills.length}`);
+	assert.equal(Number(/\((\d+) more/.exec(marker)[1]), skills.length - listed.length, "the marker's count is exactly the number dropped");
+	// Under the cap nothing is added, so the marker never appears as noise.
+	assert.doesNotMatch(inventoryText(skills.slice(0, 2)), /not listed/);
+	// A first line that overflows on its own still reports the omission — the worst case is an inventory that
+	// renders as `(none)`, which would claim the project has no skills at all.
+	const one = inventoryText([{ name: "skill-huge", description: "y".repeat(9_000), autolearn: false }]);
+	assert.doesNotMatch(one, /^\(none\)$/, "an empty render would be a false claim about the project");
+	assert.match(one, /- \(1 more skill\(s\) not listed/);
 });
 
 test("the record_skill schema stays strict-ready with the body ask", () => {

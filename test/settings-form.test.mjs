@@ -203,3 +203,15 @@ test("volatile settings are read through their live references, not snapshotted"
 	release?.();
 	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true, "releasing restores the caller's own config");
 });
+
+test("the ratio hint states the range the host enforces, from the one exported pair", async () => {
+	// Batch K: the card is a reader of the accepted ratio range like the parser and the validator are, so a
+	// hint that hard-codes it is a copy that can drift into telling the user a range the host then rejects.
+	const { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } = await import("../lib/shared/limits.js");
+	const range = `${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}`;
+	for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
+		const hint = dict["field.handoffThresholdRatioHint"];
+		assert.ok(hint.includes(range), `${name} hint must state ${range}: ${hint}`);
+		assert.ok(hint.includes(String(DEFAULT_THRESHOLD_RATIO)), `${name} hint must state the default: ${hint}`);
+	}
+});

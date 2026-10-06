@@ -59,7 +59,7 @@
 import type {} from "@deepseek-ai/dsh-commands";
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
-import { resolvePluginConfig } from "../shared/config.js";
+import { type PluginConfig, resolvePluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel } from "../shared/lifecycle.js";
 import { getProjectRoot, logError } from "../shared/project-state.js";
@@ -164,9 +164,16 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			if (parsed === undefined) return { kind: "error" as const, text: USAGE };
 			if (parsed.error !== undefined) return { kind: "error" as const, text: parsed.error };
 			const failure = await writeSetting(ctx, parsed.patch ?? {});
-			return failure === undefined
-				? { kind: "success" as const, text: `Handoff setting updated: ${args}` }
-				: { kind: "error" as const, text: failure };
+			if (failure !== undefined) return { kind: "error" as const, text: failure };
+			// Setting a ratio is the one write whose *effect* can be nothing at all: fixed mode refuses
+			// below the physical floor, and that is a property of the ratio, the window and the baseline
+			// together, not of the write. Confirming it with a bare "updated" would report a ratio that can
+			// never fire as a success; hand back the same receipt `/handoff status` gives, resolved against
+			// the patch this write is about to put in force (`pending`), which resolves the trigger and
+			// names the refusal.
+			return parsed.patch !== undefined && "handoffThresholdRatio" in parsed.patch
+				? { kind: "success" as const, text: await statusText(ctx, agent.session, entry, signal, parsed.patch as Partial<PluginConfig>) }
+				: { kind: "success" as const, text: `Handoff setting updated: ${args}` };
 		},
 	});
 }

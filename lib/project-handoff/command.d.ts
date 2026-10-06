@@ -22,8 +22,14 @@ export declare function writeSetting(ctx: Context, patch: Record<string, unknown
 /**
  * The `/handoff status` receipt. Exported so a test can read the skip report without going through
  * the command registration.
+ *
+ * `pending` is the patch a just-completed settings write is about to put in force. The receipt explains
+ * the *effect* of a write, and the host's entry restart may not have republished the config by the time
+ * this runs, so reading the live config alone would explain the previous ratio instead of the one just
+ * set — a fresh misattribution in the place a misattribution is least tolerable. `/handoff status`
+ * passes nothing and reports exactly what is in force.
  */
-export declare function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<string>;
+export declare function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal, pending?: Partial<PluginConfig>): Promise<string>;
 /**
  * Manual handoff shared by the bare command and `now`. Exported so a test can drive the whole reply
  * path (an empty span must come back as an error reply, not as a fabricated child).

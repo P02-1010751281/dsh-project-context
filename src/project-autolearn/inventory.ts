@@ -70,6 +70,14 @@ export function inventoryText(skills: readonly SkillInventory[]): string {
 		lines.push(line);
 		used += line.length + 1;
 	}
+	if (lines.length < skills.length) {
+		// Say the list is incomplete rather than silently hiding its tail: a name the model cannot see is
+		// then not a name that does not exist, and an operator reading the prompt can see the cap being
+		// reached. The marker itself is not charged against the cap, so the text may exceed it by the
+		// marker's own line. It is emitted even when the very first line overflows — `lines` is empty
+		// then, and a silent `(none)`-shaped inventory would be the worst case of this defect.
+		lines.push(`- (${skills.length - lines.length} more skill(s) not listed: the ${MAX_INVENTORY_CHARS}-character inventory cap was reached)`);
+	}
 	return lines.join("\n") || "(none)";
 }
 

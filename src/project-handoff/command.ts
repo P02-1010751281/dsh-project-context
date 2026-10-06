@@ -6,6 +6,7 @@
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
+import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../shared/limits.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { pendingSubagentWork } from "./guard.js";
@@ -22,8 +23,10 @@ export function parseRatio(input: string): number | undefined {
 	const value = Number(text);
 	if (!Number.isFinite(value)) return undefined;
 	const ratio = value > 1 ? value / 100 : value;
-	// Same inclusive bounds as the settings schema, so accepted input always persists.
-	return ratio >= 0.1 && ratio <= 0.95 ? ratio : undefined;
+	// The same inclusive bounds the settings schema and the config validator read, from the one pair in
+	// `limits.ts`, so accepted input always persists. Two copies of this range had already drifted apart
+	// once: a parser that keeps its own literal accepts a value the validator then drops on the next load.
+	return ratio >= MIN_THRESHOLD_RATIO && ratio <= MAX_THRESHOLD_RATIO ? ratio : undefined;
 }
 
 /** Parse "12k", "12000", or "0" into a token count. Exported for tests. */
@@ -50,7 +53,7 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	if (threshold) {
 		if (threshold[1] === "auto") return { patch: { handoffThresholdAuto: true } };
 		const ratio = parseRatio(threshold[1]);
-		if (ratio === undefined) return { error: "threshold needs auto or a ratio between 0.1 and 0.95 (e.g. threshold 0.4)" };
+		if (ratio === undefined) return { error: `threshold needs auto or a ratio between ${MIN_THRESHOLD_RATIO} and ${MAX_THRESHOLD_RATIO} (e.g. threshold ${DEFAULT_THRESHOLD_RATIO})` };
 		return { patch: { handoffThresholdAuto: false, handoffThresholdRatio: ratio } };
 	}
 	// `budget summary|recent`, because the two amounts size different things and `target`/`keep` did not
@@ -70,7 +73,7 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	// A verb used without its argument names its own sub-verbs rather than falling through to the whole
 	// usage line, so the receipt says which spelling is missing.
 	if (/^budget\b/.test(args)) return { error: "budget needs summary or recent: budget summary <tokens> | budget recent <tokens>" };
-	if (/^threshold\b/.test(args)) return { error: "threshold needs auto or a ratio between 0.1 and 0.95 (e.g. threshold 0.4)" };
+	if (/^threshold\b/.test(args)) return { error: `threshold needs auto or a ratio between ${MIN_THRESHOLD_RATIO} and ${MAX_THRESHOLD_RATIO} (e.g. threshold ${DEFAULT_THRESHOLD_RATIO})` };
 	return undefined;
 }
 
@@ -92,9 +95,15 @@ export async function writeSetting(ctx: Context, patch: Record<string, unknown>)
 /**
  * The `/handoff status` receipt. Exported so a test can read the skip report without going through
  * the command registration.
+ *
+ * `pending` is the patch a just-completed settings write is about to put in force. The receipt explains
+ * the *effect* of a write, and the host's entry restart may not have republished the config by the time
+ * this runs, so reading the live config alone would explain the previous ratio instead of the one just
+ * set — a fresh misattribution in the place a misattribution is least tolerable. `/handoff status`
+ * passes nothing and reports exactly what is in force.
  */
-export async function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<string> {
-	const config = effectivePluginConfig(entry);
+export async function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal, pending?: Partial<PluginConfig>): Promise<string> {
+	const config = { ...effectivePluginConfig(entry), ...(pending ?? {}) };
 	// Resolved once and early: the threshold refusal below is written in this language, and it must be
 	// the same one `HANDOFF.md` would use for this handoff.
 	const language = resolveHandoffLanguage(sessionLanguageMessages(session), config);

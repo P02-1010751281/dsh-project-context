@@ -87,10 +87,15 @@ function noModelCalls() {
 	};
 }
 
-test("fixed threshold is a window share, clamped below the safety margin", () => {
+test("fixed threshold is a window share, and refuses under the physical floor", () => {
 	const config = { ...DEFAULT_CONFIG, handoffThresholdAuto: false };
 	assert.equal(resolveThreshold(config, { totalTokens: 0, surfaceTokens: 0 }, 100_000)?.tokens, 40_000);
-	assert.equal(resolveThreshold(config, { totalTokens: 0, surfaceTokens: 0 }, 8_000)?.tokens, 3_200);
+	// 8_000 × 0.4 = 3_200 is a positive trigger, but it sits under the 28_000 floor the default kept tail
+	// (20_000) plus `MIN_DROP_TOKENS` builds, so this configuration cannot fire at all: fixed mode obeys
+	// the same physical gate adaptive mode does. The margin's own clamp — and the label that admits it —
+	// is pinned by the ratio-override test below.
+	assert.equal(resolveThreshold(config, { totalTokens: 0, surfaceTokens: 0 }, 8_000), undefined);
+	assert.equal(thresholdRefusal(config, { totalTokens: 0, surfaceTokens: 0 }, 8_000), "fixed-below-floor", "the cause is the floor, not the window");
 });
 
 test("MIN_DROP_TOKENS is the floor a handoff may not sit below", () => {
@@ -2634,7 +2639,8 @@ test("the /handoff command routes the new verbs and rejects the retired spelling
 	assert.match(command.input.hint, /threshold auto\|0\.4/, "the hint names the threshold verb");
 	assert.match(command.input.hint, /budget summary 64k/, "the hint names the budget verbs");
 	assert.doesNotMatch(command.input.hint, /target 64k|keep 20k|\| auto \|/, "the hint teaches no retired spelling");
-	const call = (rawInput) => command.handler({ agent: { session: { id: "session-handoff-cmd", header: {} } }, rawInput, signal: new AbortController().signal });
+	const session = { id: "session-handoff-cmd", header: { cwd: process.cwd(), createdAt: Date.now() }, deriveMessages: () => [], requestHeader: () => undefined, snapshotEvents: () => [] };
+	const call = (rawInput) => command.handler({ agent: { session }, rawInput, signal: new AbortController().signal });
 
 	for (const retired of ["auto", "0.5", "target 64k", "keep 20k"]) {
 		const reply = await call(retired);
@@ -3131,10 +3137,15 @@ test("the status receipt names the term that refused the threshold, not always t
 	const bandMeasurement = { totalTokens: 600_000, surfaceTokens: 300_000, overheadTokens: 300_000 };
 	const bandAuto = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	assert.equal(thresholdRefusal(bandAuto, bandMeasurement, bandW), "quality-knee", "W=450K with a 300K reported envelope is a knee refusal");
-	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: 0.4 });
-	const bandTrigger = resolveThreshold(bandFixed, bandMeasurement, bandW);
+	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 0 });
+	// Probe the placement without the envelope: with the 300K envelope the same 0.4 trigger is refused by
+	// fixed mode's physical floor instead (asserted next), which is precisely why the knee sentence must
+	// not promise where a fixed trigger lands.
+	const bandTrigger = resolveThreshold(bandFixed, { totalTokens: 600_000, surfaceTokens: 300_000 }, bandW);
 	assert.ok(bandTrigger !== undefined && bandTrigger.tokens < qualityLimit(bandW),
 		`a 0.4 trigger sits below the knee here: ${bandTrigger?.tokens} vs ${qualityLimit(bandW)}`);
+	assert.equal(resolveThreshold(bandFixed, bandMeasurement, bandW), undefined, "the 300K envelope puts the same trigger under the floor");
+	assert.equal(thresholdRefusal(bandFixed, bandMeasurement, bandW), "fixed-below-floor");
 	assert.doesNotMatch(kneeSqueezed, /can start past it/, "no placement claim about where a fixed trigger lands");
 
 	// The three receipts are pairwise different: this is the property that was missing.
@@ -3142,12 +3153,12 @@ test("the status receipt names the term that refused the threshold, not always t
 	assert.notEqual(kneeSqueezed, marginSqueezed);
 	assert.notEqual(kneeSqueezed, tooSmall);
 
-	// Fixed mode refuses exactly when the window does not clear the safety margin, because the ratio
-	// is validated into [0.1, 0.95] and the margin term binds first. Naming the ratio as a lever
-	// would send the user to a control that cannot change the outcome.
+	// Fixed mode has two refusals now, and naming the ratio as a lever is right for exactly one of them.
+	// This is the `tokens <= 0` one, where no legal ratio can help; the floor case is separate and is
+	// pinned in `threshold-floor.test.mjs`, where the ratio *is* the first lever.
 	const fixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false });
 	assert.equal(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), undefined, "W = SAFETY_MARGIN is the boundary");
-	assert.notEqual(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_001), undefined, "one token past the margin resolves");
+	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), "no-positive-threshold", "at the boundary the trigger is not positive at all");
 	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000), "no-positive-threshold");
 	const fixedText = thresholdRefusalText("no-positive-threshold", fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000, "en");
 	assert.match(fixedText, /a larger window is the only lever/, "the receipt names the lever that works");

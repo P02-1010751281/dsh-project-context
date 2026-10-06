@@ -33,18 +33,21 @@ export interface ContextMeasurement {
 /**
  * Why {@link resolveThreshold} returned `undefined`, named as the term that actually binds.
  *
- * `resolveThreshold` has four `undefined` exits with four different causes, and the receipt used to
+ * `resolveThreshold` has five `undefined` exits with five different causes, and the receipt used to
  * render every one of them as "threshold unavailable at this window" — a claim about the window that
- * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the drop
+ * is *false* for four of the five. A roomy window (`usable > floor`) still refuses when the drop
  * minimum, the reported envelope + carried tail, the second 4K
- * {@link SAFETY_MARGIN_TOKENS} deduction, or the **quality knee** is what decided it, and "at this
- * window" sends the user to change the model or the target when neither is the lever.
+ * {@link SAFETY_MARGIN_TOKENS} deduction, the **quality knee**, or fixed mode's own floor is what
+ * decided it, and "at this window" sends the user to change the model or the target when neither is
+ * the lever.
  *
  * The knee and the margin want *opposite* levers, which is why they cannot share a cause: a larger
  * window raises the capacity deduction's headroom but lowers the knee, so advice written for one is
- * actively backwards for the other.
+ * actively backwards for the other. Fixed mode's two causes want opposite levers from each other too:
+ * at `tokens <= 0` only a larger window helps, while a positive trigger under the floor is cleared by
+ * raising the ratio or lowering the carried tail.
  */
-export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold";
+export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold" | "fixed-below-floor";
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
  * resolves. Read-only companion: it replays the same terms, in the same order, and only reports a

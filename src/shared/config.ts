@@ -12,6 +12,7 @@
  * reader on purpose — an alias nothing can retire is worse than a loud apply-time failure.
  */
 
+import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "./limits.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 
 export interface PluginConfig {
@@ -45,7 +46,8 @@ export interface PluginConfig {
 	handoffEnabled: boolean;
 	/** Adaptive threshold derived from window/target/keep instead of a fixed ratio. */
 	handoffThresholdAuto: boolean;
-	/** Context-window fraction (0.1–0.95) used when `handoffThresholdAuto` is false. */
+	/** Context-window fraction used when `handoffThresholdAuto` is false. The accepted range is the
+	 * `MIN_THRESHOLD_RATIO`..`MAX_THRESHOLD_RATIO` pair in `limits.ts`; never write a literal here. */
 	handoffThresholdRatio: number;
 	/** Adaptive mode: the trigger request the pass reports (no model call reads it). */
 	handoffBudgetSummaryTokens: number;
@@ -73,7 +75,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	autolearnIntervalMs: 30 * 60 * 1000,
 	handoffEnabled: true,
 	handoffThresholdAuto: true,
-	handoffThresholdRatio: 0.4,
+	handoffThresholdRatio: DEFAULT_THRESHOLD_RATIO,
 	handoffBudgetSummaryTokens: 64_000,
 	handoffBudgetRecentTokens: 20_000,
 	handoffPendingQuestion: "defer",
@@ -141,8 +143,8 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 	const ratio = (name: keyof PluginConfig, fallback: number): number => {
 		const value = input[name];
 		if (value === undefined) return fallback;
-		if (typeof value !== "number" || !Number.isFinite(value) || value < 0.1 || value > 0.95) {
-			throw new Error(`dsh-project-context: ${name} must be a number between 0.1 and 0.95`);
+		if (typeof value !== "number" || !Number.isFinite(value) || value < MIN_THRESHOLD_RATIO || value > MAX_THRESHOLD_RATIO) {
+			throw new Error(`dsh-project-context: ${name} must be a number between ${MIN_THRESHOLD_RATIO} and ${MAX_THRESHOLD_RATIO}`);
 		}
 		return value;
 	};
