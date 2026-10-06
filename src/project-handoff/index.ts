@@ -156,7 +156,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		ticking.add(key);
 		void resolveHandoffGate(ctx, session, config)
 			.then((gate) => {
-				if (gate !== undefined) recordHandoffGate(session, gate);
+				if (gate !== undefined) recordHandoffGate(session, gate, resolveHandoffLanguage(sessionLanguageMessages(session), config));
 			})
 			.catch(() => undefined)
 			.finally(() => ticking.delete(key));
@@ -164,16 +164,16 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	// The visible half: without this a crossed threshold is silent until the user types
 	// `/handoff status`. Registered as dynamic runtime context, and it renders `''` until something is
-	// crossed — the documented way to contribute nothing.
+	// crossed — the documented way to contribute nothing. Reading the frozen map is all it does: the
+	// numbers and the language were resolved once, where the trigger resolved them.
 	ctx.systemPrompt.context({
 		name: "handoff-pressure",
 		order: 200,
 		text: (assembleContext) => {
 			const session = assembleContext.agent?.session;
 			if (session === undefined || !isTopLevel(session)) return "";
-			const config = effectivePluginConfig(entry);
-			if (!config.handoffEnabled) return "";
-			return handoffPressureText(session, resolveHandoffLanguage(sessionLanguageMessages(session), config));
+			if (!effectivePluginConfig(entry).handoffEnabled) return "";
+			return handoffPressureText(session);
 		},
 	});
 

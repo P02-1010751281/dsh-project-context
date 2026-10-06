@@ -39,48 +39,56 @@ const ID = "session-probe-batch-m";
 const CROSSED = gate(316_189, 157_000);
 
 check("a crossing produces a line carrying its own numbers", () => {
-	recordHandoffGate(session(ID), CROSSED);
-	const text = handoffPressureText(session(ID), "zh");
+	recordHandoffGate(session(ID), CROSSED, "zh");
+	const text = handoffPressureText(session(ID));
 	assert.notEqual(text, "", "expected a line");
 	for (const needle of ["316189", "1000000", "157000"]) assert.ok(text.includes(needle), `line must carry ${needle}`);
 });
 
 check("the text does not move as occupancy grows (the ~37 KB-per-change bound)", () => {
-	const first = handoffPressureText(session(ID), "zh");
+	const first = handoffPressureText(session(ID));
 	for (const grown of [320_000, 340_000, 400_000, 500_000]) {
-		recordHandoffGate(session(ID), gate(grown, 157_000));
-		assert.equal(handoffPressureText(session(ID), "zh"), first, `occupancy ${grown} must not re-render`);
+		recordHandoffGate(session(ID), gate(grown, 157_000), "zh");
+		assert.equal(handoffPressureText(session(ID)), first, `occupancy ${grown} must not re-render`);
 	}
 });
 
+check("a later language resolution does not re-render the frozen crossing", () => {
+	const first = handoffPressureText(session(ID));
+	recordHandoffGate(session(ID), gate(400_000, 157_000), "en");
+	assert.equal(handoffPressureText(session(ID)), first, "the language is frozen with the crossing, not resolved per assembly");
+});
+
 check("below the threshold nothing is rendered, and the next crossing speaks again", () => {
-	recordHandoffGate(session(ID), gate(1_000, 157_000));
-	assert.equal(handoffPressureText(session(ID), "zh"), "", "below the threshold must contribute nothing");
+	recordHandoffGate(session(ID), gate(1_000, 157_000), "zh");
+	assert.equal(handoffPressureText(session(ID)), "", "below the threshold must contribute nothing");
 	assert.equal(handoffPressureIsOver(ID), false, "the marker must be released");
-	recordHandoffGate(session(ID), gate(200_000, 157_000));
-	assert.ok(handoffPressureText(session(ID), "zh").includes("200000"), "the new crossing carries its own numbers");
+	recordHandoffGate(session(ID), gate(200_000, 157_000), "zh");
+	assert.ok(handoffPressureText(session(ID)).includes("200000"), "the new crossing carries its own numbers");
 });
 
 check("a reason re-renders once, and repeating it does not", () => {
-	const before = handoffPressureText(session(ID), "zh");
+	const before = handoffPressureText(session(ID));
 	recordHandoffDeferral(ID, "question");
-	const after = handoffPressureText(session(ID), "zh");
+	const after = handoffPressureText(session(ID));
 	assert.notEqual(after, before, "the reason must reach the reader");
 	recordHandoffDeferral(ID, "question");
-	assert.equal(handoffPressureText(session(ID), "zh"), after, "the same reason must not re-render");
+	assert.equal(handoffPressureText(session(ID)), after, "the same reason must not re-render");
 });
 
 check("a refusal (no threshold) never renders a crossing", () => {
-	recordHandoffGate(session(ID), gate(999_999, undefined));
-	assert.equal(handoffPressureText(session(ID), "zh"), "", "no resolved threshold means no line");
+	recordHandoffGate(session(ID), gate(999_999, undefined), "zh");
+	assert.equal(handoffPressureText(session(ID)), "", "no resolved threshold means no line");
 });
 
 clearHandoffPressure(ID);
 
 console.log("\n--- the shipped line, for the numbers that opened this batch ---");
-recordHandoffGate(session(ID), CROSSED);
-console.log(`zh: ${handoffPressureText(session(ID), "zh")}`);
-console.log(`en: ${handoffPressureText(session(ID), "en")}`);
+recordHandoffGate(session(ID), CROSSED, "zh");
+console.log(`zh: ${handoffPressureText(session(ID))}`);
+clearHandoffPressure(ID);
+recordHandoffGate(session(ID), CROSSED, "en");
+console.log(`en: ${handoffPressureText(session(ID))}`);
 clearHandoffPressure(ID);
 
 const failed = checks.filter(([, ok]) => !ok);

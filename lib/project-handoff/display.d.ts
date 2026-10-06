@@ -33,8 +33,9 @@ export type HandoffDeferral = "question" | "subagents" | "nothing-to-drop";
  * frozen bytes untouched.
  * @param session - the session the gate belongs to.
  * @param gate - the resolved gate, from `resolveHandoffGate`.
+ * @param language - the session's conversation language, frozen with the crossing.
  */
-export declare function recordHandoffGate(session: Session, gate: ResolvedHandoffGate): void;
+export declare function recordHandoffGate(session: Session, gate: ResolvedHandoffGate, language: HandoffLanguage): void;
 /**
  * Name the guard the trigger stopped on, so the line says *why* nothing happened.
  *
@@ -61,9 +62,9 @@ export declare function clearHandoffPressure(sessionId: string): void;
  * The model-facing text for this session, or `''` when nothing is crossed.
  *
  * `''` is the documented way to contribute nothing ("Empty text contributes nothing"), so a session
- * below its threshold adds no context at all.
+ * below its threshold adds no context at all. The language is the one frozen with the crossing — see
+ * {@link Crossing} for why it is not resolved here.
  * @param session - the session being assembled.
- * @param language - the language the session's conversation resolves to.
  * @returns the frozen line, or the empty string.
  */
-export declare function handoffPressureText(session: Session, language: HandoffLanguage): string;
+export declare function handoffPressureText(session: Session): string;

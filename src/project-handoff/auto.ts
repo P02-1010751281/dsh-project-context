@@ -9,7 +9,7 @@
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { CHARS_PER_TOKEN, handoffSplit, pendingQuestion } from "./conversation.js";
+import { CHARS_PER_TOKEN, handoffSplit, pendingQuestion, resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { recordHandoffDeferral, recordHandoffGate } from "./display.js";
 import { resolveHandoffGate } from "./gate.js";
 import { pendingSubagentWork } from "./guard.js";
@@ -36,7 +36,9 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	// is the number this decision used.
 	const gate = await resolveHandoffGate(ctx, session, config);
 	if (!gate) return;
-	recordHandoffGate(session, gate);
+	// The language is resolved here, once, and frozen with the crossing: the context provider must not
+	// re-derive it per assembly (see `display.ts`).
+	recordHandoffGate(session, gate, resolveHandoffLanguage(sessionLanguageMessages(session), config));
 	const { measurement, threshold } = gate;
 	if (!threshold || measurement.totalTokens < threshold.tokens) return;
 

@@ -31,11 +31,16 @@ export type HandoffDeferral = "question" | "subagents" | "nothing-to-drop";
 /**
  * One frozen crossing. The occupancy and threshold are captured at the crossing, not re-read, so
  * the text is byte-stable while the state holds.
+ *
+ * The language is captured here too, and deliberately not resolved per assembly: it is derived from
+ * the conversation, so a bilingual session could otherwise flip the line between zh and en — a text
+ * change, i.e. another snapshot append — and every request would pay for the detection.
  */
 interface Crossing {
 	readonly tokens: number;
 	readonly threshold: number;
 	readonly contextWindow: number;
+	readonly language: HandoffLanguage;
 	readonly reason: HandoffDeferral | undefined;
 }
 
@@ -50,8 +55,9 @@ const crossings = new Map<string, Crossing>();
  * frozen bytes untouched.
  * @param session - the session the gate belongs to.
  * @param gate - the resolved gate, from `resolveHandoffGate`.
+ * @param language - the session's conversation language, frozen with the crossing.
  */
-export function recordHandoffGate(session: Session, gate: ResolvedHandoffGate): void {
+export function recordHandoffGate(session: Session, gate: ResolvedHandoffGate, language: HandoffLanguage): void {
 	const key = String(session.id);
 	const { threshold, measurement, contextWindow } = gate;
 	if (threshold === undefined || measurement.totalTokens < threshold.tokens) {
@@ -63,7 +69,7 @@ export function recordHandoffGate(session: Session, gate: ResolvedHandoffGate): 
 	const previous = crossings.get(key);
 	// Already over: keep the frozen bytes. This early return *is* the cost bound.
 	if (previous !== undefined) return;
-	crossings.set(key, { tokens: measurement.totalTokens, threshold: threshold.tokens, contextWindow, reason: undefined });
+	crossings.set(key, { tokens: measurement.totalTokens, threshold: threshold.tokens, contextWindow, language, reason: undefined });
 }
 
 /**
@@ -103,14 +109,15 @@ export function clearHandoffPressure(sessionId: string): void {
  * The model-facing text for this session, or `''` when nothing is crossed.
  *
  * `''` is the documented way to contribute nothing ("Empty text contributes nothing"), so a session
- * below its threshold adds no context at all.
+ * below its threshold adds no context at all. The language is the one frozen with the crossing — see
+ * {@link Crossing} for why it is not resolved here.
  * @param session - the session being assembled.
- * @param language - the language the session's conversation resolves to.
  * @returns the frozen line, or the empty string.
  */
-export function handoffPressureText(session: Session, language: HandoffLanguage): string {
+export function handoffPressureText(session: Session): string {
 	const crossing = crossings.get(String(session.id));
 	if (crossing === undefined) return "";
+	const { language } = crossing;
 	const percent = Math.round((crossing.tokens / crossing.contextWindow) * 100);
 	const reason = crossing.reason === undefined ? "" : ` ${deferralText(crossing.reason, language)}`;
 	if (language === "zh") {
