@@ -39,8 +39,6 @@ export function parseTokenCount(input: string): number | undefined {
 export function settingPatch(args: string): { patch?: Record<string, unknown>; error?: string } | undefined {
 	if (args === "on") return { patch: { handoffEnabled: true } };
 	if (args === "off") return { patch: { handoffEnabled: false } };
-	const thinking = /^thinking\s+(off|session)$/.exec(args);
-	if (thinking) return { patch: { handoffThinking: thinking[1] } };
 	const pending = /^pending\s+(defer|wait)$/.exec(args);
 	if (pending) return { patch: { handoffPendingQuestion: pending[1] } };
 	const language = /^lang\s+(auto|zh|en)$/.exec(args);
@@ -56,8 +54,9 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 		return { patch: { handoffThresholdAuto: false, handoffThresholdRatio: ratio } };
 	}
 	// `budget summary|recent`, because the two amounts size different things and `target`/`keep` did not
-	// say which was which: `summary` is what each summary asks for, `recent` is what is carried
-	// verbatim. The bounds do not move — only the names do.
+	// say which was which: `summary` is the trigger request the pass reports (no model call reads it
+	// since the generated summary was dropped), `recent` is what is carried verbatim. The bounds do not
+	// move — only the names do.
 	const budget = /^budget\s+(summary|recent)\s+(\S+)$/.exec(args);
 	if (budget) {
 		const tokens = parseTokenCount(budget[2]);
@@ -75,7 +74,7 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	return undefined;
 }
 
-export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|thinking off|session|pending defer|wait|lang auto|zh|en]";
+export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
 
 /** Persist one settings patch through the mounted settings service. */
 export async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined> {
@@ -148,7 +147,6 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			? `「${HANDOFF_BUDGET_RECENT_LABEL.zh}」 ~${config.handoffBudgetRecentTokens}`
 			: `"${HANDOFF_BUDGET_RECENT_LABEL.en}" ~${config.handoffBudgetRecentTokens}`)
 		: (language === "zh" ? "0（不逐字带入对话尾料）" : "0 (no verbatim conversation tail)"));
-	parts.push(`summary thinking ${config.handoffThinking}`);
 	parts.push(`pending question ${config.handoffPendingQuestion}`);
 	parts.push(config.handoffLang === "auto" ? `lang auto (${language})` : `lang ${language}`);
 	// The automatic path skips this session while the conversation fits the recent window; without
@@ -157,8 +155,8 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 	if (skippedAt !== undefined) {
 		const at = new Date(skippedAt).toISOString();
 		parts.push(language === "zh"
-			? `自 ${at} 起自动跳过 —— 全部对话都在「${HANDOFF_BUDGET_RECENT_LABEL.zh}」（~${config.handoffBudgetRecentTokens} token）之内，没有更早的内容可摘要`
-			: `auto skipped since ${at} — everything is inside "${HANDOFF_BUDGET_RECENT_LABEL.en}" (~${config.handoffBudgetRecentTokens} tokens), so nothing older is left to summarize`);
+			? `自 ${at} 起自动跳过 —— 全部对话都在「${HANDOFF_BUDGET_RECENT_LABEL.zh}」（~${config.handoffBudgetRecentTokens} token）之内，没有更早的内容可丢弃`
+			: `auto skipped since ${at} — everything is inside "${HANDOFF_BUDGET_RECENT_LABEL.en}" (~${config.handoffBudgetRecentTokens} tokens), so nothing older is left to drop`);
 	}
 	if (handedOff.has(String(session.id))) parts.push("already handed off in this process");
 	return parts.join(" · ");
@@ -173,8 +171,9 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 	if (inFlight.has(key)) return { kind: "error" as const, text: "A handoff is already running for this session." };
 
 	const config = effectivePluginConfig(entry);
-	const target = resolveTarget(session, config);
-	if (!target) return { kind: "error" as const, text: "No routed model available for the handoff summary; send one message first." };
+	// No routed model is needed: nothing is generated any more. Only the automatic path resolves a
+	// model, and only for its `contextWindow` (the threshold reads it); `/handoff now` proceeds with
+	// whatever route the session is on, exactly as pi does.
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	if (!controller) {
 		return { kind: "error" as const, text: "The session controller is unavailable in this profile; handoff needs the web/API session runtime." };
@@ -197,8 +196,7 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 
 	inFlight.add(key);
 	try {
-		const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
-		const result = await performHandoff(ctx, session, target, config, resolved, "manual", signal);
+		const result = await performHandoff(ctx, session, config, "manual", signal);
 		return { kind: "success" as const, text: `Handoff session created: ${result.childId}\nHandoff document: ${result.file}` };
 	} catch (error: unknown) {
 		// A retryable cause must not be reported with the terminal wording: "Handoff failed" tells

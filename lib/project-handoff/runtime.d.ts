@@ -50,7 +50,7 @@ export interface SessionProjectionsLike {
  * error that grows with the conversation and put the floor permanently past the knee.
  *
  * `undefined` when the registry or the projection is absent, which leaves the floor at `keep + MIN`.
- * The composition is the meter's fixed-density estimate, the same basis `keep`, `MIN_SUMMARIZE_TOKENS`
+ * The composition is the meter's fixed-density estimate, the same basis `keep`, `MIN_DROP_TOKENS`
  * and `handoffSplit` are measured in, so the floor stays internally consistent.
  */
 export declare function projectionEnvelope(projections: SessionProjectionsLike | undefined, session: Session): number | undefined;

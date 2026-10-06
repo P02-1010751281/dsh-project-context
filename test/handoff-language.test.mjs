@@ -1,8 +1,7 @@
 /**
  * Unit tests for the handoff language port: `auto` detection/resolution, the
  * scaffolding, the continuation-prompt predicate, the stale-prompt replay marker,
- * heading localization, the pending-question continuation block, and the two new
- * settings keys.
+ * the pending-question continuation block, and the two settings keys.
  *
  * Run `pnpm test`, which builds `lib/` first and then runs `node --test`.
  */
@@ -12,15 +11,14 @@ import test from "node:test";
 import { settingPatch } from "../lib/project-handoff/command.js";
 import { handoffCarry, handoffSplit, resolveHandoffLanguage, sessionLanguageMessages } from "../lib/project-handoff/conversation.js";
 import { outstandingSubagents } from "../lib/project-handoff/guard.js";
-import { assertHandoffSummarizable, handoffArtifacts } from "../lib/project-handoff/perform.js";
-import { continuation, handoffPrompt, summaryAttemptBudgets } from "../lib/project-handoff/summary.js";
+import { assertHandoffDroppable, handoffArtifacts } from "../lib/project-handoff/perform.js";
+import { continuation } from "../lib/project-handoff/summary.js";
 import {
 	REPLAY_MARKER,
 	SCAFFOLDING,
 	detectHandoffLanguage,
 	isHandoffContinuationText,
 	languageSamples,
-	localizeSummaryHeadings,
 	resolveLanguage,
 } from "../lib/project-handoff/language.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
@@ -49,10 +47,12 @@ function fakeSession(messages) {
 }
 
 const ARCHIVE = { log: "logs/session-parent/session.md", index: "logs/INDEX.md" };
+/** A realistic file index: what the handoff payload carries now that the summary is gone. */
+const FILES = "<read-files>\nsrc/project-handoff/summary.ts\n</read-files>";
 
 test("the resolved language reaches HANDOFF.md and the child's first message", () => {
 	// The four wiring points a mutation can silently break: the resolved language must reach the
-	// stored document, the localized headings and the seed prompt — not just the helper functions.
+	// stored document, the mechanical details block and the file index — not just the helpers.
 	const session = {
 		id: "session-parent-1234",
 		header: { cwd: "/project", createdAt: 0 },
@@ -65,26 +65,51 @@ test("the resolved language reaches HANDOFF.md and the child's first message", (
 		session,
 		config,
 		language: "zh",
-		rawSummary: "## Goal\n\n把 journal 写完\n\n## Next steps\n\n补测试",
+		fileOperations: FILES,
 		archive: ARCHIVE,
 		pointers: { log: "/project/logs/session-parent-1234/session.md", index: "/project/logs/INDEX.md" },
 		tail: "## user\n继续吧",
 	};
 	const zh = handoffArtifacts(args);
 	assert.ok(zh.document.startsWith(SCAFFOLDING.zh.documentTitle("session-parent-1234")), "the document title is localized");
-	assert.match(zh.document, /## 目标/);
-	assert.doesNotMatch(zh.document, /## Goal/);
+	assert.ok(zh.document.includes(FILES), "the document carries the file index");
 	assert.ok(zh.prompt.startsWith(SCAFFOLDING.zh.continuationPreamble("session-parent-1234")), "the seed prompt is localized");
-	assert.match(zh.prompt, /## 目标/, "the seed prompt carries the same localized summary");
-	assert.match(zh.prompt, /## 下一步/);
+	assert.ok(zh.prompt.includes(SCAFFOLDING.zh.detailsHeading), "the seed prompt carries the mechanical details block");
+	assert.ok(zh.prompt.includes(FILES), "the file index rides into the payload");
+	assert.ok(zh.prompt.includes(SCAFFOLDING.zh.continuationArchive("/project/logs/session-parent-1234/session.md", "/project/logs/INDEX.md")));
 
-	// The other language must be just as real: English scaffolding and English headings.
-	const en = handoffArtifacts({ ...args, language: "en", rawSummary: "## Goal\n\nfinish the journal" });
+	// The other language must be just as real: English scaffolding and English details.
+	const en = handoffArtifacts({ ...args, language: "en" });
 	assert.ok(en.document.startsWith(SCAFFOLDING.en.documentTitle("session-parent-1234")));
-	assert.match(en.document, /## Goal/);
-	assert.doesNotMatch(en.document, /## 目标/);
 	assert.ok(en.prompt.startsWith(SCAFFOLDING.en.continuationPreamble("session-parent-1234")));
-	assert.match(en.prompt, /## Goal/);
+	assert.ok(en.prompt.includes(SCAFFOLDING.en.detailsHeading));
+	assert.ok(!en.prompt.includes(SCAFFOLDING.zh.detailsHeading), "the resolved language is the only one rendered");
+});
+
+test("a freshly built continuation keeps both markers round every closing variant", () => {
+	// The predicate is the structural detector `humanUserText` reuses, so a freshly generated prompt
+	// must satisfy it for every way the payload can end. The markers now wrap the mechanical
+	// "previous session details" block; there is no generated summary section at all.
+	const cases = [
+		["en", continuation("session-parent", FILES, "tail", ARCHIVE)],
+		["zh", continuation("session-parent", FILES, "tail", ARCHIVE, "zh")],
+		["en-pending", continuation("session-parent", FILES, "", ARCHIVE, "en", "Which branch?")],
+		["zh-pending", continuation("session-parent", FILES, "", ARCHIVE, "zh", "用哪个分支？")],
+		["en-decision", continuation("session-parent", FILES, "", ARCHIVE, "en", undefined, { kind: "message", text: "restart", entries: [] })],
+		["zh-decision", continuation("session-parent", FILES, "", ARCHIVE, "zh", undefined, { kind: "message", text: "重启", entries: [] })],
+	];
+	for (const [label, prompt] of cases) {
+		assert.equal(isHandoffContinuationText(prompt), true, `${label} must be recognized`);
+		assert.ok(prompt.includes("<handoff>") && prompt.includes("</handoff>"), `${label} keeps both markers`);
+		assert.ok(
+			prompt.startsWith(SCAFFOLDING.en.continuationPrefix) || prompt.startsWith(SCAFFOLDING.zh.continuationPrefix),
+			`${label} carries the continuation prefix`,
+		);
+		// No generated prose: the markers open the details block, and no summary section exists.
+		const body = prompt.slice(prompt.indexOf("<handoff>") + "<handoff>".length, prompt.indexOf("</handoff>"));
+		assert.ok(body.includes(SCAFFOLDING.en.detailsHeading) || body.includes(SCAFFOLDING.zh.detailsHeading), `${label} wraps the details heading`);
+		assert.ok(!prompt.includes("## Handoff Summary") && !prompt.includes("## 交接摘要"), `${label} carries no summary section`);
+	}
 });
 
 test("the pending question is carried into the continuation only under wait", () => {
@@ -101,7 +126,7 @@ test("the pending question is carried into the continuation only under wait", ()
 	const base = {
 		session: asking,
 		language: "en",
-		rawSummary: "## Goal\n\nswitch branches",
+		fileOperations: FILES,
 		archive: ARCHIVE,
 		pointers: { log: "/p/logs/s.md", index: "/p/logs/INDEX.md" },
 		tail: "",
@@ -129,7 +154,7 @@ test("auto detection: CJK first, then substantial English, then the carried prom
 	assert.equal(resolveLanguage([user("plain english words")], "auto"), "en");
 
 	// Substantive English beats an older Chinese continuation prompt.
-	const zhPrompt = continuation("session-parent", "摘要", "", ARCHIVE, "zh");
+	const zhPrompt = continuation("session-parent", FILES, "", ARCHIVE, "zh");
 	assert.equal(isHandoffContinuationText(zhPrompt), true);
 	assert.equal(
 		resolveLanguage([user(zhPrompt), user("please continue with the next step of the plan")], "auto"),
@@ -145,7 +170,7 @@ test("auto detection: CJK first, then substantial English, then the carried prom
 });
 
 test("a continuation prompt is never a language sample", () => {
-	const prompt = continuation("session-parent", "summary", "", ARCHIVE);
+	const prompt = continuation("session-parent", FILES, "", ARCHIVE);
 	assert.deepEqual(languageSamples([user(prompt), user("injected context", "plugin")]), []);
 	assert.deepEqual(languageSamples([user(prompt), assistant("done")]), []);
 	// The injected-plugin text must not tip the decision either.
@@ -159,9 +184,9 @@ test("recent samples are preferred only once they are substantial", () => {
 });
 
 test("only a complete generated continuation prompt is recognized", () => {
-	const legacy = continuation("session-parent", "summary", "tail", ARCHIVE);
+	const legacy = continuation("session-parent", FILES, "tail", ARCHIVE);
 	assert.equal(isHandoffContinuationText(legacy), true, "the legacy English prompt is recognized");
-	const zh = continuation("session-parent", "摘要", "", ARCHIVE, "zh");
+	const zh = continuation("session-parent", FILES, "", ARCHIVE, "zh");
 	assert.equal(isHandoffContinuationText(zh), true, "the localized prompt is recognized");
 
 	// A quoted prompt, a quote with appended text, and an incomplete prompt are not.
@@ -175,7 +200,7 @@ test("only a complete generated continuation prompt is recognized", () => {
 });
 
 test("the carried tail replaces a stale continuation prompt in place", () => {
-	const prompt = continuation("session-parent", "old summary", "no tail here", ARCHIVE);
+	const prompt = continuation("session-parent", FILES, "no tail here", ARCHIVE);
 	const session = fakeSession([
 		message("user", "first question"),
 		message("assistant", "first answer"),
@@ -195,7 +220,7 @@ test("the carried tail replaces a stale continuation prompt in place", () => {
 });
 
 test("handoffSplit summarizes the older part and only marks the tail", () => {
-	const prompt = continuation("session-parent", "old summary", "", ARCHIVE);
+	const prompt = continuation("session-parent", FILES, "", ARCHIVE);
 	const session = fakeSession([
 		message("user", "ancient question"),
 		message("assistant", "ancient answer"),
@@ -212,7 +237,7 @@ test("handoffSplit summarizes the older part and only marks the tail", () => {
 });
 
 test("a prompt longer than the 4000-char section clip is still recognized", () => {
-	const long = continuation("session-parent", "summary ".repeat(700), "", ARCHIVE);
+	const long = continuation("session-parent", FILES.repeat(120), "", ARCHIVE);
 	assert.ok(long.length > 4_000, `the prompt must exceed the clip (${long.length})`);
 	const session = fakeSession([
 		message("user", "the real opening question"),
@@ -235,46 +260,9 @@ test("a prompt longer than the 4000-char section clip is still recognized", () =
 	assert.equal(resolveLanguage(split.languageMessages, "auto"), "en");
 });
 
-const EN_SUMMARY = [
-	"## Goal",
-	"ship the port",
-	"",
-	"## Current state",
-	"half done",
-	"",
-	"## Decisions",
-	"follow the reference implementation",
-	"",
-	"## Files",
-	"- src/project-handoff/index.ts",
-	"",
-	"## Next steps",
-	"1. write tests",
-	"",
-	"## Open questions",
-	"none",
-].join("\n");
-
-test("summary headings localize both ways and leave fenced text alone", () => {
-	const zh = localizeSummaryHeadings(EN_SUMMARY, "zh");
-	assert.match(zh, /^## 目标$/m);
-	assert.match(zh, /^## 当前状态$/m);
-	assert.match(zh, /^## 决策$/m);
-	assert.match(zh, /^## 文件$/m);
-	assert.match(zh, /^## 下一步$/m);
-	assert.match(zh, /^## 未决问题$/m);
-	assert.equal(localizeSummaryHeadings(zh, "en"), EN_SUMMARY, "zh -> en round-trips");
-	assert.equal(localizeSummaryHeadings(EN_SUMMARY, "en"), EN_SUMMARY, "an English summary is unchanged");
-
-	const fenced = ["```md", "## Goal", "```", "## Goal"].join("\n");
-	const localized = localizeSummaryHeadings(fenced, "zh");
-	assert.equal(localized, ["```md", "## Goal", "```", "## 目标"].join("\n"));
-	assert.equal(localizeSummaryHeadings(localized, "en"), fenced, "the fenced heading round-trips untouched");
-});
-
 test("a wait handoff carries the open question into the continuation", () => {
 	const question = "Which branch should I push to?";
-	const withPending = continuation("session-parent", "summary", "", ARCHIVE, "en", question);
+	const withPending = continuation("session-parent", FILES, "", ARCHIVE, "en", question);
 	assert.ok(withPending.includes(question));
 	assert.match(withPending, /## Pending question/);
 	// The wait line is the last instruction: a trailing "start with the next concrete step" would
@@ -284,12 +272,12 @@ test("a wait handoff carries the open question into the continuation", () => {
 	// The carried-over prompt must still be recognizable as a handoff prompt on the next handoff.
 	assert.equal(isHandoffContinuationText(withPending), true);
 
-	const withoutPending = continuation("session-parent", "summary", "", ARCHIVE);
+	const withoutPending = continuation("session-parent", FILES, "", ARCHIVE);
 	assert.ok(!withoutPending.includes("Pending question"));
 	assert.ok(withoutPending.endsWith(SCAFFOLDING.en.continuationClosing));
 	assert.notEqual(withoutPending, withPending);
 
-	const zh = continuation("session-parent", "摘要", "", ARCHIVE, "zh", "推哪个分支？");
+	const zh = continuation("session-parent", FILES, "", ARCHIVE, "zh", "推哪个分支？");
 	assert.match(zh, /## 待用户回答的问题/);
 	assert.ok(zh.includes("推哪个分支？"));
 	assert.ok(zh.endsWith(SCAFFOLDING.zh.pendingWait));
@@ -297,7 +285,7 @@ test("a wait handoff carries the open question into the continuation", () => {
 	assert.equal(isHandoffContinuationText(zh), true);
 
 	// A whitespace-only question is not a question: no empty block, and the usual closing stays.
-	const blank = continuation("session-parent", "summary", "", ARCHIVE, "en", "   ");
+	const blank = continuation("session-parent", FILES, "", ARCHIVE, "en", "   ");
 	assert.ok(!blank.includes("Pending question"));
 	assert.ok(blank.endsWith(SCAFFOLDING.en.continuationClosing));
 });
@@ -328,18 +316,6 @@ test("/handoff lang accepts auto, zh and en only", () => {
 	assert.equal(settingPatch("lang zh extra"), undefined);
 });
 
-test("the summarizer prompt carries the resolved language next to its section list", () => {
-	const en = handoffPrompt("/repo", "memory", "older", "", "en");
-	assert.match(en, /Use exactly these sections: ## Goal, ## Current state, ## Decisions, ## Files, ## Next steps, ## Open questions\./);
-	assert.ok(en.includes(SCAFFOLDING.en.summaryDirective));
-	assert.ok(!en.includes(SCAFFOLDING.zh.summaryDirective));
-
-	const zh = handoffPrompt("/repo", "memory", "older", "", "zh");
-	assert.ok(zh.includes(SCAFFOLDING.zh.summaryDirective));
-	assert.match(zh, /Write the whole summary in Simplified Chinese/);
-	assert.ok(!zh.includes(SCAFFOLDING.en.summaryDirective));
-});
-
 test("handoffLang and maxOutputTokens are wired through every layer", () => {
 	assert.equal(DEFAULT_CONFIG.handoffLang, "auto");
 	assert.equal(DEFAULT_CONFIG.maxOutputTokens, 32_768);
@@ -355,35 +331,6 @@ test("handoffLang and maxOutputTokens are wired through every layer", () => {
 	assert.equal(schemaDefaults.handoffLang, "auto");
 	assert.equal(schemaDefaults.maxOutputTokens, 32_768);
 	assert.equal(PluginSettingsSchema({ handoffLang: "en" }).handoffLang, "en");
-});
-
-test("headings are localized only outside a code fence that really closes", () => {
-	const doc = ["```bash", "## Goal", "```", "## Goal"].join("\n");
-	const localized = localizeSummaryHeadings(doc, "zh");
-	assert.ok(localized.includes("```bash\n## Goal\n```"), "fenced code content stays as written");
-	assert.ok(localized.endsWith("## 目标"), "the heading after the fence is translated");
-
-	// A closer repeats the opener's character and length; a shorter ``` must not end a ```` block.
-	const mismatched = ["````", "## Goal", "```", "## Next steps", "````"].join("\n");
-	const stillInside = localizeSummaryHeadings(mismatched, "zh");
-	assert.ok(!stillInside.includes("目标"));
-	assert.ok(!stillInside.includes("下一步"));
-
-	// An info string is not a closer either, so the block stays open to the real one.
-	const infoString = ["```", "## Goal", "```js", "## Next steps", "```"].join("\n");
-	const infoLocalized = localizeSummaryHeadings(infoString, "zh");
-	assert.ok(!infoLocalized.includes("目标"));
-	assert.ok(!infoLocalized.includes("下一步"));
-
-	// A four-space indent is an indented code block, not a fence, so it cannot swallow the rest.
-	assert.ok(localizeSummaryHeadings(["    ```", "## Goal", "    ```"].join("\n"), "zh").includes("## 目标"));
-	assert.equal(localizeSummaryHeadings("    ## Goal", "zh"), "    ## Goal");
-
-	// A properly closed fence still protects its content in both directions.
-	assert.equal(localizeSummaryHeadings("~~~\n## 目标\n~~~\n## 目标", "en"), "~~~\n## 目标\n~~~\n## Goal");
-	// A backtick in an opening backtick fence's info string makes it not a fence at all (CommonMark),
-	// so the heading after it is ordinary text and is localized.
-	assert.ok(localizeSummaryHeadings(["```a`b", "## Goal"].join("\n"), "zh").includes("## 目标"));
 });
 
 test("an unsettled continuable background subagent defers the automatic handoff", () => {
@@ -417,22 +364,12 @@ test("an unsettled continuable background subagent defers the automatic handoff"
 	assert.deepEqual(outstandingSubagents([{ type: "user/message", data: {} }], now), []);
 });
 
-test("an empty span is refused instead of summarized into a fabricated handoff", () => {
+test("an empty span is refused instead of fabricating a continuation that drops nothing", () => {
 	// Whitespace-only covers the empty session; the message names the `budget recent 0` escape because a
-	// short conversation that fits the carried window reaches the same guard.
-	assert.throws(() => assertHandoffSummarizable("   \n\t "), /nothing to hand off.*budget recent 0/);
-	assert.doesNotThrow(() => assertHandoffSummarizable("## user\nhello"));
-});
-
-test("the summary retry grows but never passes the configured growth boundary", () => {
-	// The default pair: the fixed floor wins, exactly as before the boundary existed.
-	assert.deepEqual(summaryAttemptBudgets(DEFAULT_CONFIG), [8192, 32_768]);
-	// A lowered boundary bounds the retry instead of the fixed floor overriding the user's choice.
-	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxOutputTokens: 12_000 }), [8192, 12_000]);
-	// A user-raised starting cap is never lowered by a smaller boundary, and a big cap still retries
-	// at double its own size rather than at the small floor.
-	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxOutputTokens: 4_000 }), [8192]);
-	assert.deepEqual(summaryAttemptBudgets({ ...DEFAULT_CONFIG, maxTokens: 20_000 }), [20_000, 32_768]);
+	// short conversation that fits the carried window reaches the same guard. The wording is the drop
+	// semantics: nothing older than the recent window.
+	assert.throws(() => assertHandoffDroppable("   \n\t "), /nothing older than the recent window to drop.*budget recent 0/);
+	assert.doesNotThrow(() => assertHandoffDroppable("## user\nhello"));
 });
 
 test("tool output reaches the handoff tail, not just the tool name", () => {

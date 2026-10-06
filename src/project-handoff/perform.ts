@@ -1,17 +1,16 @@
 /**
- * One handoff transaction, in order: summarize, persist `HANDOFF.md`, seed the child,
- * publish the switch marker. The seed happens before the marker, and the document is
- * written last, so an abandoned attempt leaves nothing behind in the project.
+ * One handoff transaction, in order: persist `HANDOFF.md`, seed the child, publish the switch
+ * marker. Nothing is generated: the child gets the carried tail, the file index and a pointer to
+ * the session log the dropped prefix stays in. The seed happens before the marker, and the document
+ * is written last, so an abandoned attempt leaves nothing behind in the project.
  */
 
 import path from "node:path";
 import { type Context } from "@deepseek-ai/cordis";
-import { type LlmResolvedModelInfo } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { getProjectRoot, logsDir, memoryDir, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
-import { loadMemory } from "../project-memory/memory-store.js";
-import { type HandoffLanguage, localizeSummaryHeadings } from "./language.js";
+import { type HandoffLanguage } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement, seedChildSession } from "./child.js";
 import { transientIfRetryable } from "./classify.js";
@@ -19,51 +18,50 @@ import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, hando
 import { assertSessionSettled } from "./guard.js";
 import { type SessionControllerLike } from "./runtime.js";
 import { handedOff } from "./state.js";
-import { continuation, handoffPrompt, renderHandoff, resolveSummaryEffort, summarize, withTimeout } from "./summary.js";
+import { continuation, renderHandoff } from "./summary.js";
 
 /**
  * The two language-dependent artifacts of one handoff: the `HANDOFF.md` document and the child's
- * first message. The summary headings are normalized to the resolved language here, so the stored
- * document and the seed prompt can never disagree about it. Exported so a test can pin the wiring
- * (the resolved language, the pending-question carry and the carried user decision) rather than only
- * the pure helpers.
- * @param args - session, resolved language, the raw model summary, archive pointers and the tail.
+ * first message. Both carry mechanical parts only — the archive pointers, the file index and the
+ * carried state; the dropped prefix is reachable through the log the payload names. Exported so a
+ * test can pin the wiring (the resolved language, the pending-question carry and the carried user
+ * decision) rather than only the pure helpers.
+ * @param args - session, resolved language, file index, archive pointers and the tail.
  * @returns the document to persist and the prompt to admit to the child.
  */
 export function handoffArtifacts(args: {
 	session: Session;
 	config: PluginConfig;
 	language: HandoffLanguage;
-	rawSummary: string;
+	fileOperations: string;
 	archive: { log: string; index: string };
 	pointers: { log: string; index: string };
 	tail: string;
 }): { document: string; prompt: string } {
-	const summary = localizeSummaryHeadings(args.rawSummary, args.language);
 	const carry = handoffCarry(args.session, args.config.handoffPendingQuestion === "wait");
 	return {
-		document: renderHandoff(args.session, summary, args.archive, args.language),
-		prompt: continuation(String(args.session.id), summary, args.tail, args.pointers, args.language, carry.pending, carry.decision),
+		document: renderHandoff(args.session, args.fileOperations, args.archive, args.language),
+		prompt: continuation(String(args.session.id), args.fileOperations, args.tail, args.pointers, args.language, carry.pending, carry.decision),
 	};
 }
 
 /**
- * The span a handoff summarizes, or an error when there is none. Two cases reach this: a session
- * with no messages at all, and — with the default `handoffBudgetRecentTokens` — a short conversation that
- * fits entirely inside the carried-over window. Both would otherwise pay for a model call and seed
- * the child with a fabricated summary; the error names the `budget recent 0` escape for the second case.
- * The automatic path cannot reach it (it refuses a span below `MIN_SUMMARIZE_TOKENS` first).
+ * The span a handoff drops, or an error when there is none. Two cases reach this: a session with no
+ * messages at all, and — with the default `handoffBudgetRecentTokens` — a short conversation that
+ * fits entirely inside the carried-over window. Both would otherwise seed the child with a
+ * continuation that drops nothing; the error names the `budget recent 0` escape for the second case.
+ * The automatic path cannot reach it (it refuses a span below `MIN_DROP_TOKENS` first).
  * Exported so a test can pin the guard instead of only the happy path.
  * @param older - the rendered conversation before the kept tail.
  */
-export function assertHandoffSummarizable(older: string): void {
+export function assertHandoffDroppable(older: string): void {
 	if (older.trim().length === 0) {
-		throw new Error("nothing to hand off: every message is inside the carried-over window; run `/handoff budget recent 0` to summarize the whole conversation");
+		throw new Error("nothing to hand off: every message is inside the carried-over window, so there is nothing older than the recent window to drop; run `/handoff budget recent 0` to drop the whole conversation");
 	}
 }
 
 /**
- * Summarize the session, persist the document, and start the seeded child session.
+ * Drop the older context, persist the document, and start the seeded child session.
  * @param reason - the path that decided this handoff.
  * @param signal - the caller's cancellation signal, when the profile supplies one.
  * @param split - the span decided by the caller, when it already computed one.
@@ -74,9 +72,7 @@ export function assertHandoffSummarizable(older: string): void {
 export async function performHandoff(
 	ctx: Context,
 	session: Session,
-	target: { provider: string; model: string },
 	config: PluginConfig,
-	resolved: LlmResolvedModelInfo,
 	reason: "auto" | "manual",
 	signal: AbortSignal | undefined,
 	split?: HandoffSplit,
@@ -87,18 +83,14 @@ export async function performHandoff(
 	assertSessionSettled(session, triggerSeq);
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
-	const memory = await loadMemory(projectRoot, config.maxMemoryChars);
 	const { older, tail, languageMessages } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
-	assertHandoffSummarizable(older);
+	assertHandoffDroppable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
-	const raw = (
-		await summarize(ctx, target, config, handoffPrompt(projectRoot, memory.text, older, fileOperations(session), language), withTimeout(signal), resolveSummaryEffort(config, session, resolved))
-	).trim();
-	// The summary call is the wide window: it takes seconds, and a message the user sends while it
-	// runs opens the next turn immediately. Check before the empty-summary verdict so a session that
-	// moved on is deferred rather than recorded as a failed attempt.
+	// The file index is read here, before the child exists, and travels in both artifacts.
+	const files = fileOperations(session);
+	// Resolving the project root reads the filesystem and the index walk reads the session, so a
+	// message the user sends meanwhile can open the next turn. Check again before creating a child.
 	assertSessionSettled(session, triggerSeq);
-	if (raw.length === 0) throw new Error("the handoff summary came back empty");
 
 	const logFile = path.join(logsDir(projectRoot), safeSessionId(String(session.id)), "session.md");
 	const indexFile = sessionIndexFile(projectRoot);
@@ -108,7 +100,7 @@ export async function performHandoff(
 	const archive = { log: path.relative(projectRoot, logFile), index: path.relative(projectRoot, indexFile) };
 	const pointers = { log: logFile, index: indexFile };
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
-	const { document, prompt } = handoffArtifacts({ session, config, language, rawSummary: raw, archive, pointers, tail });
+	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail });
 
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
@@ -140,7 +132,7 @@ export async function performHandoff(
 		assertSessionSettled(session, triggerSeq);
 		// The document is written last, once this attempt is certain to be seeded, so an abandoned
 		// handoff leaves nothing behind in the project. Nothing above reads it: the seed prompt
-		// carries the summary inline and points at the archive log and index.
+		// carries the file index and the pointers to the archive log and index itself.
 		await writeAtomic(file, document);
 	} catch (error: unknown) {
 		await abandonChild(ctx, controller, childId, parentLabel, error, promptAttempted);

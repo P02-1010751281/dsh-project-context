@@ -187,7 +187,6 @@ const VALUE = {
 	handoffThresholdRatio: 0.8,
 	handoffBudgetSummaryTokens: 64000,
 	handoffBudgetRecentTokens: 20000,
-	handoffThinking: "session",
 	handoffPendingQuestion: "defer",
 	handoffLang: "auto",
 };

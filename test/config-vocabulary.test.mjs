@@ -38,10 +38,19 @@ const RENAMED_KEYS = {
 	autoLearn: "autolearnEnabled",
 	handoffTargetTokens: "handoffBudgetSummaryTokens",
 	handoffKeepTokens: "handoffBudgetRecentTokens",
-	handoffSummaryThinking: "handoffThinking",
 	handoffAdaptive: "handoffThresholdAuto",
 	handoffLanguage: "handoffLang",
 };
+
+/**
+ * A key this repo retired outright, with no alias — same rule as the renames above, a different
+ * cause. `handoffThinking` and its `/handoff thinking` verb existed only to steer the handoff's
+ * auxiliary summary call; when that call was deleted the key had no reader and no meaning left, so
+ * it is gone from every face (config, settings schema, client card, both dictionaries, the verb
+ * table). It is asserted as *absent* rather than merely deleted from these tests, because a reader
+ * left behind compiles and passes until someone stores the key and wonders why nothing changes.
+ */
+const RETIRED_KEY = "handoffThinking";
 
 /**
  * The two shapes at issue. `PROFILE_SHAPES` is what both profiles must persist **after** the rename;
@@ -105,7 +114,6 @@ test("every renamed key keeps its value and its type", () => {
 	assert.equal(resolvePluginConfig({ autolearnEnabled: false }).autolearnEnabled, false);
 	assert.equal(resolvePluginConfig({ handoffBudgetSummaryTokens: 12_000 }).handoffBudgetSummaryTokens, 12_000);
 	assert.equal(resolvePluginConfig({ handoffBudgetRecentTokens: 1_000 }).handoffBudgetRecentTokens, 1_000);
-	assert.equal(resolvePluginConfig({ handoffThinking: "session" }).handoffThinking, "session");
 	assert.equal(resolvePluginConfig({ handoffThresholdAuto: false }).handoffThresholdAuto, false);
 	assert.equal(resolvePluginConfig({ handoffLang: "zh" }).handoffLang, "zh");
 
@@ -114,9 +122,34 @@ test("every renamed key keeps its value and its type", () => {
 	assert.equal(DEFAULT_CONFIG.autolearnEnabled, true);
 	assert.equal(DEFAULT_CONFIG.handoffBudgetSummaryTokens, 64_000);
 	assert.equal(DEFAULT_CONFIG.handoffBudgetRecentTokens, 20_000);
-	assert.equal(DEFAULT_CONFIG.handoffThinking, "off");
 	assert.equal(DEFAULT_CONFIG.handoffThresholdAuto, true);
 	assert.equal(DEFAULT_CONFIG.handoffLang, "auto");
+});
+
+test("the retired handoffThinking key is absent from every face", () => {
+	assert.equal(Object.keys(DEFAULT_CONFIG).includes(RETIRED_KEY), false, "the default config must not declare it");
+	assert.equal(RETIRED_KEY in resolvePluginConfig({}), false, "nor must the resolved config");
+	assert.equal(Object.keys(PluginSettingsSchema({})).includes(RETIRED_KEY), false, "nor the settings schema");
+	// A stored value is an unknown key, not a silent fallback: the settings-namespace owner throws.
+	assert.throws(
+		() => resolvePluginConfig({ [RETIRED_KEY]: "session" }),
+		new RegExp(`unknown config key "${RETIRED_KEY}"`),
+		"a stored retired key must throw rather than resolve",
+	);
+	// The verb went with the key; an unknown argument falls through to the usage reply.
+	assert.equal(settingPatch("thinking session"), undefined, "the /handoff thinking verb is retired with the key");
+	assert.equal(settingPatch("thinking off"), undefined);
+	// The client card and both dictionaries are `.ts` sources under `client/`, so this scan is the
+	// card face too — a row, a label or a hint left behind fails here.
+	for (const dir of ["src", "client"]) {
+		for (const file of sourceFiles(path.join(repoRoot, dir))) {
+			assert.equal(
+				readFileSync(file, "utf8").includes(RETIRED_KEY),
+				false,
+				`${path.relative(repoRoot, file)} still spells the retired key ${RETIRED_KEY}`,
+			);
+		}
+	}
 });
 
 test("the settings schema exposes the new spellings and none of the old ones", () => {
@@ -136,7 +169,6 @@ test("a retired spelling is an unknown key, not a silent fallback to the default
 		["autoLearn", true],
 		["handoffTargetTokens", 64_000],
 		["handoffKeepTokens", 0],
-		["handoffSummaryThinking", "off"],
 		["handoffAdaptive", true],
 		["handoffLanguage", "auto"],
 	]) {
@@ -188,8 +220,6 @@ test("every key the handoff verbs write back is a schema key", () => {
 		"threshold 50%",
 		"budget summary 64k",
 		"budget recent 0",
-		"thinking off",
-		"thinking session",
 		"pending defer",
 		"pending wait",
 		"lang auto",

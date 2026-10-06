@@ -36,7 +36,6 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffThresholdRatio: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffThinking: import("@deepseek-ai/schemastery").default<"off" | "session", "off" | "session">;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
     handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
 }>, Schemastery.ObjectT<{
@@ -58,7 +57,6 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffThresholdRatio: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffThinking: import("@deepseek-ai/schemastery").default<"off" | "session", "off" | "session">;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
     handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
 }>>;

@@ -98,6 +98,17 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 });
 
+test("the retired handoffThinking row and its copy are gone from the card", () => {
+	// The card face of the retirement: a row, a label or a hint left behind would keep an unknown
+	// key visible (and writable) on a card whose host schema no longer declares it.
+	assert.equal(fields.ROWS.some((row) => row.key === "handoffThinking"), false, "no row may survive");
+	assert.equal(fields.SECTIONS.flatMap((section) => section.rows).some((row) => row.key === "handoffThinking"), false);
+	for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
+		assert.equal("field.handoffThinking" in dict, false, `${name} still labels the retired row`);
+		assert.equal("field.handoffThinkingHint" in dict, false, `${name} still hints the retired row`);
+	}
+});
+
 test("a boolean row stages the two literals and refuses any other draft", () => {
 	const spec = fields.booleanField("archiveEnabled");
 	assert.equal(spec.format(true), "true");
@@ -171,7 +182,7 @@ test("volatile settings are read through their live references, not snapshotted"
 	};
 
 	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	assert.equal(resolvePluginConfig({ handoffThinking: reference("session") }).handoffThinking, "session");
+	assert.equal(resolvePluginConfig({ handoffLang: reference("zh") }).handoffLang, "zh");
 	assert.equal(resolvePluginConfig({ archiveEnabled: reference(false) }).archiveEnabled, false);
 
 	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");

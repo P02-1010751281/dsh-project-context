@@ -35,7 +35,6 @@ export interface ProjectContextSettings {
 	handoffThresholdRatio: number;
 	handoffBudgetSummaryTokens: number;
 	handoffBudgetRecentTokens: number;
-	handoffThinking: "off" | "session";
 	handoffPendingQuestion: "defer" | "wait";
 	handoffLang: "auto" | "zh" | "en";
 }
@@ -97,7 +96,6 @@ export const SECTIONS: readonly FieldSection[] = [
 			{ key: "handoffThresholdRatio", kind: "number" },
 			{ key: "handoffBudgetSummaryTokens", kind: "number" },
 			{ key: "handoffBudgetRecentTokens", kind: "number" },
-			{ key: "handoffThinking", kind: "union", options: ["off", "session"] },
 			{ key: "handoffPendingQuestion", kind: "union", options: ["defer", "wait"] },
 			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
 		],

@@ -1,5 +1,5 @@
 /**
- * Reading the session: the rendered split a handoff summarizes, the pending question it
+ * Reading the session: the rendered split a handoff drops, the pending question it
  * may have to carry, the file index beside the prompt, and the language of the messages.
  *
  * Pure functions over a `Session`; nothing here talks to the host or the model.
@@ -84,7 +84,7 @@ export declare function fileOperations(session: Session): string;
 /** Raw derived messages of a whole session, for a status read that does not split it. */
 export declare function sessionLanguageMessages(session: Session): HandoffLanguageMessage[];
 export interface HandoffSplit {
-    /** The older part, summarized by the model. */
+    /** The older part, dropped from the continuation and reachable only through the session log. */
     older: string;
     /** The recent tail carried verbatim; stale continuation prompts are already marked. */
     tail: string;

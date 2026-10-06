@@ -7,8 +7,8 @@
  */
 import { type PluginConfig } from "../shared/config.js";
 import { type HandoffLanguage } from "./language.js";
-/** Don't hand off unless at least this much context is actually replaced by the summary. */
-export declare const MIN_SUMMARIZE_TOKENS = 8000;
+/** Don't hand off unless at least this much context is actually dropped. */
+export declare const MIN_DROP_TOKENS = 8000;
 /**
  * What this plugin reads from the harness's meter.
  *
@@ -35,8 +35,8 @@ export interface ContextMeasurement {
  *
  * `resolveThreshold` has four `undefined` exits with four different causes, and the receipt used to
  * render every one of them as "threshold unavailable at this window" — a claim about the window that
- * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the
- * summarizer minimum, the reported envelope + carried tail, the second 4K
+ * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the drop
+ * minimum, the reported envelope + carried tail, the second 4K
  * {@link SAFETY_MARGIN_TOKENS} deduction, or the **quality knee** is what decided it, and "at this
  * window" sends the user to change the model or the target when neither is the lever.
  *
@@ -44,7 +44,7 @@ export interface ContextMeasurement {
  * window raises the capacity deduction's headroom but lowers the knee, so advice written for one is
  * actively backwards for the other.
  */
-export type ThresholdRefusal = "window-headroom" | "quality-knee" | "summarizer-floor" | "no-positive-threshold";
+export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold";
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
  * resolves. Read-only companion: it replays the same terms, in the same order, and only reports a
@@ -104,9 +104,9 @@ export interface ThresholdOverride {
  * defect wearing the opposite sign: both let the local key decide a term that the quality layer owns.
  *
  * Not appearing is not the same as being ignored: the target is the user's statement of how much older
- * context is worth folding, so when the guardrail lands below the threshold that would need, the
+ * context is worth dropping, so when the guardrail lands below the threshold that would need, the
  * returned {@link ThresholdOverride} says so and `/handoff status` warns. The physical "worthwhile
- * summary" floor stays enforced by ①: a threshold below it refuses, it does not clamp.
+ * drop" floor stays enforced by ①: a threshold below it refuses, it does not clamp.
  */
 export declare function resolveThreshold(config: PluginConfig, measurement: ContextMeasurement, contextWindow: number): {
     tokens: number;

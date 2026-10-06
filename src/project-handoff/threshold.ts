@@ -11,8 +11,8 @@ import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { type HandoffLanguage } from "./language.js";
 
 // Threshold math, ported from pi's auto-handoff.
-/** Don't hand off unless at least this much context is actually replaced by the summary. */
-export const MIN_SUMMARIZE_TOKENS = 8_000;
+/** Don't hand off unless at least this much context is actually dropped. */
+export const MIN_DROP_TOKENS = 8_000;
 
 /** Window headroom left for the next request (pi's default compaction reserve). */
 const WINDOW_RESERVE_TOKENS = 16_384;
@@ -43,8 +43,8 @@ export interface ContextMeasurement {
 }
 
 /**
- * The smallest trigger that still lets a summary replace the summarize minimum: the carried tail plus
- * that minimum, plus the envelope when the harness reports one.
+ * The smallest trigger that still drops a worthwhile prefix: the carried tail plus the drop minimum,
+ * plus the envelope when the harness reports one.
  *
  * It deliberately does **not** derive the envelope as `totalTokens − surfaceTokens`. That difference is
  * `overhead + (real surface − heuristic surface)`: for a CJK-heavy conversation the density heuristic
@@ -55,7 +55,7 @@ export interface ContextMeasurement {
  */
 function thresholdFloor(config: PluginConfig, measurement: ContextMeasurement): number {
 	const overhead = measurement.overheadTokens ?? 0;
-	return Math.max(0, overhead) + config.handoffBudgetRecentTokens + MIN_SUMMARIZE_TOKENS;
+	return Math.max(0, overhead) + config.handoffBudgetRecentTokens + MIN_DROP_TOKENS;
 }
 
 /**
@@ -63,8 +63,8 @@ function thresholdFloor(config: PluginConfig, measurement: ContextMeasurement): 
  *
  * `resolveThreshold` has four `undefined` exits with four different causes, and the receipt used to
  * render every one of them as "threshold unavailable at this window" — a claim about the window that
- * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the
- * summarizer minimum, the reported envelope + carried tail, the second 4K
+ * is *false* for three of the four. A roomy window (`usable > floor`) still refuses when the drop
+ * minimum, the reported envelope + carried tail, the second 4K
  * {@link SAFETY_MARGIN_TOKENS} deduction, or the **quality knee** is what decided it, and "at this
  * window" sends the user to change the model or the target when neither is the lever.
  *
@@ -72,7 +72,7 @@ function thresholdFloor(config: PluginConfig, measurement: ContextMeasurement): 
  * window raises the capacity deduction's headroom but lowers the knee, so advice written for one is
  * actively backwards for the other.
  */
-export type ThresholdRefusal = "window-headroom" | "quality-knee" | "summarizer-floor" | "no-positive-threshold";
+export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold";
 
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
@@ -92,9 +92,9 @@ export function thresholdRefusal(
 	if (room === undefined) return "window-headroom";
 	// Both terms of the two-term rule can sit below the floor, and they want opposite levers. Compare
 	// them exactly as the orchestrator does. Before the trigger became two terms the target lift kept
-	// the knee path unreachable, so the whole case used to render as "summarizer-floor" — with "a
-	// larger context window" as the advice, which is backwards when the knee is what bound.
-	return qualityLimit(contextWindow) <= capacityLimit(room) ? "quality-knee" : "summarizer-floor";
+	// the knee path unreachable, so the whole case used to render as "drop-floor" — with "a larger
+	// context window" as the advice, which is backwards when the knee is what bound.
+	return qualityLimit(contextWindow) <= capacityLimit(room) ? "quality-knee" : "drop-floor";
 }
 
 /**
@@ -132,16 +132,16 @@ export function thresholdRefusalText(
 				: zh
 					? `没有任何可用 token —— ${WINDOW_RESERVE_TOKENS} token 的请求预留比 ${contextWindow} token 的窗口还多 ${-usable}`
 					: `no usable tokens at all — the ${WINDOW_RESERVE_TOKENS}-token request reserve exceeds the ${contextWindow}-token window by ${-usable}`;
-		const envelope = floor - config.handoffBudgetRecentTokens - MIN_SUMMARIZE_TOKENS;
+		const envelope = floor - config.handoffBudgetRecentTokens - MIN_DROP_TOKENS;
 		// The envelope term exists only when the harness reports one; printing "0-token envelope" would
 		// invent a term that took no part in the comparison.
 		const assembly = envelope > 0
 			? zh
-				? `harness 报出的 ${envelope} token 包络 + 「${label}」 ${config.handoffBudgetRecentTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
-				: `the ${envelope}-token envelope the harness reports + "${label}" ${config.handoffBudgetRecentTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`
+				? `harness 报出的 ${envelope} token 包络 + 「${label}」 ${config.handoffBudgetRecentTokens} + 丢弃下限 ${MIN_DROP_TOKENS}`
+				: `the ${envelope}-token envelope the harness reports + "${label}" ${config.handoffBudgetRecentTokens} + drop minimum ${MIN_DROP_TOKENS}`
 			: zh
-				? `「${label}」 ${config.handoffBudgetRecentTokens} + 摘要下限 ${MIN_SUMMARIZE_TOKENS}`
-				: `"${label}" ${config.handoffBudgetRecentTokens} + summarize minimum ${MIN_SUMMARIZE_TOKENS}`;
+				? `「${label}」 ${config.handoffBudgetRecentTokens} + 摘要下限 ${MIN_DROP_TOKENS}`
+				: `"${label}" ${config.handoffBudgetRecentTokens} + summarize minimum ${MIN_DROP_TOKENS}`;
 		return zh
 			? `阈值不可用：窗口太小 —— ${contextWindow} token 的窗口只剩 ${room}，低于 ${floor} token 的下限（${assembly}）`
 			: `threshold unavailable: window too small — the ${contextWindow}-token window leaves ${room}, below the ${floor}-token floor (${assembly})`;
@@ -151,7 +151,7 @@ export function thresholdRefusalText(
 		// curve approaches its 157K asymptote from above, so a wider window lowers the knee. Say which
 		// control actually helps rather than reusing the margin sentence.
 		//
-		// The floor's terms are the harness-reported envelope, the kept tail and the summarize minimum.
+		// The floor's terms are the harness-reported envelope, the kept tail and the drop minimum.
 		// Only `handoffBudgetRecentTokens` is a config key, and it reaches this refusal on its own **today**: it
 		// is bounded at 200_000 (`config.ts`), so at a 1M window `keep >= 149_001` puts the floor past the
 		// 157_000 knee (measured: 149_000 resolves, 149_001 refuses). A reported envelope can reach it too.
@@ -170,8 +170,8 @@ export function thresholdRefusalText(
 		// MIN` is the envelope, so the setting helps iff `knee − envelope − MIN > 0`. In the
 		// envelope-driven case no value of it clears the refusal, and naming one would be the same
 		// dead-lever defect the baseline wording had.
-		const envelope = floor - config.handoffBudgetRecentTokens - MIN_SUMMARIZE_TOKENS;
-		const keepClears = knee - envelope - MIN_SUMMARIZE_TOKENS > 0;
+		const envelope = floor - config.handoffBudgetRecentTokens - MIN_DROP_TOKENS;
+		const keepClears = knee - envelope - MIN_DROP_TOKENS > 0;
 		const lever = envelope > 0
 			? keepClears
 				? zh
@@ -187,10 +187,10 @@ export function thresholdRefusalText(
 			? `阈值不可用：不是窗口的问题 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但这个窗口下模型的质量膝只允许 ${knee}，交接最早也只能在膝之后启动；${lever}，或者用固定比例把触发显式化 —— /handoff threshold 0.4 不经过膝检，而正是膝检挡住了自动档`
 			: `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff threshold 0.4 is not checked against the knee, which is what blocks auto here`;
 	}
-	if (reason === "summarizer-floor") {
+	if (reason === "drop-floor") {
 		return zh
-			? `阈值不可用：窗口不是限制 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但 ${SAFETY_MARGIN_TOKENS} token 的安全余量会让摘要替换的内容少于 ${MIN_SUMMARIZE_TOKENS} token 的下限；杠杆是更大的上下文窗口（或调小「${label}」），而不是这个窗口本身`
-			: `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves a summary that would replace fewer than the ${MIN_SUMMARIZE_TOKENS}-token minimum; a larger context window (or lowering "${label}") is the lever, not this window alone`;
+			? `阈值不可用：窗口不是限制 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但 ${SAFETY_MARGIN_TOKENS} token 的安全余量会让可丢弃的内容少于 ${MIN_DROP_TOKENS} token 的下限；杠杆是更大的上下文窗口（或调小「${label}」），而不是这个窗口本身`
+			: `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves less than the ${MIN_DROP_TOKENS}-token minimum worth dropping; a larger context window (or lowering "${label}") is the lever, not this window alone`;
 	}
 	// Fixed mode refuses exactly when `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the
 	// ratio is validated into [0.1, 0.95], the second term binds first and the condition reduces to
@@ -229,7 +229,7 @@ interface HandoffRoom {
 	overhead: number;
 	/** Recent tokens carried into the successor verbatim. */
 	keep: number;
-	/** The smallest trigger that still lets a summary replace the summarize minimum. */
+	/** The smallest trigger that still drops a worthwhile prefix. */
 	floor: number;
 	/** Window left for a request once the headroom reserve is taken. */
 	usable: number;
@@ -309,9 +309,9 @@ export interface ThresholdOverride {
  * defect wearing the opposite sign: both let the local key decide a term that the quality layer owns.
  *
  * Not appearing is not the same as being ignored: the target is the user's statement of how much older
- * context is worth folding, so when the guardrail lands below the threshold that would need, the
+ * context is worth dropping, so when the guardrail lands below the threshold that would need, the
  * returned {@link ThresholdOverride} says so and `/handoff status` warns. The physical "worthwhile
- * summary" floor stays enforced by ①: a threshold below it refuses, it does not clamp.
+ * drop" floor stays enforced by ①: a threshold below it refuses, it does not clamp.
  */
 export function resolveThreshold(
 	config: PluginConfig,

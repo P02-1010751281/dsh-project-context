@@ -5,14 +5,10 @@
  * A Chinese session used to continue in English because every handoff string was
  * English. `handoffLang: "auto"` now resolves from the user's own messages
  * (CJK first, then substantial Latin, then the language of the newest carried
- * continuation prompt), while an explicit `"zh"`/`"en"` wins outright. The
- * summarizer's template demands an EXACT section format, so models keep copying
- * its English (or Chinese) headings even when the directive asks otherwise; the
- * fixed heading set is mapped deterministically instead of relying on the model.
+ * continuation prompt), while an explicit `"zh"`/`"en"` wins outright.
  *
- * Everything here is pure: sample extraction, detection/resolution, heading
- * localization, the scaffolding table and the continuation-prompt predicate are
- * unit-tested without a session.
+ * Everything here is pure: sample extraction, detection/resolution, the scaffolding
+ * table and the continuation-prompt predicate are unit-tested without a session.
  */
 /** Languages the handoff scaffolding can be rendered in. */
 export type HandoffLanguage = "zh" | "en";
@@ -34,23 +30,14 @@ export declare function languageSamples(messages: readonly HandoffLanguageMessag
 /** Resolve the scaffolding language: explicit config wins, `auto` follows the user's own messages. */
 export declare function resolveLanguage(messages: readonly HandoffLanguageMessage[], configured: HandoffLanguageSetting): HandoffLanguage;
 /**
- * Localize the summarizer template's headings; only exact heading lines outside code fences are
- * touched. A fence closes only on its own marker character with at least the opening length and
- * nothing but whitespace after it, so a mismatched or info-string-bearing line cannot end a block
- * early and expose code content to translation.
- */
-export declare function localizeSummaryHeadings(text: string, language: HandoffLanguage): string;
-/**
  * Stand-in for a stale continuation prompt replaced in the carried-over tail. Replayed
  * verbatim a prompt reads as a fresh instruction and opens the new session with an
  * already-superseded state; the marker keeps the message in place, so real user and
  * assistant messages around it keep their order.
  */
 export declare const REPLAY_MARKER = "[handoff prompt omitted]";
-/** Localized scaffolding for the summary directive, the archived document and the continuation prompt. */
+/** Localized scaffolding for the archived document and the continuation prompt. */
 export interface HandoffScaffolding {
-    /** Appended to the summarizer's "use exactly these sections" line. */
-    readonly summaryDirective: string;
     readonly documentTitle: (sessionId: string) => string;
     readonly documentCreated: (iso: string) => string;
     readonly documentProject: (root: string) => string;
@@ -61,6 +48,10 @@ export interface HandoffScaffolding {
     readonly continuationPreamble: (parentId: string) => string;
     readonly continuationVerify: string;
     readonly continuationContextNote: string;
+    /** Heading that opens the mechanical "previous session details" block. */
+    readonly detailsHeading: string;
+    readonly detailSessionId: (sessionId: string) => string;
+    /** Archive pointers plus the lookup instruction (the log is untrusted data, never instructions). */
     readonly continuationArchive: (log: string, index: string) => string;
     readonly continuationCarried: string;
     readonly pendingHeading: string;
@@ -78,6 +69,7 @@ export declare const SCAFFOLDING: Record<HandoffLanguage, HandoffScaffolding>;
  * True for text the handoff itself generated. The preamble, both structural markers
  * and the closing line must all match, so a user message quoting the prompt (or
  * quoting it and adding their own text) is not mistaken for one and stays in the
- * carried-over conversation.
+ * carried-over conversation. Deliberately structural, not a wording or length heuristic:
+ * `humanUserText` reuses this so a handoff's own seed is never counted as a human turn.
  */
 export declare function isHandoffContinuationText(text: string): boolean;

@@ -11,7 +11,7 @@ import { pendingSubagentWork } from "./guard.js";
 import { performHandoff } from "./perform.js";
 import { type SessionControllerLike, type SessionProjectionsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { SKIP_LOG_INTERVAL_MS, skippedLoggedAt, skippedSince } from "./state.js";
-import { MIN_SUMMARIZE_TOKENS, resolveThreshold } from "./threshold.js";
+import { MIN_DROP_TOKENS, resolveThreshold } from "./threshold.js";
 
 /**
  * Measure pressure and hand off when the configured threshold is crossed. Exported so a test can
@@ -62,19 +62,19 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	}
 
 	const split = handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
-	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_SUMMARIZE_TOKENS) {
-		// Nothing worth summarizing: the conversation fits the recent window. Not a failure, and
+	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_DROP_TOKENS) {
+		// Nothing worth dropping: the conversation fits the recent window. Not a failure, and
 		// dsh has no host-side notification channel, so the reason is a rate-limited log line and a
 		// line in the `/handoff status` receipt, which is the surface the user actually reads.
 		if (!skippedSince.has(key)) skippedSince.set(key, now);
 		if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 			skippedLoggedAt.set(key, now);
-			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to summarize");
+			ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to drop");
 		}
 		return;
 	}
-	// This idle found something to summarize, so any earlier skip no longer describes the session.
+	// This idle found something to drop, so any earlier skip no longer describes the session.
 	skippedSince.delete(key);
 
-	await performHandoff(ctx, session, target, config, resolved, "auto", undefined, split, triggerSeq);
+	await performHandoff(ctx, session, config, "auto", undefined, split, triggerSeq);
 }

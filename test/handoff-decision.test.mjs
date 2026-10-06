@@ -1,12 +1,12 @@
 /**
  * Pins for carrying the user's own last input into a continuation, whatever channel carried it.
  *
- * The friction this closes: a session had already settled a question, the handoff summarized it into
- * prose, and the successor put the same question back to the user. Two things made that possible.
- * `handoffBudgetRecentTokens: 0` leaves no verbatim tail, and the carried-over state was read from
- * wording (does the last assistant message end in a question?) and from `user` text blocks only — so
- * an answer given through `ask_user_question` was invisible, and a plain typed decision was invisible
- * as soon as the summary prose compressed it away.
+ * The friction this closes: a session had already settled a question, and the successor put the same
+ * question back to the user. Two things made that possible: `handoffBudgetRecentTokens: 0` leaves no
+ * verbatim tail, and the carried-over state was read from wording (does the last assistant message
+ * end in a question?) and from `user` text blocks only. So an answer given through
+ * `ask_user_question` was invisible, and a plain typed decision was invisible as soon as the old
+ * generated-summary prose had compressed it away.
  *
  * These tests drive the real reader (`handoffCarry`) and the real generator (`continuation`), so they
  * fail if the two drift apart. The negative control matters as much as the positive one: a carrier
@@ -25,6 +25,8 @@ import { continuation } from "../lib/project-handoff/summary.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 
 const ARCHIVE = { log: "logs/session-parent/session.md", index: "logs/INDEX.md" };
+/** The mechanical file index the payload carries now that the summary is gone. */
+const FILES = "<read-files>\nsrc/project-handoff/perform.ts\n</read-files>";
 const ASK = "ask_user_question";
 
 /** One `ask_user_question` call, in the shape the model produces it. */
@@ -112,7 +114,7 @@ test("a result that is not an answer batch is never carried as the user's words"
 	// With no earlier input at all there is simply no decision, and the ordinary closing stays.
 	const empty = fakeSession([assistantMessage([askCall("call_1")]), toolResult("call_1", JSON.stringify(pending))]);
 	assert.equal(handoffCarry(empty, true).decision, undefined);
-	assert.ok(!continuation("session-parent", "summary", "", ARCHIVE).includes(SCAFFOLDING.en.decisionClosing));
+	assert.ok(!continuation("session-parent", FILES, "", ARCHIVE).includes(SCAFFOLDING.en.decisionClosing));
 });
 
 test("a skipped question is not the user stating something", () => {
@@ -242,7 +244,7 @@ test("with defer, a question newer than the input carries nothing at all", () =>
 });
 
 test("only one block is rendered: a pending question wins and the decision is absent", () => {
-	const prompt = continuation("session-parent", "summary", "", ARCHIVE, "en", "Which branch?", {
+	const prompt = continuation("session-parent", FILES, "", ARCHIVE, "en", "Which branch?", {
 		kind: "message",
 		text: "随便",
 		entries: [],
@@ -264,7 +266,7 @@ test("the user's newest input wins, whichever channel it arrived through", () =>
 test("the handoff's own banner and injected context are not user input", () => {
 	// The negative control. A banner is injected through the prompt RPC as `{kind:"user"}`, so a
 	// carrier that trusted the source kind alone would hand our own prompt back as a decision.
-	const banner = continuation("session-parent", "## Goal\n\ncarry on", "", ARCHIVE, "en", undefined, {
+	const banner = continuation("session-parent", FILES, "", ARCHIVE, "en", undefined, {
 		kind: "message",
 		text: "restart the host",
 		entries: [],
@@ -306,7 +308,7 @@ test("an answered question does not read as still pending", () => {
 });
 
 test("a carried decision replaces the closing that invites the same question again", () => {
-	const carried = continuation("session-parent", "summary", "", ARCHIVE, "en", undefined, {
+	const carried = continuation("session-parent", FILES, "", ARCHIVE, "en", undefined, {
 		kind: "message",
 		text: "我去重启桌面宿主（推荐）",
 		entries: [],
@@ -318,7 +320,7 @@ test("a carried decision replaces the closing that invites the same question aga
 	// Still recognizable on the next handoff, or the child's own seed would read as a human turn.
 	assert.equal(isHandoffContinuationText(carried), true);
 
-	const zh = continuation("session-parent", "摘要", "", ARCHIVE, "zh", undefined, {
+	const zh = continuation("session-parent", FILES, "", ARCHIVE, "zh", undefined, {
 		kind: "answer",
 		text: "",
 		entries: [
@@ -338,7 +340,7 @@ test("a carried decision replaces the closing that invites the same question aga
 	assert.equal(isHandoffContinuationText(zh), true);
 
 	// Without a decision the usual closing stays: this must not become the only outcome.
-	const plain = continuation("session-parent", "summary", "", ARCHIVE);
+	const plain = continuation("session-parent", FILES, "", ARCHIVE);
 	assert.ok(plain.endsWith(SCAFFOLDING.en.continuationClosing));
 });
 
@@ -387,7 +389,7 @@ test("the wiring carries the decision into the seed prompt", () => {
 		session,
 		config: { ...DEFAULT_CONFIG, handoffPendingQuestion: "wait" },
 		language: "zh",
-		rawSummary: "## 目标\n\n等重启验活",
+		fileOperations: FILES,
 		archive: ARCHIVE,
 		pointers: { log: "/project/logs/session-parent-1234/session.md", index: "/project/logs/INDEX.md" },
 		tail: "",

@@ -15,7 +15,7 @@ export declare function settingPatch(args: string): {
     patch?: Record<string, unknown>;
     error?: string;
 } | undefined;
-export declare const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|thinking off|session|pending defer|wait|lang auto|zh|en]";
+export declare const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
 /** Persist one settings patch through the mounted settings service. */
 export declare function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined>;
 /** Human-readable handoff state for the current session. */

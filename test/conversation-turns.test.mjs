@@ -4,7 +4,7 @@
  * A handoff's continuation banner is injected through the prompt RPC, which carries no source
  * kind, so it lands in the log as `{kind:"user"}` — identical to a person's message. Both
  * `userTurnCount` and `firstUserText` must skip it: before this, every handoff child counted one
- * turn it never drove, and its first user text was a ~70K-character banner instead of what the
+ * turn it never drove, and its first user text was the whole banner instead of what the
  * person actually opened with. A person who quotes a banner must still count.
  *
  * The banners here are built by the real generator (`continuation`), not hand-written strings, so
@@ -21,8 +21,10 @@ import { fallbackUpdate } from "../lib/project-memory/consolidate.js";
 import { firstUserText, userTurnCount } from "../lib/shared/conversation.js";
 
 const ARCHIVE = { log: "logs/session-parent/session.md", index: "logs/INDEX.md" };
+/** The mechanical file index the payload carries now that no generated summary exists. */
+const FILES = "<read-files>\nsrc/project-handoff/summary.ts\n</read-files>";
 /** A real generated continuation banner, in either language, optionally on a pending question. */
-const banner = (language = "en", pending) => continuation("session-parent", "## Goal\n\ncarry on this work", "", ARCHIVE, language, pending);
+const banner = (language = "en", pending) => continuation("session-parent", FILES, "", ARCHIVE, language, pending);
 
 /** One `user/message` event in the shape the host writes it. */
 function userMessage(text, kind = "user") {

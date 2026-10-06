@@ -171,6 +171,8 @@ async function autolearnCalls(event, origin) {
 async function handoffCreates(origin) {
 	const root = await project("dsh-gate-handoff-");
 	const created = [];
+	// The handoff generates nothing any more: any model call from this path is a regression.
+	let modelCalls = 0;
 	const { handlers, on } = handlerContext();
 	const own = [{ type: "turn/end", seq: 10, time: Date.now() }];
 	const conversation = Array.from({ length: 40 }, (_, index) => ({
@@ -206,7 +208,7 @@ async function handoffCreates(origin) {
 						: undefined,
 			llm: {
 				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
-				stream: () => (async function* generate() { yield { type: "text-delta", text: "## Goal\n\ncontinue" }; })(),
+				stream: () => { modelCalls += 1; throw new Error("the handoff must not call a model"); },
 			},
 		},
 		resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }),
@@ -217,6 +219,7 @@ async function handoffCreates(origin) {
 	// The positive control below proves this window is long enough for a child to appear, so an
 	// empty result here means the event was refused rather than that it had not finished yet.
 	for (let i = 0; i < 400 && created.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.equal(modelCalls, 0, "the handoff must not call a model");
 	return created.length;
 }
 

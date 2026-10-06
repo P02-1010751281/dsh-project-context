@@ -6,9 +6,9 @@
  * whatever sat at the end is lost with nothing said. Ported from pi's batch C
  * (`d02e869`'s first half and `024b3db`).
  *
- * Not this defect, and deliberately left alone: the handoff summary prompt's "under 900 words".
- * The handoff document has no enforced character bound at all (the model output budget is the only
- * bound, and a cut reply fails loudly), so that line is style guidance, not a contradicted bound.
+ * (The handoff's summarizer prompt, which once carried a "under 900 words" line, was deleted with the
+ * generated summary — the handoff builds its payload from mechanical parts only, so there is no such
+ * prompt left to bound. The autolearn and consolidation prompts above are the remaining ones.)
  *
  * Run `pnpm test`, which builds `lib/` first and then runs `node --test`.
  */

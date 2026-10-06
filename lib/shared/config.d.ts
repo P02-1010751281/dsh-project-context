@@ -2,10 +2,9 @@
  * Shared plugin configuration for the context pair.
  *
  * A key mirrors the thing that changes it: the command path where one exists — `/handoff budget summary`
- * writes `handoffBudgetSummaryTokens`, `/handoff thinking` writes `handoffThinking` — and otherwise the
- * settings card, which is the only writer of the two capability switches (`memoryEnabled`,
- * `autolearnEnabled`; dsh has no `/memory on|off`). The card, the command and the stored profile then
- * spell one fact one way.
+ * writes `handoffBudgetSummaryTokens` — and otherwise the settings card, which is the only writer of the
+ * two capability switches (`memoryEnabled`, `autolearnEnabled`; dsh has no `/memory on|off`). The card,
+ * the command and the stored profile then spell one fact one way.
  *
  * Renaming one of these keys is a breaking change rather than a rename: the platform persists them
  * into each profile's own `cordis.patch.yml`, this repo cannot rewrite that file, and the type check
@@ -23,7 +22,7 @@ export interface PluginConfig {
     consolidateIntervalMs: number;
     /** Suppress an almost-immediate duplicate forced pass. */
     forceDedupeMs: number;
-    /** Output cap for every auxiliary model call (consolidation, autolearn, handoff summary). */
+    /** Output cap for every auxiliary model call (consolidation, autolearn). */
     maxTokens: number;
     /** Output cap for auxiliary passes whose answer can need more room than `maxTokens`. */
     maxOutputTokens: number;
@@ -45,12 +44,10 @@ export interface PluginConfig {
     handoffThresholdAuto: boolean;
     /** Context-window fraction (0.1–0.95) used when `handoffThresholdAuto` is false. */
     handoffThresholdRatio: number;
-    /** Adaptive mode: conversation tokens handed to each summary. */
+    /** Adaptive mode: the trigger request the pass reports (no model call reads it). */
     handoffBudgetSummaryTokens: number;
     /** Recent conversation tokens carried into the continuation verbatim (0 = no verbatim tail). */
     handoffBudgetRecentTokens: number;
-    /** Thinking for the summary call: "off" (fast) or the session's routed level. */
-    handoffThinking: "off" | "session";
     /** Automatic handoff when the last assistant message is a question: "defer" waits for the answer, "wait" hands off and carries the question into the continuation. */
     handoffPendingQuestion: "defer" | "wait";
     /** Handoff scaffolding language: "auto" follows the conversation, otherwise "zh" or "en". */

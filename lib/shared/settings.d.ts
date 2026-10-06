@@ -53,7 +53,6 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     handoffThresholdRatio: z<number, number>;
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
-    handoffThinking: z<"off" | "session", "off" | "session">;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
     handoffLang: z<"auto" | "zh" | "en", "auto" | "zh" | "en">;
 }>, Schemastery.ObjectT<{
@@ -75,7 +74,6 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     handoffThresholdRatio: z<number, number>;
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
-    handoffThinking: z<"off" | "session", "off" | "session">;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
     handoffLang: z<"auto" | "zh" | "en", "auto" | "zh" | "en">;
 }>>;
