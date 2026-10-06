@@ -81,15 +81,20 @@ function fixedThreshold(config: PluginConfig, contextWindow: number): number {
  * ratio's reach.
  *
  * `min(round(r × W), W − SAFETY_MARGIN) ≥ floor` needs *both* terms: `W − SAFETY_MARGIN ≥ floor` (the cap
- * cannot lift a trigger) and `r ≥ floor / W`. Two decimals is what `/handoff threshold` accepts, so the
- * rounded-up value is verified against the real arithmetic rather than trusted.
+ * cannot lift a trigger) and `r ≥ floor / W`. The value is verified against the real arithmetic rather
+ * than trusted, and stepped back while a smaller two-decimal ratio still clears: `Math.ceil` on a float
+ * overshoots by one step when the boundary is exact (`14 000 / 50 000 × 100` is `28.000000000000004`, so
+ * the honest `0.28` came out as `0.29`). The step-back is bounded by that one-step overshoot.
  */
 function fixedRatioAdvice(config: PluginConfig, measurement: ContextMeasurement, contextWindow: number): number | undefined {
 	const floor = thresholdFloor(config, measurement);
 	if (contextWindow - SAFETY_MARGIN_TOKENS < floor) return undefined;
-	const needed = Math.max(MIN_THRESHOLD_RATIO, Math.ceil((floor / contextWindow) * 100) / 100);
+	const twoDecimals = (value: number): number => Math.round(value * 100) / 100;
+	const clears = (ratio: number): boolean => fixedThreshold({ ...config, handoffThresholdRatio: ratio }, contextWindow) >= floor;
+	let needed = Math.max(MIN_THRESHOLD_RATIO, twoDecimals(Math.ceil((floor / contextWindow) * 100) / 100));
 	if (needed > MAX_THRESHOLD_RATIO) return undefined;
-	return fixedThreshold({ ...config, handoffThresholdRatio: needed }, contextWindow) >= floor ? needed : undefined;
+	while (needed > MIN_THRESHOLD_RATIO && clears(twoDecimals(needed - 0.01))) needed = twoDecimals(needed - 0.01);
+	return clears(needed) ? needed : undefined;
 }
 
 /**

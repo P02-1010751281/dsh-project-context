@@ -73,6 +73,12 @@ test("the fixed-floor receipt quotes both numbers and names only a lever that wo
 		undefined,
 		"the named ratio resolves in the same fixture",
 	);
+	// The named ratio is the *smallest* that works, not one step past it. `14 000 / 50 000 × 100` is
+	// 28.000000000000004 in floating point, so a bare `Math.ceil` names 0.29 while 0.28 already clears the
+	// floor — and the receipt's contract is the smallest control that works.
+	const exact = config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.1, handoffBudgetRecentTokens: 5_000 });
+	const exactText = thresholdRefusalText("fixed-below-floor", exact, { totalTokens: 0, surfaceTokens: 0, overheadTokens: 1_000 }, 50_000, "en");
+	assert.match(exactText, /\/handoff threshold 0\.28\b/, `the smallest working ratio, not the ceil overshoot: ${exactText}`);
 	// The safety-margin clamp decides the lever whenever it is what sits under the floor: at W=50_000 this
 	// floor is 47_000, and 0.95 × 50_000 = 47_500 would clear it while the clamped 46_000 does not. A
 	// `largest` that forgot the clamp would offer 0.95 here and be wrong.
