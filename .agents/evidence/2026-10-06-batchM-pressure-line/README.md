@@ -36,7 +36,7 @@ fall back below the threshold; the `step/start` tick skips a session whose line 
 node .agents/evidence/2026-10-06-batchM-pressure-line/probe.mjs
 ```
 
-Expected: `checks: 5/5 passed`, exit 0, and two printed lines. The line for the motivating numbers
+Expected: `checks: 6/6 passed`, exit 0, and two printed lines. The line for the motivating numbers
 reads (zh; the en text is the same shape):
 
 ```
@@ -46,7 +46,7 @@ reads (zh; the en text is the same shape):
 
 The probe's own failure path is reachable, not decorative: patching the built
 `lib/project-handoff/display.js` freeze condition to `previous !== undefined && previous.tokens ===
-measurement.totalTokens` makes it print `4/5 passed` and exit 1; `pnpm build` then restores `lib/`
+measurement.totalTokens` makes it print `5/6 passed` and exit 1; `pnpm build` then restores `lib/`
 byte-identical (`git diff --exit-code -- lib` clean).
 
 ## Gate on the committed tree
@@ -55,16 +55,23 @@ byte-identical (`git diff --exit-code -- lib` clean).
 |---|---|
 | `pnpm typecheck` | 0 |
 | `pnpm build` | 0, `built ./lib/client.js (28575 bytes)` (client half untouched) |
-| `pnpm test` | **402 pass / 0 fail** (was 395; +7 new cases in `test/handoff-pressure.test.mjs`) |
+| `pnpm test` | **403 pass / 0 fail** (was 395; +8 new cases in `test/handoff-pressure.test.mjs`) |
 | `node_modules/.bin/tsc --outDir $TMP` then `diff -rq lib $TMP` | only `client.js` extra (the documented second load criterion) |
 | mutant markers in `lib/` | 0 |
 
 ## Mutation round
 
-1 source mutant: the freeze condition became "freeze only while the occupancy is unchanged". It
-compiled (`tsc` 0), reached `lib/project-handoff/display.js`, and reddened exactly the named pin
-`the line is frozen while the crossing holds: the text is byte-identical as occupancy grows`.
-Restored from a hash-verified `/tmp` copy: `sha256sum -c` passed for all 66 `src/` files.
+Two source mutants, each compiled (`tsc` 0), reached `lib/`, and reddened only the pin it was aimed
+at. Restored each time from a hash-verified `/tmp` copy (`sha256sum -c` passed for all 66 `src/`
+files), `pnpm build`, and `git diff --exit-code -- lib` clean.
+
+1. The freeze condition became "freeze only while the occupancy is unchanged" —
+   `the line is frozen while the crossing holds: the text is byte-identical as occupancy grows` went
+   red.
+2. The language was restamped on a later resolution while the numbers stayed frozen —
+   `a language flip does not re-render a frozen crossing` went red (with its own message, "a later en
+   resolution must not re-render"), and the occupancy pin above stayed **green**, which is what makes
+   the two pins distinct rather than one assertion counted twice.
 
 ## Load state — re-derived, never quoted
 
