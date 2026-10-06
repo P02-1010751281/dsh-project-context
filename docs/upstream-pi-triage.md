@@ -773,9 +773,10 @@ Everything that moves with it, in dsh's own spelling:
 **Ruling needed: yes.** This is the "half-landed is worse than none" shape: it changes how the
 successor's first message is produced and orphans a persisted key.
 
-Briefs are **owed, not written**: `docs/batch-i-…-brief.md` and `docs/batch-j-…-brief.md` should be
-written when the ruling lands, because the ruling decides the batch's shape (whether `handoffThinking`
-retires with it, whether the receipt wording changes, which `maxMemoryChars` interacts with batch I).
+Briefs are written: `docs/batch-i-progressive-injection-brief.md` and
+`docs/batch-j-drop-summary-brief.md`, both marked not-started. Each states the pi references at a read
+revision, the dsh files and line anchors that move, the decisions that need the user's ruling, the traps
+and the verification plan, so a fresh session can start from the file alone.
 
 ### What this pass corrects
 
