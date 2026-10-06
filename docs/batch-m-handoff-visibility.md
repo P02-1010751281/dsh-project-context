@@ -4,9 +4,14 @@
 的差异只有一处：`auto.ts` 里的门禁序言按本文 §5 抽成了 `gate.ts` 的 `resolveHandoffGate`，而
 `statusText` 的收据仍保留自己的读取序列（它要渲染额外的行，改动它会牵动收据测试）——因此「同源」的
 保证落在「自动路径与显示层共用同一对象」，收据仍是同一批 `resolveThreshold` 调用。
-验证结果：`pnpm typecheck` 0、`pnpm build` 0、`pnpm test` **402 通过 / 0 失败**（新增 7 个用例）；
-1 个变异体（把「跨线后冻结」改成「仅占用未变时冻结」）编译通过、标记进 `lib/`、只打红具名用例
-`the line is frozen while the crossing holds…`，恢复后 `sha256sum -c` 66 个文件全通过、`lib/` 0 标记。
+验证结果：`pnpm typecheck` 0、`pnpm build` 0、`pnpm test` **404 通过 / 0 失败**（新增 9 个用例）；
+3 个变异体（①把「跨线后冻结」改成「仅占用未变时冻结」②保留数字但重盖语言 ③删掉「tick 晚于 disposed
+时不得回写」的守卫）编译通过、标记进 `lib/`、各自只打红对应具名用例，恢复后 `sha256sum -c` 全通过、
+`lib/` 0 标记。
+落地后补了两处，都是本批自己引入的：`dcf9cc0` 把语言与数字一起冻结——现解析会让双语会话把行在 zh/en
+间翻转，那同样是一次 ~37 KB 追加，所以语言由 `recordHandoffGate` 收下、`handoffPressureText(session)`
+只读回；`3c97937` 让停在 `resolveModelInfo` 里的 `step/start` tick 在会话已被处置时不再回写，否则它会为
+一个再也不会组装提示词的会话把刚清掉的行重新插回去，留下的映射项活到进程结束。
 上游动机：`54cdf479`（`↪ handoff · a00eb4ce`）在 **316,189 / 1,000,000** 对阈值 **157,000**（2.01×）处，因为
 **只有一个未结束的 turn**，`turn/end` 从未触发，所以自动交接**从未被评估过**，用户只能自己手算才发现。
 

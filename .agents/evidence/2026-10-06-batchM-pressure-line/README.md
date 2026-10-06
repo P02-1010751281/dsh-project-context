@@ -1,6 +1,8 @@
 # Batch M — the injected pressure line: pre-restart evidence
 
-Subject: `6e8c3f9` `feat(handoff): make a crossed threshold visible through the injected context`.
+Subject: `6e8c3f9` `feat(handoff): make a crossed threshold visible through the injected context`,
+plus its two follow-ups: `dcf9cc0` (freeze the crossing's language with its numbers) and `3c97937`
+(a tick that settles after disposal must not re-insert the line).
 This file is the record a successor reads to answer "what was proven before the restart, and what is
 still open".
 
@@ -55,15 +57,15 @@ byte-identical (`git diff --exit-code -- lib` clean).
 |---|---|
 | `pnpm typecheck` | 0 |
 | `pnpm build` | 0, `built ./lib/client.js (28575 bytes)` (client half untouched) |
-| `pnpm test` | **403 pass / 0 fail** (was 395; +8 new cases in `test/handoff-pressure.test.mjs`) |
+| `pnpm test` | **404 pass / 0 fail** (was 395; +9 new cases in `test/handoff-pressure.test.mjs`) |
 | `node_modules/.bin/tsc --outDir $TMP` then `diff -rq lib $TMP` | only `client.js` extra (the documented second load criterion) |
 | mutant markers in `lib/` | 0 |
 
 ## Mutation round
 
-Two source mutants, each compiled (`tsc` 0), reached `lib/`, and reddened only the pin it was aimed
-at. Restored each time from a hash-verified `/tmp` copy (`sha256sum -c` passed for all 66 `src/`
-files), `pnpm build`, and `git diff --exit-code -- lib` clean.
+Three source mutants, each compiled (`tsc` 0), reached `lib/`, and reddened only the pin it was
+aimed at. Restored each time from a hash-verified `/tmp` copy (`sha256sum -c` passed), `pnpm build`,
+and `git diff --exit-code -- lib` clean.
 
 1. The freeze condition became "freeze only while the occupancy is unchanged" —
    `the line is frozen while the crossing holds: the text is byte-identical as occupancy grows` went
@@ -72,12 +74,27 @@ files), `pnpm build`, and `git diff --exit-code -- lib` clean.
    `a language flip does not re-render a frozen crossing` went red (with its own message, "a later en
    resolution must not re-render"), and the occupancy pin above stayed **green**, which is what makes
    the two pins distinct rather than one assertion counted twice.
+3. The `disposedDuringTick` guard was dropped from the tick's `.then` — `a tick that settles after
+   disposal does not re-insert the line` went red, on its own assertion message.
+
+## A tracked-doc defect found while landing the batch
+
+`CONTEXT.md` did **not** round-trip through `renderContextDocument`: two hand-written bullets were
+over the `MAX_LIST_ITEM_CHARS` (800) cap — the load-state bullet (1002) and this batch's own landed
+bullet (802) — so the next `/memory update` would have clipped 204 characters mid-sentence and
+appended the truncation marker. Both were split, not shortened, and the document now round-trips
+byte-identically (0 items over the cap). The check is re-runnable and lives at
+`.agents/evidence/2026-10-06-context-doc-roundtrip/roundtrip.mjs`; it is the CONTEXT.md counterpart
+of the MEMORY.md `sectionsFromMarkdown` → `renderMemoryDocument` control, which the built renderer
+does not provide for this document.
 
 ## Load state — re-derived, never quoted
 
 - Criterion: the 19387 holder's start must be **later** than the last `src/` commit.
 - Read at the time of writing: holder pid `4583` started `二 10月 6 21:00:16 2026`; last `src/`
-  commit `6e8c3f9` @ `2026-10-06T22:46:37+08:00` → **negative: batch M is NOT loaded.**
+  commit `3c97937` @ `2026-10-06T23:00:24+08:00` → **negative: batch M is NOT loaded.** Re-derive
+  both halves rather than quoting these: a recorded pid/start time and a recorded commit go stale the
+  moment either moves.
 - `/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` → `RESULT: PASS` (electron 3656 /
   host 4583). This proves the build a restart *will* load, not that anything is loaded.
 
