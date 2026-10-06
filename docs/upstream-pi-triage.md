@@ -866,3 +866,142 @@ root (`src/shared/error-log.ts` calls `mkdir(…, { recursive: true })` uncondit
 present in dsh, but whether a reachable dsh path passes it a wrong root was not established. Nothing was
 ported: this pass edits `docs/` and memory only, `src/` is untouched, and no CHANGELOG entry or host
 restart follows from it.
+
+## Seventh pass — 2026-10-06 (5 commits after the sixth pass)
+
+The sixth pass stopped at `4e40d43`. pi's `origin/master` has since reached `c9d4db6` — **5 commits** in
+`4e40d43..c9d4db6`, and the first-parent count is the same 5 (no merge in this range). `v0.4.2` is still the
+newest tag and sits 7 commits below the endpoint (`git describe --tags c9d4db6` → `v0.4.2-7-gc9d4db6`); the
+previous endpoint is `v0.4.2-2-g4e40d43`. State the revision and the tag separately rather than pairing them.
+
+**Read the checkout honestly.** The checkout's own `master` is still `1a958ce` (`v0.4.0-6-g1a958ce`) while
+`origin/master` is `c9d4db6`, so its working tree answers with pre-change files; every pi read behind this
+section is `git show c9d4db6:<path>` or `git show <commit>`. `git log --all --not master` is non-empty (56
+commits) for that reason only — `git branch -a` shows no second branch.
+
+Unlike the sixth pass, this range is **almost all code**: one docs commit (`ab21491`) and four that touch
+`extensions/` or `tests/`. This pass ports **nothing** — it is a docs-only round — but it does find portable
+work. Four of the five commits are the follow-up rounds of pi's own v0.4.3 release: `057021d` clears the two
+residuals v0.4.2 shipped as named follow-ups, and `3a0183b`, `e024595`, `c9d4db6` are the review rounds that
+correct it.
+
+### The five commits
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `057021d` | fix(handoff,autolearn): both modes obey the drop floor, and a truncated inventory says so | **SPLIT, PORT-WORTHY — batch K** (items 1, 5) |
+| `3a0183b` | fix(handoff,autolearn): name the refusal, pin the floor boundary, and gate the blank line | **SPLIT** — items 2, 4 PORT-WORTHY (batch K); the repo-hygiene gate is PI-ONLY |
+| `ab21491` | docs(memory): refresh the memory render | **PI-ONLY (record)** — pi's own memory render |
+| `e024595` | fix(config,handoff,autolearn): one source for the ratio range, and a hygiene gate that reports itself | **SPLIT** — item 3 PORT-WORTHY (batch K); the hygiene gate and the near-floor receipt fix are PI-ONLY / not applicable |
+| `c9d4db6` | test,docs(handoff): close round 12's nits, including a CRLF hole in the hygiene gate | **PI-ONLY (record)** — its one portable lesson is a rule for item 3's new guard |
+
+### Batch K — the fixed threshold tells the truth
+
+Four items, three groups, all in dsh's handoff and autolearn, each with the dsh defect read off our own
+source. Nothing is ported yet.
+
+1. **Fixed-ratio mode does not obey the physical drop floor.** pi's `057021d` routes the fixed branch through
+   the same floor the adaptive branch uses, and deliberately keeps it a **refusal gate, not a lift**:
+   `ratio * window` landing below `baseline + keep + MIN_DROP` refuses, because a handoff that drops a few
+   thousand tokens replaces the session without buying context. dsh's fixed branch
+   (`src/project-handoff/threshold.ts:321-335`) consults nothing but `tokens <= 0`: a `0.1` ratio at a
+   10 000-token window resolves to a 1 000-token threshold and is handed to `auto.ts` as a usable trigger,
+   where the adaptive branch on the same numbers refuses through `handoffRoom`. **Partial overlap, and it
+   has to be stated rather than counted as the fix already being here:** `auto.ts:65` already skips a handoff
+   whose *measured* older span is under `MIN_DROP_TOKENS`, so dsh will not usually perform the worthless
+   handoff — but that reads the session's own fill rather than the configuration, and it is a silent skip
+   (the "nothing older to drop" line), not a refusal, so the threshold and the receipt still claim a trigger
+   that cannot buy context. The two bases also differ: pi's floor is measured `baseline + keep + 8 000`,
+   dsh's skip compares the older span against `8 000`.
+2. **Every fixed refusal carries one cause, so item 1 would be reported as a window problem.** dsh's
+   `thresholdRefusal` returns the single `no-positive-threshold` for every fixed-mode refusal
+   (`threshold.ts:88`) and `thresholdRefusalText`'s closing sentence asserts the ratio "cannot help"
+   (`threshold.ts:195-201`). Once item 1 lands that sentence is **false** — the ratio is then the first lever
+   — and the two causes (a ratio that rounds out at a tiny window, a threshold under the floor at a large
+   one) want opposite advice. pi carries the second cause as `fixed-below-floor` and picks the lever from
+   `MAX_THRESHOLD_RATIO`, naming only the carried-window budget when even the largest legal ratio cannot
+   clear the floor. *Ruling needed*: this is a behaviour change (a configuration that triggers today would
+   refuse), and items 1 and 2 must land together or the refusal blames the window.
+3. **The ratio range is copied, not shared.** pi's `e024595` is the follow-up that made its own "single
+   source" claim true, and its finding was that exporting one of the pair is worse than neither: moving
+   `MAX_THRESHOLD_RATIO` alone while the parser kept its literal stayed green. dsh has not started:
+   `0.1`/`0.95` is written **10 times in 5 files**, three of them executable — the command parser
+   (`command.ts:26`, plus the two usage sentences at `:53`/`:73`), the config validator
+   (`config.ts:144-145`) and the settings zod schema (`settings.ts:57`) — the rest being the type comment
+   (`config.ts:48`), the threshold comment (`threshold.ts:196`) and the two card hints (`locales.ts:55,116`).
+   The portable shape is **one exported pair** read by the validator, the parser and the usage sentences.
+4. **A refused configuration is confirmed as a success.** pi's `3a0183b` makes `/handoff threshold <ratio>`
+   hand back the status line, so a ratio that can never fire is visible the moment it is set. dsh replies
+   `Handoff setting updated: threshold 0.4` (`src/project-handoff/index.ts:168`) without resolving anything,
+   so item 1's unreachable trigger reads as success.
+5. **The autolearn inventory hides its tail.** pi's `057021d` appends
+   `- (N more skill(s) not listed: the <cap>-character inventory cap was reached)` when the cap truncates the
+   list, so the model knows an unseen name is not a nonexistent name and an operator sees the cap being
+   reached. dsh's `inventoryText` (`src/project-autolearn/inventory.ts:69`) `break`s silently at
+   `MAX_INVENTORY_CHARS = 8_000`. pi records its own merged inventory at 7 892/8 000 — the cap is reached in
+   practice. Purely additive and independent of items 1–4.
+
+Items 1+2 are one change, 3+4 are one change, 5 stands alone: three groups, none large enough for a
+half-landed shape, and only 1+2 needs a ruling.
+
+### What this pass does NOT find
+
+- pi's near-floor receipt fix (print the raw integers when `fmtTokens` rounds both sides of the comparison to
+  the same text) has no dsh analogue: dsh's receipt prints `floor` and `usable` as raw integers already, so
+  there is no rounding collision to avoid.
+- pi's repo-hygiene gate (a tracked text file must not end with a blank line; `tests/run-all.mjs` gained a
+  NUL-byte-skipping reader that covers `LICENSE`, and `c9d4db6` closed its CRLF hole) has no dsh counterpart:
+  dsh's suites carry no trailing-blank-line check (`git grep -n 'ends with a blank line' -- test/ src/` → 0).
+  It is pi's own release gate rather than a behaviour fix, so it is refused, not ported.
+- pi's threshold skill no longer states the floor formula with a pre-rename key. No dsh skill carries a ratio
+  range or a pre-rename key in a floor formula (`git grep -n '0\.1.*0\.95' -- .agents/skills/` → 0), so there
+  is nothing to correct here.
+- `ab21491` is pi's own memory render, and the coupling-guard lesson `c9d4db6` draws (a guard that checks one
+  bound of a shared pair lets the mirror mutation through — move `MIN` and keep the parser's literal, and both
+  the guard and the config tests stay green) is a rule for the guard item 3 adds, not a change of its own.
+
+### Sixth pass addendum (2026-10-06)
+
+Batches I and J are **landed** since that section was written: `12aacbb` (batch J — the summarizer deleted and
+`handoffThinking` retired) and `28401bb` (batch I — the two decision sections stay inline and the rest is
+indexed) are in `src/`, the gate is green and `lib/` matches a fresh `tsc` compile with `lib/client.js` the
+only extra. They are **not yet loaded**: the desktop host serving 19387 started before both commits, so one
+restart loads them together with `f38a0ba` and `904152d`. The sixth pass's "in progress" wording stays as the
+record of the day it was written; this addendum carries the outcome.
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P fetch origin                                                  # the pass needs this first
+git -C $P rev-parse HEAD origin/master                                  # 1a958ce / c9d4db6
+git -C $P rev-list --count 4e40d43..origin/master                       # 5
+git -C $P rev-list --count --first-parent 4e40d43..origin/master        # 5 (no merge in this range)
+git -C $P describe --tags 4e40d43                                       # v0.4.2-2-g4e40d43
+git -C $P describe --tags origin/master                                 # v0.4.2-7-gc9d4db6
+git -C $P describe --tags HEAD                                          # v0.4.0-6-g1a958ce (checkout behind)
+git -C $P tag -l --sort=-v:refname | head -1                            # v0.4.2
+git -C $P branch -a                                                     # no second branch
+git -C $P log --oneline 4e40d43..origin/master                          # the 5 above
+D=/mnt/Data/Projects/dsh-project-context
+git -C $D grep -n 'ratio >= 0.1 && ratio <= 0.95' -- src/                # command.ts:26 — a literal, not the config pair
+git -C $D grep -n '0\.1.*0\.95' -- src/ client/ | wc -l                  # 10 lines
+git -C $D grep -c '0\.1.*0\.95' -- src/ client/                          # 5 files carry them
+git -C $D grep -n 'no-positive-threshold' -- src/project-handoff/        # one fixed cause for every fixed refusal
+git -C $D grep -n 'thresholdFloor' -- src/project-handoff/threshold.ts   # not reached from the fixed branch
+git -C $D grep -n 'Handoff setting updated' -- src/                      # index.ts:168 — the blind confirmation
+git -C $D grep -n 'MAX_INVENTORY_CHARS' -- src/                          # inventory.ts:12,69 — a silent break
+git -C $D grep -n 'ends with a blank line' -- test/ src/                 # 0: no repo-hygiene gate to port into
+git -C $D grep -n '0\.1.*0\.95' -- .agents/skills/                       # 0: no skill states the range
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a semantic
+diff of the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`, the profiles
+under `~/.dsh`) is not owned here. Three dispositions rest on source reads rather than probes and are marked as
+such: that dsh's fixed branch reaches no floor (a read of `threshold.ts:321-335`), that `auto.ts:65` already
+guards the *measured* older span (a read of `auto.ts`, not a driven session), and that no dsh skill states the
+ratio range (a zero-hit grep over `.agents/skills/`, which the tracking boundary makes a complete set of the
+promoted skills). Item 1's ruling is the only decision this pass asks for. Nothing was ported: this pass edits
+`docs/` and memory only, `src/` is untouched, and no CHANGELOG entry or host restart follows from it.
