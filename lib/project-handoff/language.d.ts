@@ -10,8 +10,9 @@
  * Everything here is pure: sample extraction, detection/resolution, the scaffolding
  * table and the continuation-prompt predicate are unit-tested without a session.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 /** Languages the handoff scaffolding can be rendered in. */
-export type HandoffLanguage = "zh" | "en";
+export type HandoffLanguage = DocumentLanguage;
 /** The configured language: `auto` follows the conversation. */
 export type HandoffLanguageSetting = "auto" | HandoffLanguage;
 /** One raw message the `auto` decision samples. */
@@ -23,7 +24,11 @@ export interface HandoffLanguageMessage {
     /** Raw, unclipped message text. */
     readonly text: string;
 }
-/** `auto` language rule: enough Chinese in the user's own messages means Chinese scaffolding. */
+/**
+ * `auto` language rule: enough Chinese in the user's own messages means Chinese scaffolding.
+ * The pattern and the threshold are the shared primitive, so the handoff scaffolding and the
+ * injected pointer text can never disagree about the same content.
+ */
 export declare function detectHandoffLanguage(samples: readonly string[]): HandoffLanguage;
 /** User texts for the `auto` decision: injected prompts excluded, recent messages preferred. */
 export declare function languageSamples(messages: readonly HandoffLanguageMessage[]): string[];

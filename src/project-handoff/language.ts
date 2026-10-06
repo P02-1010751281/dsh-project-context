@@ -11,8 +11,10 @@
  * table and the continuation-prompt predicate are unit-tested without a session.
  */
 
+import { countMatches, detectDocumentLanguage, type DocumentLanguage } from "../shared/language.js";
+
 /** Languages the handoff scaffolding can be rendered in. */
-export type HandoffLanguage = "zh" | "en";
+export type HandoffLanguage = DocumentLanguage;
 
 /** The configured language: `auto` follows the conversation. */
 export type HandoffLanguageSetting = "auto" | HandoffLanguage;
@@ -27,10 +29,6 @@ export interface HandoffLanguageMessage {
 	readonly text: string;
 }
 
-/** CJK ideographs; the user's own messages are the most reliable language signal. */
-const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
-/** CJK characters needed in the samples before `auto` picks Chinese. */
-const LANGUAGE_CJK_MIN = 2;
 /** Latin letters that make a sample set count as substantial English. */
 const LANGUAGE_LATIN_MIN = 20;
 const LATIN_PATTERN = /[A-Za-z]/g;
@@ -39,15 +37,13 @@ const LANGUAGE_SAMPLE_MESSAGES = 8;
 /** Total characters the recent samples must reach before the older ones are dropped. */
 const LANGUAGE_SAMPLE_MIN_CHARS = 40;
 
-function countMatches(samples: readonly string[], pattern: RegExp): number {
-	let count = 0;
-	for (const sample of samples) count += sample.match(pattern)?.length ?? 0;
-	return count;
-}
-
-/** `auto` language rule: enough Chinese in the user's own messages means Chinese scaffolding. */
+/**
+ * `auto` language rule: enough Chinese in the user's own messages means Chinese scaffolding.
+ * The pattern and the threshold are the shared primitive, so the handoff scaffolding and the
+ * injected pointer text can never disagree about the same content.
+ */
 export function detectHandoffLanguage(samples: readonly string[]): HandoffLanguage {
-	return countMatches(samples, CJK_PATTERN) >= LANGUAGE_CJK_MIN ? "zh" : "en";
+	return detectDocumentLanguage(samples);
 }
 
 /** User texts for the `auto` decision: injected prompts excluded, recent messages preferred. */

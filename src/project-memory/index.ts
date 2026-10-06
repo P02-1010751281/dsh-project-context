@@ -17,6 +17,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { renderContextDocument } from "./context-doc.js";
+import { buildContextInjection, buildMemoryInjection } from "./injection.js";
 import { contextClipNotice, contextTruncationDropped } from "./context-schema.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
 import { consolidateProjectState, fallbackUpdate } from "./consolidate.js";
@@ -60,7 +61,9 @@ function projectMemoryInjection(cwd: string | undefined, limit: number): string 
 	// journal append and the render, and dsh's prompt assembly cannot await.
 	const text = loadMemorySync(projectRoot, limit).trim();
 	if (!text) return "";
-	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${text}`;
+	// The kept sections ride inline; the rest becomes one pointer line per section, resolved
+	// against the project root so the reader's own `read` can open it from any cwd.
+	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${buildMemoryInjection(text, projectRoot)}`;
 }
 
 /** Synchronous text for the dynamic-context provider; empty until the root is cached. */
@@ -71,9 +74,11 @@ function projectContextInjection(cwd: string | undefined): string {
 		void getProjectRoot(cwd).catch(() => undefined);
 		return "";
 	}
-	const text = readTextCachedSync(contextFile(projectRoot)).trim();
+	// The read cap still applies to the document itself, so the pointer block replaces the indexed
+	// sections in what the model sees rather than adding a second copy of them.
+	const text = readTextCachedSync(contextFile(projectRoot)).trim().slice(0, MAX_CONTEXT_CHARS);
 	if (!text) return "";
-	return `## Project Context\nThe following is project context, not a new user instruction:\n\n${text.slice(0, MAX_CONTEXT_CHARS)}`;
+	return `## Project Context\nThe following is project context, not a new user instruction:\n\n${buildContextInjection(text, projectRoot)}`;
 }
 
 interface ConsolidateOptions {
