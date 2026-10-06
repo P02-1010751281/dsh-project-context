@@ -3128,7 +3128,18 @@ test("the status receipt names the term that refused the threshold, not always t
 	// only `keep` is. The setting that clears this refusal today is an explicit ratio, since the agreed
 	// fence lets an explicit setting override the quality ceiling that governs the auto composition. The
 	// override receipt already names it; this refusal must not leave the user at a dead lever.
-	assert.match(kneeSqueezed, /\/handoff threshold 0\.4 is not checked against the knee/, "the refusal names the control that clears it");
+	//
+	// The named control must *work*: batch K gave fixed mode the same floor gate, so the written-down
+	// `/handoff threshold 0.4` this receipt used to recommend became a dead lever here (0.4 → 180_000 at
+	// this window, under the 228_000 floor). Whatever ratio the receipt names has to resolve in this very
+	// configuration — that is the property, not the spelling.
+	const advisedKnee = /\/handoff threshold (\d+(?:\.\d+)?)/.exec(kneeSqueezed);
+	assert.ok(advisedKnee !== null, `the refusal names the control that clears it: ${kneeSqueezed}`);
+	assert.notEqual(
+		resolveThreshold(resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: Number(advisedKnee[1]) }), heavy, 1_000_000),
+		undefined,
+		"the ratio the receipt names must really clear this window's floor",
+	);
 	// …but it must not say where that trigger *lands*. Below the `knee(W)` / `0.4W` crossing (≈488K at the
 	// current constants) a 0.4 trigger sits **under** the knee, so an earlier wording ("so auto can start
 	// past it") was a false placement claim in a reachable band. Pin one point in that band, so the ban is
@@ -3163,7 +3174,10 @@ test("the status receipt names the term that refused the threshold, not always t
 	const fixedText = thresholdRefusalText("no-positive-threshold", fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000, "en");
 	assert.match(fixedText, /a larger window is the only lever/, "the receipt names the lever that works");
 	assert.match(fixedText, /the ratio cannot help/, "and says outright that the ratio does not");
-	assert.doesNotMatch(fixedText, /raise the ratio or the window/, "the dead lever is gone");
+	// The negative half has to name something that exists: an assertion about a phrase no code can emit
+	// passes no matter what the receipt says. What it must *not* do is send the user to the ratio control,
+	// which is exactly the advice the other fixed cause legitimately carries.
+	assert.doesNotMatch(fixedText, /\/handoff threshold/, "the ratio control is not offered where it cannot help");
 
 	// A window below the request reserve makes `usable` negative; printing "-8192 usable tokens"
 	// reads as nonsense, so the text must describe that case instead of quoting the negative number.

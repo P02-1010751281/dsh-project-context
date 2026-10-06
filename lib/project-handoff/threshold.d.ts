@@ -33,9 +33,9 @@ export interface ContextMeasurement {
 /**
  * Why {@link resolveThreshold} returned `undefined`, named as the term that actually binds.
  *
- * `resolveThreshold` has five `undefined` exits with five different causes, and the receipt used to
- * render every one of them as "threshold unavailable at this window" — a claim about the window that
- * is *false* for four of the five. A roomy window (`usable > floor`) still refuses when the drop
+ * `resolveThreshold` has four `undefined` exits and the diagnosis names five different causes, and the
+ * receipt used to render every one of them as "threshold unavailable at this window" — a claim about the
+ * window that is *false* for most of them. A roomy window (`usable > floor`) still refuses when the drop
  * minimum, the reported envelope + carried tail, the second 4K
  * {@link SAFETY_MARGIN_TOKENS} deduction, the **quality knee**, or fixed mode's own floor is what
  * decided it, and "at this window" sends the user to change the model or the target when neither is
@@ -119,5 +119,9 @@ export declare function resolveThreshold(config: PluginConfig, measurement: Cont
 /**
  * The `/handoff status` warning for a manual threshold the guardrail overrode. Both numbers and the
  * lever are named, so the receipt cannot send the user back to the same ineffective control.
+ *
+ * `measurement` is needed for the ratio advice: honoring an overridden `/handoff budget summary` by
+ * switching to a fixed ratio only works above the physical floor, and the ratio that clears it depends on
+ * the envelope and the carried tail.
  */
-export declare function thresholdOverrideText(override: ThresholdOverride, config: PluginConfig, contextWindow: number): string;
+export declare function thresholdOverrideText(override: ThresholdOverride, config: PluginConfig, measurement: ContextMeasurement, contextWindow: number): string;

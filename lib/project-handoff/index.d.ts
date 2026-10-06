@@ -64,3 +64,4 @@ export { HANDOFF_TITLE_PREFIX };
 /** Re-exported so the handoff-owned literals stay reachable from one module. */
 export { isHandoffContinuationText, REPLAY_MARKER };
 export declare function apply(ctx: Context, rawConfig: unknown): void;
+export declare function movesThreshold(patch: Record<string, unknown> | undefined): boolean;

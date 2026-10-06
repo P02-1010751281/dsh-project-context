@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseRatio, settingPatch } from "../lib/project-handoff/command.js";
 import { apply } from "../lib/project-handoff/index.js";
-import { MIN_DROP_TOKENS, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
+import { MIN_DROP_TOKENS, resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../lib/shared/limits.js";
 import { PluginSettingsSchema } from "../lib/shared/settings.js";
@@ -63,7 +63,28 @@ test("the fixed-floor receipt quotes both numbers and names only a lever that wo
 	assert.equal(resolveThreshold(raisable, plain, 30_000), undefined, "0.1 × 30_000 = 3_000 is under the 8_000 floor");
 	const raisableText = thresholdRefusalText("fixed-below-floor", raisable, plain, 30_000, "en");
 	assert.match(raisableText, /the fixed 10% trigger of 3000 tokens is below the 8000-token floor/, `both numbers are quoted: ${raisableText}`);
-	assert.match(raisableText, /raise the ratio \(\/handoff threshold\) or lower "Recent tokens kept"/, `a working lever: ${raisableText}`);
+	assert.match(raisableText, /raise the ratio \(\/handoff threshold \d+(?:\.\d+)?\) or lower "Recent tokens kept"/, `a working lever: ${raisableText}`);
+	// …and the ratio it names must really clear this floor: a receipt that recommends a ratio its own gate
+	// then refuses is the dead-lever defect wearing a number (batch K's floor made `/handoff threshold 0.4`
+	// exactly that in reachable windows).
+	const advised = Number(/\/handoff threshold (\d+(?:\.\d+)?)/.exec(raisableText)[1]);
+	assert.notEqual(
+		resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: advised, handoffBudgetRecentTokens: 0 }), plain, 30_000),
+		undefined,
+		"the named ratio resolves in the same fixture",
+	);
+	// The safety-margin clamp decides the lever whenever it is what sits under the floor: at W=50_000 this
+	// floor is 47_000, and 0.95 × 50_000 = 47_500 would clear it while the clamped 46_000 does not. A
+	// `largest` that forgot the clamp would offer 0.95 here and be wrong.
+	const clamped = config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 39_000 });
+	const clampedText = thresholdRefusalText("fixed-below-floor", clamped, plain, 50_000, "en");
+	assert.match(clampedText, /no legal ratio clears the floor at this window/, `the clamp decides this one: ${clampedText}`);
+	assert.doesNotMatch(clampedText, /raise the ratio/, "0.95 is refused by the clamp, so it must not be offered");
+	// The clamp is also admitted when it is what produced the quoted trigger: 0.95 × 65_536 = 62_259 is
+	// capped to 61_536, and the refusal must not credit the ratio with the larger number.
+	const capped = config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.95, handoffBudgetRecentTokens: 60_000 });
+	const cappedText = thresholdRefusalText("fixed-below-floor", capped, plain, 65_536, "en");
+	assert.match(cappedText, /trigger of 61536 tokens \(the 4000-token safety margin caps 62259\)/, `the cap is admitted: ${cappedText}`);
 	// When even the largest legal ratio cannot clear the floor, naming the ratio would send the user to a
 	// control that changes nothing — the dead-lever defect this whole receipt exists to prevent.
 	const stuck = thresholdRefusalText("fixed-below-floor", config({ handoffThresholdAuto: false }), plain, 8_000, "en");
@@ -140,8 +161,113 @@ test("/handoff threshold <ratio> hands back the receipt instead of a blind confi
 	assert.match(accepted.text, /threshold 40% of window/, `a working ratio reports its trigger: ${accepted.text}`);
 	assert.doesNotMatch(accepted.text, /threshold unavailable/);
 
-	// Every other verb keeps the plain confirmation: the receipt is answered for the one write whose effect
-	// can be nothing at all, not for `on`/`off`/`budget`/`pending`/`lang`.
+	// Every other verb keeps the plain confirmation: the receipt is answered for the writes the trigger's
+	// resolution reads, not for `on`/`off`/`pending`/`lang`.
 	const other = await call("pending wait");
 	assert.equal(other.text, "Handoff setting updated: pending wait");
+});
+
+test("a receipt never recommends a ratio its own floor refuses", () => {
+	// The knee escape a receipt may offer must be a working control. A 960_000-token envelope at a 1M
+	// window puts the floor at 968_000 — above 0.95 × W — so no legal ratio clears it, and the receipt has
+	// to say that instead of naming a dead lever.
+	const auto = config({ handoffBudgetRecentTokens: 0 });
+	const closed = { totalTokens: 600_000, surfaceTokens: 300_000, overheadTokens: 960_000 };
+	assert.equal(thresholdRefusal(auto, closed, 1_000_000), "quality-knee");
+	const closedText = thresholdRefusalText("quality-knee", auto, closed, 1_000_000, "en");
+	assert.match(closedText, /a fixed ratio is closed here too — no legal ratio clears the floor at this window/, `the route is closed, not named: ${closedText}`);
+	assert.doesNotMatch(closedText, /\/handoff threshold \d/, "no ratio may be offered when none clears the floor");
+
+	// The reachable half of the same property: a 200K envelope at a 1M window does admit ratios, and the one
+	// the receipt names must resolve in exactly this configuration.
+	const heavy = { totalTokens: 512_000, surfaceTokens: 300_000, overheadTokens: 200_000 };
+	const heavyText = thresholdRefusalText("quality-knee", config({}), heavy, 1_000_000, "en");
+	const advised = Number(/\/handoff threshold (\d+(?:\.\d+)?)/.exec(heavyText)[1]);
+	assert.notEqual(resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: advised }), heavy, 1_000_000), undefined,
+		`the named ratio must clear this floor: ${heavyText}`);
+
+	// The fixture that actually catches a written-down ratio: the band where a 0.4 trigger clears neither the
+	// knee nor batch K's floor (180_000 under 308_000). A receipt that still says 0.4 is a dead lever here,
+	// and the heavy fixture above would not notice because 0.4 does clear *its* 228_000 floor.
+	const band = { totalTokens: 600_000, surfaceTokens: 300_000, overheadTokens: 300_000 };
+	const bandAuto = config({ handoffBudgetRecentTokens: 0 });
+	assert.equal(thresholdRefusal(bandAuto, band, 450_000), "quality-knee");
+	const bandText = thresholdRefusalText("quality-knee", bandAuto, band, 450_000, "en");
+	const bandAdvised = Number(/\/handoff threshold (\d+(?:\.\d+)?)/.exec(bandText)[1]);
+	assert.ok(bandAdvised > 0.4, `the receipt must not repeat the 0.4 this floor refuses: ${bandText}`);
+	assert.notEqual(
+		resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: bandAdvised, handoffBudgetRecentTokens: 0 }), band, 450_000),
+		undefined,
+		"and the ratio it does name must clear this floor",
+	);
+});
+
+test("the target-override receipt names a ratio that clears the floor too", () => {
+	// The second site of the same defect: honouring an overridden `/handoff budget summary` by switching to a
+	// fixed ratio only works above the physical floor, which at the default 65_536-token window is 28_000.
+	const def = config({});
+	const measurement = { totalTokens: 26_000, surfaceTokens: 20_000 };
+	const resolved = resolveThreshold(def, measurement, 65_536);
+	assert.equal(resolved?.override?.setting, "target", "this fixture really is an overridden target");
+	const text = thresholdOverrideText(resolved.override, def, measurement, 65_536);
+	assert.match(text, /only 45152 tokens fit this 65536-token window/);
+	const advised = Number(/use \/handoff threshold (\d+(?:\.\d+)?) for a fixed ratio/.exec(text)[1]);
+	assert.notEqual(resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: advised }), measurement, 65_536), undefined,
+		`the ratio the override receipt names must resolve: ${text}`);
+});
+
+test("/handoff budget recent is receipted, because it builds the floor", async () => {
+	// Batch K put the carried tail into the physical floor, so raising it can take a working fixed ratio
+	// below the gate: on a 400_000-token window a 0.4 ratio on a 152_000 tail resolves exactly on the floor,
+	// and a 160_000 tail refuses. That write used to answer with a bare confirmation.
+	const commands = new Map();
+	const ctx = {
+		on: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 400_000 } }) },
+		get: (service) => (service === "settings"
+			? { update: async () => undefined }
+			: service === "tokenMeter"
+				? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) }
+				: undefined),
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 152_000 });
+	const session = { id: "session-floor-write", header: { cwd: process.cwd(), createdAt: Date.now() }, deriveMessages: () => [], requestHeader: () => undefined, snapshotEvents: () => [] };
+	const call = (rawInput) => commands.get("handoff").handler({ agent: { session }, rawInput, signal: new AbortController().signal });
+
+	assert.equal(resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 152_000 }), plain, 400_000)?.tokens, 160_000, "the starting ratio sits exactly on the floor");
+	const reply = await call("budget recent 160000");
+	assert.equal(reply.kind, "success");
+	assert.match(reply.text, /threshold unavailable/, `raising the tail past the floor must be reported: ${reply.text}`);
+	assert.match(reply.text, /below the 168000-token floor/, "and it names the floor the write built");
+	// A write that cannot move the trigger keeps the short confirmation.
+	const untouched = await call("pending wait");
+	assert.equal(untouched.text, "Handoff setting updated: pending wait");
+});
+
+test("a receipt that cannot be built does not report a landed write as a failure", async () => {
+	// The receipt resolves the model to learn the window, so the model registry can fail *after* the write
+	// landed. Throwing there would report a successful write as a failed command — the same misattribution
+	// in reverse, and `/handoff threshold` never touched the model before batch K.
+	const writes = [];
+	const commands = new Map();
+	const ctx = {
+		on: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		llm: { resolveModelInfo: async () => { throw new Error("model registry offline"); } },
+		get: (service) => (service === "settings"
+			? { update: async (namespace, patch) => { writes.push({ namespace, patch }); } }
+			: service === "tokenMeter"
+				? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) }
+				: undefined),
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model" });
+	const session = { id: "session-receipt-failure", header: { cwd: process.cwd(), createdAt: Date.now() }, deriveMessages: () => [], requestHeader: () => undefined, snapshotEvents: () => [] };
+	const reply = await commands.get("handoff").handler({ agent: { session }, rawInput: "threshold 0.4", signal: new AbortController().signal });
+	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: false, handoffThresholdRatio: 0.4 }, "the write landed before the receipt was attempted");
+	assert.equal(reply.kind, "success", "a receipt failure must not be reported as a write failure");
+	assert.match(reply.text, /Handoff setting updated: threshold 0\.4/);
+	assert.match(reply.text, /the status receipt could not be built: model registry offline/, `the missing receipt is named: ${reply.text}`);
 });

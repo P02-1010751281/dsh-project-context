@@ -7,7 +7,7 @@
  */
 
 import { type PluginConfig } from "../shared/config.js";
-import { MAX_THRESHOLD_RATIO } from "../shared/limits.js";
+import { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../shared/limits.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { type HandoffLanguage } from "./language.js";
 
@@ -71,11 +71,33 @@ function fixedThreshold(config: PluginConfig, contextWindow: number): number {
 }
 
 /**
+ * The `/handoff threshold <r>` control a receipt may name, or `undefined` when no legal ratio clears
+ * this window's physical floor.
+ *
+ * A receipt must not recommend a control that does nothing. Two of them used to end with a written-down
+ * `/handoff threshold 0.4`, which batch K's floor gate now refuses in reachable windows (a 200K envelope
+ * at a 1M window needs ≥ 0.23, and the default 65_536-token window needs ≥ 0.43). The recommendation is
+ * therefore computed from the same floor the decision uses, and withheld when the floor is out of every
+ * ratio's reach.
+ *
+ * `min(round(r × W), W − SAFETY_MARGIN) ≥ floor` needs *both* terms: `W − SAFETY_MARGIN ≥ floor` (the cap
+ * cannot lift a trigger) and `r ≥ floor / W`. Two decimals is what `/handoff threshold` accepts, so the
+ * rounded-up value is verified against the real arithmetic rather than trusted.
+ */
+function fixedRatioAdvice(config: PluginConfig, measurement: ContextMeasurement, contextWindow: number): number | undefined {
+	const floor = thresholdFloor(config, measurement);
+	if (contextWindow - SAFETY_MARGIN_TOKENS < floor) return undefined;
+	const needed = Math.max(MIN_THRESHOLD_RATIO, Math.ceil((floor / contextWindow) * 100) / 100);
+	if (needed > MAX_THRESHOLD_RATIO) return undefined;
+	return fixedThreshold({ ...config, handoffThresholdRatio: needed }, contextWindow) >= floor ? needed : undefined;
+}
+
+/**
  * Why {@link resolveThreshold} returned `undefined`, named as the term that actually binds.
  *
- * `resolveThreshold` has five `undefined` exits with five different causes, and the receipt used to
- * render every one of them as "threshold unavailable at this window" — a claim about the window that
- * is *false* for four of the five. A roomy window (`usable > floor`) still refuses when the drop
+ * `resolveThreshold` has four `undefined` exits and the diagnosis names five different causes, and the
+ * receipt used to render every one of them as "threshold unavailable at this window" — a claim about the
+ * window that is *false* for most of them. A roomy window (`usable > floor`) still refuses when the drop
  * minimum, the reported envelope + carried tail, the second 4K
  * {@link SAFETY_MARGIN_TOKENS} deduction, the **quality knee**, or fixed mode's own floor is what
  * decided it, and "at this window" sends the user to change the model or the target when neither is
@@ -203,9 +225,20 @@ export function thresholdRefusalText(
 			: zh
 				? `调小「${label}」（窗口是反方向的杠杆 —— 窗口越大膝越低）`
 				: `lower "${label}" (the window is the wrong lever — raising it lowers the knee)`;
+		// The ratio is a real escape from the knee, but not at a written-down value: the floor gate refuses
+		// a small one, so the receipt names the smallest ratio that clears *this* floor, or says plainly
+		// that the route is closed rather than sending the user to a control that now does nothing.
+		const advice = fixedRatioAdvice(config, measurement, contextWindow);
+		const ratioPart = advice === undefined
+			? zh
+				? "这个窗口下固定比例这条路也不通 —— 没有任何合法比例能清掉下限"
+				: "a fixed ratio is closed here too — no legal ratio clears the floor at this window"
+			: zh
+				? `或者用固定比例把触发显式化 —— /handoff threshold ${advice} 不经过膝检，而正是膝检挡住了自动档`
+				: `or make the trigger explicit with a fixed ratio — /handoff threshold ${advice} is not checked against the knee, which is what blocks auto here`;
 		return zh
-			? `阈值不可用：不是窗口的问题 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但这个窗口下模型的质量膝只允许 ${knee}，交接最早也只能在膝之后启动；${lever}，或者用固定比例把触发显式化 —— /handoff threshold 0.4 不经过膝检，而正是膝检挡住了自动档`
-			: `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, or make the trigger explicit with a fixed ratio — /handoff threshold 0.4 is not checked against the knee, which is what blocks auto here`;
+			? `阈值不可用：不是窗口的问题 —— 可用 ${usable} token 已越过 ${floor} token 的下限，但这个窗口下模型的质量膝只允许 ${knee}，交接最早也只能在膝之后启动；${lever}，${ratioPart}`
+			: `threshold unavailable: not the window — the ${usable} usable tokens clear the ${floor}-token floor, but the model's quality knee allows only ${knee} at this window, so a handoff could only start past the knee; ${lever}, ${ratioPart}`;
 	}
 	if (reason === "drop-floor") {
 		return zh
@@ -213,22 +246,30 @@ export function thresholdRefusalText(
 			: `threshold unavailable: the window is not the limit — the ${usable} usable tokens clear the ${floor}-token floor, but the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves less than the ${MIN_DROP_TOKENS}-token minimum worth dropping; a larger context window (or lowering "${label}") is the lever, not this window alone`;
 	}
 	if (reason === "fixed-below-floor") {
-		// The floor binds, not the window: name both numbers and a lever that works with them. When even
-		// the largest legal ratio leaves the trigger under the floor, raising the ratio cannot help, and
-		// naming it anyway would be the dead-lever defect this receipt exists to prevent.
+		// The floor binds, not the window: name both numbers and a lever that works with them. The ratio is
+		// named at a value that really clears this floor, or the sentence says the route is closed — "raise
+		// the threshold" with no number is still a lever the user has to guess at.
+		const asked = Math.round(contextWindow * config.handoffThresholdRatio);
 		const shown = fixedThreshold(config, contextWindow);
-		const largest = Math.min(Math.round(MAX_THRESHOLD_RATIO * contextWindow), contextWindow - SAFETY_MARGIN_TOKENS);
 		const percent = Math.round(config.handoffThresholdRatio * 100);
-		const lever = largest >= floor
+		const ratio = fixedRatioAdvice(config, measurement, contextWindow);
+		const lever = ratio === undefined
 			? zh
-				? `调大比例（/handoff threshold）或调小「${label}」`
-				: `raise the ratio (/handoff threshold) or lower "${label}"`
+				? `调小「${label}」—— 这个窗口下任何合法比例都清不掉下限`
+				: `lower "${label}" — no legal ratio clears the floor at this window`
 			: zh
-				? `只有调小「${label}」有用 —— 这个窗口下任何合法比例都清不掉下限`
-				: `lower "${label}" — no legal ratio clears the floor at this window`;
+				? `调大比例（/handoff threshold ${ratio}）或调小「${label}」`
+				: `raise the ratio (/handoff threshold ${ratio}) or lower "${label}"`;
+		// The safety-margin clamp can be what produced `shown`; quoting it under the percentage without
+		// saying so would credit the ratio with a number it does not yield.
+		const capped = shown < asked
+			? zh
+				? `（${SAFETY_MARGIN_TOKENS} token 的安全余量把它从 ${asked} 压到 ${shown}）`
+				: ` (the ${SAFETY_MARGIN_TOKENS}-token safety margin caps ${asked})`
+			: "";
 		return zh
-			? `阈值不可用：固定 ${percent}% 的 ${shown} token 触发器低于这个基线下的 ${floor} token 下限（丢弃不足 ${MIN_DROP_TOKENS} token 换不来上下文，只是换个会话）；${lever}`
-			: `threshold unavailable: the fixed ${percent}% trigger of ${shown} tokens is below the ${floor}-token floor a worthwhile handoff needs at this baseline (a drop under ${MIN_DROP_TOKENS} tokens only switches sessions); ${lever}`;
+			? `阈值不可用：固定 ${percent}% 的 ${shown} token 触发器${capped}低于这个基线下的 ${floor} token 下限（丢弃不足 ${MIN_DROP_TOKENS} token 换不来上下文，只是换个会话）；${lever}`
+			: `threshold unavailable: the fixed ${percent}% trigger of ${shown} tokens${capped} is below the ${floor}-token floor a worthwhile handoff needs at this baseline (a drop under ${MIN_DROP_TOKENS} tokens only switches sessions); ${lever}`;
 	}
 	// `no-positive-threshold`: `min(round(W × ratio), W − SAFETY_MARGIN) ≤ 0`. Because the ratio is
 	// validated into [MIN_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO], the second term binds first and the
@@ -401,13 +442,21 @@ export function resolveThreshold(
 /**
  * The `/handoff status` warning for a manual threshold the guardrail overrode. Both numbers and the
  * lever are named, so the receipt cannot send the user back to the same ineffective control.
+ *
+ * `measurement` is needed for the ratio advice: honoring an overridden `/handoff budget summary` by
+ * switching to a fixed ratio only works above the physical floor, and the ratio that clears it depends on
+ * the envelope and the carried tail.
  */
-export function thresholdOverrideText(override: ThresholdOverride, config: PluginConfig, contextWindow: number): string {
+export function thresholdOverrideText(override: ThresholdOverride, config: PluginConfig, measurement: ContextMeasurement, contextWindow: number): string {
 	if (override.setting === "ratio") {
 		return `fixed ratio ${Math.round(config.handoffThresholdRatio * 100)}% is not applied in full: it asks for ${override.asked} of this ${contextWindow}-token window and the ${SAFETY_MARGIN_TOKENS}-token safety margin leaves ${override.tokens}; a larger window is the lever`;
 	}
 	const guardrail = override.by === "quality"
 		? `the model's quality knee allows ${override.tokens} at this window`
 		: `only ${override.tokens} tokens fit this ${contextWindow}-token window after the ${WINDOW_RESERVE_TOKENS}-token request reserve and the ${SAFETY_MARGIN_TOKENS}-token safety margin`;
-	return `handoff budget summary ${config.handoffBudgetSummaryTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff budget summary, or use /handoff threshold 0.4 for a fixed ratio`;
+	const ratio = fixedRatioAdvice(config, measurement, contextWindow);
+	const escape = ratio === undefined
+		? "no fixed ratio clears the floor at this window either"
+		: `use /handoff threshold ${ratio} for a fixed ratio`;
+	return `handoff budget summary ${config.handoffBudgetSummaryTokens} is not applied in full: it needs a ${override.asked}-token threshold and ${guardrail}, so the auto guardrail decides — lower /handoff budget summary, or ${escape}`;
 }

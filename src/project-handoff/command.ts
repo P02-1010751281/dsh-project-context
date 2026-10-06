@@ -145,7 +145,7 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			// The threshold has two sources — the guardrail and the manual setting — and when the
 			// guardrail overrides the manual one the receipt must say so, or the user keeps turning a
 			// knob that cannot move the number above.
-			if (threshold?.override !== undefined) parts.push(thresholdOverrideText(threshold.override, config, contextWindow));
+			if (threshold?.override !== undefined) parts.push(thresholdOverrideText(threshold.override, config, measurement, contextWindow));
 		}
 	}
 	parts.push(config.handoffThresholdAuto ? `adaptive target ${config.handoffBudgetSummaryTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);

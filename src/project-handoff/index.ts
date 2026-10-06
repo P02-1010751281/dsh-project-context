@@ -165,15 +165,34 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			if (parsed.error !== undefined) return { kind: "error" as const, text: parsed.error };
 			const failure = await writeSetting(ctx, parsed.patch ?? {});
 			if (failure !== undefined) return { kind: "error" as const, text: failure };
-			// Setting a ratio is the one write whose *effect* can be nothing at all: fixed mode refuses
-			// below the physical floor, and that is a property of the ratio, the window and the baseline
-			// together, not of the write. Confirming it with a bare "updated" would report a ratio that can
-			// never fire as a success; hand back the same receipt `/handoff status` gives, resolved against
-			// the patch this write is about to put in force (`pending`), which resolves the trigger and
-			// names the refusal.
-			return parsed.patch !== undefined && "handoffThresholdRatio" in parsed.patch
-				? { kind: "success" as const, text: await statusText(ctx, agent.session, entry, signal, parsed.patch as Partial<PluginConfig>) }
-				: { kind: "success" as const, text: `Handoff setting updated: ${args}` };
+			// The four writes the receipt's *resolution* reads can each turn a working configuration into a
+			// refusal (or back): the two threshold keys, and the carried tail, which builds the physical floor
+			// — `/handoff budget recent 160000` on a 400K window takes a 0.4 ratio that resolved exactly on the
+			// floor to `fixed-below-floor`, so confirming that write with a bare "updated" is the same false
+			// success. `handoffEnabled`/`handoffPendingQuestion`/`handoffLang` cannot move the trigger and keep
+			// the short confirmation.
+			if (movesThreshold(parsed.patch)) {
+				// The write has already landed, so a receipt that cannot be built must not be reported as a
+				// failed write — that is the same misattribution in reverse. Say the write landed and why the
+				// receipt is missing.
+				try {
+					return { kind: "success" as const, text: await statusText(ctx, agent.session, entry, signal, parsed.patch as Partial<PluginConfig>) };
+				} catch (error: unknown) {
+					const reason = error instanceof Error ? error.message : String(error);
+					return { kind: "success" as const, text: `Handoff setting updated: ${args} (the status receipt could not be built: ${reason})` };
+				}
+			}
+			return { kind: "success" as const, text: `Handoff setting updated: ${args}` };
 		},
 	});
+}
+
+/**
+ * The settings whose value the status receipt's threshold resolution reads. A write to one of these can
+ * change the trigger, the refusal or the override warning, so its reply is the receipt.
+ */
+const THRESHOLD_SETTING_KEYS = ["handoffThresholdAuto", "handoffThresholdRatio", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens"] as const;
+
+export function movesThreshold(patch: Record<string, unknown> | undefined): boolean {
+	return patch !== undefined && THRESHOLD_SETTING_KEYS.some((key) => key in patch);
 }
