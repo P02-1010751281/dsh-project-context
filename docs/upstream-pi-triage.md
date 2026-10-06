@@ -1028,3 +1028,139 @@ guards the *measured* older span (a read of `auto.ts`, not a driven session), an
 ratio range (a zero-hit grep over `.agents/skills/`, which the tracking boundary makes a complete set of the
 promoted skills). Item 1's ruling is the only decision this pass asks for. Nothing was ported: this pass edits
 `docs/` and memory only, `src/` is untouched, and no CHANGELOG entry or host restart follows from it.
+
+## Eighth pass — 2026-10-06 (14 commits after the seventh pass)
+
+The seventh pass stopped at `c9d4db6`. pi's `origin/master` has since reached `7ab60c9` — **14 commits** in
+`c9d4db6..7ab60c9`, and the first-parent count is the same 14 (no merge in this range). The range carries two
+releases: `c9d4db6` is `v0.4.2-7-gc9d4db6` and `7ab60c9` is `v0.4.4-2-g7ab60c9`, with `v0.4.3` and `v0.4.4`
+inside it. State the revision and the tags separately rather than pairing them.
+
+**Read the checkout honestly.** The checkout's own `master` is still `1a958ce` (`v0.4.0-6-g1a958ce`) while
+`origin/master` is `7ab60c9`, so its working tree answers with pre-change files; every pi read behind this
+section is `git show <commit>` or `git show 7ab60c9:<path>`. `git log --all --not master` is non-empty (70
+commits) for that reason only — `git branch -a` shows no second branch.
+
+This range is mostly records: **10 of the 14 commits** touch only `docs/`, `.codestable/`, pi's release evidence
+or pi's own `.agents/memory/` renders, and four touch `extensions/` or `tests/`. The pass ports **nothing** — it
+is a docs-only round — and it finds one coherent port batch plus one latent coupling.
+
+### The 14 commits
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `6a00587` | test,docs(handoff): derive the fixture from the constant, and catch a whitespace-only last line | **SPLIT** — the constant-derived fixture is a latent coupling (see below); pi's blank-line gate and the docs sentence are PI-ONLY |
+| `b9085d5` | docs(records): v0.4.3 release evidence, dated changelog, and round 14's three items | **PI-ONLY (record)** |
+| `c3757bb` | docs(records): fill in the v0.4.3 release facts | **PI-ONLY (record)** |
+| `d023d0f` | docs(memory): refresh the memory render | **PI-ONLY (record)** — pi's own memory render |
+| `8baab6f` | docs(memory): refresh the memory render, restoring the entries the pass dropped | **PI-ONLY (record)** — a hand-restore that was itself over the section budgets; its lesson is batch L |
+| `793b708` | docs(attention): record that the memory sits at its cap and drops entries | **PI-ONLY (record)** |
+| `8cf0a9f` | docs(attention): wrap the new entry's lines at 150 columns | **PI-ONLY (record)** |
+| `5a92c54` | docs(memory): session snapshot after the v0.4.3 close-out | **PI-ONLY (record)** |
+| `ed51eac` | fix(memory): make the consolidation prompt keep entries instead of dropping them | **PORT-WORTHY — batch L**, superseded by `aaafd0b`, which re-aims the same two sites |
+| `65e9283` | docs(records): add the second field sample and the guard-matching caveat | **PI-ONLY (record)** |
+| `aaafd0b` | fix(memory): aim the compression rule at the section budgets the renderer enforces | **PORT-WORTHY — batch L** |
+| `009cceb` | fix(memory): compress to the section budgets in both prompt layers, ship v0.4.4 | **PORT-WORTHY — batch L** |
+| `9c2db1a` | docs(records): fill in the v0.4.4 release facts | **PI-ONLY (record)** |
+| `7ab60c9` | docs(memory): session snapshot for the v0.4.4 work | **PI-ONLY (record)** |
+
+### Batch L — the consolidation prompt asks for compression, not deletion
+
+The mechanism is under pi's `extensions/project-context/memory/`, and its round-1 review corrected the first
+diagnosis: the entries were **not** deleted by the model. The renderer enforces each section's fixed budget and
+drops whole entries that no longer fit, and the committed memory was over budget in three of its four sections
+(Invariants +852, Pitfalls +239, Index +544 — pi's figures) while Project used 71% of its share; rendering that
+version reproduced exactly the entries the field file was missing (`sectionDropped=3`, `droppedItems=9`) with
+about 1 800 characters of the whole-document cap unused. What the prompt contributed was the *permission*: two
+prompt-layer sites ended a section-budget sentence with "then drop the least durable entries" (the main rule)
+and "remove the least durable entries" (the condensation retry). Both now ask for the same ladder in the same
+order — keep every still-true entry, merge duplicates within a section, deduplicate across sections, condense
+the wording until each section fits — and allow a deletion only with a stated reason (superseded, or already
+covered elsewhere). `aaafd0b` adds a second layer at the block whose text the reply rewrites, and `009cceb`
+extends the retry sentence to the sectionless cap path.
+
+**What dsh already has**, read off our source:
+
+- `memorySectionRule` (`src/project-memory/consolidate.ts:172`) states both numbers per section, built from
+  `memorySectionBudgets` / `memorySectionPromptBudgets` with `MEMORY_SECTION_PROMPT_SHARE = 0.9`
+  (`src/project-memory/memory-schema.ts:69`). pi's "aim the rule at the section budgets" half is therefore
+  already here — the budgets are not the missing part.
+- `memoryLossRetryRule` (`:212`) already names each section's exact overage (characters beyond the budget,
+  entries that would be dropped whole), which pi's retry does not.
+
+**What dsh lacks** (three wording sites, all in `src/project-memory/consolidate.ts`):
+
+1. `:182`, inside `memorySectionRule`: "…When over budget, merge duplicates within a section, then drop the
+   least durable entries." Deletion is the closing step and the precondition is unstated — pi's exact defect.
+2. `:227`, inside `memoryLossRetryRule` — tier C's one targeted retry: "…bring every section inside its budget
+   by merging duplicates within a section and dropping the least durable entries." This is the sharper one:
+   dsh's retry is triggered *because* a reply would lose whole entries, and its closing instruction asks for
+   the loss tier C refuses, so the prompt and the gate pull in opposite directions.
+3. `:429`: the `<existing-memory>` block carries no caption. pi's second layer attaches the rule to the text it
+   applies to.
+
+**Why it matters here, now.** Measured through the built renderer against the real `MEMORY.md` after the
+2026-10-06 `/memory update` (`.agents/evidence/2026-10-05-memory-share-fix-offline-verify/share-fit.mjs`):
+Project 86.8%, Invariants 92.8%, Pitfalls 97.6%, Index 97.9% of the hard budgets — the same two-sections-over,
+one-section-under shape pi hit, with **74 characters** of headroom in Index and 278 in Pitfalls. One added
+Index line is a whole-entry drop, and tier C turns that into `lossy-refused` (nothing written, `MEMORY.md`
+byte-identical). The durable lever is the document's size *and* a prompt that spends compression instead of
+entries; raising `maxMemoryChars` aggravates the output half.
+
+**Portable shape**: three wording changes and one added caption line, target `src/project-memory/consolidate.ts`,
+pinned by tests asserting the ladder and the deletion-with-a-reason condition in both layers. The honest limit
+is pi's own: prompt assertions prove the words are present, not that the model obeys, and the real acceptance is
+the render surface (no section-budget drop line and no shrinking entry count across later renders).
+
+### One latent coupling (from `6a00587`)
+
+pi derives its fixed-floor fixture from `MIN_THRESHOLD_RATIO` because a hardcoded `0.1` turned a constant move
+into collateral reds. dsh still writes the pair literally in test fixtures and in one regex:
+`test/logic.test.mjs:2417` (`/between 0.1 and 0.95/`), `:3354`, `:3358`, and
+`test/threshold-floor.test.mjs:62,79,93,159`. Since batch K the pair is one exported constant, so moving it
+reddens assertions that are not about the move. The gate is green today, so this is coupling rather than a
+defect, and it is recorded rather than changed.
+
+### What this pass does NOT find
+
+- The records commits (`b9085d5`, `c3757bb`, `9c2db1a`), the attention entries (`793b708`, `8cf0a9f`), the
+  memory renders (`d023d0f`, `8baab6f`, `5a92c54`, `7ab60c9`) and the fix note (`65e9283`) are pi's own
+  repository records; dsh records the equivalent under `docs/` and `.agents/evidence/`.
+- `8baab6f` is a hand-restore of entries a render dropped; the restore was itself over the section budgets. It
+  is the field loop batch L's rule addresses, not a change of its own.
+- pi's `.codestable/attention.md` has no dsh counterpart, and its 150-column wrap rule is pi's own prose limit
+  (dsh's README wraps at 100).
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P fetch origin                                                  # the pass needs this first
+git -C $P rev-parse HEAD origin/master                                  # 1a958ce / 7ab60c9
+git -C $P rev-list --count c9d4db6..origin/master                       # 14
+git -C $P rev-list --count --first-parent c9d4db6..origin/master        # 14 (no merge in this range)
+git -C $P describe --tags c9d4db6                                       # v0.4.2-7-gc9d4db6
+git -C $P describe --tags origin/master                                 # v0.4.4-2-g7ab60c9
+git -C $P tag -l --sort=-v:refname | head -3                            # v0.4.4 / v0.4.3 / v0.4.2
+git -C $P branch -a                                                     # no second branch
+git -C $P log --oneline c9d4db6..origin/master                          # the 14 above
+git -C $P show ed51eac -- extensions/project-context/memory/prompt.ts   # the first wording change
+git -C $P show aaafd0b -- extensions/project-context/memory/prompt.ts extensions/project-context/memory/pass.ts
+git -C $P show 009cceb -- extensions/project-context/memory/pass.ts
+D=/mnt/Data/Projects/dsh-project-context
+git -C $D grep -n 'least durable' -- src/project-memory/consolidate.ts  # 182, 227 — both still deletion-first
+git -C $D grep -n 'existing-memory' -- src/project-memory/consolidate.ts # 429 — no caption line
+git -C $D grep -n 'MEMORY_SECTION_PROMPT_SHARE' -- src/project-memory/  # memory-schema.ts:69 — budgets already stated
+git -C $D grep -rn 'between 0\.1 and 0\.95' -- test/                     # logic.test.mjs:2417 — the hardcoded pair
+node $D/.agents/evidence/2026-10-05-memory-share-fix-offline-verify/share-fit.mjs   # the read-now occupancy
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a semantic
+diff of the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`, the profiles
+under `~/.dsh`) is not owned here. pi's diagnosis numbers (Invariants +852 / Pitfalls +239 / Index +544,
+`sectionDropped=3`, `droppedItems=9`) are pi's field evidence as recorded in its own commits, not re-measured
+here; dsh's occupancy percentages are read now from `share-fit.mjs` against the built `lib/`. Batch L is not
+started: this pass edits `docs/` and memory only, `src/` is untouched, and no CHANGELOG entry or host restart
+follows from it. Nothing was ported.
