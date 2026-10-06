@@ -3129,10 +3129,11 @@ test("the status receipt names the term that refused the threshold, not always t
 	// fence lets an explicit setting override the quality ceiling that governs the auto composition. The
 	// override receipt already names it; this refusal must not leave the user at a dead lever.
 	//
-	// The named control must *work*: batch K gave fixed mode the same floor gate, so the written-down
-	// `/handoff threshold 0.4` this receipt used to recommend became a dead lever here (0.4 → 180_000 at
-	// this window, under the 228_000 floor). Whatever ratio the receipt names has to resolve in this very
-	// configuration — that is the property, not the spelling.
+	// The named control must *work*: batch K gave fixed mode the same floor gate, so a written-down ratio can
+	// become a dead lever. This fixture cannot show that — 0.4 → 400_000 clears its 228_000 floor — so all it
+	// pins is the general property "the ratio the receipt names resolves in this configuration". The fixture
+	// that discriminates the fix is the 450K band in `threshold-floor.test.mjs`, where 0.4 → 180_000 sits
+	// under a 308_000 floor and the receipt must name something larger.
 	const advisedKnee = /\/handoff threshold (\d+(?:\.\d+)?)/.exec(kneeSqueezed);
 	assert.ok(advisedKnee !== null, `the refusal names the control that clears it: ${kneeSqueezed}`);
 	assert.notEqual(

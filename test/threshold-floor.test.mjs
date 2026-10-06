@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseRatio, settingPatch } from "../lib/project-handoff/command.js";
-import { apply } from "../lib/project-handoff/index.js";
+import { apply, movesThreshold } from "../lib/project-handoff/index.js";
 import { MIN_DROP_TOKENS, resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../lib/shared/limits.js";
@@ -80,8 +80,10 @@ test("the fixed-floor receipt quotes both numbers and names only a lever that wo
 	const exactText = thresholdRefusalText("fixed-below-floor", exact, { totalTokens: 0, surfaceTokens: 0, overheadTokens: 1_000 }, 50_000, "en");
 	assert.match(exactText, /\/handoff threshold 0\.28\b/, `the smallest working ratio, not the ceil overshoot: ${exactText}`);
 	// The safety-margin clamp decides the lever whenever it is what sits under the floor: at W=50_000 this
-	// floor is 47_000, and 0.95 × 50_000 = 47_500 would clear it while the clamped 46_000 does not. A
-	// `largest` that forgot the clamp would offer 0.95 here and be wrong.
+	// floor is 47_000, and 0.95 × 50_000 = 47_500 would clear it while the clamped 46_000 does not. Note what
+	// this guards: the pre-batch-K code applied the same clamp inside its own condition, so this pair does not
+	// fail on a revert — it fails on a *capless rewrite*, which is the mistake it exists to catch. The revert
+	// discriminator in this block is the numeric lever above.
 	const clamped = config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 39_000 });
 	const clampedText = thresholdRefusalText("fixed-below-floor", clamped, plain, 50_000, "en");
 	assert.match(clampedText, /no legal ratio clears the floor at this window/, `the clamp decides this one: ${clampedText}`);
@@ -276,4 +278,41 @@ test("a receipt that cannot be built does not report a landed write as a failure
 	assert.equal(reply.kind, "success", "a receipt failure must not be reported as a write failure");
 	assert.match(reply.text, /Handoff setting updated: threshold 0\.4/);
 	assert.match(reply.text, /the status receipt could not be built: model registry offline/, `the missing receipt is named: ${reply.text}`);
+});
+
+test("the floor advice never withholds a ratio that clears it", () => {
+	// The mirror of the ceil overshoot, and the one a closure review caught: `0.95 × W` can round *up* over a
+	// floor just past it, so a candidate pushed past MAX must be pulled back and tested rather than read as
+	// "no legal ratio clears the floor". At a 256Ki window with a 42_845 envelope and a 198_192 tail the floor
+	// is 249_037 and `round(0.95 × W)` is exactly that, so `/handoff threshold 0.95` clears while a naive
+	// `needed > MAX → undefined` told the user the opposite.
+	const window = 262_144;
+	const measurement = { totalTokens: 0, surfaceTokens: 0, overheadTokens: 42_845 };
+	const tail = 198_192;
+	const stuck = config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: tail });
+	const text = thresholdRefusalText("fixed-below-floor", stuck, measurement, window, "en");
+	assert.equal(
+		resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: MAX_THRESHOLD_RATIO, handoffBudgetRecentTokens: tail }), measurement, window)?.tokens,
+		249_037,
+		"MAX really does clear this floor — that is what makes the withholding a lie",
+	);
+	assert.match(text, new RegExp(`/handoff threshold ${MAX_THRESHOLD_RATIO}\\b`), `the advice must name MAX, not claim none works: ${text}`);
+	assert.doesNotMatch(text, /no legal ratio clears the floor/, "that claim is false here");
+	// The same window with a floor MAX cannot reach keeps the honest withholding.
+	const beyond = { totalTokens: 0, surfaceTokens: 0, overheadTokens: 42_845 + 2_000 };
+	const beyondText = thresholdRefusalText("fixed-below-floor", config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: tail }), beyond, window, "en");
+	assert.match(beyondText, /no legal ratio clears the floor at this window/, `past MAX the withholding is right: ${beyondText}`);
+});
+
+test("the receipted writes are exactly the ones the trigger resolution reads", () => {
+	// `movesThreshold` decides which writes answer with the receipt. The set is the four keys the resolution
+	// reads: widening it would over-report (`on`/`off`/`pending`/`lang` cannot move the trigger) and
+	// narrowing it re-opens the blind `budget recent` write that batch K's review found.
+	for (const verb of ["threshold auto", "threshold 0.4", "budget summary 64k", "budget recent 20k"]) {
+		assert.equal(movesThreshold(settingPatch(verb).patch), true, `${verb} must answer with the receipt`);
+	}
+	for (const verb of ["on", "off", "pending wait", "lang zh"]) {
+		assert.equal(movesThreshold(settingPatch(verb).patch), false, `${verb} must keep the short confirmation`);
+	}
+	assert.equal(movesThreshold(undefined), false, "a verb with no patch moves nothing");
 });
