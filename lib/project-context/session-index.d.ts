@@ -31,8 +31,11 @@ export declare function sessionTitle(session: Session): string;
  * The link points at `session.jsonl`, the canonical log, rather than the rendered
  * `session.md`: the JSONL is what every reader actually opens (autolearn's backtrack,
  * the import completeness check) and it is never pruned, while the rendering is
- * reproducible from it and may be deleted to reclaim disk. Parsing ignores the target,
- * so both forms read identically.
+ * reproducible from it and may be deleted to reclaim disk. Deleting it is only safe
+ * once that is acceptable to every pointer: `performHandoff` writes the successor's
+ * handoff document against `session.md`, so a deleted rendering leaves that pointer
+ * dangling until the session renders again. Parsing ignores the target, so both
+ * forms read identically.
  */
 export declare function sessionIndexLineFrom(id: string, createdAt: number, title: string): string;
 /** One Markdown index line. Links are relative to `session-logs/`. */

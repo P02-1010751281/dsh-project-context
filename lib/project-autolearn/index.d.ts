@@ -3,7 +3,8 @@
  *
  * Low-frequency pass over `.agents/memory/CONTEXT.md` + `MEMORY.md` plus the
  * mechanical session index; when those documents lack the concrete steps it
- * backtracks into the archived `session.md` files named by the index. Output is
+ * backtracks into the archived sessions named by the index, reading each one's
+ * canonical `session.jsonl` rather than its rendered `session.md`. Output is
  * `.agents/skills/<name>/SKILL.md`; dsh discovers skills natively, so only the
  * description enters the prompt while the body loads on demand.
  *
