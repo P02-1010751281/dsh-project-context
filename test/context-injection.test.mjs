@@ -45,12 +45,22 @@ const doc = [
 	"",
 ].join("\n");
 
+/**
+ * How many pointer lines name `heading`.
+ *
+ * The coverage rule is structural: a pointer is a whole line of the form ``- `## <heading>` …``.
+ * Counting the backticked heading as a substring instead is fragile, because a *kept* section may
+ * quote a heading name in prose — the real CONTEXT.md does exactly that when it describes this
+ * mechanism — and a prose mention is not a pointer.
+ */
+const pointerCount = (rendered, heading) => rendered.split("\n").filter((line) => line.startsWith(`- \`## ${heading}\``)).length;
+
 test("keeps the named sections verbatim and reduces the rest to one pointer line each", () => {
 	const out = renderProgressiveBody(doc, spec, "en", "/root");
 	assert.ok(out.includes("## Invariants\n\n- a rule"), "kept section is inline and verbatim");
 	assert.ok(out.includes("## Pitfalls\n\n- a trap"), "the second kept section is inline");
-	assert.equal(out.split("`## Project`").length - 1, 1, "the indexed heading appears as exactly one pointer");
-	assert.equal(out.split("`## Index`").length - 1, 1, "the other indexed heading too");
+	assert.equal(pointerCount(out, "Project"), 1, "the indexed heading appears as exactly one pointer");
+	assert.equal(pointerCount(out, "Index"), 1, "the other indexed heading too");
 	assert.ok(!out.includes("- a fact"), "the indexed section's body is gone");
 	assert.ok(out.includes("EN-read-first"), "the read-first sentence is present");
 });
@@ -105,16 +115,26 @@ test("the pointer text follows the document's language", () => {
 	assert.ok(out.includes("ZH-read-first"), "and the Chinese instruction");
 });
 
+test("a heading name quoted inside a kept section is not counted as a pointer", () => {
+	// The real CONTEXT.md quotes the indexed headings in prose, so a substring count reports two
+	// pointers for one section. The rule has to be read structurally: only a whole pointer line counts.
+	const quoting = ["# Title", "", "## Invariants", "- the pointer block names `## Index` in prose", "", "## Index", "- a pointer", ""].join("\n");
+	const out = renderProgressiveBody(quoting, spec, "en", "/root");
+	assert.ok(out.includes("- the pointer block names `## Index` in prose"), "the prose mention survives in the kept section");
+	assert.equal(pointerCount(out, "Index"), 1, "the prose mention is not a second pointer");
+});
+
 test("the real tracked documents keep every heading", () => {
 	for (const [file, injection, rendered] of [
 		["MEMORY.md", MEMORY_INJECTION, buildMemoryInjection(readFileSync(path.join(repoRoot, ".agents/memory/MEMORY.md"), "utf8"), repoRoot)],
 		["CONTEXT.md", CONTEXT_INJECTION, buildContextInjection(readFileSync(path.join(repoRoot, ".agents/memory/CONTEXT.md"), "utf8"), repoRoot)],
 	]) {
+		const headingLines = rendered.split("\n");
 		for (const heading of injection.keep) {
-			assert.ok(rendered.includes(`## ${heading}`), `${file}: the kept section ${heading} is inline`);
+			assert.ok(headingLines.includes(`## ${heading}`), `${file}: the kept section ${heading} is inline`);
 		}
 		for (const heading of Object.keys(injection.pointers)) {
-			assert.equal(rendered.split(`\`## ${heading}\``).length - 1, 1, `${file}: ${heading} has exactly one pointer`);
+			assert.equal(pointerCount(rendered, heading), 1, `${file}: ${heading} has exactly one pointer`);
 		}
 		assert.ok(rendered.includes("read"), `${file}: the read-first sentence is present`);
 	}
