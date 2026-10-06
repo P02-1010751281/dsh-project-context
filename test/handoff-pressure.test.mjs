@@ -45,7 +45,7 @@ function fakeSession(id, { origin, text = "请继续" } = {}) {
 }
 
 /** The services `resolveHandoffGate` reads, with a settable occupancy. */
-function gateContext(occupancy) {
+function gateContext(occupancy, resolveModelInfo) {
 	const sessionController = { create: async () => ({ sessionId: "child-1" }), rename: async () => undefined };
 	return {
 		get: (name) =>
@@ -54,7 +54,7 @@ function gateContext(occupancy) {
 				: name === "tokenMeter"
 					? { measure: () => ({ totalTokens: occupancy.value, surfaceTokens: occupancy.value }) }
 					: undefined,
-		llm: { resolveModelInfo: async () => ({ context: { contextWindow: WINDOW } }) },
+		llm: { resolveModelInfo: resolveModelInfo ?? (async () => ({ context: { contextWindow: WINDOW } })) },
 		logger: { info() {}, warn() {} },
 	};
 }
@@ -181,7 +181,7 @@ test("the line is localized from the language frozen with the crossing", async (
 });
 
 /** A Context stand-in that records the handlers and the registered runtime contexts. */
-function wiringContext(occupancy) {
+function wiringContext(occupancy, resolveModelInfo) {
 	const handlers = new Map();
 	const contexts = new Map();
 	const commands = [];
@@ -190,7 +190,7 @@ function wiringContext(occupancy) {
 		contexts,
 		commands,
 		ctx: {
-			...gateContext(occupancy),
+			...gateContext(occupancy, resolveModelInfo),
 			on: (type, handler) => {
 				(handlers.get(type) ?? handlers.set(type, []).get(type)).push(handler);
 				return () => undefined;
@@ -248,3 +248,35 @@ test("the real wiring: a top-level step populates the line, a delegated step doe
 function wired(handlers, contexts) {
 	return handlers.get("session/event")?.length === 1 && handlers.get("session/disposed")?.length === 1 && contexts.size === 1;
 }
+
+test("a tick that settles after disposal does not re-insert the line", async () => {
+	// The tick's `.then` runs *after* `session/disposed` has already cleared the line, so without a
+	// guard it re-inserts a crossing for a session that can never assemble a prompt again — an entry
+	// that then lives for the process's lifetime. The deferred resolver below is what makes the race
+	// reachable: it parks the tick inside `resolveModelInfo` until disposal has happened.
+	const occupancy = { value: OVER };
+	let release;
+	const parked = new Promise((resolve) => {
+		release = resolve;
+	});
+	const { ctx, handlers, contexts } = wiringContext(occupancy, async () => {
+		await parked;
+		return { context: { contextWindow: WINDOW } };
+	});
+	apply(ctx, RAW_CONFIG);
+	assert.ok(wired(handlers, contexts), "apply() must wire the pressure listener and its context contribution");
+
+	const top = fakeSession("session-dispose-race-01");
+	const step = handlers.get("session/event")[0];
+	step(top, { type: "step/start" });
+	// Disposal lands while the tick is still parked: this is the ordering the guard exists for.
+	handlers.get("session/disposed")[0](top);
+	assert.equal(handoffPressureIsOver(String(top.id)), false, "disposal clears the line before the tick settles");
+
+	release();
+	await settle();
+	await settle();
+	assert.equal(handoffPressureIsOver(String(top.id)), false, "a tick settling after disposal must not re-insert the line");
+	assert.equal(contexts.get("handoff-pressure").text({ agent: { session: top } }), "", "and nothing may render for the disposed session");
+	clearHandoffPressure(String(top.id));
+});

@@ -141,6 +141,15 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	const ticking = new Set<string>();
 
 	/**
+	 * Sessions disposed while their tick was still resolving. The tick's `.then` runs *after*
+	 * `session/disposed` has cleared the line, so without this mark it re-inserts a crossing for a
+	 * session that can never assemble again — one entry that then lives for the lifetime of the process
+	 * (the very leak `clearHandoffPressure` exists to prevent). The tick's own `.finally` removes the
+	 * mark, so the set stays bounded by the ticks actually in flight.
+	 */
+	const disposedDuringTick = new Set<string>();
+
+	/**
 	 * Resolve the gate for one step and hand it to the display layer, which freezes the line at the
 	 * crossing. Best-effort by construction: a tick that cannot measure is just a step without a line,
 	 * and it must never disturb the turn. Skipped once the line is frozen — an over-threshold session
@@ -156,10 +165,15 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		ticking.add(key);
 		void resolveHandoffGate(ctx, session, config)
 			.then((gate) => {
-				if (gate !== undefined) recordHandoffGate(session, gate, resolveHandoffLanguage(sessionLanguageMessages(session), config));
+				// A disposal that landed while this tick was parked must win: re-recording here would
+				// resurrect the line for a session that will never assemble a prompt again.
+				if (gate !== undefined && !disposedDuringTick.has(key)) recordHandoffGate(session, gate, resolveHandoffLanguage(sessionLanguageMessages(session), config));
 			})
 			.catch(() => undefined)
-			.finally(() => ticking.delete(key));
+			.finally(() => {
+				ticking.delete(key);
+				disposedDuringTick.delete(key);
+			});
 	};
 
 	// The visible half: without this a crossed threshold is silent until the user types
@@ -196,6 +210,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("session/disposed", (session) => {
 		const key = String(session.id);
 		clearHandoffPressure(key);
+		// A tick already in flight resolves later and would re-insert the line right after this clear;
+		// mark it so the tick's own `.then` declines to (see `disposedDuringTick`).
+		if (ticking.has(key)) disposedDuringTick.add(key);
 		// A disposed session can never be handed off again, so its markers must not
 		// accumulate for the lifetime of the process.
 		handedOff.delete(key);
