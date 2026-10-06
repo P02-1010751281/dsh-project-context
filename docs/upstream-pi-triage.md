@@ -676,3 +676,190 @@ this repo's R3 batch. A related caution this pass's own reading produced: pi's `
 global** — `R2`/`R4` name structural counterexamples in `2026-09-15-consolidated-memory-json-poison` and review
 rounds in `2026-10-03-design-complexity-audit`, so never carry an `Rn` across issues or into this repo without its
 issue path.
+
+## Sixth pass — 2026-10-06 (55 commits after the fifth pass)
+
+The fifth pass stopped at `ca71fd3`. pi's `master` has since reached `4e40d43` — **55 commits** in
+`ca71fd3..4e40d43`, spanning pi's v0.4.1 and v0.4.2. Both tags sit inside the range and both peel to a
+**docs** commit above the code that carries the release: `v0.4.1` → `7b6fc98`, `v0.4.2` → `4b4f9c3`.
+Neither endpoint is itself a tag: `ca71fd3` is `v0.4.0-2-gca71fd3` and `4e40d43` is
+`v0.4.2-2-g4e40d43`. State the revision and the tag separately rather than pairing them.
+
+**Read the checkout honestly.** The checkout's own `master` is at `1a958ce` while `origin/master` is
+`4e40d43`, so its working tree answers with pre-change files; every pi read behind this section is
+`git show 4e40d43:<path>` or `git show <commit>`. The range is 55 by `rev-list --count` but **53 on the
+first-parent line**: the merge `233e7c4` (pi's `Merge remote-tracking branch 'refs/remotes/ghmaster'`)
+brings two commits reachable only through its second parent — `0f424b9` and `1a958ce`, which are the
+census corrections the fifth pass asked for (see "What this pass closes"). `git log --all --not master`
+is non-empty here only because the local `master` is behind; `git branch -a` shows no second branch.
+
+Unlike the fifth pass, this range is mostly process: **14 commits touch `extensions/` or `tests/`; 41 are
+records**. The code half is one feature and one deletion, both large, and this pass ports **nothing** —
+it is a docs-only round, so `src/` is untouched and no host restart is owed.
+
+### The 14 commits that touch code or tests
+
+| commit | subject | disposition |
+| --- | --- | --- |
+| `9821320` | feat(memory): keep the two decision sections inline and index the rest | **PORT-WORTHY — batch I** (progressive disclosure). dsh injects both documents whole |
+| `b4c9405` | refactor(handoff): drop the generated summary and carry a pointer instead | **PORT-WORTHY — batch J** (delete the summarizer). dsh still runs the whole chain at `perform.ts:95` |
+| `f19dc93` | fix(handoff): carry the last turn's question, not only its summary | **PI-ONLY** — pi's `findCutPoint` turn indices; dsh splits between whole rendered messages and already answers this with `handoffCarry` (`904152d`), which `handoffSplit`'s own comment argues about pi's `093dbf3` |
+| `e77ec20` | refactor(handoff): state the open question once and merge the two detail lines | **PI-ONLY** (wording) — dsh's `continuation()` states the pending question once (heading + wait line) and carries no early duplicate sentence to delete |
+| `9abd971` | fix(memory,handoff): apply the review round 1 corrections | **PART OF BATCHES I/J** — corrections to the two features above, not fixes of their own; it is also what *introduced* the two-view preamble/section split that `bd9fd3a` later removed |
+| `a0bcdd1` | fix(memory,handoff,docs): apply the review round 2 corrections | **PART OF BATCHES I/J** — its fence half is ALREADY IN DSH (the CommonMark rule above); its cwd-fallback item is structurally present here (see the boundary) |
+| `2d1a87b` | fix(memory): a consolidation failure at shutdown is logged, not thrown | **ALREADY IN DSH** — `consolidateProject`'s catch logs and returns a `failed` report (`index.ts:353`), and `SessionWorkTracker.track` swallows rejection (`lifecycle.ts:61`); dsh has no `session_shutdown` at all |
+| `bd9fd3a` | fix(memory,handoff): the round-3 nits and the retirement of `handoffThinking` | **SPLIT** — (i) `scanDocument` unification: PI-ONLY today, rides inside batch I; (ii) CommonMark fence close: **ALREADY IN DSH**; (iii) `handoffThinking` retirement: **NOT PORTABLE AS-IS** (see below); (iv) `MIN_SUMMARIZE_TOKENS` → `MIN_DROP_TOKENS`: belongs to batch J |
+| `5b01712` | fix(handoff,memory): delete the unreachable re-checks and pin the shutdown fallback root | **PI-ONLY** — it deletes `if (!force …)` blocks in pi's forced-trigger plumbing; dsh's `performHandoff` takes `reason: "auto" \| "manual"` and has no `force` local, and `/handoff force` was retired as an alias (`index.ts:159`) |
+| `8f4eab7` | refactor(modules): delete the dead symbols and close the internal-only export surface | **PI-ONLY, and a trap** — pi deletes `newestMemoryArchiveSync` because pi's `loadMemorySync` is gone; in dsh that symbol is **live** (`journal.ts:217`, called from `load.ts:195` in `loadMemorySync`). See "What this pass corrects" |
+| `50fb893` | docs(records): correct the retirement rationale, the fence narrative and the audit's own scope | **PI-ONLY (record)** — and one of its corrected claims is still wrong about dsh |
+| `fa4c15b` | docs(records): drop the dsh claim nobody can check, and the counts this round moved | **PI-ONLY (record)** — names pi's residual **R-2** (pi cannot see dsh's readers). Answerable from here |
+| `0f424b9` | docs(config): all seven renames are shared and `handoffLang` is not pi-only | **PI-ONLY (record)** — closes the fifth pass's 待核 item |
+| `8b32dcb` | docs(records): fix the rename list the retirement edit clipped, and the numbers I miscounted | **PI-ONLY (record)** — touches `tests/` only |
+
+### Batch I — progressive disclosure for the two injected documents
+
+pi's `9821320` stops injecting `MEMORY.md` and `CONTEXT.md` whole. `shared/inject.ts` walks the rendered
+document **once** (`scanDocument`) into a preamble plus sections, then `renderProgressiveBody` keeps some
+sections verbatim and reduces each named heading to one pointer line:
+
+- `MEMORY.md` keeps `## Invariants` + `## Pitfalls`; `## Project` and `## Index` become pointers.
+- `CONTEXT.md` keeps `## Key points` + `## Open tasks`; `## Summary` becomes a pointer.
+- The preamble and any document-level note (the `_[…]_` truncation marker) stay inline; a heading the
+  spec does not name stays inline; a document with no usable heading is injected whole — so a schema
+  change degrades to today's behaviour instead of dropping content.
+- The pointer block ends with a read-first instruction, and the pointer path is resolved against the
+  project root because the reader's `read` resolves relative paths against its own cwd.
+
+**dsh today injects both documents whole.** `src/project-memory/index.ts` builds
+`## Project Memory …` + the whole `loadMemorySync(projectRoot, limit).trim()` text and
+`## Project Context …` + `text.slice(0, MAX_CONTEXT_CHARS)`. There is no split concept to extend:
+`git grep -cn 'scanDocument\|splitSections\|renderProgressiveBody\|InjectionSpec' -- src/` → **0**.
+
+Design input lives in pi's audits — `00282cb` (context cost), `a453233` (who consumes disclosure),
+`8efd274` and `10cd4da` (the read-on-demand result is **model-dependent, not mechanism-dependent**),
+`a6d18e4` (a strong read-first sentence is what rescues a non-reading model), `0b6d45c` (design).
+
+**Ruling needed: yes.** It changes what the model sees every turn (pi measures about ten thousand
+characters per turn saved) in exchange for a `read` round-trip on indexed facts, and pi's own audit says
+the benefit depends on the model obeying the read-first sentence.
+
+### Batch J — drop the generated handoff summary and carry a pointer
+
+pi's `b4c9405` deletes the whole summarizer: the model call, its token-cap retry, its output reserve and
+model-window cap, and the localizer that rewrites the summary's section headings. The successor now gets
+only mechanical payload — the carried tail verbatim, the file list, the pending question — plus the old
+session log as a pointer with a strong "look a detail up in the log with `grep`, never answer from
+impression" instruction. `HANDOFF.md` keeps title, created, project, log and index and nothing else.
+
+**dsh still runs the full chain**, invoked at `src/project-handoff/perform.ts:95`:
+`summarize(ctx, target, config, handoffPrompt(…), withTimeout(signal), resolveSummaryEffort(…))`, with
+`summary.ts` owning `handoffPrompt`, `summarize` + `summaryAttemptBudgets` / `SUMMARY_RETRY_FLOOR` /
+`SUMMARY_TIMEOUT_MS`, `resolveSummaryEffort`, `renderHandoff` and `continuation`, and
+`localizeSummaryHeadings` in `language.js`.
+
+Everything that moves with it, in dsh's own spelling:
+
+- **`handoffThinking` and `/handoff thinking`** — its only behavioural reader is
+  `resolveSummaryEffort` (`summary.ts:21-27`), reached from `perform.ts:95`. Deleting the summary is what
+  turns it into a write-only key.
+- **`MIN_SUMMARIZE_TOKENS` → `MIN_DROP_TOKENS`** (`threshold.ts:15`, consumed by `auto.ts:65` and shown
+  as "摘要下限 / summarize minimum" in the refusal text) — pi renamed it because the constant then names
+  the minimum *droppable prefix*. The dsh name is accurate until the summary is gone.
+- The threshold's summary-token accounting, the `/handoff status` receipt and the refusal wording, the
+  settings card and its `field.*` locales, and the tests.
+- `handoffBudgetSummaryTokens` **survives** in pi (kept deliberately, with a live reader in the override
+  receipt) and likewise has a live dsh reader at `threshold.ts:346`, so it is not part of the deletion.
+
+**Ruling needed: yes.** This is the "half-landed is worse than none" shape: it changes how the
+successor's first message is produced and orphans a persisted key.
+
+Briefs are **owed, not written**: `docs/batch-i-…-brief.md` and `docs/batch-j-…-brief.md` should be
+written when the ruling lands, because the ruling decides the batch's shape (whether `handoffThinking`
+retires with it, whether the receipt wording changes, which `maxMemoryChars` interacts with batch I).
+
+### What this pass corrects
+
+- **pi's claim that `handoffThinking` has no reader is false for dsh.** `50fb893` states the retirement's
+  real reason as "nothing reads it on either side, since dsh reads its own `handoffPendingQuestion`".
+  dsh **does** read it: `summary.ts:23 if (config.handoffThinking === "session")` inside
+  `resolveSummaryEffort`, called at `perform.ts:95`, and the key also appears in the config type/default,
+  the settings schema and the card (`config.ts:56,82`, `settings.ts:60`, `card-fields.ts:100`). The two
+  repos are therefore **not symmetric**: pi's key was write-only after v0.4.1, dsh's was live. Retiring it
+  here before batch J would silently drop a working setting.
+- **pi's dead-symbol sweep is a trap here.** `8f4eab7` deletes `newestMemoryArchiveSync` because pi's
+  `loadMemorySync` no longer exists. In dsh it is live — `journal.ts:217` defined, `load.ts:195` called by
+  `loadMemorySync` to recover the document from a rotation archive. Porting the sweep by symbol name would
+  break dsh's prompt assembly. `cleanHeaders`, pi's other dead name, is genuinely 0 hits here.
+- **The fence narrative, read from both sides.** pi's v0.4.2 entry describes a unified fence-aware scan.
+  dsh already has the CommonMark close rule in both places that matter
+  (`language.ts:147 if (marker[0] === fence.char && marker.length >= fence.length && rest.trim().length === 0)`
+  and `sections.ts:319 fence.char === openFence.char && fence.run.length >= openFence.run.length && fence.info === ""`),
+  and each is a single traversal, so dsh has **no** fence-blind second view. pi's own `50fb893` later
+  corrected the entry: `9abd971` is what *introduced* the two-view defect (`splitSections` beside a
+  fence-blind `firstHeading` search) and `bd9fd3a` is what removed it.
+- **pi's residual R-2 is answerable here.** `fa4c15b` records that pi cannot prove whether dsh reads its
+  own keys, because every dsh artifact on its machine lacks the word `handoff`. From this tree the answer
+  is yes: `handoffPendingQuestion` is dsh's own key and is read as the `defer` gate in `auto.ts`, and
+  `handoffThinking` is read as above.
+
+### What this pass closes
+
+The fifth pass's 待核 item is **closed upstream**. `0f424b9` (merged in by `233e7c4`) and `1a958ce`
+correct pi's config header from "six of the renamed keys were shared with dsh" to **all seven**, and
+`handoffLang` from pi-only to shared — exactly what the fifth pass read off dsh's tree. pi now states the
+same census: pi 23 keys, dsh 21, twenty shared; pi-only `handoffMode` / `handoffGuard` / `autolearnAt`;
+dsh-only `handoffPendingQuestion`. No reconciliation is owed on the next sync, and the fifth pass's note
+that "本仓不改 pi 树" stands.
+
+### The 41 commits that touch only docs, audits, evidence or skills
+
+pi's own process record. The default disposition is **PI-ONLY (record)**; none needs a port, and the ones
+that are design input for a batch above are marked.
+
+`4e40d43`, `027f169`, `4b4f9c3`, `4f14bc3`, `df7052a`, `82b06c1`, `94f963e`, `611fcef`, `98aa3a1`,
+`739af58`, `f2d27c8`, `8824599`, `3a9ef26`, `0149d5a`, `1553151`, `15b65cb`, `2a7f7d0`, `f064362`,
+`9c46943`, `0a95b4b`, `0d2f62b`, `f4eeb9e`, `7b6fc98`, `98abe01`, `4b96464`, `0b6d45c`, `a6d18e4`,
+`10cd4da`, `d4655cf`, `8efd274`, `a453233`, `00282cb`, `c06b292`, `ff94f16`, `9737a8e`, `88acbba`,
+`233e7c4` (the merge), `c520c38`, `1a958ce`, `7e9241c`, `60f63b0`.
+
+Marked design input: `0b6d45c`, `00282cb`, `a453233`, `8efd274`, `10cd4da`, `a6d18e4`, `4b96464`,
+`98abe01` → batch I; `9737a8e`, `ff94f16`, `c06b292` → batch J. `88acbba`, `0f424b9`, `1a958ce` correct
+pi's own census of dsh. The `docs(memory): refresh the memory render` commits are pi's render loop.
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P rev-parse HEAD origin/master                                  # 1a958ce / 4e40d43
+git -C $P rev-list --count ca71fd3..4e40d43                             # 55
+git -C $P rev-list --count --first-parent ca71fd3..4e40d43              # 53 (merge 233e7c4 adds 2)
+git -C $P log --oneline 233e7c4^2 --not 233e7c4^1                        # 0f424b9, 1a958ce
+git -C $P branch -a                                                      # no second branch
+for t in v0.4.1 v0.4.2; do git -C $P rev-parse "$t^{commit}"; done        # 7b6fc98 / 4b4f9c3
+git -C $P describe --tags ca71fd3; git -C $P describe --tags 4e40d43     # v0.4.0-2-g… / v0.4.2-2-g…
+git -C $P log --oneline ca71fd3..4e40d43 -- 'extensions/**' 'tests/**'   # the 14 above
+D=/mnt/Data/Projects/dsh-project-context
+git -C $D grep -cn 'scanDocument\|splitSections\|renderProgressiveBody\|InjectionSpec' -- src/   # 0: batch I not started
+git -C $D grep -n 'loadMemorySync(projectRoot' -- src/project-memory/index.ts                    # whole-document injection
+git -C $D grep -n 'resolveSummaryEffort' -- src/                        # perform.ts:95 — the summary call
+git -C $D grep -n 'handoffThinking' -- src/ client/                     # a live reader, not a write-only key
+git -C $D grep -n 'newestMemoryArchiveSync' -- src/                     # 3 hits: LIVE, do not port 8f4eab7 by name
+git -C $D grep -cn 'cleanHeaders' -- src/ test/                         # 0: pi's other dead name has no dsh twin
+git -C $D grep -n 'MIN_SUMMARIZE_TOKENS' -- src/project-handoff/threshold.ts                    # 15, still accurate
+git -C $D grep -c 'session_shutdown\|shutdownErrorRoot' -- src/         # 0: dsh disposes via agent/disposed
+git -C $D grep -n 'fence.char === openFence.char' -- src/project-memory/sections.ts             # the CommonMark rule, already here
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a
+semantic diff of the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`,
+the profiles under `~/.dsh`) is not owned here. Two dispositions rest on source reads rather than probes
+and are marked as such: that dsh's `getProjectRoot` cannot reject (so pi's `shutdownErrorRoot` has no
+branch to pin here), and that no fence-blind heading scan exists under a name this pass did not guess.
+The `9abd971`/`a0bcdd1` rows are classified as corrections *inside* batches I/J rather than as fixes of
+their own; one of their items — that `logError` creates a stray `.agents/memory/` when handed a wrong
+root (`src/shared/error-log.ts` calls `mkdir(…, { recursive: true })` unconditionally) — is structurally
+present in dsh, but whether a reachable dsh path passes it a wrong root was not established. Nothing was
+ported: this pass edits `docs/` and memory only, `src/` is untouched, and no CHANGELOG entry or host
+restart follows from it.
