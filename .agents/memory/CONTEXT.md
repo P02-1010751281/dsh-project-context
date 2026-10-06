@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-10-06T08:54:01.000Z
+Last updated: 2026-10-06T13:22:45.000Z
 
 ## Summary
 
@@ -29,6 +29,7 @@ Handoff continuation (from session-1070ae97) for `/mnt/Data/Projects/dsh-project
 - Recorded, not scheduled: the ratio pair is still written literally in `test/logic.test.mjs:2417` and four `test/threshold-floor.test.mjs` fixtures, so moving the exported pair reddens assertions that are not about the move — the latent coupling pi's `6a00587` fixed.
 - Still unproven and expected to stay so until real usage: batch I's compliance (whether the model actually issues `read` calls for the indexed sections) and batch J's `MIN_DROP_TOKENS` behaviour in a real context. Every `src/` commit is otherwise proven live now, so do not re-litigate the load question.
 - Residuals deliberately NOT implemented, recorded so they are not rediscovered as defects: fixed threshold mode ignores the adaptive `usable` headroom (F8/Q5, logged in `CHANGELOG.md` and `CONTEXT.md`); the timed `tool-ask-user` late reply arrives as a `user/message` with `source.kind` `user-question-reply` and is not read by the carrier (config-gated; neither profile sets `mode: timed`); an ask nested in the code runtime (PTC) is recorded only as `tool/ptc-dispatch` and is invisible to `deriveMessages`; with `handoffBudgetRecentTokens > 0` the newest input also appears in the carried tail (duplication only; both profiles use 0).
+- **交接子会话的标题不会自愈（2026-10-06 只读核实，待用户拍板）**：`↪ handoff · <父会话前 8 位>` 由 `perform.ts` 的 `${HANDOFF_TITLE_PREFIX}${parentLabel}` 写死（字面量在 `marker.ts`），而 dsh 标题服务把这次 `controller.rename` 记成 `source.kind = 'user'` 后永久拒绝自动改名（dsh 源码 `packages/session/session-title/src/index.ts` 的 “A user rename pins the title”），种子来源 `dsh-project-context` 本身也不触发自动标题 → 侧栏永远显示旧 id。负例对照（DSH-AV 库）：每个 handoff 子会话只有 1 条 `session/title` 且来源全为 `user`，而其余会话存在 `fallback → provider` 的升级路径——两边的计数都随时间增长，不要引用固定值。要改只能由插件自己算标题（`rename()` 是唯一写 `session/title` 的入口且只写 `source: user`）或放弃固定前缀，但该前缀正是浏览器半边自动切到新会话的判据（`watch.ts`）。**属设计取舍，等用户拍板**；未拍板前 GUI 手动改名即可。
 - Standing guard unchanged: no profile edits, no host restarts and no `/etc/nixos` changes unless the user names them; the desktop restart script and `/memory update` remain user-only.
 
 <!-- latest-session-title: Batch L loaded on the user's restart and released as v0.4.3 (64d62d0) -->
