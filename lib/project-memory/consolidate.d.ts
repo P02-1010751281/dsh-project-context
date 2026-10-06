@@ -97,6 +97,23 @@ export declare const CONVERSATION_CAPTION = "[This session's working state. It m
  */
 export declare const CONSOLIDATION_PROMPT_RULES: readonly string[];
 /**
+ * The compression ladder both prompt layers state (batch L, ported from pi v0.4.4).
+ *
+ * The sentence this replaces — "When over budget, merge duplicates within a section, then drop the
+ * least durable entries" — was the only permission the prompt gave for an overflow, and it made
+ * deletion the closing step. Measured on 2026-10-06, this repo's memory sat at 98.8% / 97.9% of two
+ * section budgets, one added line away from a whole-entry drop, and the tier C retry that fires on
+ * exactly that loss repeated the same instruction — asking for the loss the gate refuses.
+ * Compression is now the default and a deletion has to name a reason; one constant, so the two
+ * layers cannot drift apart.
+ */
+export declare const MEMORY_KEEP_RULE = "Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections, then condense the wording. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one.";
+/**
+ * The same rule at the block whose text the reply rewrites (pi's second layer): the material arrives
+ * with the instruction attached, rather than only in the rules above it.
+ */
+export declare const MEMORY_SURVIVAL_CAPTION = "The existing-memory block below is what has to survive this pass: every entry that is still true must reappear unless it is superseded or already covered elsewhere, and a section that does not fit its budget is fixed by condensing its wording, not by dropping entries.";
+/**
  * The memory layout the pass actually writes, stated with the real per-section budgets.
  *
  * The stored memory carries these exact sections in this order, and `renderMemoryDocument` enforces

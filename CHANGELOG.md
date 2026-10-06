@@ -7,6 +7,15 @@
 
 ### 未发布（`v0.4.2` 之后）
 
+**project-memory（整理提示词改为“压缩而不是删除”，批次 L）**
+
+- 修复：**提示词把“丢条目”写成预算溢出的收尾动作**。pi 的 v0.4.3/v0.4.4 先误判为模型在删条目，其评审第一轮纠正：真正的丢弃发生在渲染器——`renderMemoryDocument` 按分区固定预算**整条丢弃**——而提示词两处都在教删除。dsh 两处原样存在：`memorySectionRule` 的收尾句“…then drop the least durable entries”，以及 tier C **唯一一次定向重试** `memoryLossRetryRule` 的“…by merging duplicates within a section and dropping the least durable entries”——后者自相矛盾：重试触发的理由正是“存下去会丢整条”，它却让模型去丢条目。现在两处共用同一个 `MEMORY_KEEP_RULE`（保留所有仍为真的条目 → 节内合并重复 → 跨节去重 → 压缩措辞；只有被取代或别处已覆盖才允许删），并在 `<existing-memory>` 块上方加了第二层 `MEMORY_SURVIVAL_CAPTION`，让规则跟着它要改写的文本一起到达。
+- 新增：重试句同时覆盖**无分区**的整文档上限路径（`the memory_markdown you returned was about N character(s) over the memory cap` 对应“apply the same ladder without sections”）。
+- 边界：提示词断言只证明这些话在提示词里，不证明模型照做；pi 的验收面是渲染结果（不再出现分区预算超限、条目数不再缩水），需要真实会话。dsh 另有硬保证——tier C 对整条丢失**拒写**——所以本条修的是“重试在要求自己被拒绝的那件事”，不是“悄悄丢条目”。一个**已接受残留**：四节都顶在硬预算且每条都仍为真时，新规则不授权任何动作——需要新增事实的整理会**显式拒写**（`lossy-refused`）而不是丢掉最不耐久的条目腾位置；这是 pi 的有意措辞，失败是响亮的而非静默的，且“目标 90% / 硬上限”两档数字本就是为了让真实文档很少走到那一步。
+- 变异校验（5 个变异体，均被杀死；每个都 `tsc` 0 错、标记进 `lib/`、只打红该打的用例）：① `MEMORY_KEEP_RULE` 改回删除优先句——`the memory section rule states the same sections…` 与 `the lossy retry asks for compression…` 变红；② 从 `promptFor` 删掉 caption——`lib/` 中 `MEMORY_SURVIVAL_CAPTION,` 计数归 0，`a reply cut off by the output limit is retried once with more headroom` 变红；③ 删掉无分区子句——`the lossy retry asks…` 变红；④ 只删掉常量里的 “deduplicate across sections” 一步——`lib/` 中该短语计数归 0，`the memory section rule…` 变红，证明阶梯的每一步由自己的词钉住、不是与常量自比；⑤ 把 caption 的 “not by dropping entries” 改弱——`lib/` 中该短语计数归 0，`a reply cut off by the output limit…` 变红。恢复后 `sha256sum -c` 通过、`pnpm build` 后 `lib/` 与又一次 `tsc` 编译逐文件一致（仅 `lib/client.js` 多出）、全量门禁 395 通过 / 0 失败。
+- 独立对抗评审（1 轮，评审者只读、不写工作树）发现两处同类文档缺陷与两处“断言与常量自比”的弱证据，均已修：① `docs/upstream-pi-triage.md` 第八次 pass 的 honest boundary 仍写“Batch L is not started… Nothing was ported”，与同文件新加的 landed 小节自相矛盾（下一会话正是读它判断进度），已改为 landed 状态；② 该 pass 的 read-now 命令 `grep 'least durable'` 现在命中的是本批次 JSDoc 里的**引文**，重跑会读成“提示词还在教删除”，已改为指向三个提示词站点并写明这条 grep 的含义；③ 阶梯的每一步此前只与常量自比（改常量取值不会变红），已加按词断言并由变异体 ④ 证明；④ caption 的内容此前无断言，已加并由变异体 ⑤ 证明；⑤ caption 原文含字面量 `<existing-memory>`，四处按该标签抽取的既有测试只是“恰好因为标签后是空格”而没被带偏（今天不坏，但 caption 一旦在标签后换行就会让切片从 caption 开始），已去掉字面标签并补上“被取代或别处已覆盖”的例外。`docs/batch-c-tier-c-design.md` 引用的旧句也加了日期注。
+- 状态：**已落地 `src/`，尚未载入宿主**——需要一次用户重启；本条不改配置键，两个 profile 无需改动。
+
 ### v0.4.2（2026-10-06）
 
 **project-memory（记忆分区预算）**

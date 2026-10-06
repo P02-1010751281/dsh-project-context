@@ -1112,6 +1112,28 @@ pinned by tests asserting the ladder and the deletion-with-a-reason condition in
 is pi's own: prompt assertions prove the words are present, not that the model obeys, and the real acceptance is
 the render surface (no section-budget drop line and no shrinking entry count across later renders).
 
+### Batch L landed (2026-10-06, same day)
+
+Ported, not pending. `src/project-memory/consolidate.ts` now owns one `MEMORY_KEEP_RULE` shared by
+`memorySectionRule` and tier C's `memoryLossRetryRule` — which no longer names a deletion order and now
+covers the sectionless cap path — plus `MEMORY_SURVIVAL_CAPTION`, emitted immediately above the
+`<existing-memory>` block. Three mutants were killed, the suite is green and `lib/` is rebuilt; a fresh
+`tsc` compile into a temp dir matches `lib/` with `lib/client.js` the only extra.
+
+Two differences from pi are deliberate and worth recording. dsh's retry already named each section's exact
+overage (characters beyond the budget, entries that would be dropped whole), so the port kept that and
+replaced only the closing instruction, where pi's retry carries no per-section numbers. And dsh's tier C
+**refuses** a lossy write where pi warns and publishes — which is what made the retry wording the sharper
+defect here: the instruction was asking for the loss the gate refuses.
+
+One accepted residual, recorded rather than fixed: with all four sections at their hard budgets and every entry
+still true, the new rule licenses no action, so a pass that must add a fact refuses loudly (`lossy-refused`) instead
+of dropping the least durable entry to make room. That is pi's deliberate wording and it fails visibly; the
+two-number target exists so a real document rarely reaches that state.
+
+The batch is in `src/` and **not yet loaded**: the 19387 holder started before this commit, so it needs a
+user restart. `CHANGELOG.md`'s `未发布` section and the code comment carry the per-mutant detail.
+
 ### One latent coupling (from `6a00587`)
 
 pi derives its fixed-floor fixture from `MIN_THRESHOLD_RATIO` because a hardcoded `0.1` turned a constant move
@@ -1148,8 +1170,9 @@ git -C $P show ed51eac -- extensions/project-context/memory/prompt.ts   # the fi
 git -C $P show aaafd0b -- extensions/project-context/memory/prompt.ts extensions/project-context/memory/pass.ts
 git -C $P show 009cceb -- extensions/project-context/memory/pass.ts
 D=/mnt/Data/Projects/dsh-project-context
-git -C $D grep -n 'least durable' -- src/project-memory/consolidate.ts  # 182, 227 — both still deletion-first
-git -C $D grep -n 'existing-memory' -- src/project-memory/consolidate.ts # 429 — no caption line
+git -C $D grep -n 'MEMORY_KEEP_RULE\|MEMORY_SURVIVAL_CAPTION' -- src/project-memory/consolidate.ts  # the three prompt sites
+#  Before the port, `git -C $D grep -n 'least durable' -- src/project-memory/consolidate.ts` hit the two prompt strings
+#  (182, 227). After it the only hit is the comment quoting the sentence they replaced — never read that grep as the prompt.
 git -C $D grep -n 'MEMORY_SECTION_PROMPT_SHARE' -- src/project-memory/  # memory-schema.ts:69 — budgets already stated
 git -C $D grep -rn 'between 0\.1 and 0\.95' -- test/                     # logic.test.mjs:2417 — the hardcoded pair
 node $D/.agents/evidence/2026-10-05-memory-share-fix-offline-verify/share-fit.mjs   # the read-now occupancy
@@ -1161,6 +1184,6 @@ This is a per-module read of what pi's commits touch and of the mechanism under 
 diff of the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`, the profiles
 under `~/.dsh`) is not owned here. pi's diagnosis numbers (Invariants +852 / Pitfalls +239 / Index +544,
 `sectionDropped=3`, `droppedItems=9`) are pi's field evidence as recorded in its own commits, not re-measured
-here; dsh's occupancy percentages are read now from `share-fit.mjs` against the built `lib/`. Batch L is not
-started: this pass edits `docs/` and memory only, `src/` is untouched, and no CHANGELOG entry or host restart
-follows from it. Nothing was ported.
+here; dsh's occupancy percentages are read now from `share-fit.mjs` against the built `lib/`. Batch L was opened
+by this pass and landed the same day: `src/project-memory/consolidate.ts` changed, `CHANGELOG.md` gained its
+`未发布` entry, and only the user's host restart is outstanding (see the batch L landed section above).

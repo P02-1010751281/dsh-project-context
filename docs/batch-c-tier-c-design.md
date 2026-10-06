@@ -55,6 +55,8 @@ write cap is the only trace of.
   > 800-character per-item cap. Retry this same consolidation without the tool: return exactly one
   > complete JSON object with string memory_markdown and object context, and bring every section
   > inside its budget by merging duplicates and dropping the least durable entries.
+> 注（2026-10-06，批次 L）：这一句已被替换为压缩优先的 `MEMORY_KEEP_RULE`；权威表述见
+> `src/project-memory/consolidate.ts` 与 `CHANGELOG.md` 的 `未发布（v0.4.2 之后）`。
 
 ## 4. Refusal contract
 

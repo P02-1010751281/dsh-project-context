@@ -28,7 +28,7 @@ import { MIN_DROP_TOKENS, qualityLimit, resolveThreshold, thresholdRefusal, thre
 import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runtime.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
-import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, CONVERSATION_CAPTION, FOREIGN_STATE_RULE, fallbackUpdate, memorySectionRule } from "../lib/project-memory/consolidate.js";
+import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, CONVERSATION_CAPTION, FOREIGN_STATE_RULE, fallbackUpdate, memoryLossRetryRule, memorySectionRule, MEMORY_KEEP_RULE, MEMORY_SURVIVAL_CAPTION } from "../lib/project-memory/consolidate.js";
 import { memorySectionBudgets, memorySectionPromptBudgets } from "../lib/project-memory/memory-schema.js";
 import { adaptiveOutputTokens, MAX_ADAPTIVE_OUTPUT_TOKENS, MAX_REASONING_RESERVE_TOKENS, MIN_REASONING_RESERVE_TOKENS, REASONING_RESERVE_RATIO, REPLY_OUTPUT_MARGIN_TOKENS, RETRY_OUTPUT_HEADROOM_TOKENS, reasoningReserveTokens } from "../lib/shared/output-budget.js";
 import { parseConsolidation, parseContextMember, parseToolArguments } from "../lib/shared/reply-json.js";
@@ -4741,6 +4741,12 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 	// The first prompt must NOT carry the retry instruction.
 	const firstPrompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	assert.doesNotMatch(firstPrompt, /cut off by the model output limit/i);
+	// Batch L's second layer: the rule sits on the block whose text the reply rewrites.
+	assert.ok(
+		firstPrompt.includes(MEMORY_SURVIVAL_CAPTION + "\n<existing-memory>"),
+		"the survival caption sits directly above the block it protects",
+	);
+	assert.match(firstPrompt, /condensing its wording, not by dropping entries/, "the caption's own wording is pinned");
 	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n", "the successful retry is accepted");
 	assert.deepEqual(warnings, [], `a recovered truncation is not a failure: ${JSON.stringify(warnings)}`);
 });
@@ -5030,6 +5036,34 @@ test("the memory section rule states the same sections, order and character budg
 	assert.match(rule, /no bullet prefix/);
 	// Every bound stated is in characters; a word hint is what the code does not enforce.
 	assert.doesNotMatch(rule, /\b(?:below|under|at most)\s+\d[\d,]*\s+words?\b/i);
+	// Batch L: the overflow is answered by compression, and a deletion has to name a reason.
+	assert.ok(rule.includes(MEMORY_KEEP_RULE), "the rule states the compression ladder");
+	// The steps are pinned by their own words too: matching only the imported constant would stay green
+	// through any edit inside it, and that is where the deletion-first wording lived.
+	assert.match(rule, /keep every entry that is still true[\s\S]*merge duplicates within a section, deduplicate across sections, then condense the wording/i, "the ladder names its steps in order");
+	assert.match(rule, /condense the wording/, "condensing is the named first move");
+	assert.match(rule, /Delete an entry only when it is superseded or already covered elsewhere/, "deletion needs a reason");
+	assert.doesNotMatch(rule, /least durable/i, "the deletion-first wording is gone");
+});
+
+test("the lossy retry asks for compression instead of naming entries to drop", () => {
+	// Tier C fires because storing the reply would drop whole entries, so the instruction it sends
+	// back has to ask for the compression that avoids the loss — not repeat the loss the gate refuses.
+	const retry = memoryLossRetryRule(
+		[
+			{ heading: "Pitfalls", budget: 11_577, over: 21, droppedEntries: 2, truncatedEntries: 0, itemCap: 800 },
+			{ heading: "Index", budget: 3_593, over: 0, droppedEntries: 0, truncatedEntries: 1, itemCap: 450 },
+		],
+		0,
+	);
+	assert.ok(retry.includes(MEMORY_KEEP_RULE), "the retry states the same ladder as the rule");
+	assert.match(retry, /- Pitfalls: needs about 21 character\(s\) beyond its 11577-character budget; 2 entry\(ies\) would have been dropped whole/);
+	assert.match(retry, /- Index: 1 entry\(ies\) exceeded the 450-character per-item cap/);
+	assert.doesNotMatch(retry, /least durable/i, "the retry no longer names a deletion order");
+	// The cap-only path is covered too: a reply carrying no sections still has to be compressed.
+	const capOnly = memoryLossRetryRule([], 1234);
+	assert.match(capOnly, /- the memory_markdown you returned was about 1234 character\(s\) over the memory cap/);
+	assert.match(capOnly, /apply the same ladder without sections/);
 });
 
 test("requestPluginText and its meta variant keep the error and abort semantics", async () => {
