@@ -1,17 +1,21 @@
 /**
  * The automatic trigger: measure context pressure and hand off once the threshold is
  * crossed, unless a guard defers. Driven by the `turn/end` listener in `index.ts`.
+ *
+ * The measurement itself lives in `gate.ts` because the injected pressure line reports the same
+ * numbers; this function adds only the guards, the split and the handoff.
  */
 
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { CHARS_PER_TOKEN, handoffSplit, pendingQuestion } from "./conversation.js";
+import { recordHandoffDeferral, recordHandoffGate } from "./display.js";
+import { resolveHandoffGate } from "./gate.js";
 import { pendingSubagentWork } from "./guard.js";
 import { performHandoff } from "./perform.js";
-import { type SessionControllerLike, type SessionProjectionsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { SKIP_LOG_INTERVAL_MS, skippedLoggedAt, skippedSince } from "./state.js";
-import { MIN_DROP_TOKENS, resolveThreshold } from "./threshold.js";
+import { MIN_DROP_TOKENS } from "./threshold.js";
 
 /**
  * Measure pressure and hand off when the configured threshold is crossed. Exported so a test can
@@ -25,30 +29,22 @@ import { MIN_DROP_TOKENS, resolveThreshold } from "./threshold.js";
  * pricing behind `tokenMeter.measure` are cheap enough to re-run per turn.
  */
 export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void> {
-	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
-	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
-	const projections = ctx.get("sessionProjections") as SessionProjectionsLike | undefined;
-	if (!controller || !meter) return;
-	const target = resolveTarget(session, config);
-	if (!target) return;
-
 	const key = String(session.id);
 	const now = Date.now();
 
-	const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model);
-	const contextWindow = resolved.context?.contextWindow;
-	if (contextWindow === undefined || contextWindow <= 0) return;
-	// `measuredContext` folds in the harness's `contextBreakdown` envelope; without it the floor would
-	// have to be derived from the meter's two differently-based outputs, which is the defect this exists
-	// to prevent.
-	const measurement = measuredContext(meter, projections, session);
-	const threshold = resolveThreshold(config, measurement, contextWindow);
+	// One resolution, shared with the injected pressure line (`gate.ts`), so the number the user reads
+	// is the number this decision used.
+	const gate = await resolveHandoffGate(ctx, session, config);
+	if (!gate) return;
+	recordHandoffGate(session, gate);
+	const { measurement, threshold } = gate;
 	if (!threshold || measurement.totalTokens < threshold.tokens) return;
 
 	// dsh has no editor draft mode, so by default an open question defers the handoff
 	// instead of being answered by the continuation (pi's wait). `handoffPendingQuestion`
 	// = "wait" opts into carrying the question into the new session.
 	if (config.handoffPendingQuestion === "defer" && pendingQuestion(session) !== undefined) {
+		recordHandoffDeferral(key, "question");
 		ctx.logger.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
 		return;
 	}
@@ -57,12 +53,14 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 	// now would leave two sessions working the same project.
 	const pending = await pendingSubagentWork(ctx, session);
 	if (pending.length > 0) {
+		recordHandoffDeferral(key, "subagents");
 		ctx.logger.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", pending.length);
 		return;
 	}
 
 	const split = handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	if (Math.round(split.older.length / CHARS_PER_TOKEN) < MIN_DROP_TOKENS) {
+		recordHandoffDeferral(key, "nothing-to-drop");
 		// Nothing worth dropping: the conversation fits the recent window. Not a failure, and
 		// dsh has no host-side notification channel, so the reason is a rate-limited log line and a
 		// line in the `/handoff status` receipt, which is the surface the user actually reads.

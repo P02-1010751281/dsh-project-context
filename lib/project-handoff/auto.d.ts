@@ -1,6 +1,9 @@
 /**
  * The automatic trigger: measure context pressure and hand off once the threshold is
  * crossed, unless a guard defers. Driven by the `turn/end` listener in `index.ts`.
+ *
+ * The measurement itself lives in `gate.ts` because the injected pressure line reports the same
+ * numbers; this function adds only the guards, the split and the handoff.
  */
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";

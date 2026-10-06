@@ -7,6 +7,15 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（越线可见：注入式压力行，批次 M）**
+
+- 新增：**会话越过自动交接阈值时，把这一状态注入模型上下文，由模型在下一轮转述给用户**。此前越线是静默的——触发只在 `turn/end` 评估，而 `↪ handoff · a00eb4ce`（`54cdf479`）在一个**未结束的 turn** 里坐到 316,189/1,000,000 对阈值 157,000（**2.01×**），从未被评估过，用户只能自己手算发现。两个新模块：`gate.ts` 把「解析路由 → 取 `contextWindow` → `measuredContext` → `resolveThreshold`」抽成**唯一入口**（自动路径与显示层读同一个对象，避免出现第二份公式）；`display.ts` 持有按会话冻结的行。计算点是 `step/start` 而非 `turn/end`——动机案例的轮次从未结束，只有 step 能看到它；该 tick 在行已冻结后直接跳过，不再重复测量。
+- 设计约束（**实测得出，非估算**）：`systemPrompt.context` 会被 harness 物化成一条**持久的 user 角色运行时上下文快照**，而快照在文本变化时是**追加**的（`surface-fold.ts` 的 `planSurfaceTokens` 对 `surfaceOp:"append"` 直接 `deltaTokens = tokens`，只有带 `startSeq/endSeq` 的 ranged op 才会 splice 掉旧节点）。证据取自本仓归档的上一个会话：`session-3a19d454` 的 log 里有 **5 条** `Current runtime context`（长度 37274/37274/37761/37513/37875，其中两条等长而 sha 不同），且该会话 **74 个 surface 事件全为 `append`、零 ranged replace**。所以一行的代价是**每次文本变化 ≈ 一次 ~37 KB 追加**，不是「每轮几个 token」；`display.ts` 因此只在**跨线**与**原因变化**时改文本，跨线后逐字节冻结。
+- 新增：行内容为「占用 / 窗口 / 阈值 + 越线百分比」，并在触发被拦住时点名原因（`question` / `subagents` / `nothing-to-drop`，由自动路径在它真正做出该判断的地方记录）；文案跟随会话语言（zh/en），子会话因 `isTopLevel` 不注入，`/handoff off` 不注入。
+- 边界（**不要读成已修**）：这一行是给模型读的，**模型是否转述无法离线证明**（与批次 I 的合规性同类，需要真实使用）。行的刷新时机仍是既有语义：自动交接只在 `turn/end` 尝试，本批**没有**改变触发时机（那是候选 (b)，仍是设计决策）。
+- 变异校验（1 个变异体，被杀死）：「跨线后冻结」是代价上界所在，故把 `if (previous !== undefined) return` 改成「仅当占用未变才冻结」——`tsc` 0 错、标记进 `lib/project-handoff/display.js`、只打红具名用例 `the line is frozen while the crossing holds: the text is byte-identical as occupancy grows`。恢复后 `sha256sum -c` 66 个文件全通过、`pnpm build` 后 `lib/` 中 0 个变异标记、全量门禁 **402 通过 / 0 失败**（新增 7 个用例）。
+- 状态：**已落地 `src/`/`lib/`，尚未在宿主重启后验收**——本批是宿主行为，需要用户重启桌面宿主；判据仍是「19387 持有者启动晚于最后一个 `src/` 提交」。不改配置键、无新依赖、两个 profile 无需改动。
+
 ### v0.4.3（2026-10-06）
 
 **project-memory（整理提示词改为“压缩而不是删除”，批次 L）**

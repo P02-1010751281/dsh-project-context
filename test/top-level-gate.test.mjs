@@ -193,6 +193,9 @@ async function handoffCreates(origin) {
 			effect: () => () => undefined,
 			inject: () => () => undefined,
 			commands: { register: () => () => undefined },
+			// The pressure-line contribution registers here; this case is about the gate, not about
+			// what that line says (test/handoff-pressure.test.mjs owns it).
+			systemPrompt: { context: () => undefined },
 			get: (name) =>
 				name === "sessionController"
 					? {

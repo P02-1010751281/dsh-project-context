@@ -42,6 +42,14 @@
  * carries `ignorable: true`, and `Session.append` cannot set that marker, so a
  * downstream plugin must not append custom event types at all.
  *
+ * Beyond the trigger this plugin owns one *display* contribution: a `step/start` tick resolves the
+ * same gate `gate.ts` hands the trigger, freezes it when crossed, and a `systemPrompt.context`
+ * renders that frozen line (`display.ts`). It exists because a crossed threshold was otherwise
+ * silent until the user typed `/handoff status` — the session that motivated it sat at 2.01x its
+ * threshold with one open turn, so the `turn/end`-only trigger had never evaluated it. The line must
+ * not re-render per turn: the harness appends a ~37 KB runtime-context snapshot on every text
+ * change, which is why the display layer changes the text only at a crossing or a reason change.
+ *
  * dsh adaptations of pi's behavior:
  *   - no editor draft mode: `handoffPendingQuestion: "defer"` (default) waits for the
  *     user's answer instead of auto-answering it on their behalf; `"wait"` hands off

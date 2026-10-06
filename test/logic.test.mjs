@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { apply } from "../lib/project-handoff/index.js";
+import { apply as applyHandoff } from "../lib/project-handoff/index.js";
 import { apply as applyContext } from "../lib/project-context/index.js";
 import { pendingRetire } from "../lib/project-handoff/state.js";
 import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
@@ -60,10 +60,17 @@ import { effectivePluginConfig, publishProjectContextSettings } from "../lib/sha
 import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
 
+/**
+ * The handoff plugin declares `systemPrompt` (its pressure-line contribution), so a fixture that
+ * applies it has to supply the service. The behaviour of that contribution is
+ * `test/handoff-pressure.test.mjs`'s subject; this wrapper keeps the fixtures that predate it
+ * testing what they are about.
+ */
+const apply = (ctx, config) => applyHandoff({ systemPrompt: { context: () => () => undefined }, ...ctx }, config);
+
 function message(role, text) {
 	return { role, source: { kind: role }, content: [{ type: "text", text }] };
 }
-
 function fakeSession(messages) {
 	return { deriveMessages: () => messages };
 }
