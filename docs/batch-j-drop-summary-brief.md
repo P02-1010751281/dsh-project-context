@@ -1,7 +1,30 @@
 # Batch J — drop the generated handoff summary and carry a pointer
 
-**Status: not-started.** No code has been written for this batch. It is a proposal with evidence,
-written from the sixth pi triage pass (`docs/upstream-pi-triage.md`, section "Sixth pass").
+**Status: in progress.** Ruled 2026-10-06; implementation follows the rulings below. Written from the
+sixth pi triage pass (`docs/upstream-pi-triage.md`, section "Sixth pass").
+
+## Rulings, 2026-10-06 (user)
+
+Delete the summarizer outright **and retire `handoffThinking` with it** (pi's shape: a hard cut, no
+alias; no profile stores the key, so there is nothing to migrate); `MIN_SUMMARIZE_TOKENS` →
+`MIN_DROP_TOKENS`; `handoffBudgetSummaryTokens` and `/handoff budget summary` stay. Ordering: batches I
+and J land **before** the pending desktop restart.
+
+Decisions taken by the implementer under those rulings, recorded because they change the batch's shape
+beyond the six items above:
+
+- **The `<handoff>`/`</handoff>` markers stay**, now wrapping the mechanical "previous session details"
+  block instead of a summary. They are what `isHandoffContinuationText` keys on, and `humanUserText`
+  reuses it so a seed is not counted as a human turn — dropping them would have replaced a structural
+  test with a wording/length one.
+- **`performHandoff` loses its `target` and `resolved` parameters** (they existed only to run the summary
+  call), and `/handoff now`'s "No routed model available for the handoff summary" refusal goes with
+  them: with nothing generated, that refusal would report a cause that no longer exists. The auto path
+  keeps resolving model info for `contextWindow`.
+- **`assertHandoffSummarizable` is re-worded to the drop semantics**, keeping the
+  `/handoff budget recent 0` escape hint (pi: "nothing older than the recent window to drop").
+- The carried user-decision block from `904152d` is untouched.
+
 
 ## What pi did
 

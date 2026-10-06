@@ -774,9 +774,11 @@ Everything that moves with it, in dsh's own spelling:
 successor's first message is produced and orphans a persisted key.
 
 Briefs are written: `docs/batch-i-progressive-injection-brief.md` and
-`docs/batch-j-drop-summary-brief.md`, both marked not-started. Each states the pi references at a read
-revision, the dsh files and line anchors that move, the decisions that need the user's ruling, the traps
-and the verification plan, so a fresh session can start from the file alone.
+`docs/batch-j-drop-summary-brief.md`. Each states the pi references at a read revision, the dsh files
+and line anchors that move, the decisions that need the user's ruling, the traps and the verification
+plan, so a fresh session can start from the file alone. Both carry the 2026-10-06 rulings and the
+implementer decisions taken under them, and both are **in progress** — the batches land before the
+pending desktop restart so one restart loads them together with the earlier `src/` work.
 
 ### What this pass corrects
 

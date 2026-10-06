@@ -1,7 +1,28 @@
 # Batch I — progressive disclosure for the two injected documents
 
-**Status: not-started.** No code has been written for this batch. It is a proposal with evidence,
-written from the sixth pi triage pass (`docs/upstream-pi-triage.md`, section "Sixth pass").
+**Status: in progress.** Ruled 2026-10-06; implementation follows the rulings below. Written from the
+sixth pi triage pass (`docs/upstream-pi-triage.md`, section "Sixth pass").
+
+## Rulings, 2026-10-06 (user)
+
+Adopt pi's split — `MEMORY.md` keeps `## Invariants` + `## Pitfalls`, `CONTEXT.md` keeps
+`## Key points` + `## Open tasks`, the rest become one-line pointers — **and localize the pointer
+text**, reusing the repo's existing CJK detector rather than adding a second one. Ordering: batches I
+and J land **before** the pending desktop restart, so one restart loads everything.
+
+Decisions taken by the implementer under those rulings, recorded because they fix the batch's shape:
+
+- The CJK primitive moves to `src/shared/`, and `project-handoff/language.ts` keeps its exported names
+  by delegating to it — one detector, two consumers, no duplicated constant. (`detectHandoffLanguage`
+  and `HandoffLanguage` are still exported from their old module, so the handoff tests do not move.)
+- The document preamble (including `CONTEXT.md`'s `Last updated` line) and the truncation marker stay
+  inline, per pi's preamble + document-level-note rule.
+- The splitter is **heading-based** and does not go through `sectionsFromMarkdown`, so a document that
+  is opaque to the four-section parser still injects whole.
+- Batch J deletes `localizeSummaryHeadings`, which was one of the two fence-aware scans. The splitter
+  therefore carries its own small CommonMark close test rather than a third copy of an existing one;
+  it is recorded as a residual, not papered over.
+
 
 ## What pi did
 
