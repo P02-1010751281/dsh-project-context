@@ -420,3 +420,17 @@ test("the child's title is named after the parent's own last input, and falls ba
 	assert.ok(long.endsWith("…"), "a clipped label says so");
 	assert.ok(!long.includes("\n") && !/\s$/u.test(long), "the label is a single trimmed line");
 });
+
+test("a legacy kind=user seed banner does not name the continuation", () => {
+	// Seeding used to go through the prompt RPC, which hardcodes `source.kind = "user"` — so an old
+	// child's own banner is a *human* message by kind, and the kind filter alone lets it through. It
+	// would name the grandchild after the session its parent was continued from, which is worse than
+	// the parent id it replaces. Measured on the real store: 6 of 97 archived handoff children have
+	// such a banner as their parent's last `kind=user` message (repro:
+	// `.agents/evidence/2026-10-07-handoff-label-banner-repro/`).
+	const banner = `${SCAFFOLDING.zh.continuationPrefix}9f80b44-1c2d 交接。\n<handoff>\n上一会话信息…\n</handoff>\n${SCAFFOLDING.zh.continuationClosing}`;
+	assert.ok(isHandoffContinuationText(banner), "the fixture is a banner the shared predicate recognizes");
+	const label = (messages) => handoffLabel(fakeSession(messages), "abcdef12");
+	assert.equal(label([userMessage("改标题"), userMessage(banner)]), "改标题");
+	assert.equal(label([userMessage(banner)]), "abcdef12", "a banner-only parent falls back to its id");
+});

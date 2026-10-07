@@ -84,11 +84,19 @@ export declare function handoffCarry(session: Session, pendingEnabled: boolean):
  *
  * The prefix is the browser half's switch signal, so it is fixed; only this part is ours. A message
  * the user actually typed is the most useful thing to name the continuation after, and it is already
- * in the session — so the handoff stays model-free. `source.kind === "user"` is the whole filter: the
- * injected runtime-context snapshots, this plugin's own seed banner and a subagent's messages all
- * carry their own kinds, so none of them can title a session. An `ask_user_question` answer carries
- * no text of its own, so a session that ends on one keeps its earlier typed input, and a session with
- * no typed input at all keeps the id — the title is never empty, which `rename()` would refuse.
+ * in the session — so the handoff stays model-free. Two filters, and the second is not redundant:
+ * `source.kind === "user"` drops the injected runtime-context snapshots, this plugin's own seed
+ * banner and a subagent's messages, which each carry their own kind; `isHandoffContinuationText`
+ * drops that same banner arriving as a *human* message, which is how seeding wrote it before
+ * `perform.ts` stopped using the RPC that hardcodes `kind: "user"`. Those legacy banners are real,
+ * and titling a continuation after the session its own parent was continued from is worse than
+ * titling it after the parent's id. These are the same two filters the other readers of "what the
+ * user said" apply ({@link readSessionInputs}, `humanUserText`).
+ *
+ * The loop deliberately is not `readSessionInputs(...).decision`: an `ask_user_question` answer
+ * *replaces* that decision with an entry carrying no text of its own, while a title is better served
+ * by the last thing the person typed even when they then answered a question. A session with no typed
+ * input at all keeps the id — the title is never empty, which `rename()` would refuse.
  * @param session - the session being handed off.
  * @param fallback - the parent's short id, used when the session carries no human input.
  * @returns the label, without the prefix.
