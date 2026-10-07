@@ -418,6 +418,7 @@ test("the child's title is named after the parent's own last input, and falls ba
 	// start, which keeps the first write prefix-safe. Text beside an invisible character is kept.
 	assert.equal(label([userMessage("\u200B\u0001")]), "abcdef12", "an invisible-only label names nothing");
 	assert.equal(label([userMessage("\u00AD")]), "abcdef12", "a soft hyphen alone is invisible too");
+	assert.equal(label([userMessage("\u200B \u200B")]), "abcdef12", "invisible characters around a space still name nothing");
 	assert.equal(label([userMessage("\u200B按档 1/3")]), "\u200B按档 1/3", "a label is not stripped, only judged");
 
 	// One line, and short enough that the service's own 80-byte cap never has to cut it.
