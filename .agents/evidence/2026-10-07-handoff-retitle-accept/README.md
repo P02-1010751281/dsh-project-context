@@ -26,6 +26,32 @@ The event, not a file mtime, is the evidence: a session republished to v4 gets a
 being new, and a migrated directory keeps its old `session.vN` beside the new file (the probe reads
 only the highest version, or every title would be counted twice).
 
+## The pin does not gate this write — so a `1` means the deferral, not the pin
+
+Both this README and `../2026-10-07-handoff-relabel-reentry/README.md` quote dsh's own words ("A user
+rename pins the title"), which invites the reading that the *second* rename is refused by that pin.
+It is not, and the distinction decides how a post-restart `1` is attributed. Read from the store
+checkout the running host loaded
+(`/nix/store/cl7chjvxjw81aizwlxar1k8n9z02yd3b-dsh-desktop-0.2.0-rc.2/lib/dsh-desktop/repo`,
+`packages/session/session-title/src/index.ts`):
+
+| question | answer | site |
+|---|---|---|
+| does `rename` refuse a pinned title? | **no** — it asserts the service is active, that the session is live in the store, and that the normalized title is non-empty; then it `supersede`s the automatic state and appends | `index.ts:401-420` |
+| where does the pin actually live? | only on the **automatic** path: `onUserMessage` returns early when the latest folded title is `source.kind === "user"` | `index.ts:502-503` |
+
+So the handoff's own write — itself a `user`-source rename — pins the title against *automatic
+generation*, and a later explicit rename is still accepted. Corroboration from this machine's own
+archive: `5ced884f` (`/etc/nixos` workspace) carries **two** `user`-source `session/title` events — the
+inherited `↪ handoff · bcf509be`, then, after the `session/end-seed` fork boundary, a rename to
+`↪ handoff · bcf509be (1)` issued through the host's own rename path
+(`packages/api/session-controller/src/client/sessions/service.ts:469`, `fork`'s `increasedForkTitle`)
+while the log's latest title was still `user`-sourced.
+
+What this buys the reader: after the restart, a `1` from this probe means the deferred write did not
+land (the `bb8bc2a` diagnosis is wrong or incomplete), **not** that the title was pinned. `0` is the
+expected outcome.
+
 ## Why the criterion gate is inside the probe
 
 `relabel.ts` decides the write on the event that carried the first input (`firstHandoffInput(...).seq`),
