@@ -31,7 +31,18 @@ The jump to `user/message` runs on the **decompressed** stream, where `runtime-c
   (`handoff Auto handoff ON · context …`) / `继续`.
 * **candidate 4/5 (deferred)** — label = the *child's* own first human input: available only
   for children that were actually typed into; the rest stay on the parent id, which is today's
-  behaviour.
+  behaviour. A third block also grades that input itself, because it is the *only* thing the
+  title model ever sees (see below).
+
+## Why the child's own first input is the whole story for candidate 4
+
+`session-title-first-prompt-llm/src/index.ts` selects `messages[0]` and returns `[first]`;
+`session-title-llm/src/index.ts` frames exactly that array into its one user prompt with a
+short system instruction. `session-title/src/index.ts` does collect *all* human messages, but
+the first-prompt cadence uses only the first one. So candidate 4 (let dsh's provider title the
+child) can only rephrase the same message candidate 5 would paste — it cannot supply context
+that message does not contain. A child whose first human turn is `继续` yields an equally
+useless title under both.
 
 ## Two facts the survey output depends on
 

@@ -110,6 +110,17 @@ for (const [, row] of kids) kinds.set(row.seedKind, (kinds.get(row.seedKind) ?? 
 console.log(`  seed source.kind across children: ${JSON.stringify([...kinds.entries()])}`)
 
 console.log('')
+console.log('candidate 4/5 - quality of the CHILD\'s own FIRST human input:')
+const deferred = new Map()
+for (const [, row] of withOwn) { const key = klass(row.humanFirst); deferred.set(key, (deferred.get(key) ?? 0) + 1) }
+for (const [key, count] of [...deferred.entries()].sort((a, b) => b[1] - a[1])) console.log(`  ${String(count).padStart(3)}  ${key}`)
+console.log('        (this one message is ALL the title model sees: `session-title-first-prompt-llm/src/index.ts`')
+console.log('         returns `[messages[0]]`, and `session-title-llm` frames just that JSON array - no other context)')
+console.log('')
+console.log('example deferred labels (child | its first human input):')
+for (const [id, row] of withOwn.slice(-10)) console.log(`  ${id.slice(0, 8)} | ${String(row.humanFirst).slice(0, 60)}`)
+
+console.log('')
 console.log('example eager labels (child | parent | parent.lastHuman):')
 for (const [id, row] of kids.slice(-12)) {
   const parent = parentOf(row.title.slice(PRE.length).trim())
