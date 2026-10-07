@@ -1,6 +1,6 @@
-# 交接的两个未拍板取舍：(b) 触发点、(c) 子会话标题
+# 交接路线取舍：(b) 触发点、(c) 子会话标题、第三条 `agent/pre-step` 路线（结论见文末「判定」）
 
-**状态：只读分析，`src/` 未改动，两项都等用户拍板。** 每条结论都给了可复跑的判据；凡引用行号都是本文件写成时的树（`c630964`），改代码后按符号名重新定位。
+**状态：只读分析，`src/` 未改动。** 2026-10-07 用户在「三条路线怎么选」这一问上给出的唯一约束是「**不能丢东西**」，据此 (b) 与第三条路线都因「故意丢掉在飞的答案」判为**不做**（见文末「判定」），(c) 仍待拍板；三条路线的分析原文一律保留，条件变了可直接复用。每条结论都给了可复跑的判据；凡引用行号都是本文件写成时的树（`c630964`），改代码后按符号名重新定位。
 
 ---
 
@@ -45,6 +45,45 @@
 
 ---
 
+## 第三条路线：把评估挂到 `agent/pre-step`（真·仿自动压缩）
+
+**它和 (b) 不是同一件事，虽然两者都会在轮次中途动手。** (b) 是在 `session/event` 上**新增**一条 `step/end` 分支去调 `attempt()`（`step/start` 那条 tick 不动）——那是**事后通知**：事件已经发生，监听者只能异步反应，改不了这一步要发什么。第三条路线是把动作挂到 agent 级 waterfall `agent/pre-step`，它在**每个 step 进入之前被 await 一次**（同一步内由 `agent/request-error` 触发重试的那次请求不会再跑一遍 pre-step），并且可以在**同一 step** 决定这一步进不进、发什么。
+
+### 依据（dsh 侧，读自宿主实际加载的 `…-dsh-desktop-0.2.0-rc.2/lib/dsh-desktop/repo`）
+
+- 事件声明：`packages/core/agent/src/runtime-types.ts` 的 `'agent/pre-step'(this: Scoped<Agent>, payload: { agent, messages, turn, step, signal }, next)`，`@mode waterfall`；返回 `PreStepDecision = { kind: 'reject' } | { kind: 'enter', messages, startsRequestSeries? }`（注释原文：reject a proposed step or replace the messages that enter it；`next()` 保留原消息）。
+- dsh 自己的自动压缩就是这个形状：`packages/compaction/compaction-basic/src/index.ts` 的 `_registerAutomaticCompaction()` 注册**四个 handler**，其中两个是动作点——`agent/pre-step`（`await this.compactIfNeeded(agent, 'pressure', signal)`，只做旁路动作再 `return next()`，抛错只 `warn`）与 `agent/request-error`（`failure.code === CONTEXT_WINDOW_EXCEEDED_CODE` → 压缩 → `{ kind: 'retry' }`，`maxOverflowRetries` 默认 1）；另两个只重置溢出重试计数（`agent/status` 的 `idle`、`session/event` 的新 `assistant/message`）。它静默、模型无关，不消耗也不打断任何 turn。
+- 阈值与改写：`ctx.tokenMeter.measure(session).totalTokens` 对 `resolveCompactSpec(policy, contextWindow, reservedCompletionTokens)`（默认 `thresholdRatio 0.8`、`headroomTokens 65536`）；改写是 durable surface replace（`compaction/start|summary|end` + 遮蔽旧节点），不是删消息。
+- 自动 vs 手动的判据（`region.ts` 里 `compaction/start` 的写入处）：`owner` 在自动路径是当前 turn 号、在手动路径是 `null`，且只有手动会带 `sourceCommandId`。现跑命令（本工作区归档）：
+
+  `for f in ~/.dsh/sessions/--mnt-Data-Projects-dsh-project-context--/*/session.v4.jsonl.zstd; do zstdcat "$f" | grep -o '"type":"compaction/start"[^}]*}'; done`
+
+  输出里 `turn` 非 null 且无 `sourceCommandId` 的就是自动路径——因此这台机器上自动压缩是活的（不要引用固定条数）。
+
+### 比 (b) 多拿到的四件事
+
+1. **每个 step 都被评估**，`turn/end`-only 的结构盲区（本文件 (b) 的动机）是被消除，而不是缩小。
+2. **同一 step 就能改 `messages`**（`{ kind: 'enter', messages }`）。
+3. **测量与门禁复用同一个对象**：`gate.ts` 是唯一门禁入口，不必为触发点另建一条解析。
+4. **可以再加硬溢出兜底**：`agent/request-error` 返回 `{ kind: 'retry' }`，与压缩的兜底同形状。
+
+### 代价（第三条是 (b) 没有的）
+
+1. **同样丢掉在飞的答案**：交接必须在父会话那一轮还没结束时停掉它——与 (b) 第 1 条是同一件事，而且触发得更早。
+2. **与 `compaction-basic` 抢同一个 waterfall**：两者都在 `agent/pre-step` 上，注册顺序决定谁先手。数量级上我们的阈值（用户设置，1M 窗口下 ≈157K）远早于压缩线（`min(0.8W, W − reserved − 64K)`），所以正常是交接先发生；但一个 step 内顶过压缩线时，压缩会先改写表面、压力回落——这正是 (b) 第 6 条（「批次 M 那行会几乎失去用处」）的根源，拍板时必须一并定。
+3. **动作必须在 pre-step 的 await 链里完成或妥善异步化**：`compactIfNeeded` 是 await 的；若像现在的 `tickPressure` 一样 `void` 一个 promise，就要自己保证它与 dispose / turn 边界不打架——批次 M 的第 3 个变异体守的正是这类竞态。
+
+### 动手前必须先探针确认的事
+
+- 沿用 (b) 的两条：`archiveSession(id, { stopActivity: true })` 施加在**正在跑的 turn** 上是「停掉并结束」还是「拒绝/排队」；`controller.cancel({ sessionId })` 用在**父会话**上是否等价于取消当前轮。
+- 新增一条：我们的 listener 与 `compaction-basic` 在 `agent/request-error` 上都可能返回 `{ kind: 'retry' }` 时，是否互相抢先/覆盖。
+
+### 偏离 pi 语义
+
+pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的设计决策，不能记成「移植」。
+
+---
+
 ## (c) 交接子会话标题不会自愈
 
 ### 机制（只读核实）
@@ -77,3 +116,24 @@
 ### 若要动手
 
 1 条具名用例（标题以 `HANDOFF_TITLE_PREFIX` 开头，且标签等于带入的最后一条人类输入）＋ 1 个变异体（标签退回 `parentLabel`，该用例转红）。不动 `watch.ts`，不动 `marker.ts` 的前缀。
+
+---
+
+## 判定（2026-10-07，用户给出的约束：「不能丢东西」）
+
+2026-10-07 用户在「本文件这三条路线该怎么选」这一问上只给了一句约束：**「不能丢东西」**。来源要分清：这是对**路线选择**问题的自定义回答，**不是**对父会话那个「超支时先给 session 发消息等待、还是仿照自动压缩」问题的回答（那一问他并未作答）；随后用户在追问里选中了「先把这三条结论补进 brief」，而该选项原文就写着「(b) 与 pre-step 都被判出局」。按**内容完整性**把这句约束对齐到五条路线：
+
+| 路线 | 会丢什么 | 判定 |
+|---|---|---|
+| (a) 现状 = 批次 M 注入行 | 不丢；触发仍在 `turn/end`，那一轮已经收干净 | 保留（已在线） |
+| (b) `step/end` 触发 | **故意**丢掉父会话在飞的那一轮答案（`stopActivity` 停轮，它的下一次模型调用永不发生） | **不做** |
+| 第三条 `agent/pre-step` | 同上，而且更早 | **不做** |
+| (c) 选项 1/3（保前缀、只换标签） | 只改子会话**标题文本**，不动任何消息 | 仍待拍板 |
+| (c) 选项 2（丢前缀） | 丢掉 `watch.ts` 的自动切会话判据 | 不做 |
+
+两条结论：
+
+1. **不存在「中途打断但不丢」的现成接缝。** dsh 没有「暂停—发问—等回答」的原语：要问用户只能靠 step 内的 `ask_user_question`，要「等待」只能等那一轮结束（＝我们已有的 `turn/end`）。mid-turn 的任何动作都只能停掉当前轮，所以在这个坐标系里「越线必达」与「不丢在飞的答案」互斥；**这条约束把触发点钉回 `turn/end`**。
+2. 因此若要兼得，只能是一条**新设计**——例如 `agent/pre-step` 只做标记与更强的提示、交接仍等轮次自然结束——它不属于本文档现有三条中的任何一条，尚未开工。
+
+判定的性质：这是**用户口径**，不是插件既有行为；(b) 与第三条路线的分析原文按上面的顺序完整保留，条件变了可直接复用。
