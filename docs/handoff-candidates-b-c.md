@@ -1,6 +1,6 @@
-# 交接路线取舍：(b) 触发点、(c) 子会话标题、第三条 `agent/pre-step` 路线（结论见文末「判定」）
+# 交接路线取舍：(b) 触发点、(c) 子会话标题、第三条 `agent/pre-step` 路线（结论见文末「判定」，其后是 2026-10-07 的只读补充证据）
 
-**状态：只读分析，`src/` 未改动。** 2026-10-07 用户在「三条路线怎么选」这一问上给出的唯一约束是「**不能丢东西**」，据此 (b) 与第三条路线都因「故意丢掉在飞的答案」判为**不做**（见文末「判定」），(c) 仍待拍板；三条路线的分析原文一律保留，条件变了可直接复用。每条结论都给了可复跑的判据；凡引用行号都是本文件写成时的树（`c630964`），改代码后按符号名重新定位。
+**状态：只读分析，`src/` 未改动。** 2026-10-07 用户在「三条路线怎么选」这一问上给出的唯一约束是「**不能丢东西**」，据此 (b) 与第三条路线都因「故意丢掉在飞的答案」判为**不做**（见文末「判定」），(c) 仍待拍板；三条路线的分析原文一律保留，条件变了可直接复用。每条结论都给了可复跑的判据；凡引用行号都是本文件写成时的树（`c630964`），改代码后按符号名重新定位。**(c) 的选项在文末「补充证据」里从 4 个扩到 6 个**：dsh 的 `sessionTitle.refresh` 是服务自述的 unpin，且 `invariant.ts` 证明「带前缀但不 pin」在交接那一刻写不出来。
 
 ---
 
@@ -137,3 +137,45 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 2. 因此若要兼得，只能是一条**新设计**——例如 `agent/pre-step` 只做标记与更强的提示、交接仍等轮次自然结束——它不属于本文档现有三条中的任何一条，尚未开工。
 
 判定的性质：这是**用户口径**，不是插件既有行为；(b) 与第三条路线的分析原文按上面的顺序完整保留，条件变了可直接复用。
+
+---
+
+## 补充证据（2026-10-07，只读复核，未动 `src/`）
+
+**(c) 那一节的选项表**写于「自愈只能由插件自己算标题」的前提下。回源复核后多出两件事，第一件直接改变可选空间。
+
+### 新事实一：`refresh()` 是服务自己声明的 unpin
+
+- `packages/session/session-title/src/index.ts:392-394`（`rename()` 的 doc）：`user` 源会 pin，原话是 `"...an explicit {@link SessionTitleService.refresh} remains the deliberate unpin"`。
+- `refresh()` 本体（同文件 424-451）：注册了 provider 且会话已有可用人类输入时**走 provider**；没有 provider（或没有人类输入）时 `appendFallback`，用首条人类输入现推。
+- 这台机器上 provider 确实挂着：`packages/bundle/base/cordis.patch.yml:55-68` 同时挂 `@deepseek-ai/dsh-session-title`（`fallbackMaxWords: 5` / `fallbackMaxBytes: 40` / `maxTitleBytes: 80`，字节）与 `@deepseek-ai/dsh-session-title-first-prompt-llm`（`automatic: 'first-prompt'`、`targetWords: 5` / `targetCjkCharacters: 10` / `maxOutputTokens: 64`；未配 provider/model → 走 `request/header` 记录的会话路由）。
+- 服务键名是 `sessionTitle`：`packages/api/session-controller/src/commands.ts:195` 就是 `this.ctx.get('sessionTitle')`；插件可用同一条 `ctx.get`（未挂载时返回 `undefined`，不抛）。
+- 子会话对插件可见：它的日志 header **没有 `origin` 字段**（实测 `session-f7e001b6`），所以 `src/shared/lifecycle.ts:12` 的 `isTopLevel`（只排除 `'subagent'`）为真，`session/event` 本来就收得到；该子会话的 `request/header`（seq 16）早于它第一条人类输入（seq 100），路由可用。
+
+### 新事实二：「带前缀但**不** pin」在交接那一刻写不出来（硬约束）
+
+- `packages/session/session-title/src/invariant.ts`：`(messageSeqs.length === 0) !== (source.kind === 'user')` 即判失败，且每个被引用的 seq 必须是一条**更早的**、`source.kind === 'user'` 的 `user/message`。
+- 交接那一刻子会话里还没有任何人类消息（种子是 `source.kind = dsh-project-context`，本 workspace 66/93 个新子会话实测如此），所以插件不可能自行 append 一条非 pin 的 `session/title`。
+- 推论：**前缀 ⟺ pin**。前缀的唯一功能读者是 `marker.ts:101` 的切换判据，所以「自愈」只能发生在切换**之后**——事后再动标题。
+
+### 因此 (c) 在原有 0/1/2/3 之外多出两档
+
+| 档 | 触发点 | 标题变成 | 前缀 | 代价 |
+|---|---|---|---|---|
+| 1/3（上一轮建议） | 交接那一刻（`perform.ts:106` 一处） | 父会话最后一条人类输入；算不出就退回父 id | 保留 | 无模型调用；标签质量见下 |
+| 4 真·自愈 | 子会话第一条**人类**输入时 `ctx.get('sessionTitle')?.refresh(child)` | dsh 自己的 provider 生成（≤5 词 / ≤10 CJK 字 / ≤80 字节）；失败则原样保留 pin 标题 | 之后消失 | 多一次 ~64 token 的标题调用；多一个触发点；需要子会话已有一条 `request/header`（种子那一轮产出）；异步失败必须自己吞掉 |
+| 5 折中 | 同上触发点，但自己 `rename`(`${HANDOFF_TITLE_PREFIX}${首条人类输入}`) | 机械标签（子会话自己的首条人类输入） | 保留 | 无模型调用；多一个触发点；仍是机械标签 |
+| 0 现状 | — | 父会话前 8 位 id | 保留 | 侧栏永远显示旧 id |
+
+档 4/5 的触发条件必须是 `source.kind === 'user'`：实测 **27/93 个旧子会话的第一条 `kind=user` 消息其实就是交接横幅本身**（旧播种路径把种子写成 `user`），现行种子是 `dsh-project-context`，不会误触发。
+
+### 标签质量的真实分布（只读普查，可复跑）
+
+- 探针：`.agents/evidence/2026-10-07-handoff-title-label-survey/survey.mjs`（`node` 直接跑；只读、无网络；含 README）。它 fold 本 workspace 的 107 个归档会话。
+- 93 个 handoff 子会话，按**档 1/3**（父会话最后一条人类输入）：31 条是有意义的指令；38 条无来源（父会话没有任何人类消息 → 退回父 id）；7 条 ≤4 字（如「要」「好了」）；6 条是旧交接横幅；6 条是注入的状态行（如 `handoff Auto handoff ON · context 761495/1000000 …`）；5 条是「继续」。
+- 按**档 4/5**（子会话自己第一条人类输入）：55 个子会话有人类输入（标签可用），38 个从未被输入过（与今天一样停在父 id）。
+- 计数随会话增长，引用必须现跑；`survey.mjs` 的打印输出就是判据。
+
+### 这一步不替用户选
+
+三档都满足「不丢东西」（这是该约束下唯一还站得住的家族）；差别只在标题质量、是否保留前缀、以及是否多花一次极小的模型调用。原选项 0/1/2/3 的分析原文一律保留。
