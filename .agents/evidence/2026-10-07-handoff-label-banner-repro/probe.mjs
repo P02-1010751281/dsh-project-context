@@ -31,10 +31,20 @@ function textOf(blocks) {
     .trim()
 }
 
-/** Fold one session log into `{title, messages, kinds}` (`messages` = the `user/message` events). */
+/**
+ * For a child, the parent id as its own seed banner names it: `从会话 <id> 交接。` / `Handoff from
+ * session <id>.`, with an optional literal `session-` in the older wording. This is the authoritative
+ * link and it keeps working after this batch is loaded — a child's *title* carries the parent id only
+ * while it is a pre-fix id-titled child.
+ */
+const SEED_PARENT = /^(?:\u4ece\u4f1a\u8bdd|Handoff from session)\s+(?:session-)?([0-9a-fA-F][0-9a-fA-F-]{7,})/
+/** How many leading `user/message` events are searched for the seed banner (context may precede it). */
+const SEED_SCAN_MESSAGES = 5
+
+/** Fold one session log into `{title, messages, kinds, seedParent}`. */
 function scan(file) {
   return new Promise((resolve) => {
-    const out = { title: null, messages: [], kinds: new Map() }
+    const out = { title: null, messages: [], kinds: new Map(), seedParent: null }
     const child = spawn('zstdcat', [file], { stdio: ['ignore', 'pipe', 'ignore'] })
     createInterface({ input: child.stdout }).on('line', (line) => {
       if (!line.includes('"session/title"') && !line.includes('"user/message"')) return
@@ -45,6 +55,10 @@ function scan(file) {
       const kind = data.source?.kind ?? '<none>'
       out.kinds.set(kind, (out.kinds.get(kind) ?? 0) + 1)
       out.messages.push({ role: 'user', source: { kind }, content: data.content ?? [] })
+      if (out.seedParent === null && out.messages.length <= SEED_SCAN_MESSAGES) {
+        const match = SEED_PARENT.exec(textOf(data.content))
+        if (match !== null) out.seedParent = match[1]
+      }
     }).on('close', () => resolve(out))
     child.on('error', () => resolve(out))
   })
@@ -84,6 +98,17 @@ for (const name of readdirSync(STORE).filter((n) => n.startsWith('session-'))) {
 }
 const parentOf = (label) => { for (const [id, row] of sessions) if (id.startsWith(label)) return [id, row]; return [] }
 const kids = [...sessions.entries()].filter(([, row]) => typeof row.title === 'string' && row.title.startsWith(PRE))
+/**
+ * The parent of one child: its seed banner's id first, else the id its title still carries. Both are
+ * resolved through `parentOf` (an exact id, or a longer title-derived id for pre-fix children). The
+ * seed path is what keeps this check working once children stop being titled with the parent id.
+ */
+const parentRow = (row) => {
+  const seed = row.seedParent
+  if (seed !== null) { const found = parentOf(seed); if (found.length > 0) return [...found, 'seed'] }
+  const titled = parentOf(row.title.slice(PRE.length).trim())
+  return titled.length > 0 ? [...titled, 'title'] : []
+}
 
 const census = new Map()
 for (const [, row] of sessions) for (const [k, n] of row.kinds ?? []) census.set(k, (census.get(k) ?? 0) + n)
@@ -94,9 +119,13 @@ console.log(`  -> premise (injected snapshots and current seeds carry their own 
 
 const rows = []
 const bannerKids = []
+const via = new Map()
 for (const [childId, row] of kids) {
-  const [parentId, parent] = parentOf(row.title.slice(PRE.length).trim())
-  if (parentId === undefined || parent.missing) continue
+  const found = parentRow(row)
+  if (found.length === 0) { via.set('unresolved', (via.get('unresolved') ?? 0) + 1); continue }
+  const [parentId, parent, how] = found
+  via.set(how, (via.get(how) ?? 0) + 1)
+  if (parent.missing) continue
   const fallback = parentId.slice(0, 8)
   const post = handoffLabel({ deriveMessages: () => parent.messages }, fallback)
   const pre = preFixLabel(parent.messages, fallback)
@@ -109,7 +138,9 @@ for (const [childId, row] of kids) {
 
 const counts = new Map()
 for (const [childId, row] of kids) {
-  const [parentId, parent] = parentOf(row.title.slice(PRE.length).trim())
+  const found = parentRow(row)
+  const parentId = found.length === 0 ? undefined : found[0]
+  const parent = found.length === 0 ? undefined : found[1]
   const fallback = parentId === undefined ? childId.slice(0, 8) : parentId.slice(0, 8)
   const post = parentId === undefined || parent.missing
     ? fallback
@@ -119,6 +150,7 @@ for (const [childId, row] of kids) {
 }
 console.log('')
 console.log(`handoff children folded: ${kids.length}`)
+console.log(`parent resolved via: ${JSON.stringify([...via.entries()])}`)
 console.log('labels the BUILT `handoffLabel` produces for them (this is what the sidebar will show):')
 for (const [k, n] of [...counts].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(3)}  ${k}`)
 

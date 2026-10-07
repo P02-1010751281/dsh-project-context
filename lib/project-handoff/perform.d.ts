@@ -47,6 +47,24 @@ export declare function handoffArtifacts(args: {
  */
 export declare function assertHandoffDroppable(older: string): void;
 /**
+ * The title to write when the service's accepted value lost the switch prefix, else `undefined`.
+ *
+ * The service stores what it normalizes, not what it was asked for: `cleanTitleText` drops control
+ * and invisible characters and then trims the end, so a label consisting only of characters it strips
+ * would leave `↪ handoff ·` — one space short of the literal the browser watcher matches with
+ * `startsWith`, which means the user is never switched to the continuation while the plugin logs a
+ * successful handoff. `sessionController.rename` reports the accepted title (`{title, seq}`), so this
+ * is read from the same call and costs no round trip; the parent's short id is ASCII and cannot lose
+ * the prefix. `undefined` (a runtime that reports nothing recognizable, or a label that already is the
+ * id) leaves the stored title alone: treating an unknown reply as a failure would write a second title
+ * for no reason.
+ * @param accepted - the value `sessionController.rename` resolved with.
+ * @param label - the label that was asked for, without the prefix.
+ * @param fallback - the parent's short id, already the label when the session had no human input.
+ * @returns the title to write, or `undefined` to keep what the service stored.
+ */
+export declare function retitleAfterRename(accepted: unknown, label: string, fallback: string): string | undefined;
+/**
  * Drop the older context, persist the document, and start the seeded child session.
  * @param reason - the path that decided this handoff.
  * @param signal - the caller's cancellation signal, when the profile supplies one.

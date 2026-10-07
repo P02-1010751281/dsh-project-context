@@ -22,12 +22,16 @@ never quote the numbers below.
 
 ## What it drives
 
-For every archived handoff child (`session/title` starting with `↪ handoff · `) it finds the parent by
-the id in the title, reconstructs the parent as the minimal session shape the label reader consumes
-(`deriveMessages()`, `user/message` events only), and calls **the built
-`lib/project-handoff/conversation.js` `handoffLabel`** on it. Alongside it computes the pre-fix reader
-locally (`source.kind === "user"` only) and the shared predicate `isHandoffContinuationText` on the
-same text, so the three agree on which rows the filter changes.
+For every archived handoff child (`session/title` starting with `↪ handoff · `) it finds the parent
+from **the child's own seed banner** (`从会话 <id> 交接。` / `Handoff from session <id>.`, the id only
+as a fallback when that banner is unreadable — the title carries the parent id only while a child is a
+pre-fix id-titled child, so a title-based lookup would stop resolving once this batch is loaded and
+could even attribute a child to a session whose id the label happens to prefix). It then reconstructs
+the parent as the minimal session shape the label reader consumes (`deriveMessages()`, `user/message`
+events only) and calls **the built `lib/project-handoff/conversation.js` `handoffLabel`** on it.
+Alongside it computes the pre-fix reader locally (`source.kind === "user"` only) and the shared
+predicate `isHandoffContinuationText` on the same text, so the three agree on which rows the filter
+changes. The printed `parent resolved via:` line states how many children each path covered.
 
 ## What it asserts (both directions)
 
@@ -54,4 +58,6 @@ afterwards; do not edit `lib/` as a fix.
 6 of 97 archived handoff children have a banner as their parent's last human-kind message, and the
 pre-fix filter turned each into `从会话 session-<another session>…`. With the predicate, all six fall
 back to their own parent id. Label census for the built function over the same corpus: 37 useful
-instructions, 47 parent-id fallbacks, 6 `继续`, 7 ≤4 characters.
+instructions, 47 parent-id fallbacks, 6 `继续`, 7 ≤4 characters. `parent resolved via: [["seed",97]]` —
+every child is linked by its own seed, so the check keeps covering new handoffs instead of freezing on
+the historical, id-titled ones.

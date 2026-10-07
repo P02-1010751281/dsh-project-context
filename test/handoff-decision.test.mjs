@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { handoffCarry, handoffLabel, pendingQuestion } from "../lib/project-handoff/conversation.js";
 import { isHandoffContinuationText, SCAFFOLDING } from "../lib/project-handoff/language.js";
-import { handoffArtifacts } from "../lib/project-handoff/perform.js";
+import { handoffArtifacts, retitleAfterRename } from "../lib/project-handoff/perform.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 
@@ -433,4 +433,21 @@ test("a legacy kind=user seed banner does not name the continuation", () => {
 	const label = (messages) => handoffLabel(fakeSession(messages), "abcdef12");
 	assert.equal(label([userMessage("改标题"), userMessage(banner)]), "改标题");
 	assert.equal(label([userMessage(banner)]), "abcdef12", "a banner-only parent falls back to its id");
+});
+
+test("a title the service normalized down to the bare prefix is written again with the parent id", () => {
+	// The service stores what it normalized: `cleanTitleText` drops control and invisible characters
+	// and trims the end, so a label made only of those leaves `↪ handoff ·` — no trailing space, and
+	// the browser watcher matches the prefix with `startsWith`. Verified against the host's own
+	// `normalizeSessionTitle`: "\u200B", "\u0001" and a bare ANSI sequence all lose the prefix while
+	// `rename` still reports success. The reply carries the accepted title, so no extra round trip.
+	const P = "↪ handoff · ";
+	/** What the service stores when it normalizes the whole label away: the prefix loses its own space. */
+	const BARE = P.trimEnd();
+	assert.equal(retitleAfterRename({ title: BARE, seq: 12 }, "\u200B", "abcdef12"), `${P}abcdef12`);
+	assert.equal(retitleAfterRename({ title: BARE, seq: 12 }, "\u0001", "abcdef12"), `${P}abcdef12`);
+	assert.equal(retitleAfterRename({ title: `${P}按档 1/3 动手`, seq: 12 }, "按档 1/3 动手", "abcdef12"), undefined, "an intact title is left alone");
+	assert.equal(retitleAfterRename(undefined, "\u200B", "abcdef12"), undefined, "a runtime that reports nothing is left alone");
+	assert.equal(retitleAfterRename("ok", "\u200B", "abcdef12"), undefined, "an unrecognized reply shape is not a failure");
+	assert.equal(retitleAfterRename({ title: BARE, seq: 12 }, "abcdef12", "abcdef12"), undefined, "the id cannot restore what the id already lost");
 });

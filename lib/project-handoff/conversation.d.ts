@@ -96,7 +96,9 @@ export declare function handoffCarry(session: Session, pendingEnabled: boolean):
  * The loop deliberately is not `readSessionInputs(...).decision`: an `ask_user_question` answer
  * *replaces* that decision with an entry carrying no text of its own, while a title is better served
  * by the last thing the person typed even when they then answered a question. A session with no typed
- * input at all keeps the id — the title is never empty, which `rename()` would refuse.
+ * input at all keeps the id — the title is never empty, which `rename()` would refuse. What the
+ * service *stores* is its own normalized form, so that the prefix survives it is checked after the
+ * call rather than assumed — see `retitleAfterRename` in `perform.ts`.
  * @param session - the session being handed off.
  * @param fallback - the parent's short id, used when the session carries no human input.
  * @returns the label, without the prefix.
