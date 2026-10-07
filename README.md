@@ -255,7 +255,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `maxTokens` | `8192` | 辅助模型调用的起始输出上限；整理会按「记忆+上下文需回吐的 token 数」自适应上调 |
 | `maxOutputTokens` | `32768` | 自适应上调的边界（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准。交接摘要的失败重试同样被该边界压住（`min(2×maxTokens 或 32768 的较大者, max(maxTokens, maxOutputTokens))`；边界低于起始上限时重试被取消，只发一次原请求） |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
-| `handoffEnabled` | `true` | 关掉后不再自动交接，`/handoff` 仍可用 |
+| `handoffEnabled` | `true` | 关掉后不再自动交接（含交接子会话标题的事后改名），`/handoff` 仍可用 |
 | `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
 | `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值 |
 | `handoffBudgetSummaryTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000）。这是**手动设定**的阈值请求，触发点由护栏决定；一旦被护栏压掉，`/handoff status` 点名被覆盖的值与压住它的那条护栏，不静默 |
