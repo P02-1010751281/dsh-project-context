@@ -14,7 +14,7 @@ import { type HandoffLanguage } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement, seedChildSession } from "./child.js";
 import { transientIfRetryable } from "./classify.js";
-import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, handoffSplit, resolveHandoffLanguage } from "./conversation.js";
+import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, handoffLabel, handoffSplit, resolveHandoffLanguage } from "./conversation.js";
 import { assertSessionSettled } from "./guard.js";
 import { type SessionControllerLike } from "./runtime.js";
 import { handedOff } from "./state.js";
@@ -144,11 +144,13 @@ export async function performHandoff(
 
 	// The title is the browser half's switch signal: it is stable, projected to
 	// the client list, and survives history replay (unlike a live-only event).
+	// Only the part after the prefix is ours, and the parent's own last typed
+	// input is what names the continuation — see `handoffLabel`.
 	if (controller.rename) {
 		try {
 			await controller.rename({
 				sessionId: childId,
-				title: `${HANDOFF_TITLE_PREFIX}${parentLabel}`,
+				title: `${HANDOFF_TITLE_PREFIX}${handoffLabel(session, parentLabel)}`,
 			});
 		} catch (error: unknown) {
 			ctx.logger.warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));

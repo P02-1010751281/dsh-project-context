@@ -12,6 +12,7 @@ import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import { legacySessionIndexFile, logsDir, memoryDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
 import { withMemoryLock } from "../shared/lock.js";
+import { clipTitle } from "../shared/text.js";
 import { isHandoffContinuationText } from "../project-handoff/language.js";
 import { piTextOf } from "./archive.js";
 import type { PiBlock } from "./archive.js";
@@ -34,11 +35,6 @@ const MAX_TITLE_CHARS = 160;
 const MAX_INDEX_LINES = 200;
 /** `- [id](<id>/session.jsonl) — YYYY-MM-DD — title` (the link target is ignored on parse). */
 const LINE_PATTERN = /^- \[([^\]]+)\]\(([^)]+)\) — (\d{4}-\d{2}-\d{2}) — (.*)$/;
-
-function clip(value: string, limit: number): string {
-	const text = value.replace(/\s+/g, " ").trim();
-	return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
-}
 
 function textOf(content: readonly { type: string; text?: string }[]): string {
 	return content
@@ -137,7 +133,7 @@ export function sessionTitleFromEntries(events: readonly unknown[]): string {
 			}
 		}
 	}
-	return clip(title || firstUser || "Untitled session", MAX_TITLE_CHARS);
+	return clipTitle(title || firstUser || "Untitled session", MAX_TITLE_CHARS);
 }
 
 /** Title dsh itself assigned to the session, else the first user message, else a fallback. */
@@ -160,7 +156,7 @@ export function sessionTitle(session: Session): string {
 export function sessionIndexLineFrom(id: string, createdAt: number, title: string): string {
 	const safe = safeSessionId(id);
 	const date = new Date(createdAt).toISOString().slice(0, 10);
-	return `- [${safe}](${safe}/session.jsonl) — ${date} — ${clip(title, MAX_TITLE_CHARS)}`;
+	return `- [${safe}](${safe}/session.jsonl) — ${date} — ${clipTitle(title, MAX_TITLE_CHARS)}`;
 }
 
 /** One Markdown index line. Links are relative to `session-logs/`. */

@@ -18,7 +18,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handoffCarry, pendingQuestion } from "../lib/project-handoff/conversation.js";
+import { handoffCarry, handoffLabel, pendingQuestion } from "../lib/project-handoff/conversation.js";
 import { isHandoffContinuationText, SCAFFOLDING } from "../lib/project-handoff/language.js";
 import { handoffArtifacts } from "../lib/project-handoff/perform.js";
 import { continuation } from "../lib/project-handoff/summary.js";
@@ -397,4 +397,26 @@ test("the wiring carries the decision into the seed prompt", () => {
 	assert.match(prompt, /## 用户最后一次输入/);
 	assert.ok(prompt.includes("我去重启桌面宿主（推荐）"));
 	assert.ok(prompt.endsWith(SCAFFOLDING.zh.decisionClosing));
+});
+
+test("the child's title is named after the parent's own last input, and falls back to its id", () => {
+	// The prefix is the browser half's switch signal, so only the part after it is free — and the
+	// parent's own last input is the one thing we already have without a model call. The negative
+	// cases are controls: a label read from any user-*role* message would take the injected
+	// runtime-context snapshot or this plugin's own seed banner and put that in the session list.
+	const label = (messages) => handoffLabel(fakeSession(messages), "abcdef12");
+	assert.equal(label([userMessage("先做别的"), userMessage("按档 1/3 动手")]), "按档 1/3 动手");
+	assert.equal(
+		label([userMessage("改标题"), userMessage("Current runtime context. This snapshot supersedes earlier ones.", "runtime-context")]),
+		"改标题",
+		"an injected snapshot is not something the user said",
+	);
+	assert.equal(label([userMessage("继续", "dsh-project-context")]), "abcdef12", "the plugin's own seed is not the user");
+	assert.equal(label([]), "abcdef12", "a session with no human input keeps the id, so the title is never empty");
+
+	// One line, and short enough that the service's own 80-byte cap never has to cut it.
+	const long = label([userMessage(`第一行\n\n第二行 ${"很长".repeat(40)}`)]);
+	assert.ok(long.length <= 20, `the label must be clipped, got ${long.length} chars`);
+	assert.ok(long.endsWith("…"), "a clipped label says so");
+	assert.ok(!long.includes("\n") && !/\s$/u.test(long), "the label is a single trimmed line");
 });

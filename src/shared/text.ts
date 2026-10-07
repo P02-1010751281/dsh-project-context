@@ -109,6 +109,25 @@ export function clip(value: string, limit: number): string {
 	return text.length <= limit ? text : `${text.slice(0, limit)}\n[...truncated...]`;
 }
 
+/**
+ * Clip one single-line label — a session title, an index line — to a char limit.
+ *
+ * Whitespace is collapsed first: a label is one line, so a multi-line source would otherwise push its
+ * own newlines into the session list. The cut lands before a split surrogate pair (a client cannot
+ * re-encode half of one), and the trailing `…` is what tells a shortened label from a short one.
+ * @param value - the raw label text.
+ * @param limit - maximum characters in the result, the ellipsis included.
+ * @returns the collapsed label, cut to at most `limit` characters.
+ */
+export function clipTitle(value: string, limit: number): string {
+	if (limit <= 0) return "";
+	const text = value.replace(/\s+/g, " ").trim();
+	if (text.length <= limit) return text;
+	const keep = limit - 1;
+	const cut = keep > 0 && isHighSurrogate(text.charCodeAt(keep - 1)) ? keep - 1 : keep;
+	return `${text.slice(0, cut)}…`;
+}
+
 export function truncateMiddle(text: string, limit: number): string {
 	if (text.length <= limit) return text;
 	const head = Math.floor(limit * 0.35);

@@ -79,6 +79,21 @@ export interface HandoffCarry {
  * nothing at all, rather than the superseded input under a "do not ask again" closing.
  */
 export declare function handoffCarry(session: Session, pendingEnabled: boolean): HandoffCarry;
+/**
+ * The label a handoff puts after `HANDOFF_TITLE_PREFIX`, or the parent's short id when it has none.
+ *
+ * The prefix is the browser half's switch signal, so it is fixed; only this part is ours. A message
+ * the user actually typed is the most useful thing to name the continuation after, and it is already
+ * in the session — so the handoff stays model-free. `source.kind === "user"` is the whole filter: the
+ * injected runtime-context snapshots, this plugin's own seed banner and a subagent's messages all
+ * carry their own kinds, so none of them can title a session. An `ask_user_question` answer carries
+ * no text of its own, so a session that ends on one keeps its earlier typed input, and a session with
+ * no typed input at all keeps the id — the title is never empty, which `rename()` would refuse.
+ * @param session - the session being handed off.
+ * @param fallback - the parent's short id, used when the session carries no human input.
+ * @returns the label, without the prefix.
+ */
+export declare function handoffLabel(session: Session, fallback: string): string;
 /** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
 export declare function fileOperations(session: Session): string;
 /** Raw derived messages of a whole session, for a status read that does not split it. */
