@@ -177,7 +177,15 @@ export async function performHandoff(
 			// The call reports what the service accepted, so a label it normalized away can be seen
 			// here instead of silently costing the switch — see `retitleAfterRename`.
 			const retry = retitleAfterRename(accepted, label, parentLabel);
-			if (retry !== undefined) await controller.rename({ sessionId: childId, title: retry });
+			if (retry !== undefined) {
+				try {
+					await controller.rename({ sessionId: childId, title: retry });
+				} catch (error: unknown) {
+					// Its own message: the service's version *is* stored here, so reporting "not set"
+					// would name the wrong cause. The switch stays lost, which is what this reports.
+					ctx.logger.warn("dsh-project-context: handoff session title not corrected: %s", error instanceof Error ? error.message : String(error));
+				}
+			}
 		} catch (error: unknown) {
 			ctx.logger.warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));
 		}
