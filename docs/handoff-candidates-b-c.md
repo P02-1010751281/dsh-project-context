@@ -144,6 +144,8 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 
 **(c) 那一节的选项表**写于「自愈只能由插件自己算标题」的前提下。回源复核后多出两件事，第一件直接改变可选空间。
 
+> 本节引用的 dsh 源码行号读自**当前运行的宿主 store**：`/nix/store/cl7chjvxjw81aizwlxar1k8n9z02yd3b-dsh-desktop-0.2.0-rc.2/lib/dsh-desktop/repo/`。换了 store 路径就按符号名重新定位。
+
 ### 新事实一：`refresh()` 是服务自己声明的 unpin
 
 - `packages/session/session-title/src/index.ts:392-394`（`rename()` 的 doc）：`user` 源会 pin，原话是 `"...an explicit {@link SessionTitleService.refresh} remains the deliberate unpin"`。
