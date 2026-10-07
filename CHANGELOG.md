@@ -7,6 +7,14 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（子会话标题改用父会话最后一条人类输入）**
+
+- 新增：交接那一刻写给子会话的标题从 `↪ handoff · <父会话前 8 位>` 改为 `↪ handoff · <父会话最后一条人类输入>`（裁剪到 20 字符、单行；算不出则退回父 id）。前缀是浏览器半边自动切会话的判据（`marker.ts` 的 `planHandoffWatch` 只看 `startsWith`），只有前缀之后的部分是自由的。动机是实测：93 个已归档交接子会话的侧栏一律显示父 id，而按此口径 **31 条**会变成有意义的指令（38 条父会话没有任何人类输入、只能退回 id，其余是「继续」/≤4 字/旧横幅之类的噪声）。零模型调用、零新依赖——批次 J 之后交接路径刻意不带模型调用，这条只用会话里已有的文本（`conversation.ts` 的 `handoffLabel` 读 `session.deriveMessages()`）。判据只有 `role === "user" && source.kind === "user"`：注入的运行时上下文快照（`runtime-context`）、本插件自己的种子横幅（`dsh-project-context`）与子代理消息各有自己的 kind，都不能当标题。
+- 新增：`src/shared/text.ts` 的 `clipTitle(value, limit)`——单行标签裁剪（先折叠空白、切点不落在半个代理对上、截断处以 `…` 结尾）；`src/project-context/session-index.ts` 原有的同名私有 `clip` 改为直接复用它，于是索引标题与侧栏标题是同一套裁剪。20 字符这个上限是**按字节**定的：dsh 服务把标题静默截到 `maxTitleBytes: 80`，而 `↪ handoff · ` 占 15 字节，20 个全 CJK 字符（含 `…`）是 63 字节，合计 78，永远不会被服务再从中间切一刀。
+- 边界（**不要读成已修**）：标签是机械文本、不是摘要——父会话最后一句是「继续」就显示「继续」；要真摘要必须让交接路径重新调一次模型（取舍 brief 里的档 6，与批次 J 的决定相反，本批未采用）。`handoff deferred · `/`handoff failed · ` 两个失败前缀保持父 id 不变。
+- 变异校验（1 个变异体，被杀死）：把 `handoffLabel` 的返回值从 `clipTitle(last, HANDOFF_LABEL_CHARS)` 改成 `clipTitle(fallback, HANDOFF_LABEL_CHARS)`（标签退回父 id，同时保证 `last` 仍被引用、不触发 `TS6133`）——`tsc` 0 错、标记进 `lib/`、只有 `the child's title is named after the parent's own last input, and falls back to its id` 这一条变红（同文件其余 20 条全绿），恢复后 `sha256sum -c` 全通过、全量门禁 **405 通过 / 0 失败**、`pnpm build` 后 `lib/client.js` 仍是 28575 字节。
+- 状态：**已落地 `src/`/`lib/`，尚未在宿主重启后验收**——本批是宿主行为，需要用户重启桌面宿主；判据仍是「19387 持有者启动晚于最后一个 `src/` 提交」。不改配置键、无新依赖、两个 profile 无需改动。
+
 **project-handoff（越线可见：注入式压力行，批次 M）**
 
 - 新增：**会话越过自动交接阈值时，把这一状态注入模型上下文，由模型在下一轮转述给用户**。此前越线是静默的——触发只在 `turn/end` 评估，而 `↪ handoff · a00eb4ce`（`54cdf479`）在一个**未结束的 turn** 里坐到 316,189/1,000,000 对阈值 157,000（**2.01×**），从未被评估过，用户只能自己手算发现。两个新模块：`gate.ts` 把「解析路由 → 取 `contextWindow` → `measuredContext` → `resolveThreshold`」抽成**唯一入口**（自动路径与显示层读同一个对象，避免出现第二份公式）；`display.ts` 持有按会话冻结的行。计算点是 `step/start` 而非 `turn/end`——动机案例的轮次从未结束，只有 step 能看到它；该 tick 在行已冻结后直接跳过，不再重复测量。

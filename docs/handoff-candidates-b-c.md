@@ -204,3 +204,15 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 ### 这一步不替用户选
 
 上面各档（1/3、4、5、6）都满足「不丢东西」（这是该约束下唯一还站得住的家族）；差别只在标题质量、是否保留前缀、以及是否多花一次模型调用（档 4 是 dsh 自带的 ≤64 token 标题调用，档 6 由我们决定喂多少上下文）。原选项 0/1/2/3 的分析原文一律保留。
+
+### 定案与落地：档 1/3（2026-10-07）
+
+**用户拍板选档 1/3**，理由是成本最低、与 pi 的取向一致（pi 的标题也是纯文本、无 LLM），且同时改善侧栏与 `session-logs/INDEX.md` 两处显示。**已落地 `162b12d`**：
+
+- `conversation.ts` 新增 `handoffLabel(session, fallback)`：取父会话最后一条 `role === "user" && source.kind === "user"` 的文本，`clipTitle` 到 20 字符；没有则退回父 id。零模型调用。
+- `perform.ts` 的唯一改动是把 `title: \`${HANDOFF_TITLE_PREFIX}${parentLabel}\`` 换成 `...${handoffLabel(session, parentLabel)}`；`watch.ts` 与 `marker.ts` 的前缀一字未动，`handoff deferred · `/`handoff failed · ` 保持父 id。
+- `shared/text.ts` 新增 `clipTitle`，`project-context/session-index.ts` 的私有 `clip` 改为复用它（索引标题与侧栏标题同一套裁剪）。
+- 具名用例 `the child's title is named after the parent's own last input, and falls back to its id`（`test/handoff-decision.test.mjs`）+ 1 个变异体（标签退回父 id，只打红该条）；全量门禁 405 通过 / 0 失败。
+- 20 字符这个上限是**按字节**定的：dsh 服务把标题静默裁到 `maxTitleBytes: 80`，`↪ handoff · ` 占 15 字节，20 个全 CJK 字符（含 `…`）合计 78 字节。
+
+**仍未采用的档**：4/5（触发点晚、4 还会让前缀消失）、6（要在交接路径上加回模型调用）。**待办**：宿主重启后这条才会在线，判据照旧（19387 持有者启动晚于最后一个 `src/` 提交）。
