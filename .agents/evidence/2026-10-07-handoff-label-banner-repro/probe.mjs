@@ -33,9 +33,11 @@ function textOf(blocks) {
 
 /**
  * For a child, the parent id as its own seed banner names it: `从会话 <id> 交接。` / `Handoff from
- * session <id>.`, with an optional literal `session-` in the older wording. This is the authoritative
- * link and it keeps working after this batch is loaded — a child's *title* carries the parent id only
- * while it is a pre-fix id-titled child.
+ * session <id>.` The banner writes `String(session.id)`, which carries the literal `session-` for
+ * every archived seed (97/97 measured), and this map's keys are the store's directory names with that
+ * prefix removed — hence the optional group. This is the authoritative link and it keeps working after
+ * this batch is loaded: a child's *title* carries the parent id only while it is a pre-fix id-titled
+ * child.
  */
 const SEED_PARENT = /^(?:\u4ece\u4f1a\u8bdd|Handoff from session)\s+(?:session-)?([0-9a-fA-F][0-9a-fA-F-]{7,})/
 /** How many leading `user/message` events are searched for the seed banner (context may precede it). */

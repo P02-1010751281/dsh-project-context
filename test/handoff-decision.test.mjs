@@ -413,6 +413,12 @@ test("the child's title is named after the parent's own last input, and falls ba
 	);
 	assert.equal(label([userMessage("继续", "dsh-project-context")]), "abcdef12", "the plugin's own seed is not the user");
 	assert.equal(label([]), "abcdef12", "a session with no human input keeps the id, so the title is never empty");
+	// A label with no visible character names nothing, and the service would strip it along with the
+	// prefix's own trailing space — so it never reaches the service at all: the id is used from the
+	// start, which keeps the first write prefix-safe. Text beside an invisible character is kept.
+	assert.equal(label([userMessage("\u200B\u0001")]), "abcdef12", "an invisible-only label names nothing");
+	assert.equal(label([userMessage("\u00AD")]), "abcdef12", "a soft hyphen alone is invisible too");
+	assert.equal(label([userMessage("\u200B按档 1/3")]), "\u200B按档 1/3", "a label is not stripped, only judged");
 
 	// One line, and short enough that the service's own 80-byte cap never has to cut it.
 	const long = label([userMessage(`第一行\n\n第二行 ${"很长".repeat(40)}`)]);
@@ -449,5 +455,7 @@ test("a title the service normalized down to the bare prefix is written again wi
 	assert.equal(retitleAfterRename({ title: `${P}按档 1/3 动手`, seq: 12 }, "按档 1/3 动手", "abcdef12"), undefined, "an intact title is left alone");
 	assert.equal(retitleAfterRename(undefined, "\u200B", "abcdef12"), undefined, "a runtime that reports nothing is left alone");
 	assert.equal(retitleAfterRename("ok", "\u200B", "abcdef12"), undefined, "an unrecognized reply shape is not a failure");
+	assert.equal(retitleAfterRename({}, "\u200B", "abcdef12"), undefined, "a reply with no title field is not a failure");
+	assert.equal(retitleAfterRename({ title: 42 }, "\u200B", "abcdef12"), undefined, "a non-string title is not a failure");
 	assert.equal(retitleAfterRename({ title: BARE, seq: 12 }, "abcdef12", "abcdef12"), undefined, "the id cannot restore what the id already lost");
 });

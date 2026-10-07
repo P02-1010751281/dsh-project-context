@@ -98,12 +98,27 @@ export declare function handoffCarry(session: Session, pendingEnabled: boolean):
  * by the last thing the person typed even when they then answered a question. A session with no typed
  * input at all keeps the id — the title is never empty, which `rename()` would refuse. What the
  * service *stores* is its own normalized form, so that the prefix survives it is checked after the
- * call rather than assumed — see `retitleAfterRename` in `perform.ts`.
+ * call rather than assumed — see `retitleAfterRename` in `perform.ts`; a label with no visible
+ * character never reaches the service at all, see {@link hasVisibleText}.
  * @param session - the session being handed off.
  * @param fallback - the parent's short id, used when the session carries no human input.
  * @returns the label, without the prefix.
  */
 export declare function handoffLabel(session: Session, fallback: string): string;
+/**
+ * Whether a label says anything a reader can see.
+ *
+ * `\p{Cc}` (controls) and `\p{Cf}` (invisible formatting: zero-width spaces and joiners, bidi controls,
+ * a soft hyphen, a BOM) have no visible form, so a label made only of them names nothing — and the
+ * title service deletes them before storing, which would take the switch prefix's own trailing space
+ * with them. This is a policy about our labels, not a copy of the service's cleaner: the check runs
+ * before the write so the realistic class never produces a prefix-less intermediate title, while
+ * anything it cannot see (an escape sequence whose bytes include printable characters) is caught
+ * afterwards by `retitleAfterRename` in `perform.ts`.
+ * @param label - a clipped, single-line label.
+ * @returns true when at least one character of it is neither a control nor an invisible formatter.
+ */
+export declare function hasVisibleText(label: string): boolean;
 /** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
 export declare function fileOperations(session: Session): string;
 /** Raw derived messages of a whole session, for a status read that does not split it. */
