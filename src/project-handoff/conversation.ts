@@ -360,11 +360,13 @@ export function handoffLabel(session: Session, fallback: string): string {
  * This is a policy about our labels, not a copy of the title service's cleaner: controls (`\p{Cc}`),
  * invisible formatters (`\p{Cf}`: zero-width spaces and joiners, bidi controls, a soft hyphen, a BOM)
  * and whitespace all render as nothing, so a label made only of them names no session. It runs before
- * the write, so the class never produces the prefix-less intermediate title the service would store —
- * the service deletes *some* of these (its own directional-control list plus C0/C1) and collapses the
- * rest, which would take the switch prefix's own trailing space with them. What this test cannot see —
- * an escape sequence whose bytes include printable characters, or anything the service strips beyond
- * its control lists — is caught after the call by `retitleAfterRename` in `perform.ts`.
+ * the write, so the class never produces the prefix-less intermediate title the service would store.
+ * The class is deliberately wider than what the service strips — its directional-control list plus most
+ * C0/C1, whitespace collapsed, the end trimmed — because it keeps the rest (a soft hyphen, ZWNJ/ZWJ and
+ * other `\p{Cf}` code points), so withholding those is policy rather than preservation. What this test
+ * cannot see is an escape sequence: its introducer (`\u001B`/`\u009B`/`\u009D`) is in the class but the
+ * body is printable, and the service swallows the whole sequence — caught after the call by
+ * `retitleAfterRename` in `perform.ts`.
  * @param label - a clipped, single-line label.
  * @returns true when at least one character of it is not a control, an invisible formatter or whitespace.
  */
