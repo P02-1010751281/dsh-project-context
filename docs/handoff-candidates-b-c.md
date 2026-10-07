@@ -175,7 +175,7 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 ### 标签质量的真实分布（只读普查，可复跑）
 
 - 探针：`.agents/evidence/2026-10-07-handoff-title-label-survey/survey.mjs`（`node` 直接跑；只读、无网络；含 README）。它 fold 本 workspace 的 107 个归档会话。
-- 93 个 handoff 子会话，按**档 1/3**（父会话最后一条人类输入）：31 条是有意义的指令；38 条无来源（父会话没有任何人类消息 → 退回父 id）；7 条 ≤4 字（如「要」「好了」）；6 条是旧交接横幅；6 条是注入的状态行（如 `handoff Auto handoff ON · context 761495/1000000 …`）；5 条是「继续」。
+- 写这份 brief 时 93 个 handoff 子会话（现跑见探针），按**档 1/3**（父会话最后一条人类输入）：31 条是有意义的指令；38 条无来源（父会话没有任何人类消息 → 退回父 id）；7 条 ≤4 字（如「要」「好了」）；6 条是旧交接横幅；6 条是注入的状态行（如 `handoff Auto handoff ON · context 761495/1000000 …`）；5 条是「继续」。
 - 按**档 4/5**（子会话自己第一条人类输入）：55 个子会话有人类输入（标签可用），38 个从未被输入过（与今天一样停在父 id）。
 - 计数随会话增长，引用必须现跑；`survey.mjs` 的打印输出就是判据。
 
@@ -213,7 +213,8 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 - `perform.ts` 的唯一改动是把 `title: \`${HANDOFF_TITLE_PREFIX}${parentLabel}\`` 换成 `...${handoffLabel(session, parentLabel)}`；`watch.ts` 与 `marker.ts` 的前缀一字未动，`handoff deferred · `/`handoff failed · ` 保持父 id。
 - `shared/text.ts` 新增 `clipTitle`，`project-context/session-index.ts` 的私有 `clip` 改为复用它（索引标题与侧栏标题同一套裁剪）。
 - 具名用例 `the child's title is named after the parent's own last input, and falls back to its id`（`test/handoff-decision.test.mjs`）+ 1 个变异体（标签退回父 id，只打红该条）；全量门禁 405 通过 / 0 失败。
-- 20 字符这个上限是**按字节**定的：dsh 服务把标题静默裁到 `maxTitleBytes: 80`，`↪ handoff · ` 占 15 字节，20 个全 CJK 字符（含 `…`）合计 78 字节。
+- 20 字符这个上限是**按字节**定的：dsh 服务把标题静默裁到 `maxTitleBytes: 80`，`↪ handoff · ` 占 15 字节，20 字符的标签最多 60 字节（全 CJK 也是每字符 3 字节，结尾的 `…` 占其中一位），合计 75。（复核前这里写成 78，是把 `…` 当成第 21 位算的。）
 - **事后修复（同日，落地后独立复核发现）**：`source.kind === "user"` 单独不够——旧播种路径走 prompt RPC，那条横幅是**人类 kind** 的消息。真实语料 97 个交接子会话里 **6 个**的父会话最后一条 `kind=user` 就是这种横幅，按原判据会得到 `↪ handoff · 从会话 session-<另一个会话>…`（点名父会话的上一棒，比父 id 更误导）。已复用 `isHandoffContinuationText`，由独立具名用例 + 变异体 + 语料探针 `.agents/evidence/2026-10-07-handoff-label-banner-repro/` 钉住。旧注入状态行（`handoff Auto handoff ON · context …`）仍是噪声标签，**有意不修**：没有现成谓词，不为它们新写一个措辞启发式。
+- **第二轮（同一只读复核）**：① 服务存储的是**归一化后**的标题（`cleanTitleText` 丢控制/不可见字符再 `trimEnd`），所以一个只由这类字符组成的标签会让标题少掉前缀的空格 → 浏览器永不切换；实测 `"\u200B"`/`"\u0001"`/裸 ANSI 都会，真实语料 0 例。改用宿主自己的回执：`sessionController.rename` 返回 `{title, seq}`，`perform.ts` 的 `retitleAfterRename` 在回执不含前缀时再写一次父 id。② 语料探针改为从子会话自己的**种子横幅**取父 id（原从标题取，本批落地后会停止覆盖新会话）。③ 修掉三处写错的事实：上面的字节算术、`at a byte boundary we never chose`（宿主按码点裁）、以及「该变异体只打红一条」（加上横幅用例后是 2 条）。
 
 **仍未采用的档**：4/5（触发点晚、4 还会让前缀消失）、6（要在交接路径上加回模型调用）。**待办**：宿主重启后这条才会在线，判据照旧（19387 持有者启动晚于最后一个 `src/` 提交）。
