@@ -150,7 +150,7 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 
 - `packages/session/session-title/src/index.ts:392-394`（`rename()` 的 doc）：`user` 源会 pin，原话是 `"...an explicit {@link SessionTitleService.refresh} remains the deliberate unpin"`。
 - `refresh()` 本体（同文件 424-451）：注册了 provider 且会话已有可用人类输入时**走 provider**；没有 provider（或没有人类输入）时 `appendFallback`，用首条人类输入现推。
-- 这台机器上 provider 确实挂着：`packages/bundle/base/cordis.patch.yml:55-68` 同时挂 `@deepseek-ai/dsh-session-title`（`fallbackMaxWords: 5` / `fallbackMaxBytes: 40` / `maxTitleBytes: 80`，字节）与 `@deepseek-ai/dsh-session-title-first-prompt-llm`（`automatic: 'first-prompt'`、`targetWords: 5` / `targetCjkCharacters: 10` / `maxOutputTokens: 64`；未配 provider/model → 走 `request/header` 记录的会话路由）。
+- 这台机器上 provider 确实挂着：`packages/bundle/base/cordis.patch.yml:55-68` 同时挂 `@deepseek-ai/dsh-session-title`（`fallbackMaxWords: 5` / `fallbackMaxBytes: 40` / `maxTitleBytes: 80`，字节）与 `@deepseek-ai/dsh-session-title-first-prompt-llm`（patch 的 `config` 是 `targetWords: 5` / `targetCjkCharacters: 10` / `maxInputBytes: 4096` / `maxOutputTokens: 64` / `timeoutMs: 60000`；`automatic: 'first-prompt'` **不是 patch 键**，是该包的 `apply` 调 `registerSessionTitleLlmProvider(..., 'first-prompt', ...)` 时传的 cadence；未配 provider/model → 走 `request/header` 记录的会话路由）。`maxInputBytes` 在档 4 里是硬失败面：框好的输入按 UTF-8 字节比它，超了**直接抛**（`session-title-llm/src/index.ts:249-252` 的 `input is <n> bytes, exceeding maxInputBytes <m>`），不裁剪。
 - 服务键名是 `sessionTitle`：`packages/api/session-controller/src/commands.ts:195` 就是 `this.ctx.get('sessionTitle')`；插件可用同一条 `ctx.get`（未挂载时返回 `undefined`，不抛）。
 - 子会话对插件可见：它的日志 header **没有 `origin` 字段**（实测 `session-f7e001b6`），所以 `src/shared/lifecycle.ts:12` 的 `isTopLevel`（只排除 `'subagent'`）为真，`session/event` 本来就收得到；该子会话的 `request/header`（seq 16）早于它第一条人类输入（seq 100），路由可用。
 
@@ -160,13 +160,14 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 - 交接那一刻子会话里还没有任何人类消息（种子是 `source.kind = dsh-project-context`，本 workspace 66/93 个新子会话实测如此），所以插件不可能自行 append 一条非 pin 的 `session/title`。
 - 推论：**前缀 ⟺ pin**。前缀的唯一功能读者是 `marker.ts:101` 的切换判据，所以「自愈」只能发生在切换**之后**——事后再动标题。
 
-### 因此 (c) 在原有 0/1/2/3 之外多出两档
+### 因此 (c) 在原有 0/1/2/3 之外多出三档
 
 | 档 | 触发点 | 标题变成 | 前缀 | 代价 |
 |---|---|---|---|---|
 | 1/3（上一轮建议） | 交接那一刻（`perform.ts:106` 一处） | 父会话最后一条人类输入；算不出就退回父 id | 保留 | 无模型调用；标签质量见下 |
 | 4 真·自愈 | 子会话第一条**人类**输入时 `ctx.get('sessionTitle')?.refresh(child)` | dsh 自己的 provider 生成（≤5 词 / ≤10 CJK 字 / ≤80 字节）；失败则原样保留 pin 标题 | 之后消失 | 多一次 ~64 token 的标题调用；多一个触发点；需要子会话已有一条 `request/header`（种子那一轮产出）；异步失败必须自己吞掉 |
 | 5 折中 | 同上触发点，但自己 `rename`(`${HANDOFF_TITLE_PREFIX}${首条人类输入}`) | 机械标签（子会话自己的首条人类输入） | 保留 | 无模型调用；多一个触发点；仍是机械标签 |
+| 6 自己算（新，见下） | 由我们选：交接那一刻，或子会话首条人类输入时 | 我们自己算的文本，输入面自选（可以看父会话日志） | 保留 | 交接路径上多一次模型调用（政策反转：批次 J 刚把它删掉）；无 route / 调用失败 / 空标题三种失败都必须自己吞 |
 | 0 现状 | — | 父会话前 8 位 id | 保留 | 侧栏永远显示旧 id |
 
 档 4/5 的触发条件必须是 `source.kind === 'user'`：实测 **27/93 个旧子会话的第一条 `kind=user` 消息其实就是交接横幅本身**（旧播种路径把种子写成 `user`），现行种子是 `dsh-project-context`，不会误触发。
@@ -185,6 +186,21 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 - 实测（同一探针新增第三块）：55 个有自己人类输入的子会话里，**27 条首条 `kind=user` 其实是旧横幅**（历史遗留，现行种子不会产生），其余 28 条：19 条真指令、4 条「继续」、3 条 ≤4 字、2 条注入状态行 —— 即**只有用户真的回话时才触发**，触发后约 2/3 有用。
 - 与档 1/3 对比（同一批子会话）：档 1/3 会改 55 个标题（31 有用 / 24 噪声），档 4/5 只在用户回话后改（今天 19 个变有用），两者都有 39 个从头到尾不变。
 
+### 新档 6：插件自己算标题（自己调一次 LLM 再 `rename()`）— 2026-10-07 补测
+
+- **机制**：`SessionTitleService` 的公开方法只有 `get` / `rename` / `refresh` / `register`（`session-title/src/index.ts` 的 public 面）。`rename(session, title)` 的文本由调用方给，append 一条 `source: { kind: 'user' }` 的 `session/title`（同文件 412-415），所以**不需要 unpin 也能写自己的标题**：插件自己算出文本 → `rename()`。`refresh()` 的文本来源只能是已注册的 provider 或内置 fallback，插件的自由度止于触发时机。
+- **与档 4 的差别**：档 4 的文本由 dsh 的 provider 生成，输入面只到「一条人类消息」（上一节）；档 6 的输入由我们自己选（父会话最后一条人类输入、子会话首条人类输入、父会话日志里的一段……），**这才是「总结」而不是「润色」**——用户 2026-10-07 的原话正是「unpin 后加个 llm 总结」。
+- **代价一，政策反转**：文本要自己产出，现成机件是 `src/shared/model-call.ts` 的 `resolveTarget(agent, config)`（显式配置 → `agent.session.requestHeader()?.config` → `agent.options`，都不行返回 `undefined`）＋ `requestPluginText(ctx, target, maxTokens, prompt, signal)`，不用从零写；但批次 J 刚把交接路径上的摘要模型调用**刻意删掉**（`src/project-handoff/summary.ts` 文件头原话：「Neither carries a generated summary … so this module holds no model call」），档 6 等于把它加回来。
+- **代价二，失败必须自己吞**：`requestPluginText` 在 `error` / `aborted` finish 上抛（`src/shared/model-call.ts:213`），`resolveTarget` 可能返回 `undefined`（无 route）。两种都必须留在插件里并保留 pin 标题，否则交接路径上多一个可抛点。dsh 自己那条路的同类失败面是 `session-title-llm` 的 `resolveRoute`：没有显式 provider/model 且没有 `request/header` 路由时抛 `no logged request route is available`（`session-title-llm/src/index.ts:180-191`）。
+- **代价三，`rename()` 自身的约束**：标题 normalize 后为空会抛 `SessionTitleInvalidError`，会话不 live 也会抛；文本要先截断/兜底（退回 `parentLabel`）。
+- **没验的部分**：档 6 没有对应探针，多出来的那次调用在交接那一刻的延迟只有真做出来才知道；本档只记录「这是唯一能让标题看更多上下文的路线」，不替用户选。
+
+### 「换成 `all-prompts`」不是插件的选项（profile 级）
+
+- 服务只允许**一个** provider：`register()` 在 `this.registration !== undefined` 时抛 `session-title provider "<id>" is already registered`（`session-title/src/index.ts:471-475`，doc 原话是 "Register the sole optional title provider"）。
+- 本机基础 bundle 只挂一个：`packages/bundle/base/cordis.patch.yml:62-63` 的 `id: session-title-llm` → `name: '@deepseek-ai/dsh-session-title-first-prompt-llm'`；`packages/bundle/` 里 **0 处** 提到 `all-prompts`。
+- 所以「给标题模型看全部人类消息」= 把 base bundle 那一条的 `name` 换成 `@deepseek-ai/dsh-session-title-all-prompts-llm`（两个包的 `Config` schema 与 `inject: ['sessionTitle', 'llm', 'sessions']` 相同，`first-prompt` 的 selector 是 `messages => [messages[0]]`、`all-prompts` 是 `messages => messages`，`automatic` 由 wrapper 各自传 `'first-prompt'` / `'all-prompts'`）。这是 **profile 级、影响所有会话** 的替换，不属于 (c) 的插件改动面；记在这里以免再被当成「加一个插件就行」。
+
 ### 这一步不替用户选
 
-三档都满足「不丢东西」（这是该约束下唯一还站得住的家族）；差别只在标题质量、是否保留前缀、以及是否多花一次极小的模型调用。原选项 0/1/2/3 的分析原文一律保留。
+上面各档（1/3、4、5、6）都满足「不丢东西」（这是该约束下唯一还站得住的家族）；差别只在标题质量、是否保留前缀、以及是否多花一次模型调用（档 4 是 dsh 自带的 ≤64 token 标题调用，档 6 由我们决定喂多少上下文）。原选项 0/1/2/3 的分析原文一律保留。
