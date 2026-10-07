@@ -50,6 +50,11 @@
  * not re-render per turn: the harness appends a ~37 KB runtime-context snapshot on every text
  * change, which is why the display layer changes the text only at a crossing or a reason change.
  *
+ * A second, smaller piece is registered on `user/message`: the title this plugin wrote at handoff time
+ * is replaced by one named after the continuation's own first input, once, on `relabel.ts`'s terms.
+ * It writes at most one `session/title` per continuation and only while the stored title still carries
+ * the switch prefix, so a user's own rename is never overwritten.
+ *
  * dsh adaptations of pi's behavior:
  *   - no editor draft mode: `handoffPendingQuestion: "defer"` (default) waits for the
  *     user's answer instead of auto-answering it on their behalf; `"wait"` hands off

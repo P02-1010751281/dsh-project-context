@@ -374,6 +374,35 @@ export function hasVisibleText(label: string): boolean {
 	return /[^\p{Cc}\p{Cf}\s]/u.test(label);
 }
 
+/**
+ * The label a continuation's own first naming input gives it, or `undefined` while it has none.
+ *
+ * {@link handoffLabel} names a fresh continuation after its *parent's* last input, which is all the
+ * handoff has at that moment; this is the deferred half, read once the continuation itself has been
+ * talked to. Both apply the same three judgments — `source.kind === "user"`,
+ * `isHandoffContinuationText`, {@link hasVisibleText} — and differ only in which end of the
+ * conversation they read, so a message that cannot name the child here could not have named it at
+ * handoff time either.
+ *
+ * The **first** naming input, not the last: the value returned is what the stored title is compared
+ * against on every later event, and a fixed choice is what makes the deferred rewrite idempotent
+ * with no in-process bookkeeping (see `relabel.ts`). An input whose clip names nothing is skipped
+ * rather than ending the search, so an invisible first message does not consume the continuation's
+ * one chance at a label.
+ * @param session - the continuation.
+ * @returns the label, without the prefix, or `undefined` when nothing names it yet.
+ */
+export function deferredHandoffLabel(session: Session): string | undefined {
+	for (const message of session.deriveMessages()) {
+		if (message.role !== "user" || message.source.kind !== "user") continue;
+		const text = messageText(message.content);
+		if (text.length === 0 || isHandoffContinuationText(text)) continue;
+		const label = clipTitle(text, HANDOFF_LABEL_CHARS);
+		if (hasVisibleText(label)) return label;
+	}
+	return undefined;
+}
+
 /** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
 export function fileOperations(session: Session): string {
 	const read = new Set<string>();

@@ -120,6 +120,20 @@ export interface TokenMeterLike {
 export interface SettingsLike {
     update(ns: string, patch: object): Promise<void>;
 }
+/**
+ * Structural view of the title service (`ctx.get("sessionTitle")`, `@deepseek-ai/dsh-session-title`).
+ * Optional per profile, so both reads are defended: `get` folds the session's own log for the latest
+ * `session/title`, and `rename` appends one with the `user` source and reports the accepted snapshot.
+ * Both are synchronous, and `rename` throws when the session is not live in this store.
+ */
+export interface SessionTitleLike {
+    get?(session: Session): {
+        readonly title?: unknown;
+    } | undefined;
+    rename?(session: Session, title: string): {
+        readonly title?: unknown;
+    } | undefined;
+}
 /** Resolve the handoff route: explicit config, then the session's latest routed request. */
 export declare function resolveTarget(session: Session, config: PluginConfig): {
     provider: string;
