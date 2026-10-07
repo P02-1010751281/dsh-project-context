@@ -224,8 +224,9 @@ pi 只在轮次结束时评估，所以 (b) 与这条路线都是 dsh 自己的�
 
 **用户在档 1/3 之后接着拍板选档 5**：同一个「事后自愈」触发点（子会话自己第一条**人类**输入），但自己 `rename`、不调 dsh 的 provider。代价面最小：保留前缀（侧栏与 `INDEX.md` 都还认得出这是交接来的会话）、零模型调用、不需要新配置键，且与档 1/3 同一族判据。落地面：
 
-- `src/project-handoff/relabel.ts`（新模块）：`storedHandoffLabel` 是「这标题是不是我们写的」的唯一判据（就是 `marker.ts` 的前缀，与浏览器 watcher 同一个字面量），`relabelHandoffChild` 是那一次写入。**没有任何进程内状态**：标签取 `conversation.ts` 的 `deferredHandoffLabel`（子会话**第一条**可用输入，永不改变），标题已等于「前缀 + 标签」就跳过——所以一个子会话最多写一条 `session/title`，重启不重复写，用户自己改的名字（不带前缀）永远赢。取第一条而不是最新，是为了标题稳定。
-- `src/project-handoff/index.ts`：`session/event` 的 `user/message` 分支，先过 `source.kind === "user"`、`isTopLevel`、`handoffEnabled` 三道最便宜的闸，再读标题。读写都走 `ctx.get("sessionTitle")`（`SessionTitleService.get` / `rename`，同步；宿主自己也在同一个事件上做同样的 fold），所以没有异步失败面；`rename` 抛错（会话已不 live）只记一条 warn。
+- `src/project-handoff/relabel.ts`（新模块）：`storedHandoffLabel` 是「这标题是不是我们写的」的唯一判据（就是 `marker.ts` 的前缀，与浏览器 watcher 同一个字面量），`relabelHandoffChild` 是那一次写入。**没有任何进程内状态**：标签取 `conversation.ts` 的 `firstHandoffInput`（子会话**第一条**可用输入，读**持久日志** `snapshotEvents()`，与宿主自己的标题读者同源），并且只在「正在处理的事件就是承载那条输入的事件」时才写（`seq` 相等）——服务存的是它归一化后的标题，所以拿标题比较永远到不了不动点。于是每条续接最多写一条 `session/title`，重启不重复写，用户自己改的名字（不带前缀）永远赢。取第一条而不是最新，是为了标题稳定。
+- `src/project-handoff/index.ts`：`session/event` 的 `user/message` 分支，先过 `source.kind === "user"`（省一次折叠的早退，判据仍由 `humanUserText` 承担）、`isTopLevel`、`handoffEnabled` 三道闸，再读标题、再比 `seq`。读写都走 `ctx.get("sessionTitle")`（`SessionTitleService.get` / `rename`，同步；宿主自己也在同一个事件上做同样的 fold），所以没有异步失败面；`rename` 抛错（会话已不 live）只记一条 warn。
 - 归一化兜底复用 `perform.ts` 的 `retitleAfterRename`，把**上一版标题**写回去（上一版是同一服务接受过的，不可能再丢前缀）；README 的 `handoffEnabled` 一行改成「含交接子会话标题的事后改名」。
-- 验证：具名用例 7 条（`test/handoff-relabel.test.mjs`，每条负例在同一用例里带正例控制）、全量门禁 414 通过 / 0 失败、3 个变异体全部被杀；真实语料只读探针 `.agents/evidence/2026-10-07-handoff-relabel/probe.mjs` 11/11 `exit 0`（113 个归档会话 / 99 个交接子会话 → 命名 49 个；同一探针在去掉横幅谓词后立刻翻红，所以那 11 条绿是可达负例撑起来的）。细节、边界与数字见 `CHANGELOG.md`「未发布」里的同名条目，**不要在这里复制数字**。
+- 验证：具名用例、变异轮与真实语料探针的结果全部现跑，见 `CHANGELOG.md`「未发布」里的同名条目与 `.agents/evidence/2026-10-07-handoff-relabel/`（该探针的第 3 节就是「持久日志 vs 压缩后的表面」的负例控制）。
+- **落地后独立只读复核抓到两处「一条」站不住**（都已修）：① 读 `deriveMessages()` 会被压缩的 ranged `replace` 抽掉节点，于是「第一条」会变、下一次输入再写一条——真语料 4 个子会话命中，探针第 3 节现在钉住它；② 拿「标题已等于前缀+标签」当触发判据，对会被服务归一化的标签永远不成立，每来一条输入就重写一次（真实语料 0 例，可达但未观测）——改成只认首个命名输入那条事件的 `seq`，由一个模仿宿主归一化结果的 fake service 钉住。**这两条是「一次写入」真正成立的原因**，不要回退成任一旧判据。
 - 与档 4 的差别（日后若要换档）：档 4 的文本由 dsh 的 provider 润色，输入面只有那一条消息，且前缀会消失；档 5 是机械文本、前缀保留。档 6 仍未采用。

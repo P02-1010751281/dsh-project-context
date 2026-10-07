@@ -123,24 +123,32 @@ export declare function handoffLabel(session: Session, fallback: string): string
  */
 export declare function hasVisibleText(label: string): boolean;
 /**
- * The label a continuation's own first naming input gives it, or `undefined` while it has none.
+ * The first input that may name a continuation, with the seq of the log event that carried it.
  *
  * {@link handoffLabel} names a fresh continuation after its *parent's* last input, which is all the
  * handoff has at that moment; this is the deferred half, read once the continuation itself has been
- * talked to. Both apply the same three judgments — `source.kind === "user"`,
- * `isHandoffContinuationText`, {@link hasVisibleText} — and differ only in which end of the
- * conversation they read, so a message that cannot name the child here could not have named it at
- * handoff time either.
+ * talked to. Both apply the same judgments — `source.kind === "user"`, `isHandoffContinuationText`,
+ * {@link hasVisibleText} — and differ only in which end of the conversation they read.
  *
- * The **first** naming input, not the last: the value returned is what the stored title is compared
- * against on every later event, and a fixed choice is what makes the deferred rewrite idempotent
- * with no in-process bookkeeping (see `relabel.ts`). An input whose clip names nothing is skipped
- * rather than ending the search, so an invisible first message does not consume the continuation's
- * one chance at a label.
+ * Two deliberate choices, both in service of a rewrite that happens exactly once with no process
+ * state (see `relabel.ts`). The messages are read from the **durable log** through {@link humanUserText}
+ * rather than from `deriveMessages()`: a compaction replaces surface nodes, so a derived first message
+ * can vanish and the "first" input would quietly become a different one — the log keeps it, and it is
+ * what the host's own title readers fold. And the input's own `seq` comes back with the label, so the
+ * caller can require the event that carried it to be the one being handled; the *stored* title is the
+ * service's normalized form, so comparing titles could never be a fixed point for a label it rewrites.
+ *
+ * The judgments are the shared ones and are not re-applied here: `humanUserText` already selects a
+ * human `user/message` and rejects a generated continuation banner, and {@link hasVisibleText} decides
+ * the rest. An input whose clip names nothing is skipped rather than ending the search, so an invisible
+ * first message does not consume the continuation's single chance at a label.
  * @param session - the continuation.
- * @returns the label, without the prefix, or `undefined` when nothing names it yet.
+ * @returns the label without the prefix plus its `user/message` seq, or `undefined` while nothing names it.
  */
-export declare function deferredHandoffLabel(session: Session): string | undefined;
+export declare function firstHandoffInput(session: Session): {
+    seq: number;
+    label: string;
+} | undefined;
 /** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
 export declare function fileOperations(session: Session): string;
 /** Raw derived messages of a whole session, for a status read that does not split it. */

@@ -200,10 +200,12 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("session/event", (session, event) => {
 		if (event.type === "user/message") {
 			// The deferred half of the title policy: a continuation the handoff could only name after
-			// its parent's id is renamed once its own first real input arrives (see `relabel.ts`). A
-			// session that is not a continuation is refused by the title read alone, so the filter
-			// here is only the cheap half of it.
-			if (event.data.source.kind === "user" && isTopLevel(session) && effectivePluginConfig(entry).handoffEnabled) relabelHandoffChild(ctx, session);
+			// its parent's id is renamed once its own first real input arrives (see `relabel.ts`). Three
+			// cheap refusals, and the semantics rest on none of them: `humanUserText` re-filters by kind
+			// and drops a generated banner (`firstHandoffInput` owns that predicate), a session that is
+			// not a continuation is refused by the prefix test, and the seq is what tells the write this
+			// very event is the one that carried the first naming input.
+			if (event.data.source.kind === "user" && isTopLevel(session) && effectivePluginConfig(entry).handoffEnabled) relabelHandoffChild(ctx, session, event.seq);
 			return;
 		}
 		if (event.type !== "turn/end") {

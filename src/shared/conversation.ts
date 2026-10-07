@@ -211,8 +211,13 @@ type SessionEvent = ReturnType<Session["snapshotEvents"]>[number];
  * entries — never through a live dsh session's `snapshotEvents()`.
  *
  * Returns `""` for a human message with no text, which `userTurnCount` still counts as a turn.
+ *
+ * Exported because it is the one reader of "what a person said" over the **durable log** — the same
+ * source the host's own title readers fold (`collectSessionTitleMessages(session.snapshotEvents())`)
+ * — and the deferred handoff title needs that basis rather than the derived surface: a compaction
+ * replaces surface nodes, so a derived message can disappear while the log keeps it.
  */
-function humanUserText(event: SessionEvent): string | undefined {
+export function humanUserText(event: SessionEvent): string | undefined {
 	if (event.type !== "user/message" || event.data.source.kind !== "user") return undefined;
 	const text = textOf(event.data.content);
 	return isHandoffContinuationText(text) ? undefined : text;

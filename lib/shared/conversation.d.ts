@@ -53,7 +53,34 @@ export interface ConversationSection {
 export declare function conversationMessageSections(session: Session): ConversationSection[];
 /** Compact, budgeted rendering of the derived conversation for the learn prompt. */
 export declare function conversationText(session: Session): string;
+/** One event as `session.snapshotEvents()` returns them. */
+type SessionEvent = ReturnType<Session["snapshotEvents"]>[number];
+/**
+ * Text of a `user/message` a person wrote, else `undefined`.
+ *
+ * The handoff's own continuation prompt is injected through the same prompt RPC as a real user
+ * message — dsh's `SessionPromptRequest` carries no source kind, so the host records the seed as
+ * `{kind:"user"}` like any other — and it must not read as a human turn. Counting it would start
+ * every handoff child one turn nearer the autolearn/consolidation gates than the person actually
+ * drove it, and would hand `firstUserText` a 70K-character banner instead of what was asked.
+ * `isHandoffContinuationText` is reused rather than re-implemented, so this and the session
+ * index's title fallback agree on what a generated prompt is; both carry the same accepted
+ * residual, that a message reproducing a banner verbatim is indistinguishable from one.
+ *
+ * The pi sibling's prompt is deliberately not composed in here: it reaches a log only as a bare
+ * `message` line in a pi archive, which the index title and the Markdown renderer read as raw
+ * entries — never through a live dsh session's `snapshotEvents()`.
+ *
+ * Returns `""` for a human message with no text, which `userTurnCount` still counts as a turn.
+ *
+ * Exported because it is the one reader of "what a person said" over the **durable log** — the same
+ * source the host's own title readers fold (`collectSessionTitleMessages(session.snapshotEvents())`)
+ * — and the deferred handoff title needs that basis rather than the derived surface: a compaction
+ * replaces surface nodes, so a derived message can disappear while the log keeps it.
+ */
+export declare function humanUserText(event: SessionEvent): string | undefined;
 /** Human turns only: injected user-role context and handoff banners do not count. */
 export declare function userTurnCount(session: Session): number;
 /** First message a person wrote; injected context and handoff banners are skipped. */
 export declare function firstUserText(session: Session): string;
+export {};
