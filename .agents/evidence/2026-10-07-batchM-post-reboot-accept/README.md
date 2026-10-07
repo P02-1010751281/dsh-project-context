@@ -32,6 +32,8 @@ bash .agents/evidence/2026-10-07-batchM-post-reboot-accept/verify.sh
 RESULT: PASS
 ```
 
+上面是写成那一次的读数；**命中的会话数会随时间增长**，复跑说明见下。
+
 第 3 条只认 `user/message` 且 `source.kind == "runtime-context"` 的那条消息，因为拿 `grep` 数会话
 日志里出现过几次这个字符串毫无意义——日志会把 agent 自己的命令行与输出一起记下来（本仓库
 Pitfalls 里那条已记过）。也正因为如此，**这个脚本自己的失败路径是活的**：写这一版时把
@@ -49,11 +51,17 @@ Pitfalls 里那条已记过）。也正因为如此，**这个脚本自己的失
 重启前后的两份快照，逐字节对比只差两行：
 
 ```bash
-D=~/.dsh/sessions/--mnt-Data-Projects-dsh-project-context--/session-f7e001b6-8248-403e-91a4-cfba9f3cd43b
-T1=$(zstdcat $D/*.zstd | jq -r 'select(.type=="user/message" and .time==1791301023796) | .data.content[0].text')
-T2=$(zstdcat $D/*.zstd | jq -r 'select(.type=="user/message" and .time==1791357095511) | .data.content[0].text')
+A=.agents/memory/session-logs/session-f7e001b6-8248-403e-91a4-cfba9f3cd43b/session.jsonl
+T1=$(jq -r 'select(.type=="user/message" and .time==1791301023796) | .data.content[0].text' "$A")
+T2=$(jq -r 'select(.type=="user/message" and .time==1791357095511) | .data.content[0].text' "$A")
 diff <(printf '%s' "$T1") <(printf '%s' "$T2")
 ```
+
+（读的是**归档副本** `.agents/memory/session-logs/<id>/session.jsonl`。`~/.dsh/sessions/` 里的那一份
+是会话存储自己的形态，同一个 id 现在只有 `session.v4.jsonl.zstd`，路径不同时不要混用。）
+
+复跑时第 3 条的命中数会随时间增长（写成时 2 个，随后一次复跑报 4 个：本仓库的父会话与**本会话**
+`3aa66454`、DSH-AV 的 `a099c90d` 与 `93ba4cc6`），所以不要把它当固定值引用。
 
 ```
 95a96,97
