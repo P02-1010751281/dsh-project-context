@@ -7,6 +7,17 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（档 5 事后自愈：标题写入必须离开事件派发信封）**
+
+- 修复：**档 5 的写入此前从未落地过一次**。它在 `Session.append` 的观察者派发**内部**同步调用 `SessionTitleService.rename`，而 `rename` 自己会 `session.append('session/title', …)`（`packages/session/session-title/src/index.ts:412`）—— 宿主的重入守卫直接拒绝：`packages/core/session/src/index.ts:740-743` 抛 `session append cannot reenter while another append is being published`，因为 `:754` 已把 `entry.appending = true`、`:764` 调观察者、`:412` 同步执行 `callback(...)`（`invokeContainedSessionObservers`，宿主自己的用例就叫 `contains a reentrant observer append…`）。该拒绝被本模块自己的 `catch` 吃掉，只留一条**读不到**的 warn（`relabel.ts`），症状于是是「什么都没发生」。宿主自己的标题服务就是现成证据：它把兜底写放进 `this.defer(async () => …)`（`session-title/src/index.ts:515`，`defer` = `Promise.resolve().then`，`:726`），理由与此完全相同。现改为只在**判定**阶段同步（前缀判据、`firstHandoffInput`、seq 门禁一字未动），写入放进一个微任务；服务方法读一次并用 `.call(titles, …)` 保留接收者（服务靠 `this` 才能 append）。「每条续接最多写一次」仍由 seq 门禁保证，不是由标题比较保证。
+- 为什么以前的具名用例全绿：`test/handoff-relabel.test.mjs` 用的是**手写 fake session**，它没有重入守卫，所以「同步写」这个缺陷在它上面不可观测。新增真 `SessionStore` 用例（`Context` + `await ctx.plugin(SessionStore)` + 一个挂在 `sessionTitle` 键上、`rename` 真 append 的服务）：先跑**对照**——同一个 `rename` 在信封内被拒、标题不动、宿主点出 `cannot reenter`；再走与 `index.ts` 相同的接线，断言信封未关时**不写**、unwind 后**恰好写第二条** `↪ handoff · 按档 5 动手`、且没有 `title not updated` 警告。该文件现为 **9 条具名用例**（上一批 8 条）。
+- 变异校验（1 个变异体，被杀死）：把微任务改回同步 IIFE（`void Promise.resolve().then(() => {` → `void (() => {`），`tsc` 0 错、标记进 `lib/`、`node --test test/handoff-relabel.test.mjs` **8 通过 / 1 失败** —— 只打红新增那条真 store 用例，其余 8 条 fake-session 断言照旧全绿（这正是缺陷当初能上线的原因）。恢复用 `/tmp` 哈希副本 + `sha256sum -c`，重建后 `lib/` 0 标记、`lib/client.js` 仍 28575 字节。全量门禁 **416 通过 / 0 失败**（上一批 415，本批 +1）；`lib/` 与新鲜 `tsc --outDir` 编译 `diff -rq` 只剩 `client.js`。
+- 复现/验收探针：`.agents/evidence/2026-10-07-handoff-relabel-reentry/probe.mjs`（驱动 `lib/`，`exit 0` = 5/5 全过，其中两条是对照）。修复前同一探针打红「信封 unwind 后写入」那条，并印出真实拒绝原因 `session append cannot reenter while another append is being published`。
+- 现场证据（只读，两个 workspace）：宿主 pid 4890 起于 22:44:59（重启）之后，只有 2 个带前缀的交接子会话收到过**自己首条 `kind=user`** 输入 —— 本 workspace `42bcc5f4`（「检查？」，seq 123 @ 22:47:06）与 DSH-AV `440ccfc9`（「继续」，seq 447 @ 22:47:10）—— 两者都只有 **1 条** `session/title`，与「每次都抛重入」一致；两条日志里判据本身都成立（首条人类输入的 seq 就是触发事件的 seq，存标题就是 `↪ handoff · <父 id>`，不是用户改名）。
+- 顺带排掉的两个旧疑点（只读核对，都不是原因）：① **不是事件顺序** —— `session/src/index.ts` 先 `this.log.push(event)`（`:761`）再派发观察者（`:764`），所以监听器读到的 `snapshotEvents()` 已包含该事件；② **`ctx.get("sessionTitle")` 在本部署可用** —— 宿主 `SessionController` 的 `static inject`（`packages/api/session-controller/src/index.ts:100-112`）**不含** `sessionTitle`，却用同一个 `ctx.get('sessionTitle')` 读写（`commands.ts:195`），而这条路径确实 work（本会话标题就是它写下的）；宿主发布的 Service 契约也把 `ctx.get("sessionTitle")` 列为 optional 访问式。
+- 边界（**不要读成已修**）：标签质量不变（机械文本、不是摘要；旧播种路径的注入状态行仍可能当上标签）；「最多一条」仍来自**事件只投递一次**、不是来自标题比较；首条人类输入早于本插件实例的子会话不受影响；`handoffEnabled: false` 与 `sessionTitle` 缺席仍安静不动，`rename` 抛错（会话已不 live）仍只记一条 warn，绝不打断承载输入的那一轮。
+- 状态：**已落地 `src/`/`lib/`，尚未在宿主重启后验收** —— 判据照旧「19387 持有者启动晚于最后一个 `src/` 提交」。不改配置键、无新依赖、两个 profile 无需改动。
+
 **project-handoff（交接子会话标题：事后自愈，档 5）**
 
 - 新增：交接子会话收到**自己第一条可用人类输入**时，把标题从「父会话 id」改成那句话（`src/project-handoff/relabel.ts`；触发在 `index.ts` 的 `session/event` 的 `user/message` 分支）。上一批（档 1/3）在交接那一刻只能拿父会话的输入，父会话没有人类输入时退回父 id——本链每一棒都如此，所以侧栏永远显示旧 id。子会话自己的日志是唯一出现更好标签的地方，读它零成本：没有模型调用、没有新依赖、没有新事件类型。

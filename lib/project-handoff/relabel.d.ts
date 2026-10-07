@@ -20,6 +20,14 @@
  * The prefix stays, because `marker.ts`'s watcher matches it; the write is the same `session/title`
  * with the `user` source dsh itself writes on a rename, which is also why the service leaves the
  * title alone afterwards (a rename pins it). This module holds no state at all.
+ *
+ * Why the write has to leave the dispatch envelope: this module is reached from a `session/event`
+ * observer, i.e. from *inside* `Session.append`, and an append nested there is refused outright
+ * ("session append cannot reenter while another append is being published"). `rename` appends the
+ * `session/title` event itself, so a synchronous write can only ever be refused; the host's own title
+ * service `defer`s its fallback write for the same reason. The decision below is still made, and made
+ * only, on the event that carried the first naming input — deferring moves *when* the write lands,
+ * never how often.
  */
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
@@ -50,6 +58,9 @@ export declare function storedHandoffLabel(title: unknown): string | undefined;
  * to fail the turn that carried the input. The reads before the write are not wrapped because neither
  * can raise a failure this path introduces: `ctx.get` never throws for an absent service, and folding
  * the title is what the host itself does on the very same event.
+ *
+ * The write itself is deferred past the dispatch envelope (see the module comment). The methods are
+ * read once and invoked with their own receiver, because the service resolves `this` when it appends.
  * @param ctx - plugin context; the title service is read undeclared and may be absent.
  * @param session - the session whose `user/message` just landed.
  * @param triggerSeq - that event's seq, which must be the first naming input's own.
