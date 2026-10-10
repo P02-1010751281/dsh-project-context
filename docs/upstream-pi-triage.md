@@ -1300,7 +1300,9 @@ v0.4.7 field incident exactly. dsh pins this fail-open on purpose: `test/section
 a prose wrapper is *not* heading-only, and `sections.ts:284-292` records the boundary ("a wrapper that
 holds real words is content … those boundaries are recorded rather than closed").
 
-An end-to-end probe on the built `lib/` (throwaway project root under `/tmp`; this repo was not written)
+An end-to-end probe on the built `lib/` — committed as
+`.agents/evidence/2026-10-10-opaque-reply-acceptance/probe.mjs` (its own README carries the expected
+output; it uses a throwaway root under `$TMPDIR` and never writes this repo; exit 10 = DEFECT PRESENT)
 confirms the write lands: `# Project Memory\n\nI'll review the frozen revision and record the durable
 lessons now.` → `status=updated`, `memoryWritten=true`, stored bytes replaced; likewise
 `# Project Memory\n\nI'll do the following:\n- review`. A bare four-heading skeleton is correctly refused
@@ -1385,7 +1387,7 @@ git -C $D grep -n 'isHeadingOnlyDocument\|sectionsFromMarkdown' -- src/project-m
 git -C $D grep -c 'hasMemoryDocumentShape\|conversationalOpaque\|OPAQUE_DOCUMENT_MIN_CHARS\|storedIsDocument' -- src/ test/  # expect 0 (exit 1)
 git -C $D sed -n '284,300p' src/project-memory/sections.ts                # CONTENT_RE + the documented fail-open
 git -C $D sed -n '340,350p' test/sections.test.mjs                        # the pinned fail-open
-node /tmp/dsh-e2e.mjs                                                     # built-lib probe (throwaway root, no repo writes)
+node .agents/evidence/2026-10-10-opaque-reply-acceptance/probe.mjs        # exit 10 = DEFECT PRESENT (shape table + end-to-end)
 git -C $P show origin/master:extensions/project-context/memory/sections.ts | sed -n '405,470p'
 git -C $P show origin/master:extensions/project-context/memory/pass.ts | sed -n '316,346p'
 git -C $D grep -c 'consolidating' -- src/                                 # expect 0 (exit 1)
