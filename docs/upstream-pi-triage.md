@@ -1187,3 +1187,216 @@ under `~/.dsh`) is not owned here. pi's diagnosis numbers (Invariants +852 / Pit
 here; dsh's occupancy percentages are read now from `share-fit.mjs` against the built `lib/`. Batch L was opened
 by this pass and landed the same day: `src/project-memory/consolidate.ts` changed, `CHANGELOG.md` gained its
 `未发布` entry, and only the user's host restart is outstanding (see the batch L landed section above).
+
+## Ninth pass — 2026-10-10 (143 commits after the eighth pass)
+
+pi's `master` advanced from the eighth pass's end (`7ab60c9`, `v0.4.4-2-g7ab60c9`) to `d25ecab`
+(`v0.4.9-6-gd25ecab`), so the range is `7ab60c9..d25ecab`: **143 commits, no merge**, spanning pi
+`v0.4.5`–`v0.4.9` and five releases. The shape is lopsided — 98 `docs`, 27 `fix`, 9 `test`,
+1 `refactor` — because pi ran a numbered independent-review chain (rounds 1–26 inside this range)
+whose transcripts *are* commits; the substantive surface is `extensions/project-context/memory/` plus
+`shared/llm.ts` and `tests/`. The 106 docs commits break down as 40 `docs(records)`, 37 `docs(memory)`,
+8 bare `docs:`, 5 `docs(changelog)`, 4 `docs(audit)`, 3 `docs(skills)`, 3 `docs(evidence)`,
+2 `docs(report)` and one each of `docs(skill)`, `docs(release)`, `docs(issue)`, `docs(architecture)` —
+records, memory renders, release evidence and pi's own skills/attention files, none of which has a dsh
+counterpart. dsh was read at `85aa8b5` (docs-only commits since the last behavioural `src/` commit
+`bb8bc2a`).
+
+**This is the largest pass since the third, and it inverts the eighth.** pi spent it hardening the two
+subsystems dsh also owns — `renderMemoryDocument`'s section allocation and the write path that can
+publish a reply — so most `fix` commits in the range have a dsh counterpart to compare against, and the
+pass finds real port work instead of records. Five batches (N, O, P, Q, R) are below.
+
+### Batch N — the section shares become targets (dsh shares the defect)
+
+pi `e2184af` replaces per-section clipping with an allocation: each section takes `min(need, target)`,
+the unused targets pool, and sections over their target borrow from the pool in proportion to the
+overage (`allocationFor` in `extensions/project-context/memory/sections.ts`); whole entries go **only**
+when the whole document reaches the cap, and the per-item cap follows the borrowed allowance, not the
+old share. `59a53a4` follows it by measuring the pool against the document's real body rather than the
+sum of the targets (`memoryStructureOverheadChars`, 0 hits in dsh today).
+
+dsh still does the pre-change thing, first-hand: `src/project-memory/sections.ts:131`
+`if (spent + cost > budget.chars) {` drops a whole entry against a **hard** per-section budget
+(`:112` `for (const budget of memorySectionBudgets(cap))`), the item cap is section-local (`:124`), and
+the doc comment still says "enforcing `cap` per section" (`:92`). There is no pool: `git grep -n
+'pool\|borrow' -- src/` has one hit (`src/shared/model-call.ts:65`, "borrowing the person's authority").
+So the same allocation loss dsh records as its own pitfall — an idle section's headroom cannot cover
+another section's overage — is still live here, and `sectionDropped`/`droppedItems` still misreport it
+as a section finding (dsh's wording: `${sectionDropped} section(s) exceeded their budget and
+${droppedItems} whole entry(ies) were dropped`, `src/project-memory/index.ts:267` and `:514`; pi's old
+literal `memory exceeded a section budget` and its new `memory document reached its cap:` both have 0
+hits in dsh).
+
+- **Inversion to respect:** dsh's `f38a0ba` (2026-10-05, the same-day "share fix") is **numbers only** —
+  `MEMORY_SECTIONS` shares `0.2/0.4/0.25/0.15` → `0.17/0.45/0.29/0.09` plus
+  `MEMORY_SECTION_PROMPT_SHARE = 0.9`; the drop semantics were untouched. pi at `origin/master` still
+  carries the old numbers (`extensions/project-context/memory/schema.ts:25-28`): **pi fixed the
+  semantics on the old numbers, dsh fixed the numbers on the old semantics.** A port must add the pool
+  without losing dsh's rebalance.
+- **Already in dsh:** `1995a3a` (the reply already tells a per-item cut from a cap event) —
+  `src/project-memory/index.ts:514` vs `:515`; same split at `:267-268`.
+- **Fold in, partial:** `0a9dd75` + `b5a53b7` name the dropped entries in the sentence (`Dropped, e.g. …`)
+  instead of pointing at a log line that may not have been written; dsh has no `droppedSamples` and no
+  `Dropped, e.g.` (0 hits in `src/` + `test/`), and dsh logs every lossy write (`index.ts:261-269`), so
+  the "sample line this pass did not write" half (`2ff6628`) is PI-ONLY.
+- **PI-ONLY:** `6f68848` (comment), the `.codestable`/memory-render commits, `6e8170d`.
+- **Tests that move with it:** `test/logic.test.mjs:1547-1548`, `:1557-1559`, `:1596-1597`, `:1738`,
+  `:1767`, `:5037` ("the stated target is inside the hard budget") and `test/sections.test.mjs:61`.
+- **Open:** whether tier C's overage/retry arithmetic (`memoryLossRetryRule`, `consolidate.ts:233`) still
+  describes the right loss once a pool exists — pi keeps a parallel overage function and the two were not
+  diffed this pass.
+
+### Batch O — one version per decision in the memory store (read/write discipline)
+
+pi `b7e2a31` makes the pure read a single read (`readRenderWithMtime`) so bytes and mtime cannot come
+from two different file versions; `d950910` and `b37cb55` do the same for the adopt path and guard the
+journal append itself; `4376bb5` + `3db610c` make the exit-flush decision a pure table
+(`flushActionFor`) with the rule "never replace a render newer than the journal".
+
+dsh has the same two-call shape and no single-read helper: `src/project-memory/load.ts:87`
+`const renderRaw = await readOptional(target);` then `:93` `const renderInfo = await stat(target)…`, with
+the adopt rule at `:96`; the sync reader repeats it at `:179` / `:182`; the write path's adopt repeats it
+at `record.ts:55`, `:64`, `:66`, and appends a render key with no pre-append verification.
+`git grep -n 'readRenderWithMtime\|flushActionFor\|flushMemoryRender' -- src/ test/` = 0 hits. This is
+the continuation of dsh's own recorded residual (the mtime-wins comparison is duplicated across
+`src/project-memory/`; one shared function is the fix, not another copy). The discriminator pi built for
+it is the FIFO race fixture (`7285eb2`, `d87261a`, `1830b1d` — a bounded failure path and a 30s watchdog
+with a self-check that the fixture still races).
+
+### Batch P — teardown must not generate content (needs a ruling, not a reflex port)
+
+pi `033fa75` + `eff6a56` stop the forced consolidation at exit: `session_shutdown` now does a model-free
+flush (adopt an external hand-edit into the journal; republish from the fold when the file is missing,
+the render is empty, or the journal is not older; a hand-edit newer than the journal is only adopted;
+nothing new is generated), and `errors.log`'s key becomes `shutdown:flush`. pi states the cost plainly:
+turns after the last throttled pass no longer reach `MEMORY.md` and live only in the session archive.
+
+dsh today runs the pre-change behaviour: `src/project-memory/index.ts:422`
+`ctx.on("agent/disposed", …)` → `:427` `consolidateProject(…, { force: true, silent: true })`, a forced
+model-calling pass (the throttle is bypassed by `force`, `consolidate.ts:416`, deduped only inside
+`forceDedupeMs`). dsh already has the storage model pi built on — an append-only journal with
+`foldMemoryJournalWithDrop` (`journal.ts`) and MEMORY.md as its render — so a port is the flush
+*decision*, not a new store. `session/flush` (`index.ts:430`) only awaits in-flight work.
+
+**Why this needs the user's ruling:** it changes what MEMORY.md is (a session ending between two
+throttled passes stops contributing its tail) and pi's motive was a crash chain — a model-call exception
+escaping into the extension runner — which **this pass did not reproduce in dsh**:
+`consolidateProject` catches into `logError` + a `failed` status and the host awaits it under a budgeted
+flush, and the dispose event/emit chain was not read, so no dsh escape was found or excluded. The loss
+would be certain; the safety gain here is unverified.
+
+### Batch Q — a reply is a memory document only when it has our shape (dsh shares the defect, probe-proven)
+
+dsh's opaque path publishes the model's raw text as `MEMORY.md`, and its only guard is the skeleton gate.
+First-hand trace: `src/shared/reply-json.ts:116` `if (!looksLikeJsonReply(text)) return { memory: text };`
+→ `consolidate.ts:360` `return { kind: "fallback-opaque", result: parsed };` → the gate at
+`consolidate.ts:374` `if (resolved.sections === undefined) return isHeadingOnlyDocument(resolved.result.memory);`
+→ `result.memory` is the raw reply (`consolidate.ts:583`) → `index.ts:198` accepts any change at least 40
+characters long → `index.ts:246` writes it. `isHeadingOnlyDocument` (`sections.ts:294`) returns false as
+soon as one non-heading line carries a letter or digit (`CONTENT_RE = /[\p{L}\p{N}]/u`), so **a
+conversational reply carrying the canonical title replaces the whole stored memory, silently** — pi's
+v0.4.7 field incident exactly. dsh pins this fail-open on purpose: `test/sections.test.mjs:344-350` asserts
+a prose wrapper is *not* heading-only, and `sections.ts:284-292` records the boundary ("a wrapper that
+holds real words is content … those boundaries are recorded rather than closed").
+
+An end-to-end probe on the built `lib/` (throwaway project root under `/tmp`; this repo was not written)
+confirms the write lands: `# Project Memory\n\nI'll review the frozen revision and record the durable
+lessons now.` → `status=updated`, `memoryWritten=true`, stored bytes replaced; likewise
+`# Project Memory\n\nI'll do the following:\n- review`. A bare four-heading skeleton is correctly refused
+(`memoryWritten=false`, byte-identical). Logically, dsh never runs tier C here either: the opaque reply
+has no sections, so `writeCapDroppedChars` is 0 and no retry or refusal fires.
+
+pi's final rule (route B, on `origin/master`): `extensions/project-context/memory/sections.ts:428`
+`export function hasMemoryDocumentShape(…)` — at least one `## <known section>` heading at column 0 with a
+`- ` entry at column 0 under it, fence-aware, with the section scope ended by any ATX heading, a setext
+underline or an HTML-block start; `pass.ts:326-342` then combines it with a **stored-side** test ("parses
+into four sections **or** at least 40 characters after stripping the title") and refuses the resulting
+`conversationalOpaque` reply. setext and HTML headings, `* `, numbered and indented entries and unknown
+section names are refused deliberately: the wider subset maintained through rounds 18-21 produced four
+fail-opens in four rounds, so round 22 shrank the rule to the schema itself.
+
+- **Port shape (not a plan):** add the predicate beside `isHeadingOnlyDocument` in
+  `src/project-memory/sections.ts`, reusing the fence state that function already reads (dsh has only that
+  one fence reader), and fold it into `consolidate.ts:374` together with a stored-side condition — dsh's
+  gate reads `existing.text` nowhere today. The diagnostic at `consolidate.ts:588-590`
+  (`the consolidation reply carried no entries; the stored memory was kept unchanged`) becomes **false**
+  the moment the refused class includes "prose plus one bullet", so rename it in the same commit and pin
+  the field string with a new case; `test/sections.test.mjs:255` and `test/logic.test.mjs:2295` should
+  stay green.
+- **Ruling:** this deliberately refuses more than dsh does. dsh's own comment records the opposite
+  trade-off ("the only other answer is refuse a memory the model did write"); route B accepts that a
+  legitimately written but unparseable reply is refused — the stored memory is kept and one diagnostic is
+  logged — in exchange for closing a silent whole-document replacement. The existing pin must be updated,
+  not deleted. Do **not** port pi's v0.4.7/v0.4.8 intermediates (heading-less refusal, then "the body
+  carries any heading/bullet/fence"); both were superseded by route B, and pi's changelog records the
+  second as still fail-open.
+- **PI-ONLY in this group:** `9349a29`, `208d590`, `f73c16b`, `c15a9d4`, `c77f937`, `a5d17d2`, `99c9e74`
+  (the round 19-25 hardening of pi's own predicate; `a5d17d2`'s line-ending normalization is already
+  effective in dsh — a CRLF document is accepted), plus `04cc9ef`, `5f31a54`, `7e9b7b6`, `ed1b0f0`
+  (prose). **Already in dsh:** `0e3b938`'s optional-registry half and `7b4c356`'s absolute-retry-claim
+  retirement (`git grep -c modelRegistry -- src/` = 0 in dsh).
+- **Unknown:** whether dsh ever hit this in the field. The defect is proven reachable by code trace and by
+  probe, but no live dsh incident is recorded, so the practical frequency is unmeasured.
+
+### Batch R — output-budget honesty and the two silent waits (small, standalone)
+
+- `099ebf3` (retry half): the truncation retry takes at least +4096 **and** not less than the hidden
+  thinking actually spent last time. dsh still passes a flat `RETRY_OUTPUT_HEADROOM_TOKENS = 4096`
+  (`consolidate.ts:506`) and uses `attempt.reasoningTokens` only in the error text (`:516`), so a
+  reasoning-heavy route retries with the very headroom that just failed. dsh already charges the reserve in
+  the *input* fit (`output-budget.ts:42-44`, cap 8192), so only the retry half is missing.
+- `068b7e8` (notice half) + `5783610`: `/memory update` and `/autolearn` print a wait line before the
+  one-or-two auxiliary calls. dsh has neither (`git grep -c consolidating -- src/` = 0): `/memory update`
+  awaits and then returns a single reply (`src/project-memory/index.ts:439-440`), and `/autolearn` does the
+  same (`src/project-autolearn/index.ts:101`). **Open before porting:** whether dsh's command surface can
+  emit a mid-command notice before the await — both handlers return one result and no equivalent of pi's
+  notice channel was read, so probe the host surface first.
+- **PI-ONLY:** `6220775` and `068b7e8`'s cap-gate half and `ef23e54` — dsh has no cap gate at all
+  (`memoryCapUnsatisfiable` / `capCeilingWarning` / `memoryReplyTokens` = 0 hits in `src/` + `test/`) and
+  reads `reasoning` from metadata of the *same* route the call uses (`consolidate.ts:427`, `:435-436`, with
+  `model-call.ts:77-84` re-resolving the same function at `:316`), so pi's session-model-versus-aux-route
+  drift cannot occur here.
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+D=/mnt/Data/Projects/dsh-project-context
+git -C $P fetch origin
+git -C $P rev-parse HEAD origin/master                                  # 1a958ce / d25ecab
+git -C $P rev-list --count 7ab60c9..origin/master                       # 143
+git -C $P rev-list --count --merges 7ab60c9..origin/master              # 0
+git -C $P describe --tags 7ab60c9                                       # v0.4.4-2-g7ab60c9
+git -C $P describe --tags origin/master                                 # v0.4.9-6-gd25ecab
+git -C $P log --format='%s' 7ab60c9..origin/master | sed 's/(.*//' | cut -d: -f1 | sort | uniq -c
+git -C $P show e2184af -- extensions/project-context/memory/sections.ts  # the allocationFor hunk
+git -C $D grep -n 'pool\|borrow' -- src/                                # 1 hit: shared/model-call.ts:65
+git -C $D grep -n 'allocationFor\|memoryStructureOverheadChars' -- src/ test/   # expect 0 hits
+git -C $D grep -n 'droppedSamples\|Dropped, e\.g\.' -- src/ test/               # expect 0 hits
+git -C $D grep -n 'reached its cap\|memory exceeded a section budget' -- src/ test/   # expect 0 hits
+git -C $D sed -n '107,150p' src/project-memory/sections.ts              # the hard-cap drop
+git -C $D show f38a0ba -- src/project-memory/memory-schema.ts           # the numbers-only share fix
+git -C $D grep -n 'readRenderWithMtime\|flushActionFor\|flushMemoryRender' -- src/ test/  # expect 0 hits
+git -C $D sed -n '80,100p;175,190p' src/project-memory/load.ts           # two-call read
+git -C $D sed -n '49,70p' src/project-memory/record.ts                   # adopt TOCTOU
+git -C $D grep -n 'agent/disposed\|session/flush' -- src/project-memory/index.ts
+git -C $D grep -n 'isHeadingOnlyDocument\|sectionsFromMarkdown' -- src/project-memory/
+git -C $D grep -c 'hasMemoryDocumentShape\|conversationalOpaque\|OPAQUE_DOCUMENT_MIN_CHARS\|storedIsDocument' -- src/ test/  # expect 0 (exit 1)
+git -C $D sed -n '284,300p' src/project-memory/sections.ts                # CONTENT_RE + the documented fail-open
+git -C $D sed -n '340,350p' test/sections.test.mjs                        # the pinned fail-open
+node /tmp/dsh-e2e.mjs                                                     # built-lib probe (throwaway root, no repo writes)
+git -C $P show origin/master:extensions/project-context/memory/sections.ts | sed -n '405,470p'
+git -C $P show origin/master:extensions/project-context/memory/pass.ts | sed -n '316,346p'
+git -C $D grep -c 'consolidating' -- src/                                 # expect 0 (exit 1)
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's commits touch and of the mechanism under its dsh name, not a
+semantic diff of the two trees; anything outside this repo (dsh core, `/etc/nixos`, the profiles under
+`~/.dsh`) is not owned here. The 106 docs commits were classified mechanically by scope and sampled, not
+read one by one; pi's own prose about dsh was never treated as evidence, and every dsh-side statement
+above was read in dsh's `src/` or `test/`. pi's field numbers (118-byte reply, 29.9 KB memory, 20489
+hidden-thinking tokens) are quoted as pi's record, not re-measured here. No probe was run and no host
+was restarted; `src/` was untouched by this pass.
