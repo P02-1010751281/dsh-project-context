@@ -1373,6 +1373,17 @@ fail-opens in four rounds, so round 22 shrank the rule to the schema itself.
   reads `reasoning` from metadata of the *same* route the call uses (`consolidate.ts:427`, `:435-436`, with
   `model-call.ts:77-84` re-resolving the same function at `:316`), so pi's session-model-versus-aux-route
   drift cannot occur here.
+- **Landed 2026-10-11 (retry half only):** the retry now carries
+  `Math.max(RETRY_OUTPUT_HEADROOM_TOKENS, attempt.reasoningTokens)` (`src/project-memory/consolidate.ts`), pinned by
+  `.agents/evidence/2026-10-11-batchR-retry-headroom/probe.mjs` (`exit 10` before, `0` after) and two named tests.
+  **The notice half's host-surface probe came back negative** — a command handler returns one `CommandResult`, the
+  registry writes `command/done` only after the awaited handler settles, no notification/notice/toast Service exists
+  in the composed host, `sessions.announce` is a creation-time one-shot (`was already announced`), this repo's own
+  source scan forbids any `.append(` in `src/`/`client/`, and the built-in long command `/compact` is silent too —
+  while dsh's chat UI already renders an unsettled command as `执行中…`/`Running…` with a shimmer. The only
+  substitute found is the command-name-keyed client slot `conversation.chat.commandview`, and occupying it replaces
+  the shipped card (not publicly exported), so it is a user-visible tradeoff awaiting a ruling. Spec, per-path
+  behaviour and costs: `docs/batch-r-retry-headroom-brief.md`.
 
 ### Reproducible commands
 
