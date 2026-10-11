@@ -1,0 +1,56 @@
+== A. load state: does the logged stack match the PRE-fix build? ==
+  errors.log carries 4 MissingSessionID line(s); the last is at 2026-10-11T08:54:51.944Z
+  lib/shared/model-call.js:152:29   [token (none)]
+      HEAD^  // message itself stays exactly what this plugin has always thrown.
+      HEAD    // message itself stays exactly what this plugin has always thrown.
+  FAIL  lib/shared/model-call.js:152 is the ? call site at HEAD^ and not at HEAD
+  lib/shared/model-call.js:207:16   [token (none)]
+      HEAD^  throw error;
+      HEAD    throw error;
+  FAIL  lib/shared/model-call.js:207 is the ? call site at HEAD^ and not at HEAD
+  lib/project-memory/consolidate.js:445:24   [token async(]
+      HEAD^  const call = async (input, extra, tools) => {
+      HEAD    const call = async (input, extra, tools) => {
+  FAIL  lib/project-memory/consolidate.js:445 is the async( call site at HEAD^ and not at HEAD
+  lib/project-memory/consolidate.js:465:23   [token (none)]
+      HEAD^  }
+      HEAD    }
+  FAIL  lib/project-memory/consolidate.js:465 is the ? call site at HEAD^ and not at HEAD
+  lib/project-memory/index.js:93:29   [token (none)]
+      HEAD^  * The half of the pass that runs after the model call: every durable write this pass makes
+      HEAD    * The half of the pass that runs after the model call: every durable write this pass makes
+  FAIL  lib/project-memory/index.js:93 is the ? call site at HEAD^ and not at HEAD
+
+== B. route: what did `requestHeader()` fold to at the cut? ==
+  4b2e3f66-a2ac-46be-bff2-066a27f917cd
+      in force at cut: command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 16:44:38
+  session-39f6d504-b694-4f0e-97d4-757c67565339
+      in force at cut: (no header before the cut → falls through to agent.options)
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 17:46:22
+  session-75a9e9e6-9a2a-406c-9cb9-896d45c72a24
+      in force at cut: (no header before the cut → falls through to agent.options)
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 17:31:21
+  session-7b280e03-c321-448a-9fa5-81f4a2d64466
+      in force at cut: opencode-go/deepseek-v4.1-flash @ 2026-10-11 16:05:41
+      selection      : opencode-go/deepseek-v4.1-flash @ 2026-10-11 16:05:40
+  session-8164b8c8-4a7e-4fc0-9634-a5cce4de8da3
+      in force at cut: (no header before the cut → falls through to agent.options)
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 17:25:17
+  session-aacc8312-7554-408d-9d56-9d0d22435f73
+      in force at cut: (no header before the cut → falls through to agent.options)
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 17:04:30
+  session-b2a9894b-d386-4ee2-ba17-3faef17388c3
+      in force at cut: opencode-go/deepseek-v4.1-flash @ 2026-10-11 15:58:27
+      selection      : opencode-go/deepseek-v4.1-flash @ 2026-10-11 13:11:11
+  session-d435cad7-cb42-4701-943c-ff4c3a3ad8ca
+      in force at cut: command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 16:30:56
+      selection      : opencode-go/deepseek-v4.1-flash @ 2026-10-11 16:22:23
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 16:30:23
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 16:30:25
+  session-fd900952-283d-4f40-804f-6399aeff607b
+      in force at cut: (no header before the cut → falls through to agent.options)
+      selection      : command-code/deepseek/deepseek-v4.1-flash @ 2026-10-11 17:16:47
+  PASS  the blamed session's in-force route at the cut is 'command-code'; it must not be opencode-go
+  PASS  sessions still resolving to opencode-go at the cut: session-7b280e03-c321-448a-9fa5-81f4a2d64466, session-b2a9894b-d386-4ee2-ba17-3faef17388c3
+
+RESULT: FAIL
