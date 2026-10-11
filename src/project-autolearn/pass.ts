@@ -27,6 +27,14 @@ import { type LearnedSkill } from "./skill.js";
 export interface AutolearnOptions {
 	force?: boolean;
 	signal?: AbortSignal;
+	/**
+	 * Hand this pass's write segments to the caller's durability tracker.
+	 *
+	 * Only segments that await no model call are registered, because a registered span containing a
+	 * dispatch would be awaited by that dispatch's own checkpoint flush — this pass's auxiliary call
+	 * names a live session (`SessionWorkTracker`). Callers that do not track pass nothing.
+	 */
+	track?: ((work: Promise<unknown>) => void) | undefined;
 }
 
 export interface AutolearnOutcome {
@@ -169,10 +177,29 @@ export function autolearnProjectSkills(
 			 */
 			const toolsState: ToolsFallbackState = {};
 
+			/**
+			 * Run one write segment under the caller's durability tracker.
+			 *
+			 * Only a segment that awaits no model call may be registered: a registered span containing a
+			 * dispatch would be awaited by that dispatch's own checkpoint flush, because the call names a
+			 * live session (`SessionWorkTracker`). Both writes below are such segments — the state update
+			 * between the two decision calls, and the skill write after them.
+			 */
+			const write = <T>(work: () => Promise<T>): Promise<T> => {
+				const running = work();
+				options.track?.(running);
+				return running;
+			};
+
 			/** One decision call. `withTools` is false for the retry, which asks for the text shape. */
 			const call = (prompt: string, withTools: boolean): Promise<CompletionOutcome> =>
 				callWithToolsFallback(toolsState, withTools, (useTools) =>
-					requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, useTools ? { tools: [RECORD_SKILL_TOOL] } : {}),
+					requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, {
+						// The live session this pass was triggered for: the route may require it (opencode
+						// maps it to `x-opencode-session` and answers 400 without it).
+						sessionId: agent.session.id,
+						...(useTools ? { tools: [RECORD_SKILL_TOOL] } : {}),
+					}),
 				);
 
 			/** Read one reply: the tool call first, the text JSON shape second. */
@@ -231,7 +258,7 @@ export function autolearnProjectSkills(
 			// pass and not from whenever the material was last touched.
 			const recordedAt = Date.now();
 			recorded = true;
-			await updateLearnState(projectRoot, { autolearnAt: stamp, lastAttemptAt: recordedAt });
+			await write(() => updateLearnState(projectRoot, { autolearnAt: stamp, lastAttemptAt: recordedAt }));
 			throttle.set(projectRoot, { session: sessionId, sessionTurns: turns, turns: 0, at: recordedAt });
 
 			let skill = first.skill;
@@ -269,7 +296,7 @@ export function autolearnProjectSkills(
 			let candidate = false;
 			let rejected: string | undefined;
 			if (skill) {
-				const saved = await saveProposedSkill(projectRoot, skill, archived, shownNames);
+				const saved = await write(() => saveProposedSkill(projectRoot, skill, archived, shownNames));
 				if (typeof saved === "string") {
 					learned = { name: skill.name, description: skill.description, body: skill.body };
 					candidate = saved === "candidate";

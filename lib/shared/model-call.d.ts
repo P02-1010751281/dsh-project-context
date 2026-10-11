@@ -4,7 +4,7 @@
  */
 import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
-import { type LlmResolvedModelInfo, type UserMessage } from "@deepseek-ai/dsh-llm";
+import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "./config.js";
 export declare const LEARN_PLUGIN_NAME = "dsh-project-context";
 /**
@@ -22,6 +22,30 @@ declare module "@deepseek-ai/dsh-llm" {
         };
     }
 }
+/**
+ * What one auxiliary call carries besides its prompt: the session identity it routes on, the tools it
+ * offers, and the reasoning effort it overrides.
+ */
+export type PluginCallOptions = {
+    /**
+     * The loop's own session identity for this call (`GenerateOptions.sessionId`).
+     *
+     * Required rather than optional, because it is not routing decoration: the adapter maps it to
+     * model-hidden transport metadata, and a route may refuse a request that arrives without it
+     * (opencode answers 400 `MissingSessionID`). An auxiliary call that forgot it would fail at the
+     * gateway instead of at the compiler.
+     *
+     * Naming a live session also enters the loop's session-checkpoint path — dsh flushes a session
+     * before dispatching a request that names it — so the pass making this call must stay out of the
+     * `SessionWorkTracker` while the call is in flight, or that flush would await the call it is
+     * dispatching. `SessionWorkTracker` owns that half of the contract.
+     */
+    sessionId: NonNullable<GenerateOptions["sessionId"]>;
+    /** Optional reasoning effort override for this call. */
+    reasoningEffort?: string;
+    /** Tools to offer this call; omitted means the request carries none at all. */
+    tools?: readonly PluginTool[];
+};
 /** One tool offered to a plugin-authored call: the declaration the adapter forwards to the provider. */
 export type PluginTool = {
     name: string;
@@ -96,16 +120,14 @@ export declare function modelOutputLimit(ctx: Context, target: {
 /**
  * One auxiliary plugin-authored model call, returning its visible text.
  *
- * Deliberately no `sessionId`: an auxiliary call must not enter the loop's
- * session-checkpoint path, where `sessions.flush()` would await this very call
- * through the plugins' own `session/flush` listeners (deadlock).
+ * Carries the loop's own session identity, which every route is entitled to require; see
+ * {@link PluginCallOptions.sessionId} for why it is mandatory and for the checkpoint cycle that
+ * naming a live session used to create.
  */
 export declare function requestPluginText(ctx: Context, target: {
     provider: string;
     model: string;
-}, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options?: {
-    reasoningEffort?: string;
-}): Promise<string>;
+}, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options: PluginCallOptions): Promise<string>;
 /**
  * One auxiliary plugin-authored model call, returning its visible text plus how it ended.
  *
@@ -119,16 +141,14 @@ export declare function requestPluginText(ctx: Context, target: {
  * @param maxTokens - the output cap to request.
  * @param prompt - the plugin-authored user message.
  * @param signal - the pass's abort signal.
- * @param options - optional reasoning effort override, and the tools to offer this call.
+ * @param options - the session identity this call routes on, an optional reasoning effort override,
+ * and the tools to offer this call.
  * @returns the trimmed visible text, the finish reason kind, hidden reasoning tokens, and any tool calls.
  */
 export declare function requestPluginTextWithMeta(ctx: Context, target: {
     provider: string;
     model: string;
-}, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options?: {
-    reasoningEffort?: string;
-    tools?: readonly PluginTool[];
-}): Promise<CompletionOutcome>;
+}, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options: PluginCallOptions): Promise<CompletionOutcome>;
 /** The harness failure code an error carries (`HarnessError.code`), or undefined when it carries none. */
 export declare function failureCodeOf(error: unknown): string | undefined;
 /** Per-pass state for `callWithToolsFallback`; the switch belongs to the pass, not to this module. */

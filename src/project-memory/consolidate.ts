@@ -353,7 +353,13 @@ async function requestConsolidationText(
 ): Promise<CompletionOutcome> {
 	const target = resolveTarget(agent, config);
 	if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
-	return requestPluginTextWithMeta(ctx, target, maxTokens, prompt, signal, tools === undefined ? {} : { tools });
+	return requestPluginTextWithMeta(ctx, target, maxTokens, prompt, signal, {
+		// The live session this pass was triggered for. The route may require it (opencode maps it to
+		// `x-opencode-session` and answers 400 without it), and naming it is what makes the
+		// checkpoint-policy half of `SessionWorkTracker`'s contract load-bearing for this pass.
+		sessionId: agent.session.id,
+		...(tools === undefined ? {} : { tools }),
+	});
 }
 
 /**

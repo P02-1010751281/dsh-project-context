@@ -20,7 +20,7 @@ import { renderContextDocument } from "./context-doc.js";
 import { buildContextInjection, buildMemoryInjection } from "./injection.js";
 import { contextClipNotice, contextTruncationDropped } from "./context-schema.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
-import { type PartialRefusalReason, consolidateProjectState, fallbackUpdate } from "./consolidate.js";
+import { type ConsolidationOutcome, type PartialRefusalReason, consolidateProjectState, fallbackUpdate } from "./consolidate.js";
 import {
 	MAX_CONTEXT_CHARS,
 	cachedProjectRoot,
@@ -86,6 +86,14 @@ interface ConsolidateOptions {
 	force: boolean;
 	silent: boolean;
 	signal?: AbortSignal | undefined;
+	/**
+	 * Hand this pass's write phase to the caller's durability tracker.
+	 *
+	 * The pass registers **only** the half that follows its model call, because a registered span that
+	 * contained the model call would be awaited by that call's own checkpoint flush
+	 * (`SessionWorkTracker`). Callers that do not track pass nothing.
+	 */
+	track?: ((work: Promise<unknown>) => void) | undefined;
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
@@ -199,10 +207,14 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 		let wroteContext = false;
 		/** What had already landed if something throws later: a failure receipt must not hide it. */
 		let loss: ConsolidateLoss = NO_LOSS;
-		try {
-			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
-			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return cleanReport("deduped");
-
+		/**
+		 * The half of the pass that runs after the model call: every durable write this pass makes
+		 * happens here, and nothing in it dispatches a request. Only this half is handed to the
+		 * durability tracker — this pass's auxiliary call names a live session, so a registration that
+		 * spanned it would make that request's own checkpoint flush await the call it is dispatching
+		 * (`SessionWorkTracker`).
+		 */
+		const write = async (outcome: ConsolidationOutcome): Promise<ConsolidateReport> => {
 			const memoryText = outcome.result.memory.trim();
 			// A reply that carried no entries renders as a bare four-heading skeleton, and a conversational
 			// opaque reply is one that carries no section of ours at all: both are over the length floor but
@@ -387,6 +399,15 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// makes the status and the receipt's numbers agree by construction.
 			const clippedLanded = loss.memoryHiddenChars > 0 || loss.contextHiddenChars > 0;
 			return wrote ? { status: clippedLanded ? "clipped" : "updated", ...loss } : cleanReport("unchanged");
+		};
+		try {
+			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
+			// A deduped pass has nothing to write, so it never reaches the tracker: there is no pending
+			// write to await, and the report already says the artifacts are unchanged.
+			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return cleanReport("deduped");
+			const work = write(outcome);
+			options.track?.(work);
+			return await work;
 		} catch (error) {
 			// Release the claimed version when nothing was written: otherwise the next forced pass
 			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
@@ -452,7 +473,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
 		if (!current.memoryEnabled) return;
-		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: false, silent: false }));
+		// Only the pass's write phase reaches the tracker (`SessionWorkTracker`); the span itself is
+		// observed here so a rejection stays as invisible as it was when the tracker carried it.
+		void consolidateProject(ctx, current, agent, { force: false, silent: false, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
@@ -460,7 +483,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		const current = effectivePluginConfig(entry);
 		if (!current.memoryEnabled) return;
 		// Silent: the UI may already be rebuilding for a session switch.
-		pending.track(agent.session, consolidateProject(ctx, current, agent, { force: true, silent: true }));
+		void consolidateProject(ctx, current, agent, { force: true, silent: true, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
 	});
 
 	ctx.on("session/flush", (session) => pending.flush(session));

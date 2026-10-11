@@ -51,7 +51,18 @@ export class SerialQueue {
 	}
 }
 
-/** Per-session in-flight work, awaited by the `session/flush` durability handler. */
+/**
+ * Per-session in-flight work, awaited by the `session/flush` durability handler.
+ *
+ * Only the **write phase** of a pass belongs here — never a span that is waiting on a model call.
+ * dsh's checkpoint policy flushes a live session *before dispatching a request that names it*, and
+ * the plugins' own auxiliary calls name one (`PluginCallOptions.sessionId`), so a pass that
+ * registered its whole self would have that request's flush await the very call it is dispatching.
+ * It would not deadlock — `waitBounded` releases at `FLUSH_WAIT_MS` — but every auxiliary call would
+ * stall for the full budget, and the flush would hand back a "durable" verdict for a pass that had
+ * not written anything yet. A registered write never waits on a dispatch, so awaiting it is both
+ * safe and the point of registering it.
+ */
 export class SessionWorkTracker {
 	private readonly pending = new Map<string, Promise<void>>();
 

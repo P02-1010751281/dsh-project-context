@@ -20,6 +20,14 @@ interface ConsolidateOptions {
     force: boolean;
     silent: boolean;
     signal?: AbortSignal | undefined;
+    /**
+     * Hand this pass's write phase to the caller's durability tracker.
+     *
+     * The pass registers **only** the half that follows its model call, because a registered span that
+     * contained the model call would be awaited by that call's own checkpoint flush
+     * (`SessionWorkTracker`). Callers that do not track pass nothing.
+     */
+    track?: ((work: Promise<unknown>) => void) | undefined;
 }
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
 export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused" | "partial-refused";

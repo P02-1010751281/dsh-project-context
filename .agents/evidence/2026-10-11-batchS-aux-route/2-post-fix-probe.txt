@@ -1,0 +1,8 @@
+== 1. composition (real apply() wiring, checkpoint policy inlined in the adapter)
+   memory: parked=true sessionId="session-probe-memory" checkpointFlushes=1 flushReturnedBeforeDispatch=true passFinished=true writeLanded=true
+   autolearn: parked=true sessionId="session-probe-autolearn" checkpointFlushes=1 flushReturnedBeforeDispatch=true passFinished=true writeLanded=true
+== 2. mechanism (equivalent construction: the pre-fix wiring on the real SessionWorkTracker)
+   FLUSH_WAIT_MS=90000; flush while the pass is parked: parked; after release: returned; pass ran: true
+== 3. registration (real consolidateProject with a track callback)
+   registrations=1 registeredDuringCall=false registeredAfterFirstCall=true report=updated
+RESULT: PASS (identity stamped, the checkpoint flush returns before dispatch, the tracker holds only the write phase)

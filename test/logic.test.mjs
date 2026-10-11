@@ -5350,21 +5350,21 @@ test("requestPluginText and its meta variant keep the error and abort semantics"
 		{ type: "text-delta", index: 0, text: "  hello  " },
 		{ type: "usage", usage: { inputTokens: 1, outputTokens: 9, reasoningTokens: 4 } },
 		{ type: "finish", reason: { kind: "max-tokens" } },
-	]), target, 16, "prompt", undefined);
+	]), target, 16, "prompt", undefined, { sessionId: "session-aux" });
 	assert.deepEqual(ok, { text: "hello", stopReason: "max-tokens", reasoningTokens: 4 }, "the meta variant reports the reason and the hidden thinking");
 
 	// The thin wrapper keeps its old signature and returns just the text.
-	const text = await requestPluginText(streamOf([{ type: "text-delta", index: 0, text: "  hi  " }, { type: "finish", reason: { kind: "stop" } }]), target, 16, "prompt", undefined);
+	const text = await requestPluginText(streamOf([{ type: "text-delta", index: 0, text: "  hi  " }, { type: "finish", reason: { kind: "stop" } }]), target, 16, "prompt", undefined, { sessionId: "session-aux" });
 	assert.equal(text, "hi");
 
 	// An adapter that reports no usage leaves the reasoning count at 0 rather than NaN.
-	const noUsage = await requestPluginTextWithMeta(streamOf([{ type: "text-delta", index: 0, text: "x" }, { type: "finish", reason: { kind: "stop" } }]), target, 16, "prompt", undefined);
+	const noUsage = await requestPluginTextWithMeta(streamOf([{ type: "text-delta", index: 0, text: "x" }, { type: "finish", reason: { kind: "stop" } }]), target, 16, "prompt", undefined, { sessionId: "session-aux" });
 	assert.deepEqual(noUsage, { text: "x", stopReason: "stop", reasoningTokens: 0 });
 
 	for (const kind of ["error", "aborted"]) {
 		const failure = { message: "upstream exploded", code: "boom" };
 		await assert.rejects(
-			() => requestPluginText(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined),
+			() => requestPluginText(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined, { sessionId: "session-aux" }),
 			(error) => {
 				assert.equal(error.message, "plugin model call failed (boom): upstream exploded");
 				// The code must survive this boundary: routing on it is the only way a caller can tell a
@@ -5376,40 +5376,41 @@ test("requestPluginText and its meta variant keep the error and abort semantics"
 			`${kind} must still throw`,
 		);
 		await assert.rejects(
-			() => requestPluginTextWithMeta(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined),
+			() => requestPluginTextWithMeta(streamOf([{ type: "finish", reason: { kind, failure } }]), target, 16, "prompt", undefined, { sessionId: "session-aux" }),
 			/plugin model call failed \(boom\): upstream exploded/,
 			`the meta variant must throw for ${kind} too`,
 		);
 	}
 });
 
-test("a plugin call forwards the tools it was offered, and only then", async () => {
-	// The wiring this repo owns: `requestPluginTextWithMeta` used to drop `tools` on the floor, so a
-	// caller could not offer one at all. A call that offers none must still send the same request.
-	const seen = [];
-	const ctx = {
-		llm: {
-			stream: (options) => {
-				seen.push(options);
-				return (async function* generate() {
-					yield { type: "finish", reason: { kind: "stop" } };
-				})();
+	test("a plugin call forwards the tools it was offered, and only then", async () => {
+		// The wiring this repo owns: `requestPluginTextWithMeta` used to drop `tools` on the floor, so a
+		// caller could not offer one at all. A call that offers none must still send the same request.
+		const seen = [];
+		const ctx = {
+			llm: {
+				stream: (options) => {
+					seen.push(options);
+					return (async function* generate() {
+						yield { type: "finish", reason: { kind: "stop" } };
+					})();
+				},
 			},
-		},
-	};
-	const target = { provider: "p", model: "m" };
-	const tool = { name: "record_memory", description: "d", parameters: { type: "object", properties: {}, additionalProperties: false } };
+		};
+		const target = { provider: "p", model: "m" };
+		const tool = { name: "record_memory", description: "d", parameters: { type: "object", properties: {}, additionalProperties: false } };
 
-	const plain = await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined);
-	assert.equal("tools" in seen[0], false, "a call with no tools sends no tools key at all");
-	assert.equal("toolCalls" in plain, false, "a reply with no call carries no toolCalls key");
+		const plain = await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { sessionId: "session-aux" });
+		assert.equal(seen[0].sessionId, "session-aux", "the session identity the caller named reaches the request: a route may refuse one without it");
+		assert.equal("tools" in seen[0], false, "a call with no tools sends no tools key at all");
+		assert.equal("toolCalls" in plain, false, "a reply with no call carries no toolCalls key");
 
-	await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { tools: [tool] });
-	assert.deepEqual(seen[1].tools, [tool], "the offered tool reaches the request");
+		await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { sessionId: "session-aux", tools: [tool] });
+		assert.deepEqual(seen[1].tools, [tool], "the offered tool reaches the request");
 
-	await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { tools: [] });
-	assert.equal("tools" in seen[2], false, "an empty tool list is the same request as no tools");
-});
+		await requestPluginTextWithMeta(ctx, target, 16, "prompt", undefined, { sessionId: "session-aux", tools: [] });
+		assert.equal("tools" in seen[2], false, "an empty tool list is the same request as no tools");
+	});
 
 test("tool-call deltas assemble per block, and block-end wins", async () => {
 	// Measured on the live route (see .agents/evidence/2026-10-04-record-memory-tool-probe): the first
@@ -5425,7 +5426,7 @@ test("tool-call deltas assemble per block, and block-end wins", async () => {
 	});
 	const target = { provider: "p", model: "m" };
 	const run = (chunks) =>
-		requestPluginTextWithMeta(streamOf(chunks), target, 16, "prompt", undefined, { tools: [{ name: "record_memory", description: "d", parameters: {} }] });
+		requestPluginTextWithMeta(streamOf(chunks), target, 16, "prompt", undefined, { sessionId: "session-aux", tools: [{ name: "record_memory", description: "d", parameters: {} }] });
 
 	const deltasOnly = await run([
 		{ type: "tool-call-delta", index: 1, id: "call_1", name: "record_memory", argumentsDelta: "" },

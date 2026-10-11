@@ -23,6 +23,12 @@
  * covered here: it only warms a cache the parent already warmed and writes nothing, so a gate there
  * would be an untestable branch.
  *
+ * The auxiliary-route contract of batch S is pinned here too, because it is decided on these same
+ * events: an automatic pass stamps the live session on the model call it makes (`opencode` refuses a
+ * request that arrives without one), and the tracker `session/flush` drains carries only that pass's
+ * write phase — dsh flushes a session *before* dispatching a request that names it, so a tracker
+ * holding the whole pass would park that flush behind the very call it is dispatching.
+ *
  * This file also owns the sibling refusal that is not about delegation: `archiveEnabled: false` must
  * stop every automatic write too. Three of `project-context`'s four points honoured that flag;
  * `session/disposed` wrote anyway (a session.jsonl + session.md + index line on dispose) until
@@ -32,14 +38,14 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { apply as applyContext } from "../lib/project-context/index.js";
 import { apply as applyHandoff } from "../lib/project-handoff/index.js";
-import { apply as applyMemory } from "../lib/project-memory/index.js";
+import { apply as applyMemory, consolidateProject } from "../lib/project-memory/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { contextFile, logsDir, memoryFile, sessionIndexFile } from "../lib/shared/project-state.js";
 
@@ -102,17 +108,48 @@ function handlerContext(extra = {}) {
 	return { handlers, on, ...extra };
 }
 
-/** Fire one lifecycle event through the registered handler(s), then drain the plugin's flush hook. */
-async function fire(handlers, type, agent) {
+/** Resolve `true` as soon as `probe()` holds, or `false` once `ms` elapse without it. */
+async function waitFor(probe, ms) {
+	const deadline = Date.now() + ms;
+	for (;;) {
+		if (await probe()) return true;
+		if (Date.now() >= deadline) return false;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+}
+
+/** A promise plus the handle that settles it. */
+function deferred() {
+	let resolve;
+	const promise = new Promise((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+}
+
+/**
+ * Fire one lifecycle event through the registered handler(s), then drain the plugin's flush hook.
+ *
+ * `session/flush` is no longer a pass-completion signal: batch S narrowed the tracker to the write
+ * phase, because dsh flushes a session *before* dispatching a request that names it, and these
+ * passes name one. The observable step is therefore the model call itself. Each caller's positive
+ * control (the same event on a top-level session) proves this window is long enough for it to
+ * arrive; measured on this machine a pass reaches its stream in well under 10 ms, so 500 ms is ~50×
+ * the latency being waited for.
+ */
+async function fire(handlers, type, agent, calls) {
 	for (const handler of handlers.get(type)) await handler({ agent, status: "idle" });
+	await waitFor(() => calls.length > 0, 500);
 	const flush = handlers.get("session/flush")?.[0];
 	if (flush) await flush(agent.session);
 }
 
-/** Model calls the memory plugin makes for one event on one fresh project, with optional config overrides. */
-async function memoryCalls(event, origin, extra = {}) {
+/**
+ * Model calls the memory plugin makes for one event on one fresh project, with optional config
+ * overrides. Pass `calls` to also read the requests themselves.
+ */
+async function memoryCalls(event, origin, extra = {}, calls = []) {
 	const root = await project("dsh-gate-memory-");
-	const calls = [];
 	const { handlers, on } = handlerContext();
 	applyMemory(
 		{
@@ -134,14 +171,16 @@ async function memoryCalls(event, origin, extra = {}) {
 		resolvePluginConfig({ consolidateTurns: 1, consolidateIntervalMs: 1000, provider: "test-provider", model: "test-model", ...extra }),
 	);
 	const agent = fakeAgent(root, { id: `session-${event}-${origin ?? "top"}`, origin });
-	await fire(handlers, event, agent);
+	await fire(handlers, event, agent, calls);
 	return calls.length;
 }
 
-/** Model calls the autolearn plugin makes for one event on one fresh project. */
-async function autolearnCalls(event, origin) {
+/**
+ * Model calls the autolearn plugin makes for one event on one fresh project. Pass `calls` to also
+ * read the requests themselves.
+ */
+async function autolearnCalls(event, origin, calls = []) {
 	const root = await project("dsh-gate-autolearn-");
-	const calls = [];
 	const { handlers, on } = handlerContext();
 	applyAutolearn(
 		{
@@ -163,7 +202,7 @@ async function autolearnCalls(event, origin) {
 		resolvePluginConfig({ autolearnTurns: 1, autolearnIntervalMs: 1000, provider: "test-provider", model: "test-model" }),
 	);
 	const agent = fakeAgent(root, { id: `session-${event}-${origin ?? "top"}`, origin });
-	await fire(handlers, event, agent);
+	await fire(handlers, event, agent, calls);
 	return calls.length;
 }
 
@@ -247,6 +286,118 @@ test("project-autolearn: a delegated session runs no distill pass on either life
 		assert.equal(await autolearnCalls(event, "subagent"), 0, `${event}: a delegated session must not distil project skills`);
 		assert.equal(await autolearnCalls(event), 1, `${event}: the same event on a top-level session distils once`);
 	}
+});
+
+test("an automatic pass stamps the live session on its auxiliary request", async () => {
+	// Batch S: a route is entitled to require a session identity — `opencode` answers 400
+	// `MissingSessionID` without one — and the identity is also what enters dsh's checkpoint path,
+	// so the request carrying it is half of the contract the tracker's write-only scope answers for.
+	// Both automatic passes make such a call, so both must be checked here.
+	const memory = [];
+	assert.equal(await memoryCalls("agent/status", undefined, {}, memory), 1);
+	assert.equal(memory[0].sessionId, "session-agent/status-top", "the consolidation request must name the live session");
+	const autolearn = [];
+	assert.equal(await autolearnCalls("agent/status", undefined, autolearn), 1);
+	assert.equal(autolearn[0].sessionId, "session-agent/status-top", "the distill request must name the live session");
+});
+
+test("the flush a stamped request triggers returns while the model call is still parked", async () => {
+	// dsh's checkpoint policy flushes a session *before* dispatching a request that names it. A pass
+	// that registered its whole self with the tracker would therefore make that flush await the very
+	// call it is dispatching; `SessionWorkTracker` releases only at `FLUSH_WAIT_MS` (90 s), so every
+	// auxiliary call would stall for the full budget. The pass registers its write phase alone, which
+	// is the only half with anything to make durable — and that half must still land.
+	const root = await project("dsh-gate-aux-cycle-");
+	// A distinct starting document, so the write that follows the model call is observable on disk.
+	await writeFile(memoryFile(root), "# Project Memory\n\n- before the pass\n");
+	const entered = deferred();
+	const release = deferred();
+	let checkpoints = 0;
+	let agent;
+	const { handlers, on } = handlerContext();
+	applyMemory(
+		{
+			logger: { info() {}, warn() {} },
+			systemPrompt: { context: () => undefined },
+			on,
+			commands: { register: () => undefined },
+			llm: {
+				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+				// `session-checkpoint-policy`, inlined: a request that names a live session is flushed
+				// before the adapter is reached; one that names nothing is passed straight through.
+				stream: (options) => (async function* generate() {
+					if (options.sessionId !== undefined) {
+						checkpoints += 1;
+						await handlers.get("session/flush")[0](agent.session);
+					}
+					entered.resolve();
+					await release.promise;
+					yield { type: "text-delta", text: COMPLETE_REPLY };
+					yield { type: "finish", reason: { kind: "stop" } };
+				})(),
+			},
+		},
+		resolvePluginConfig({ consolidateTurns: 1, consolidateIntervalMs: 1000, provider: "test-provider", model: "test-model" }),
+	);
+	agent = fakeAgent(root, { id: "session-aux-cycle" });
+	let flushReturnedWhileParked = false;
+	void entered.promise.then(() => {
+		flushReturnedWhileParked = true;
+	});
+	handlers.get("agent/status")[0]({ agent, status: "idle" });
+	const returnedBeforeRelease = await waitFor(() => flushReturnedWhileParked, 1000);
+	// Released before the assertions: a regressed tracker parks the flush for its full budget, and
+	// this keeps that regressed run from holding the suite open even after the case has failed.
+	release.resolve();
+	assert.equal(checkpoints, 1, "the request must name the session the checkpoint policy flushes");
+	assert.equal(returnedBeforeRelease, true, "the flush must return before the dispatch it triggered, not behind it");
+	assert.equal(
+		await waitFor(async () => (await readFile(memoryFile(root), "utf8")).includes("- keep the suite green"), 2000),
+		true,
+		"the write phase must still land once the parked call is released",
+	);
+});
+
+test("the pass hands the tracker its write phase alone", async () => {
+	// The other half of the cycle: the flush must have something to await *after* the call, or the
+	// narrowing would have bought latency at the price of durability. Nothing may be registered while
+	// the call is in flight, exactly one write phase must be registered once it returns, and that
+	// write is the one that lands.
+	const root = await project("dsh-gate-aux-register-");
+	await writeFile(memoryFile(root), "# Project Memory\n\n- before the pass\n");
+	const entered = deferred();
+	const release = deferred();
+	const registered = [];
+	const agent = fakeAgent(root, { id: "session-aux-register" });
+	const pass = consolidateProject(
+		{
+			logger: { info() {}, warn() {} },
+			systemPrompt: { context: () => undefined },
+			llm: {
+				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+				stream: () => (async function* generate() {
+					entered.resolve();
+					await release.promise;
+					yield { type: "text-delta", text: COMPLETE_REPLY };
+					yield { type: "finish", reason: { kind: "stop" } };
+				})(),
+			},
+		},
+		resolvePluginConfig({ consolidateTurns: 1, consolidateIntervalMs: 1000, provider: "test-provider", model: "test-model" }),
+		agent,
+		{ force: false, silent: false, track: (work) => registered.push(work) },
+	);
+	await entered.promise;
+	assert.equal(registered.length, 0, "no write may be registered while the model call is in flight");
+	release.resolve();
+	await pass;
+	assert.equal(registered.length, 1, "the write phase is registered exactly once, after the call");
+	await registered[0];
+	assert.equal(
+		await readFile(memoryFile(root), "utf8"),
+		"# Project Memory\n\n- keep the suite green\n",
+		"the registered write is the one that landed",
+	);
 });
 
 test("project-handoff: a delegated session's settled turn end starts no handoff", async () => {

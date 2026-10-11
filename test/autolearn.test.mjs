@@ -156,6 +156,16 @@ function future() {
 	return new Date(Date.now() + 3_600_000);
 }
 
+/** Resolve `true` as soon as `probe()` holds, or `false` once `ms` elapse without it. */
+async function waitFor(probe, ms) {
+	const deadline = Date.now() + ms;
+	for (;;) {
+		if (await probe()) return true;
+		if (Date.now() >= deadline) return false;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+}
+
 test("the gate timestamp survives a restart and new material re-opens it", async () => {
 	const root = await project({ sessions: ["session-a"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1, autolearnIntervalMs: 60 * 60 * 1000 });
@@ -820,14 +830,19 @@ test("the autolearnEnabled switch alone suppresses the automatic pass", async ()
 	applyAutolearn(makeCtx(), resolvePluginConfig(settings));
 	const off = fakeAgent(root, { turns: 5 });
 	await handlers.get("agent/status")({ agent: off, status: "idle" });
+	// `session/flush` drains only a pass's write phase (batch S), so it can no longer say whether a
+	// pass ran; the model call is the observable step, and the positive control below proves this
+	// window is long enough for one to arrive.
+	assert.equal(await waitFor(() => modelCalls.length > 0, 500), false, "autolearnEnabled: false must not run a pass");
 	await handlers.get("session/flush")(off.session);
-	assert.equal(modelCalls.length, 0, "autolearnEnabled: false must not run a pass");
+	assert.equal(modelCalls.length, 0, "and the flush hook must not turn one up after the fact");
 
 	// Positive control: the same project with the switch on does run one, so the assertion above
 	// cannot pass merely because no pass can run at all.
 	applyAutolearn(makeCtx(), resolvePluginConfig({ ...settings, autolearnEnabled: true }));
 	const on = fakeAgent(root, { turns: 5 });
 	await handlers.get("agent/status")({ agent: on, status: "idle" });
+	assert.equal(await waitFor(() => modelCalls.length > 0, 500), true, "the same event runs a pass once the switch is on");
 	await handlers.get("session/flush")(on.session);
 	assert.equal(modelCalls.length, 1, "the same event runs a pass once the switch is on");
 });

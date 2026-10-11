@@ -8,6 +8,14 @@ import { type LearnedSkill } from "./skill.js";
 export interface AutolearnOptions {
     force?: boolean;
     signal?: AbortSignal;
+    /**
+     * Hand this pass's write segments to the caller's durability tracker.
+     *
+     * Only segments that await no model call are registered, because a registered span containing a
+     * dispatch would be awaited by that dispatch's own checkpoint flush — this pass's auxiliary call
+     * names a live session (`SessionWorkTracker`). Callers that do not track pass nothing.
+     */
+    track?: ((work: Promise<unknown>) => void) | undefined;
 }
 export interface AutolearnOutcome {
     skill: LearnedSkill | null;

@@ -25,6 +25,31 @@ declare module "@deepseek-ai/dsh-llm" {
 	}
 }
 
+/**
+ * What one auxiliary call carries besides its prompt: the session identity it routes on, the tools it
+ * offers, and the reasoning effort it overrides.
+ */
+export type PluginCallOptions = {
+	/**
+	 * The loop's own session identity for this call (`GenerateOptions.sessionId`).
+	 *
+	 * Required rather than optional, because it is not routing decoration: the adapter maps it to
+	 * model-hidden transport metadata, and a route may refuse a request that arrives without it
+	 * (opencode answers 400 `MissingSessionID`). An auxiliary call that forgot it would fail at the
+	 * gateway instead of at the compiler.
+	 *
+	 * Naming a live session also enters the loop's session-checkpoint path — dsh flushes a session
+	 * before dispatching a request that names it — so the pass making this call must stay out of the
+	 * `SessionWorkTracker` while the call is in flight, or that flush would await the call it is
+	 * dispatching. `SessionWorkTracker` owns that half of the contract.
+	 */
+	sessionId: NonNullable<GenerateOptions["sessionId"]>;
+	/** Optional reasoning effort override for this call. */
+	reasoningEffort?: string;
+	/** Tools to offer this call; omitted means the request carries none at all. */
+	tools?: readonly PluginTool[];
+};
+
 /** One tool offered to a plugin-authored call: the declaration the adapter forwards to the provider. */
 export type PluginTool = {
 	name: string;
@@ -120,9 +145,9 @@ export async function modelOutputLimit(ctx: Context, target: { provider: string;
 /**
  * One auxiliary plugin-authored model call, returning its visible text.
  *
- * Deliberately no `sessionId`: an auxiliary call must not enter the loop's
- * session-checkpoint path, where `sessions.flush()` would await this very call
- * through the plugins' own `session/flush` listeners (deadlock).
+ * Carries the loop's own session identity, which every route is entitled to require; see
+ * {@link PluginCallOptions.sessionId} for why it is mandatory and for the checkpoint cycle that
+ * naming a live session used to create.
  */
 export async function requestPluginText(
 	ctx: Context,
@@ -130,7 +155,7 @@ export async function requestPluginText(
 	maxTokens: number,
 	prompt: string,
 	signal: AbortSignal | undefined,
-	options: { reasoningEffort?: string } = {},
+	options: PluginCallOptions,
 ): Promise<string> {
 	return (await requestPluginTextWithMeta(ctx, target, maxTokens, prompt, signal, options)).text;
 }
@@ -148,7 +173,8 @@ export async function requestPluginText(
  * @param maxTokens - the output cap to request.
  * @param prompt - the plugin-authored user message.
  * @param signal - the pass's abort signal.
- * @param options - optional reasoning effort override, and the tools to offer this call.
+ * @param options - the session identity this call routes on, an optional reasoning effort override,
+ * and the tools to offer this call.
  * @returns the trimmed visible text, the finish reason kind, hidden reasoning tokens, and any tool calls.
  */
 export async function requestPluginTextWithMeta(
@@ -157,11 +183,12 @@ export async function requestPluginTextWithMeta(
 	maxTokens: number,
 	prompt: string,
 	signal: AbortSignal | undefined,
-	options: { reasoningEffort?: string; tools?: readonly PluginTool[] } = {},
+	options: PluginCallOptions,
 ): Promise<CompletionOutcome> {
 	const requestOptions: GenerateOptions = {
 		provider: target.provider,
 		model: target.model,
+		sessionId: options.sessionId,
 		messages: [pluginUserMessage(prompt)],
 		maxTokens,
 		...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort as GenerateOptions["reasoningEffort"] }),

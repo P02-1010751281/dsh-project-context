@@ -1,0 +1,8 @@
+== 1. composition (real apply() wiring, checkpoint policy inlined in the adapter)
+   memory: parked=true sessionId=undefined checkpointFlushes=0 flushReturnedBeforeDispatch=false passFinished=true writeLanded=true
+   autolearn: parked=true sessionId=undefined checkpointFlushes=0 flushReturnedBeforeDispatch=false passFinished=true writeLanded=true
+== 2. mechanism (equivalent construction: the pre-fix wiring on the real SessionWorkTracker)
+   FLUSH_WAIT_MS=90000; flush while the pass is parked: parked; after release: returned; pass ran: true
+== 3. registration (real consolidateProject with a track callback)
+   registrations=0 registeredDuringCall=false registeredAfterFirstCall=true report=updated
+RESULT: FAIL (memory, autolearn: the auxiliary request carries no session identity — opencode answers 400 MissingSessionID)

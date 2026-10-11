@@ -33,6 +33,14 @@ interface RunOptions {
 	force: boolean;
 	silent: boolean;
 	signal?: AbortSignal | undefined;
+	/**
+	 * Hand the pass's write segments to the caller's durability tracker.
+	 *
+	 * The pass registers only segments that await no model call: its auxiliary call names a live
+	 * session, so a registration spanning that call would make the call's own checkpoint flush await
+	 * the call it is dispatching (`SessionWorkTracker`).
+	 */
+	track?: ((work: Promise<unknown>) => void) | undefined;
 }
 
 /** Run one pass; the outcome is kept for command reporting while the queue only sees void. */
@@ -41,7 +49,7 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 	return updates.run(async () => {
 		const projectRoot = await getProjectRoot(projectCwd(agent.session));
 		try {
-			outcome = await autolearnProjectSkills(ctx, agent, config, { force: options.force, signal: options.signal });
+			outcome = await autolearnProjectSkills(ctx, agent, config, { force: options.force, signal: options.signal, track: options.track });
 			if (outcome?.candidate && !options.silent) {
 				ctx.logger.info(`dsh-project-context: skill candidate saved for review: /autolearn approve ${outcome.skill?.name ?? ""}`);
 			} else if (outcome?.skill && !options.silent) {
@@ -63,7 +71,9 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
 		if (!current.autolearnEnabled) return;
-		pending.track(agent.session, runAutolearn(ctx, current, agent, { force: false, silent: false }).then(() => undefined));
+		// Only the pass's write segments reach the tracker (`SessionWorkTracker`); the span itself is
+		// observed here so a rejection stays as invisible as it was when the tracker carried it.
+		void runAutolearn(ctx, current, agent, { force: false, silent: false, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
 	});
 
 	ctx.on("agent/disposed", ({ agent }) => {
@@ -71,7 +81,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		const current = effectivePluginConfig(entry);
 		if (!current.autolearnEnabled) return;
 		// Silent: the UI may already be rebuilding for a session switch.
-		pending.track(agent.session, runAutolearn(ctx, current, agent, { force: false, silent: true }).then(() => undefined));
+		void runAutolearn(ctx, current, agent, { force: false, silent: true, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
 	});
 
 	ctx.on("session/flush", (session) => pending.flush(session));
