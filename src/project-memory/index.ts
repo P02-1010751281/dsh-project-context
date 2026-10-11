@@ -20,7 +20,7 @@ import { renderContextDocument } from "./context-doc.js";
 import { buildContextInjection, buildMemoryInjection } from "./injection.js";
 import { contextClipNotice, contextTruncationDropped } from "./context-schema.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
-import { consolidateProjectState, fallbackUpdate } from "./consolidate.js";
+import { type PartialRefusalReason, consolidateProjectState, fallbackUpdate } from "./consolidate.js";
 import {
 	MAX_CONTEXT_CHARS,
 	cachedProjectRoot,
@@ -89,7 +89,7 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused" | "partial-refused";
 
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
@@ -153,6 +153,19 @@ export type ConsolidateReport = {
 	 * landed counts above: tier C refuses the write, so the stored document lost none of it.
 	 */
 	refusedLoss?: RefusedLoss;
+	/**
+	 * True when batch Q2's guard refused the reply: it carried this extension's document shape but could
+	 * not be merged into the stored document, so the write was skipped and `MEMORY.md` is byte-identical.
+	 * Kept apart from `refusedLoss` (tier C's cap refusal) because the causes are different: naming the
+	 * cap here would point the operator at a knob that has nothing to do with the refusal.
+	 */
+	partialRefused: boolean;
+	/** Which half of the merge could not be read, when `partialRefused` is set (batch Q2). */
+	partialRefusal?: PartialRefusalReason;
+	/** Headings the stored document contributed to a merged partial reply (batch Q2); empty otherwise. */
+	mergedFromStore?: string[];
+	/** Invariants/Pitfalls entries a written reply no longer carries (batch Q2's report layer). */
+	removedEntries?: { count: number; samples: string[] };
 };
 
 /** The no-loss half of a report: nothing landed and nothing was dropped. */
@@ -168,6 +181,7 @@ const NO_LOSS: ConsolidateLoss = {
 	sectionDropped: 0,
 	droppedItems: 0,
 	itemTruncated: 0,
+	partialRefused: false,
 };
 
 /** A report for a status that landed no write, so it can never claim a loss. */
@@ -197,7 +211,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// deliberately did not store, and writing it would be the silent loss the refusal exists to
 			// prevent. The floor is the same constant the opaque gate reads, so "too small to be a
 			// memory" is one number, not two.
-			const memoryRefused = outcome.memoryLossyRefused;
+			const memoryRefused = outcome.memoryLossyRefused || outcome.partialRefused;
 			const memoryChanged = !memoryRefused && !outcome.semanticEmpty && memoryText.length >= OPAQUE_DOCUMENT_MIN_CHARS;
 			if (!memoryChanged && !memoryRefused && !outcome.semanticEmpty && memoryText.length > 0) {
 				// The length floor discards a short reply with no other trace at all: a tiny but real
@@ -206,7 +220,10 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			}
 			/** What a refused reply would have lost, named per refusal and never counted as landed. */
 			let refusedLoss: RefusedLoss | undefined;
-			if (memoryRefused) {
+			// Tier C only. Batch Q2's refusal has no loss to name — its counts are all 0 — so running this
+			// block for it would produce a zero-valued `refusedLoss` and the receipt would then report the
+			// reply as "would have been stored lossily", naming the cap for a refusal about shape.
+			if (outcome.memoryLossyRefused) {
 				refusedLoss = {
 					sectionDropped: outcome.sectionDropped,
 					droppedItems: outcome.droppedItems,
@@ -258,6 +275,11 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				if (memoryWriteDroppedChars > 0) {
 					await logError(projectRoot, "memory", `MEMORY.md was capped at ${config.maxMemoryChars} characters on write: ${memoryWriteDroppedChars} character(s) of the reply were dropped`);
 				}
+				// Batch Q2's report layer, at the write site: the claim describes the document that landed,
+				// so a reply tier C or the basis-key race refused does not leave a removal claim behind.
+				if (snapshot.written && outcome.removedEntries !== undefined && outcome.removedEntries.count > 0) {
+					await logError(projectRoot, "memory", `memory regression: ${outcome.removedEntries.count} Invariants/Pitfalls entry(ies) are no longer present, e.g. ${outcome.removedEntries.samples.join(" | ")}`);
+				}
 				if (snapshot.written && snapshot.backup.poisoned) {
 					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${snapshot.backup.path ?? "(none)"}`);
 				}
@@ -287,6 +309,10 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				sectionDropped: wroteMemory ? outcome.sectionDropped : 0,
 				droppedItems: wroteMemory ? outcome.droppedItems : 0,
 				itemTruncated: wroteMemory ? outcome.itemTruncated : 0,
+				// Batch Q2's two facts describe the document that landed, so they ride with the landed
+				// counts: a merge the write path then refused describes nothing on disk.
+				...(wroteMemory && outcome.mergedFromStore.length > 0 ? { mergedFromStore: outcome.mergedFromStore } : {}),
+				...(wroteMemory && outcome.removedEntries !== undefined ? { removedEntries: outcome.removedEntries } : {}),
 			};
 
 			const existing = await readOptional(contextFile(projectRoot));
@@ -347,6 +373,11 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// on the catch block's own rule: a later forced pass must really re-run instead of
 				// answering "already up to date" for a memory that never landed.
 				if (!wroteMemory) written.delete(projectRoot);
+				// Two refusals share this release and nothing else: batch Q2's shape refusal has no loss
+				// to name, so it must not borrow tier C's "would have been stored lossily" wording.
+				if (outcome.partialRefused) {
+					return { status: "partial-refused", ...loss, partialRefused: true, ...(outcome.partialRefusal === undefined ? {} : { partialRefusal: outcome.partialRefusal }) };
+				}
 				return { status: "lossy-refused", ...loss, refusedLoss };
 			}
 			// Only a shortening that landed may be reported as `clipped`. The pass-level `outcome.clipped`
@@ -596,6 +627,21 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		// named; the memory's own counts stay 0 because that document was refused.
 		const base = "Memory: context updated; memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.";
 		return { kind: "success", text: detail === "" ? base : `${base} ${detail}.` };
+	}
+	if (report.status === "partial-refused") {
+		// Batch Q2's refusal: the reply was in this extension's shape but could not be merged, so writing
+		// it would have replaced content this pass cannot account for. Saying "lossy" or naming the cap
+		// would point at the wrong cause; the lever is the reply's shape, and a complete document (or a
+		// subset of the four sections) is what unblocks it.
+		// Two causes, two levers: a store that is not a four-section document can only be replaced by a
+		// complete one, while a reply whose sections are not plain `- ` entries is fixed in the reply.
+		// Offering the wrong one is a dead lever, so the reason decides the sentence.
+		const base = "Memory: was kept unchanged — the reply could not be merged into the stored memory (see .agents/memory/errors.log).";
+		const lever = report.partialRefusal === "store-not-sections"
+			? " Send the complete four-section document (## Project / ## Invariants / ## Pitfalls / ## Index) to replace the stored one."
+			: " Rewrite the reply so every line under a section is a `- ` entry at column 0, or send a subset of the four sections to merge the rest from the stored memory.";
+		const context = report.contextWritten ? ` The context was updated${detail === "" ? "" : `, with this loss: ${detail}`}.` : "";
+		return { kind: "success", text: `${base}${context}${lever}` };
 	}
 	if (report.status === "lossy-refused") {
 		// A refusal is neither a failure nor a write: the stored memory is byte-identical, and the reply

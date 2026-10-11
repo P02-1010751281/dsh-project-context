@@ -28,6 +28,8 @@ import {
 	hasMemoryDocumentShape,
 	isHeadingOnlyDocument,
 	memorySectionOverage,
+	normalizeMemoryEntry,
+	partialSectionsFromMarkdown,
 	renderMemoryDocument,
 	sectionsFromMarkdown,
 	sectionsFromToolCall,
@@ -36,10 +38,26 @@ import {
 import { normalizeMemoryWithDrop } from "./document.js";
 
 /** Which entry produced the memory this pass would write. */
-export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque";
+export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial";
 
 /** A reply read into the shape this pass writes: the sections when it had them, plus the context. */
-type ResolvedReply = { kind: ConsolidateKind; sections?: MemorySections; result: ConsolidationResult };
+type ResolvedReply = {
+	kind: ConsolidateKind;
+	sections?: MemorySections;
+	result: ConsolidationResult;
+	/** For a merged partial reply (batch Q2): the headings the stored document contributed. */
+	mergedFromStore?: string[];
+	/** Why an unmergeable partial reply was refused (batch Q2): which side could not be read. */
+	partialRefusal?: PartialRefusalReason;
+};
+
+/**
+ * Which half of batch Q2's merge could not be read: the stored document (nothing to merge into) or the
+ * reply itself. The two are different causes with different levers, so the refusal names one of them
+ * rather than collapsing both into "the reply was partial" — which is false for a complete document
+ * whose sections are not plain `- ` entries.
+ */
+export type PartialRefusalReason = "store-not-sections" | "reply-not-sections";
 
 /** A consolidation result plus a monotonic version so each plugin writes a given pass at most once. */
 export type ConsolidationOutcome = {
@@ -99,6 +117,21 @@ export type ConsolidationOutcome = {
 	 * names a cap that never measured the loss it is describing.
 	 */
 	maxMemoryChars: number;
+	/**
+	 * True when batch Q2's guard refused this reply: it carried our document shape but could not be
+	 * merged into the stored one, so writing it would have replaced content this pass cannot account
+	 * for. The write must not happen; the refusal is logged where it is decided.
+	 */
+	partialRefused: boolean;
+	/** Which half of the merge could not be read, when `partialRefused` is set. */
+	partialRefusal?: PartialRefusalReason;
+	/** Headings the stored document contributed to a merged partial reply (batch Q2); empty otherwise. */
+	mergedFromStore: string[];
+	/**
+	 * Invariants/Pitfalls entries the reply no longer carries (batch Q2's report layer). Reported, never
+	 * blocking: a compression pass is supposed to drop entries, and refusing that would be permanent.
+	 */
+	removedEntries?: { count: number; samples: string[] };
 };
 
 export interface ConsolidationOptions {
@@ -389,6 +422,67 @@ function isConversationalOpaque(reply: string, storedText: string): boolean {
 	return !hasMemoryDocumentShape(reply) && reply.trim().length >= OPAQUE_DOCUMENT_MIN_CHARS && storedIsDocument(storedText);
 }
 
+/** The refusal's own wording, chosen by which half could not be read (see `PartialRefusalReason`). */
+function partialRefusalMessage(reason: PartialRefusalReason | undefined): string {
+	if (reason === "store-not-sections") {
+		return "the stored memory is not a plain four-section bullet document, so this partial reply could not be merged into it; the stored memory was kept unchanged";
+	}
+	return "the consolidation reply carried this extension's headings but not as plain `- ` entries, so it could not be merged into the stored memory; the stored memory was kept unchanged";
+}
+
+/**
+ * Batch Q2's acceptance guard: a reply that carries our shape but is not a complete document must not
+ * replace the store (that was a silent whole-store loss — `sectionsFromMarkdown` needs all four sections,
+ * so a partial reply used to land as opaque text, verbatim).
+ *
+ * Three outcomes, in this order, and the order is the design:
+ *
+ *  - **merge** — the store parses into sections and the reply reads into sections: the sections the reply
+ *    carries win, the ones it omits stay exactly as the store had them, and the merge is rendered like any
+ *    other sectioned reply. Nothing is lost by omission, so nothing has to be refused.
+ *  - **refuse** — the reply has our shape but cannot be read into sections (prose inside a section, an
+ *    unknown heading, `*`/indented entries), or the store itself is not a four-section document. Then the
+ *    reply would replace content this pass cannot account for, so it is refused loudly and the store stays
+ *    byte-identical. Conservative on purpose: `sectionsFromMarkdown`'s contract is "anything this cannot
+ *    read with certainty is preserved", and the only way to preserve it here is not to write.
+ *  - **leave alone** — a conversational reply, or a store with nothing to protect (a fresh project): both
+ *    keep the behaviour they had, the gate in `replyIsSemanticallyEmpty` and the verbatim write included.
+ */
+function applyPartialGuard(reply: ResolvedReply, storedText: string): ResolvedReply {
+	if (reply.sections !== undefined) return reply;
+	const memory = reply.result.memory;
+	if (!hasMemoryDocumentShape(memory)) return reply;
+	if (!storedIsDocument(storedText)) return reply;
+	const stored = sectionsFromMarkdown(storedText);
+	const partial = stored === undefined ? undefined : partialSectionsFromMarkdown(memory);
+	if (stored === undefined) return { ...reply, kind: "unmergeable-partial", partialRefusal: "store-not-sections" };
+	if (partial === undefined) return { ...reply, kind: "unmergeable-partial", partialRefusal: "reply-not-sections" };
+	const merged: MemorySections = { ...stored };
+	const carried = Object.keys(partial.sections) as (keyof MemorySections)[];
+	for (const key of carried) {
+		if (!partial.missing.includes(key)) merged[key] = partial.sections[key];
+	}
+	return { ...reply, kind: "merged-partial", sections: merged, mergedFromStore: partial.missing.map(String) };
+}
+
+/**
+ * Entries the new memory no longer carries — pi's regression guard, copied deliberately rather than
+ * paraphrased (pi `pass.ts:123-133`).
+ *
+ * `Project` and `Index` are deliberately excluded: they are meant to be rewritten every pass, and
+ * reporting them would bury the signal. This cannot judge whether a removal was *right* — only that it
+ * happened — so it reports and never blocks: refusing here would turn every compression into a permanent
+ * refusal, and the consolidation prompt asks for compression.
+ */
+function removedSectionEntries(before: MemorySections, after: MemorySections): { count: number; samples: string[] } {
+	const gone = (key: "invariants" | "pitfalls"): string[] => {
+		const kept = new Set(after[key].map((entry) => normalizeMemoryEntry(entry)));
+		return before[key].map((entry) => normalizeMemoryEntry(entry)).filter((entry) => entry !== "" && !kept.has(entry));
+	};
+	const removed = [...gone("invariants"), ...gone("pitfalls")];
+	return { count: removed.length, samples: removed.slice(0, 3) };
+}
+
 /**
  * True when a resolved reply carries nothing worth storing.
  *
@@ -522,7 +616,10 @@ export function consolidateProjectState(
 		/** Read a reply, backing off before rethrowing when the reply is unusable by policy. */
 		const read = (completion: CompletionOutcome, allowTools: boolean): ResolvedReply | undefined => {
 			try {
-				return resolveReply(completion, allowTools);
+				const reply = resolveReply(completion, allowTools);
+				// Batch Q2 applies to every reply this pass reads, the tier-C retry included: a retry that
+				// answers with a partial document must not get a second chance to replace the store.
+				return reply === undefined ? undefined : applyPartialGuard(reply, existing.text);
 			} catch (error: unknown) {
 				throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
 				throw error;
@@ -566,6 +663,11 @@ export function consolidateProjectState(
 			reply.sections === undefined ? undefined : renderMemoryDocument(reply.sections, config.maxMemoryChars);
 		let render = renderOf(resolved);
 		let loss = memoryLoss(resolved, render, config.maxMemoryChars);
+		// Batch Q2's refusal is decided by the reply's shape, not by its size: the guard already knows the
+		// reply cannot be merged, so the tier-C retry (which asks for a *smaller* document) would answer a
+		// question nobody asked and could replace a refusal that stands on its own.
+		let partialRefused = resolved.kind === "unmergeable-partial";
+		if (partialRefused) await logError(projectRoot, "memory", partialRefusalMessage(resolved.partialRefusal));
 		/**
 		 * Tier C: one targeted retry for a reply that was complete but would have been stored lossily,
 		 * then a refusal instead of a lossy write if the retry does not fix it.
@@ -580,7 +682,7 @@ export function consolidateProjectState(
 		// A reply with no entries at all is the empty-skeleton gate's case, not tier C's: there is
 		// nothing to shrink, and calling it a refusal would name the cap as the blocker when the
 		// semantic gate is what stops the write.
-		if (loss.retryWorthy && !replyIsSemanticallyEmpty(resolved, render, existing.text)) {
+		if (loss.retryWorthy && !partialRefused && !replyIsSemanticallyEmpty(resolved, render, existing.text)) {
 			// The retry exists to avoid a refusal, not to decide one: the first reply's own loss already
 			// says whether it may be stored. A retry that dies for its own reason — a transport error, an
 			// unreadable reply — must therefore not erase that decision. Reporting `failed` would hide a
@@ -611,7 +713,10 @@ export function consolidateProjectState(
 				// Ask for a smaller document, but never at the price of the memory: a retry that would be
 				// refused does not replace a first reply that would have landed (an entry cut to its
 				// per-item cap is a loss this pass accepts).
-				if (!(retryLoss.refuses && !loss.refuses)) {
+				// An unmergeable retry is never an improvement: accepting it would replace a storable first
+				// reply with one the guard then refuses, turning a landed document into a no-op — and before
+				// this condition existed it replaced the store with the partial's own text.
+				if (retryResolved.kind !== "unmergeable-partial" && !(retryLoss.refuses && !loss.refuses)) {
 					resolved = retryResolved;
 					render = retryRender;
 					loss = retryLoss;
@@ -621,9 +726,31 @@ export function consolidateProjectState(
 			// reply whenever the retry did not answer at all.
 			memoryLossyRefused = loss.refuses;
 		}
+		// `resolved` cannot become `unmergeable-partial` after the point above: the retry is skipped
+		// whenever the first reply was refused, and an unmergeable retry is never accepted in the first
+		// place (see the acceptance condition below). That condition is what closes the hole an earlier
+		// revision left open — the refusal was decided before tier C, so a retry answering with an
+		// unmergeable partial was accepted and written verbatim over the store, status `updated`, with no
+		// refusal. The guard is a single owner here rather than a second check after the block.
 		const semanticEmpty = replyIsSemanticallyEmpty(resolved, render, existing.text);
 		// The gate above owns a reply with no entries; a refusal must not claim the cap stopped it.
 		if (semanticEmpty) memoryLossyRefused = false;
+		// Batch Q2's report layer, pi's `removedSectionEntries` verbatim: the sections this pass would
+		// write are diffed against the stored ones *before clipping*, so an entry the renderer cuts is not
+		// counted as a removal. It reports and never blocks — see that function's own comment.
+		let removedEntries: { count: number; samples: string[] } | undefined;
+		if (!semanticEmpty && !partialRefused) {
+			const oldSections = sectionsFromMarkdown(existing.text);
+			if (resolved.sections === undefined) {
+				if (existing.text.trim()) await logError(projectRoot, "memory", "memory regression guard skipped: this pass did not produce sections");
+			} else if (oldSections === undefined) {
+				if (existing.text.trim()) await logError(projectRoot, "memory", "memory regression guard skipped: the stored memory is not a plain four-section bullet document");
+			} else {
+				// Computed here, logged at the write site: a removal claim must describe a document that
+				// actually landed, and tier C / the basis-key race are decided later than this point.
+				removedEntries = removedSectionEntries(oldSections, resolved.sections);
+			}
+		}
 		const result: ConsolidationResult = { ...resolved.result, memory: render === undefined ? resolved.result.memory : render.text };
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
@@ -659,6 +786,10 @@ export function consolidateProjectState(
 			memoryWriteCapDroppedChars: loss.writeCapDroppedChars,
 			memoryLossyRefused,
 			maxMemoryChars: config.maxMemoryChars,
+			partialRefused,
+			...(resolved.partialRefusal === undefined ? {} : { partialRefusal: resolved.partialRefusal }),
+			mergedFromStore: resolved.mergedFromStore ?? [],
+			...(removedEntries === undefined ? {} : { removedEntries }),
 		};
 		lastOutcome.set(projectRoot, { version, at: Date.now(), cap: config.maxMemoryChars, outcome });
 		return outcome;

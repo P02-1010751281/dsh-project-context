@@ -29,6 +29,9 @@ const STORED = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n#
 const BARE = "# Project Memory\n\n";
 
 async function run(label, { stored, reply }) {
+	// `reply` is one string, or the replies of successive model calls (the tier-C retry is a second call).
+	const replies = typeof reply === "string" ? [reply] : reply;
+	let calls = 0;
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-q2-"));
 	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
 	const file = path.join(root, ".agents", "memory", "MEMORY.md");
@@ -39,8 +42,10 @@ async function run(label, { stored, reply }) {
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream() {
+				const text = replies[Math.min(calls, replies.length - 1)];
+				calls += 1;
 				return (async function* () {
-					yield { type: "text-delta", index: 0, text: reply };
+					yield { type: "text-delta", index: 0, text };
 					yield { type: "finish", reason: { kind: "stop" } };
 				})();
 			},
@@ -54,7 +59,7 @@ async function run(label, { stored, reply }) {
 	const after = await readFile(file, "utf8");
 	let errors = "";
 	try { errors = await readFile(log, "utf8"); } catch { /* no line written */ }
-	console.log(`  [${label}] status=${report.status} memoryWritten=${report.memoryWritten} replacedVerbatim=${after === reply}`);
+	console.log(`  [${label}] status=${report.status} memoryWritten=${report.memoryWritten} calls=${calls} replacedVerbatim=${after === replies[replies.length - 1]}`);
 	console.log(`    sections kept: ${["- p1", "- i1", "- i2", "- q1", "- x1"].filter((m) => after.includes(m)).join(" ") || "(none)"}`);
 	console.log(`    errors.log: ${errors.trim() === "" ? "(empty)" : errors.trim().split("\n").slice(-2).join(" ⏎ ").slice(0, 200)}`);
 	return { after, report, errors };
@@ -107,6 +112,19 @@ console.log("\n=== E. control: a complete four-section reply is unchanged ===");
 	const { after, errors } = await run("complete rewrite", { stored: STORED, reply });
 	check("the rewrite lands", after.includes("- x2"));
 	check("no phantom regression line", !/memory regression/i.test(errors));
+}
+
+console.log("\n=== F. a tier-C retry that answers with an unmergeable partial must not replace the store (review finding) ===");
+{
+	// The independent review's blocking finding: the refusal was decided before tier C, so this retry was
+	// accepted and written verbatim over the stored document. The first reply is storable but lossy (one
+	// entry over the per-item cap), which is what makes tier C retry it.
+	const first = `# Project Memory\n\n## Project\n- ${"p".repeat(900)}\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n`;
+	const retry = "# Project Memory\n\n## Project\nsome prose\n- p2\n";
+	const { after, report } = await run("lossy first reply + unmergeable retry", { stored: STORED, reply: [first, retry] });
+	check("the retry's partial is not written", !after.includes("some prose"));
+	check("the store keeps all four sections", after.includes("## Invariants") && after.includes("## Pitfalls") && after.includes("## Index"));
+	check("the first reply is what landed", report.memoryWritten === true);
 }
 
 console.log("\n=== verdict ===");

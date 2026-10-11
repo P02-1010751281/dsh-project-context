@@ -1992,6 +1992,131 @@ test("a conversational reply cannot replace a stored memory", async () => {
 	assert.equal(await readFile(path.join(matureRoot, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the mature store is byte-identical");
 });
 
+test("batch Q2: a partial document merges into the stored memory instead of replacing it", async () => {
+	// Batch Q closed the door on a reply that carries none of our shape. It left this one open: a subset
+	// of the four sections IS our shape, but `sectionsFromMarkdown` needs all four, so the reply landed
+	// as opaque text and the sections it did not mention were gone, silently.
+	const stored = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n";
+	const root = await memoryProject("dsh-q2-merge-", stored);
+	const reply = "# Project Memory\n\n## Invariants\n- i2 the rewrite carries this entry\n";
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: reply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const after = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+
+	assert.equal(calls.length, 1, "a merge needs no second model call");
+	assert.equal(report.memoryWritten, true, JSON.stringify(report));
+	assert.ok(after.includes("- p1") && after.includes("- q1") && after.includes("- x1"), `the omitted sections survive: ${after}`);
+	assert.ok(after.includes("i2 the rewrite carries this entry") && !after.includes("- i1"), `the carried section wins: ${after}`);
+	assert.deepEqual(report.mergedFromStore, ["project", "pitfalls", "index"], "the report names what the stored document contributed");
+	// The carried section replaced one entry, so the report layer says so. Reporting is not blocking.
+	assert.equal(report.removedEntries?.count, 1, JSON.stringify(report.removedEntries));
+});
+
+test("batch Q2: a shape that cannot be merged is refused instead of written over the store", async () => {
+	const stored = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n";
+	const root = await memoryProject("dsh-q2-refuse-", stored);
+	// Prose inside a section is this extension's documented shape fail-open (batch Q), so the reply has our
+	// shape and still reads into no sections at all — the one case where writing would replace content this
+	// pass cannot account for. Refusing is the conservative half of `sectionsFromMarkdown`'s own contract.
+	const reply = "# Project Memory\n\n## Project\nsome prose\n- p2\n";
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: reply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "a shape refusal is not a cap retry");
+	assert.equal(report.status, "partial-refused", JSON.stringify(report));
+	assert.equal(report.memoryWritten, false);
+	assert.equal(report.partialRefused, true);
+	assert.equal(report.refusedLoss, undefined, "the cap is not named as what stopped the write");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is byte-identical");
+	assert.match(
+		await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"),
+		/\[memory\] the consolidation reply carried this extension's headings but not as plain `- ` entries, so it could not be merged into the stored memory; the stored memory was kept unchanged$/m,
+	);
+	// The receipt names the shape, because the shape is the lever; naming the cap would point elsewhere.
+	assert.match(memoryUpdateReply(report).text, /could not be merged into the stored memory/);
+});
+
+test("batch Q2: an entry-level removal is reported, never blocked", async () => {
+	// pi's regression guard, copied rather than paraphrased: Project/Index are rewritten every pass and are
+	// deliberately excluded, and a removal is reported because refusing it would make every compression a
+	// permanent refusal.
+	const stored = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n";
+	const root = await memoryProject("dsh-q2-report-", stored);
+	const reply = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i9\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n";
+	const { ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: reply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.memoryWritten, true, "the rewrite still lands: compression is the point");
+	assert.equal(report.removedEntries?.count, 1, JSON.stringify(report.removedEntries));
+	assert.match(
+		await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"),
+		/\[memory\] memory regression: 1 Invariants\/Pitfalls entry\(ies\) are no longer present, e\.g\. i1$/m,
+	);
+
+	// The control: a rewrite that keeps every Invariants/Pitfalls entry leaves no line, and an Index change
+	// is not a regression (Project/Index are excluded on purpose).
+	const controlRoot = await memoryProject("dsh-q2-report-ok-", stored);
+	const controlReply = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x2\n";
+	const control = await consolidationFixture({
+		root: controlRoot,
+		replies: [{ text: JSON.stringify({ memory_markdown: controlReply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+
+	const controlReport = await consolidateProject(control.ctx, config, control.agent, { force: true, silent: true });
+
+	assert.equal(controlReport.memoryWritten, true);
+	assert.equal(controlReport.removedEntries?.count, 0, "an Index rewrite is not a regression");
+	// No line at all is written for a clean pass, so the control tolerates a missing file.
+	const controlLog = await readFile(path.join(controlRoot, ".agents", "memory", "errors.log"), "utf8").catch(() => "");
+	assert.doesNotMatch(controlLog, /memory regression:/);
+});
+
+test("batch Q2: a retry that answers with an unmergeable partial cannot replace a storable reply", async () => {
+	// The independent review's blocking finding: the refusal was decided before tier C, so a retry that
+	// answered with an unmergeable partial was accepted and written VERBATIM over the stored document —
+	// status `updated`, whole store gone, no refusal. The refusal now belongs to the reply that would be
+	// written, and an unmergeable retry never replaces a first reply that would have landed.
+	const stored = "# Project Memory\n\n## Project\n- p1\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n";
+	const root = await memoryProject("dsh-q2-retry-", stored);
+	// The first reply is storable but lossy (one entry over the per-item cap), so tier C retries it.
+	const first = `# Project Memory\n\n## Project\n- ${"p".repeat(900)}\n\n## Invariants\n- i1\n\n## Pitfalls\n- q1\n\n## Index\n- x1\n`;
+	const retry = "# Project Memory\n\n## Project\nsome prose\n- p2\n";
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ text: JSON.stringify({ memory_markdown: first, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } },
+			{ text: JSON.stringify({ memory_markdown: retry, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const after = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+
+	assert.equal(calls.length, 2, "fixture: the first reply is lossy enough to be retried");
+	assert.equal(report.memoryWritten, true, JSON.stringify(report));
+	assert.ok(
+		after.includes("## Invariants") && after.includes("## Pitfalls") && after.includes("## Index"),
+		`the first reply's document is what landed: ${after}`,
+	);
+	assert.ok(!after.includes("some prose"), "the retry's unmergeable partial is never written");
+});
+
 test("a failure after a refusal does not hide the refusal", async () => {
 	const root = await memoryProject("dsh-tierc-refusal-failure-", "# Project Memory\n\n## Project\n- original\n");
 	// The context write fails after the refusal was decided: CONTEXT.md is a directory here.
@@ -2299,7 +2424,7 @@ test("the memory read cap is counted as characters the model was not shown", asy
 	// Guard the other half: the fit must not clip, or the count below could be the fit's.
 	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, false, "fixture: the input fit is not the cap here");
 
-	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 
@@ -2330,7 +2455,7 @@ test("the read cap and the input fit are counted separately, never substituted f
 	assert.ok(loaded.cappedDroppedChars > 0, "fixture: the read cap cut the stored document");
 	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, true, "fixture: the fit cuts the already-capped text too");
 
-	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 

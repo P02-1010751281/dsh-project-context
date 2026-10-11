@@ -11,7 +11,14 @@ import { type PluginConfig } from "../shared/config.js";
 import { type ConsolidationResult, type ContextUpdate } from "../shared/reply-json.js";
 import { type MemorySectionOverage } from "./sections.js";
 /** Which entry produced the memory this pass would write. */
-export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque";
+export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial";
+/**
+ * Which half of batch Q2's merge could not be read: the stored document (nothing to merge into) or the
+ * reply itself. The two are different causes with different levers, so the refusal names one of them
+ * rather than collapsing both into "the reply was partial" — which is false for a complete document
+ * whose sections are not plain `- ` entries.
+ */
+export type PartialRefusalReason = "store-not-sections" | "reply-not-sections";
 /** A consolidation result plus a monotonic version so each plugin writes a given pass at most once. */
 export type ConsolidationOutcome = {
     result: ConsolidationResult;
@@ -70,6 +77,24 @@ export type ConsolidationOutcome = {
      * names a cap that never measured the loss it is describing.
      */
     maxMemoryChars: number;
+    /**
+     * True when batch Q2's guard refused this reply: it carried our document shape but could not be
+     * merged into the stored one, so writing it would have replaced content this pass cannot account
+     * for. The write must not happen; the refusal is logged where it is decided.
+     */
+    partialRefused: boolean;
+    /** Which half of the merge could not be read, when `partialRefused` is set. */
+    partialRefusal?: PartialRefusalReason;
+    /** Headings the stored document contributed to a merged partial reply (batch Q2); empty otherwise. */
+    mergedFromStore: string[];
+    /**
+     * Invariants/Pitfalls entries the reply no longer carries (batch Q2's report layer). Reported, never
+     * blocking: a compression pass is supposed to drop entries, and refusing that would be permanent.
+     */
+    removedEntries?: {
+        count: number;
+        samples: string[];
+    };
 };
 export interface ConsolidationOptions {
     force?: boolean;

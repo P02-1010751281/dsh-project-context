@@ -18,6 +18,11 @@ export type MemorySections = {
     index: string[];
 };
 /**
+ * The `MemorySections` field for each section, derived from the heading so the two cannot drift:
+ * the headings are the only place the section names and their order are written down.
+ */
+type SectionKey = keyof MemorySections;
+/**
  * One entry, in the shape the renderer can place on a single bullet: whitespace runs collapsed (so an
  * embedded newline cannot forge a heading), no bullet prefix, no surrounding space.
  *
@@ -183,6 +188,18 @@ export declare function hasMemoryDocumentShape(value: string): boolean;
  */
 export declare function sectionsFromMarkdown(value: string): MemorySections | undefined;
 /**
+ * Read the sections a partial document carries, and which of the four are missing.
+ *
+ * Batch Q2's merge layer needs the carried sections of a reply that is in this extension's shape but is
+ * not a complete document; `undefined` here means the reply is not structured at all (prose inside a
+ * section, an unknown heading, `*`/indented entries, an entry before any heading), which is the case the
+ * refusal layer handles. One parser serves both readers so the acceptance rules cannot drift apart.
+ */
+export declare function partialSectionsFromMarkdown(value: string): {
+    sections: MemorySections;
+    missing: SectionKey[];
+} | undefined;
+/**
  * Read the `memory` member of a `record_memory` tool call.
  *
  * Shape only: an unexpected field type means the caller falls back to the text path. `context` is
@@ -195,3 +212,4 @@ export declare function sectionsFromToolCall(value: unknown): MemorySections | u
  * Anthropic's strict mode, which would silently downgrade the route to non-strict).
  */
 export declare const RECORD_MEMORY_TOOL: PluginTool;
+export {};

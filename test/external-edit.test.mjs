@@ -26,10 +26,11 @@ import { memoryFile } from "../lib/shared/project-state.js";
 
 const SEED = "# Project Memory\n\n- the memory this pass read before the model call.\n";
 const HAND_EDIT = "# Project Memory\n\n- the hand edit that landed while the reply was being built.\n";
-// The reply carries the section shape batch Q requires of any opaque reply aimed at a store that already
-// holds a document (`hasMemoryDocumentShape`): a bare `- ` list under the title is no longer writable, so a
-// free-form fixture would be refused at the semantic gate before the race this suite is about.
-const REPLY_MEMORY = "# Project Memory\n\n## Project\n- the reply's own line, which must never reach the file while the edit is newer.\n";
+// The reply carries the COMPLETE four-section document batch Q2 requires of any reply aimed at a store
+// that already holds one: a partial document cannot be merged into this free-form store (it reads into no
+// sections), so it would be refused at the guard before the race this suite is about — and a bare `- `
+// list under the title would already have been refused at the semantic gate.
+const REPLY_MEMORY = "# Project Memory\n\n## Project\n- the reply's own line, which must never reach the file while the edit is newer.\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n";
 const REPLY = JSON.stringify({ memory_markdown: REPLY_MEMORY, context: { title: "stale", summary: "s", key_points: [], open_tasks: [] } });
 
 /** One project with a journal-backed memory, plus a model stub that can act mid-call. */

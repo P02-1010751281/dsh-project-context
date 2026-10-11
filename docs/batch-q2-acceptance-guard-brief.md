@@ -41,7 +41,7 @@ E 对照：完整四段重写 → 期望：与今天一致
 | **L1 报告** | 条目级：本轮回复里少了的 Invariants/Pitfalls 条目 | 照常写入 + `errors.log` 一行 `memory regression: N Invariants/Pitfalls entry(ies) are no longer present, e.g. …` + 报告字段 | pi `removedSectionEntries`（`pass.ts:123-133`、`:300-320`），原样照抄：**Project/Index 故意排除**（它们本来就每轮重写），归一化后比对，**只报告绝不拦** |
 | **L2 合并** | 段级：形状合法但不完整的回复 | 当 store 能解析出四段时，回复**按补丁**应用：带上的段替换、没带的段从 store 保留，再走 `renderMemoryDocument` 渲染 | 无（pi 不做） |
 | **L3 拒绝** | 段级：形状合法但**无法**合并 | 段里夹 prose、未知标题、`*`/缩进条目等解析不出段的形状，而 store 又是一份文档 → **不写**，store 逐字节不变 + 一条具名拒绝（与 tier C 的 `lossy-refused` 同族） | 无（pi 在这里也是逐字替换） |
-| **L4 可见性** | 两条路径 | L2 合并、L3 拒绝各写自己的 `errors.log` 行；`ConsolidateReport` 带上合并了哪几段 / 拒绝原因；注入与渲染行为不变 | 无 |
+| **L4 可见性** | 两条路径 | L3 拒绝写 `errors.log` 一行（具名原因 + 具名解药）；L2 合并进 `report.mergedFromStore`，**不写例行日志**——合并不是损失，而 `errors.log` 是这个插件的损失/拒绝日志；合并顺手丢掉的**条目**仍由 L1 那一行点名。`ConsolidateReport` 另带 `partialRefused` / `partialRefusal` / `removedEntries`；注入与渲染行为不变 | 无 |
 
 **为什么 L1 必须「只报告」**：拒绝条目级丢失会让每一次**压缩**都变成永久拒绝（本扩展的提示词本来就
 要求「压缩而不是删除」，`MEMORY_KEEP_RULE`），store 从此再不更新——pi 选择报告正是这个理由。tier C
@@ -72,6 +72,15 @@ E 对照：完整四段重写 → 期望：与今天一致
    `client.js`，`lib/` 中 0 个变异标记；
 4. 独立只读复核（`dsh-plugin-review-fix-batch` 的做法）**无阻塞缺陷**；
 5. **改了 `src/` 行为 ⇒ 判据转负，需要宿主重启才在线**（判据照旧：19387 持有者启动晚于最后一个 `src/` 提交）。
+
+## 4bis. 独立只读复核（2026-10-11）与它促成的修改
+
+复核**发现了 1 条 blocking 缺陷**并另提 3 条，全部按「先复现、再修」处理：
+
+- **blocking（已修）**：refusal 原先在 tier C **之前**判定，而 tier C 的重试会替换 `resolved`——重试答一份不可合并的部分文档时，`partialRefused` 仍是 `false`，那份部分文档被**逐字写入**、status 报 `updated`、整份 store 消失。修法是「不可合并的重试永不替换一份可存储的首次回复」（闸门是唯一所有者），由新用例 + 探针 F 段钉住，变异体 M5 只打红这一条。复核建议的「在 tier C 之后重算」经 M5 证明是**死代码**（同一结果已由闸门保证），未采纳。
+- **错误归因 ×3（已修）**：拒绝文案对「完整但段里夹 prose」的回复说假话并给出死解药 ⇒ 按哪一半读不出来分成两种原因/两种解药；`memory regression` 一行从判定处移到**写入处**（`snapshot.written` 之后），否则 tier C 拒绝或 basis-key 竞态会留下假话。
+- **L4 未实现（按本 brief 修正）**：合并不写例行日志，理由见上表 L4 行。
+- 复核**复现不到**的只有一条：我原先声称「没有剩余的静默整份丢失」——它用 `/tmp` 自己的驱动证伪了（即上面那条 blocking）。它的其余检查（`partialRefused` 不会漏设、两条改写过的既有夹具仍测原意图、三条新用例不是自证）与我一致。
 
 ## 5. 边界与已登记残留
 

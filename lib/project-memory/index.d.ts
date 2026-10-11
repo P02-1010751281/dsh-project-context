@@ -12,6 +12,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { type PluginConfig } from "../shared/config.js";
+import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";
 export declare const name = "project-memory";
 export declare const inject: string[];
@@ -21,7 +22,7 @@ interface ConsolidateOptions {
     signal?: AbortSignal | undefined;
 }
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused" | "partial-refused";
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
  *
@@ -83,6 +84,22 @@ export type ConsolidateReport = {
      * landed counts above: tier C refuses the write, so the stored document lost none of it.
      */
     refusedLoss?: RefusedLoss;
+    /**
+     * True when batch Q2's guard refused the reply: it carried this extension's document shape but could
+     * not be merged into the stored document, so the write was skipped and `MEMORY.md` is byte-identical.
+     * Kept apart from `refusedLoss` (tier C's cap refusal) because the causes are different: naming the
+     * cap here would point the operator at a knob that has nothing to do with the refusal.
+     */
+    partialRefused: boolean;
+    /** Which half of the merge could not be read, when `partialRefused` is set (batch Q2). */
+    partialRefusal?: PartialRefusalReason;
+    /** Headings the stored document contributed to a merged partial reply (batch Q2); empty otherwise. */
+    mergedFromStore?: string[];
+    /** Invariants/Pitfalls entries a written reply no longer carries (batch Q2's report layer). */
+    removedEntries?: {
+        count: number;
+        samples: string[];
+    };
 };
 /** The no-loss half of a report: nothing landed and nothing was dropped. */
 export type ConsolidateLoss = Omit<ConsolidateReport, "status">;
