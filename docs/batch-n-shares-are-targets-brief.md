@@ -138,9 +138,9 @@ pnpm test                 # 419 通过 / 0 失败
 
 | 批次 | pi 提交 | dsh 锚点 | 先做什么 |
 |---|---|---|---|
-| **O** | `b7e2a31` / `d950910` / `b37cb55` / `4376bb5` / `3db610c` | `src/project-memory/load.ts:87`→`:93`（同步 `:179`/`:182`）；`record.ts:55/64/66` | 先复现 pi 的 FIFO 竞态夹具（`7285eb2`/`d87261a`/`1830b1d`，含 30s 看门狗自检），再落 `readRenderWithMtime` 一类单次读取 |
+| **O** | `b7e2a31` / `d950910` / `b37cb55` / `4376bb5` / `3db610c` | `src/project-memory/load.ts:87`→`:93`（同步 `:179`/`:182`）；`record.ts:55/64/66` | **已落地（2026-10-11）**：`readRenderWithMtime` / `readRenderWithMtimeSync` + 一处判据 `renderIsNewerThanJournal` + 纯决策 `externalRenderWins` + `adoptExternalEdit` 的 append 前复核；FIFO 夹具入库。`flushActionFor` / `flushMemoryRender` 属批次 **P**，本轮**未端口**。规格、变异轮与残留见 [`docs/batch-o-single-read-brief.md`](batch-o-single-read-brief.md) |
 
-### 批次 O 的规格（已侦察，读自 pi `origin/master`）
+### 批次 O 的规格（已侦察，读自 pi `origin/master`；**本轮已落地**，见上表与 `batch-o-single-read-brief.md`）
 
 pi 的最终形状（`extensions/project-context/memory/store.ts`）三个原语：
 
