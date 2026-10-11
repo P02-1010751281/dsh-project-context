@@ -31,7 +31,7 @@ Last updated: 2026-10-11T08:56:02.618Z
 
 - **批次 S：B1 已在线，B2 未落地且需用户确认**：brief §3 写的是「本批只落一个」，所以上一会话按探针证据落 B1-a，并在 brief §6 与 `CHANGELOG.md` 记了「B2 未采用」的理由；CONTEXT.md 早先记的用户口径是「B1 首选、B2 兜底且两者都要」——**若本意是两个都落，需重新裁定**。B2 的形状（非活会话时用哪个 key、是否退回不带 id）与代价见 `docs/batch-s-opencode-aux-route-brief.md`。
 - **批次 S 的端到端见证（用户操作）**：在本仓库跑一次 `/memory update`，`.agents/memory/errors.log` 不得再出现 `MissingSessionID`；探针只证明加载的 `lib/` 具备该行为，这是唯一无法离线取证的一环。
-- **`MEMORY.md` 余量薄（下次写入前先压缩，不要靠删条目腾位）**：现跑 38784/40000（余 1216），分区占目标比 `Invariants` 97.7% / `Pitfalls` 99.9% / `Index` 102.5%；自批次 N 起分区配额是**目标值**、只有整篇到达 cap 才丢条目，但再长一点下一次 pass 就会被 tier C 拒（`lossy-refused`）。可压缩的是已落地批次的叙事（权威副本在 `CHANGELOG.md` 与 `docs/batch-*-brief.md`）；判据现跑 `share-fit.mjs`。
+- **`MEMORY.md` 余量薄（下次写入前先压缩，不要靠删条目腾位）**：余量、分区占目标比与整篇是否到达 cap 一律现跑（`wc -m .agents/memory/MEMORY.md`、`share-fit.mjs`），不写死数字；自批次 N 起分区配额是**目标值**、只有整篇到达 cap 才丢条目，但再长一点下一次 pass 就会被 tier C 拒（`lossy-refused`）。可压缩的是已落地批次的叙事（权威副本在 `CHANGELOG.md` 与 `docs/batch-*-brief.md`）；判据现跑 `share-fit.mjs`。
 - **与批次 S 同源、未裁定的两条**：用户已裁定 B1+B2 都要，但 B2 的具体形状（非活会话时用哪个 key、是否退回不带 id）需要写 spec 后再动手；批次 P（dispose 逃生）已裁定不端口、通知半边（无宿主侧通道）已裁定按残留收档，都**不要重开**。
 - **仍未离线可证的合规项**：批次 I 的合规（模型是否真的对索引段发 `read`）与批次 J 的 `MIN_DROP_TOKENS` 在真实上下文里的行为；批次 M 的「模型是否总是转述注入行」同类。不要为这些重新论证加载问题。
 - **记录在案但不做**：固定阈值模式忽略自适应 `usable` headroom（F8/Q5）；`tool-ask-user` 的定时晚回复以 `user-question-reply` 到达而不被读（两 profile 都不设 `mode: timed`）；嵌套在代码运行时（PTC）的询问只记 `tool/ptc-dispatch`、对 `deriveMessages` 不可见；`handoffBudgetRecentTokens > 0` 时最新输入也会出现在携带尾部（仅重复，两 profile 都用 0）。
