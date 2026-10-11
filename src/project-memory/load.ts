@@ -5,12 +5,12 @@
  */
 
 import { readFile, stat } from "node:fs/promises";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, type Stats } from "node:fs";
 import path from "node:path";
 import { MAX_MEMORY_CHARS, legacyOmpDir, legacyPiDir, memoryFile, readOptional } from "../shared/project-state.js";
-import { clipToLineBoundary } from "./document.js";
+import { clipToLineBoundary, type NormalizedMemory } from "./document.js";
 import { foldMemoryJournal, foldMemoryJournalWithDrop, memoryJournalFile, newestMemoryArchive, newestMemoryArchiveSync, parseJournalEntries, readMemoryJournal } from "./journal.js";
-import { decodePoisonedMemory, decodePoisonedMemoryWithDrop, memoryComparisonKey, memoryComparisonKeyWithDrop } from "./poison.js";
+import { decodePoisonedMemory, decodePoisonedMemoryWithDrop, memoryComparisonKeyWithDrop } from "./poison.js";
 
 /** What one memory read produced, and how trustworthy it is. */
 export type LoadedMemory = {
@@ -61,6 +61,83 @@ function legacyMemory(text: string, source: string, limit: number): LoadedMemory
 	return { text: clipped.text, source, poisoned: false, cappedDroppedChars: clipped.dropped };
 }
 
+/** One consistent read of the render: its bytes, the mtime that read saw, and whether it raced. */
+export type RenderRead = { text: string; mtimeMs?: number; changed: boolean };
+
+/** Whether the render's time is strictly ahead of the journal's: bytes the journal has not absorbed yet. */
+export function renderIsNewerThanJournal(renderMtimeMs: number | undefined, journalMtimeMs: number | undefined): boolean {
+	return renderMtimeMs !== undefined && journalMtimeMs !== undefined && renderMtimeMs > journalMtimeMs;
+}
+
+/**
+ * Whether the render read from disk beats the journal's fold. Our own writes append to the journal and
+ * render afterwards, so a newer render proves nothing by itself: the render only wins when its content
+ * differs from the fold *and* it is newer than the journal, which together mean an external edit.
+ *
+ * Pure, so every ordering a fixture cannot produce without a concurrent writer — a read that spanned a
+ * replacement, a blank render, a tie between the two mtimes — is reachable from a test. Both readers
+ * and the adopt path decide with this one rule; a second copy is how two vintages drift apart.
+ * @param render - one consistent read (see `readRenderWithMtime`).
+ * @param renderKey - **this render's own** normalization, e.g. `memoryComparisonKeyWithDrop(render.text, limit)`;
+ * the key travels with the bytes it was taken from, so no caller can pair one version's key with another's time.
+ * @param foldedKey - the journal fold's comparison key, in the same normalization.
+ * @param journalMtimeMs - the journal's mtime, `undefined` when it cannot be read.
+ */
+export function externalRenderWins(render: RenderRead, renderKey: NormalizedMemory, foldedKey: string, journalMtimeMs: number | undefined): boolean {
+	// A read that spanned a replacement must not pick a version it cannot vouch for; the fold stands
+	// and the next write re-reads and adopts then.
+	if (render.changed) return false;
+	// A blank render means the file was cleared by hand; the journal stays authoritative. The test is on
+	// the text, not on the key: the canonical document of an empty render is the bare header, not "".
+	if (!render.text.trim()) return false;
+	// Nothing to compare against the fold: an empty key is not a document.
+	if (!renderKey.text) return false;
+	if (renderKey.text === foldedKey) return false;
+	return renderIsNewerThanJournal(render.mtimeMs, journalMtimeMs);
+}
+
+/**
+ * Whether a read spanned a replacement: the file's identity moved under it. The test is mtime +
+ * size, so a replacement that keeps both (a same-size edit inside the filesystem's timestamp
+ * granularity) stays invisible, which is the accepted residual. A file that appeared under the read
+ * (no `before`) counts as changed, and a file that vanished is `undefined` and cannot be vouched for.
+ */
+export function renderChangedUnderRead(before: Stats | undefined, after: Stats | undefined): boolean {
+	return after !== undefined && (before?.mtimeMs !== after.mtimeMs || before?.size !== after.size);
+}
+
+/**
+ * Read the render with the mtimes taken around the read, so its bytes and its time describe one
+ * version of the file. A replacement landing inside the read would otherwise pair one version's
+ * bytes with another version's time, and the caller would act on a version it cannot vouch for.
+ * Exported for the race no ordinary fixture produces: a replacement landing inside the read.
+ * @param file - the render's path.
+ * @returns the bytes read, that read's mtime, and whether the file changed under it.
+ */
+export async function readRenderWithMtime(file: string): Promise<RenderRead> {
+	const before = await stat(file).catch(() => undefined);
+	const text = await readOptional(file);
+	const after = await stat(file).catch(() => undefined);
+	return { text, mtimeMs: after?.mtimeMs, changed: renderChangedUnderRead(before, after) };
+}
+
+/** The synchronous counterpart, for the prompt-assembly reader. Same contract as `readRenderWithMtime`. */
+export function readRenderWithMtimeSync(file: string): RenderRead {
+	const before = statSafe(file);
+	const text = readMemorySync(file).text;
+	const after = statSafe(file);
+	return { text, mtimeMs: after?.mtimeMs, changed: renderChangedUnderRead(before, after) };
+}
+
+/** File stats, or `undefined` when the path does not exist. */
+function statSafe(file: string): Stats | undefined {
+	try {
+		return statSync(file);
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Read this project's memory. The journal is the source of truth once it exists; `MEMORY.md` is
  * the old layout and stays readable for projects that never wrote a journal.
@@ -80,22 +157,16 @@ export async function loadMemory(projectRoot: string, limit: number = MAX_MEMORY
 	if (journalState.entries.length > 0) {
 		const folded = foldMemoryJournalWithDrop(journalState.entries, limit);
 		if (!folded.text) return { text: "", source: journal, poisoned: false, unreadable: true, cappedDroppedChars: 0 };
-		// Our own writes append to the journal and render afterwards, so a newer render proves
-		// nothing by itself. The render only wins when its content differs from the fold *and* it is
-		// newer than the journal: that is an external edit, and `recordMemoryDocument` adopts those
-		// bytes into the journal on the next write.
-		const renderRaw = await readOptional(target);
-		if (renderRaw.trim()) {
-			// Both sides are compared in normalized form: the fold returns a normalized
-			// document, so a raw trimmed render would never compare equal and the mtime would
-			// silently become the only rule (adopting our own output as if it were an edit).
-			const external = memoryComparisonKeyWithDrop(renderRaw, limit);
-			const renderInfo = await stat(target).catch(() => undefined);
-			const journalInfo = await stat(journal).catch(() => undefined);
-			// An empty key means the render was cleared by hand; the journal stays authoritative.
-			if (external.text && external.text !== folded.text && renderInfo && journalInfo && renderInfo.mtimeMs > journalInfo.mtimeMs) {
-				return { text: external.text, source: target, poisoned: Boolean(decodePoisonedMemory(renderRaw.trim(), limit)), damaged: journalState.damaged, cappedDroppedChars: external.dropped };
-			}
+		// One consistent read: the render's bytes and its time describe one version, so a replacement
+		// landing under the read cannot hand this path the older bytes wearing the newer file's mtime.
+		const render = await readRenderWithMtime(target);
+		// Both sides are compared in normalized form: the fold returns a normalized document, so a raw
+		// trimmed render would never compare equal and the mtime would silently become the only rule
+		// (adopting our own output as if it were an edit).
+		const external = memoryComparisonKeyWithDrop(render.text, limit);
+		const journalInfo = await stat(journal).catch(() => undefined);
+		if (externalRenderWins(render, external, folded.text, journalInfo?.mtimeMs)) {
+			return { text: external.text, source: target, poisoned: Boolean(decodePoisonedMemory(render.text.trim(), limit)), damaged: journalState.damaged, cappedDroppedChars: external.dropped };
 		}
 		return { text: folded.text, source: journal, poisoned: false, damaged: journalState.damaged, cappedDroppedChars: folded.dropped };
 	}
@@ -174,13 +245,11 @@ export function loadMemorySync(projectRoot: string, limit: number = MAX_MEMORY_C
 			// the async reader, which folds whenever there is at least one record.
 			const folded = foldMemoryJournal(entries, limit);
 			if (!folded) return "";
-			// The render wins only when it differs from the fold *and* is newer: that is an
-			// external edit, exactly as in the async reader.
-			const renderRaw = readMemorySync(target).text.trim();
-			if (renderRaw) {
-				const external = memoryComparisonKey(renderRaw, limit);
-				if (external && external !== folded && mtimeMs(target) > mtimeMs(journal)) return external;
-			}
+			// The decision is shared with the async reader, so the two cannot drift apart again: the key
+			// is the render's own normalization (its `.text` is what `memoryComparisonKey` returns).
+			const render = readRenderWithMtimeSync(target);
+			const external = memoryComparisonKeyWithDrop(render.text.trim(), limit);
+			if (externalRenderWins(render, external, folded, mtimeMs(journal))) return external.text;
 			return folded;
 		}
 		// The journal exists but holds no usable record: fail closed exactly like `loadMemory`

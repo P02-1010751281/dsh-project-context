@@ -4,6 +4,7 @@
  * The one-time legacy `.omp` import lives here too — it is a write, and putting it in the read
  * path would make the two modules import each other.
  */
+import { readMemoryJournal } from "./journal.js";
 /**
  * True when what is on disk now is a different, non-empty document than the one this pass read, so
  * publishing the reply would overwrite a newer edit. Exported because the pre-publish check is
@@ -17,6 +18,23 @@ export type MemoryWriteResult = {
     written: false;
     kept: string;
 };
+/**
+ * Fold an edit made outside the plugin (a hand edit, or an older build's render) into the journal so
+ * its bytes enter the journal's history instead of being overwritten by the next pass. A render that
+ * merely equals the fold is our own output, and one that is older and differs is a torn write window
+ * (the journal is already ahead), so neither is adopted. Returns whether anything was adopted.
+ *
+ * Callers hold the memory lock. `preRead` lets the write path hand over what it already read.
+ * Exported because the borrowed-key path is otherwise only reachable through a race or a whole pass.
+ * @param projectRoot - the project root.
+ * @param limit - the character cap; the project's `maxMemoryChars`.
+ * @param preRead - the journal this caller already read, and the key it already took from the render.
+ * @returns whether an external edit was recorded in the journal.
+ */
+export declare function adoptExternalEdit(projectRoot: string, limit?: number, preRead?: {
+    journal?: Awaited<ReturnType<typeof readMemoryJournal>>;
+    renderKey?: string;
+}): Promise<boolean>;
 /**
  * Record one consolidated document: keep a pre-journal project's current memory as the journal's
  * base, append the new replacement, collapse the journal when it grew too large and render

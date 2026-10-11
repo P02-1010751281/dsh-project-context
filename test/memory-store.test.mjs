@@ -9,8 +9,9 @@
  */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -30,6 +31,8 @@ import {
 	recordMemoryDocument,
 } from "../lib/project-memory/memory-store.js";
 import { memoryComparisonKey, memoryComparisonKeyWithDrop } from "../lib/project-memory/poison.js";
+import { externalRenderWins, renderChangedUnderRead, renderIsNewerThanJournal } from "../lib/project-memory/load.js";
+import { adoptExternalEdit } from "../lib/project-memory/record.js";
 import { MEMORY_LOCK_STALE_MS, MEMORY_LOCK_WAIT_MS, staleLockAge, withMemoryLock } from "../lib/shared/lock.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryDir, memoryFile } from "../lib/shared/project-state.js";
 import { consolidateProject } from "../lib/project-memory/index.js";
@@ -218,6 +221,215 @@ test("an external edit wins the read and is adopted into the journal on the next
 	assert.match(entries[1].text, /edited by hand/);
 	assert.match((await loadMemory(root)).text, /after the edit/);
 	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /externally edited/);
+});
+
+/**
+ * Stage a replacement under a reader's nose, deterministically, through a FIFO at `file`: the reader
+ * is handed `older`, and by the time its read returns the path already holds `newer`. `start` must be
+ * the read that is already in flight (its promise is returned). This is the only fixture that can
+ * make a replacement land *inside* a read, which is what the consistent read exists to detect.
+ */
+async function replaceUnderRead({ root, file, start, older, newer }) {
+	const pending = start();
+	const watchdog = setTimeout(() => {
+		console.error("FAIL: the FIFO fixture never got a reader within 30s");
+		// SIGKILL cannot run the fixture's cleanup, so clear the tree first - synchronously, and without
+		// letting a failing cleanup become the thing that stops the run from ending.
+		try {
+			execFileSync("rm", ["-rf", root]);
+		} catch {}
+		process.kill(process.pid, "SIGKILL");
+	}, 30_000);
+	try {
+		// A blocking "w" is the scheduling barrier: the write end returns only once the reader holds
+		// the FIFO open, so the reader is guaranteed to take the older bytes and only then see the
+		// replacement at the path.
+		const writer = await open(file, "w");
+		await writer.writeFile(older);
+		await rm(file);
+		await writeFile(file, newer, "utf8");
+		await writer.close();
+	} finally {
+		clearTimeout(watchdog);
+	}
+	return pending;
+}
+
+test("renderIsNewerThanJournal is the one mtime rule the readers and the adopt share", () => {
+	assert.equal(renderIsNewerThanJournal(200, 100), true, "a newer render is an external edit");
+	assert.equal(renderIsNewerThanJournal(100, 100), false, "equal times are not newer: the journal wins ties");
+	assert.equal(renderIsNewerThanJournal(100, 200), false, "an older render is a torn write window");
+	assert.equal(renderIsNewerThanJournal(undefined, 100), false, "a missing render supersedes nothing");
+	assert.equal(renderIsNewerThanJournal(100, undefined), false, "an unreadable journal time is not a newer render");
+});
+
+test("a read that spans a replacement is detected by mtime or size, and a stable read is not", () => {
+	const stat = (mtimeMs, size) => ({ mtimeMs, size });
+	assert.equal(renderChangedUnderRead(stat(1, 10), stat(2, 10)), true, "a newer mtime is a replacement");
+	assert.equal(renderChangedUnderRead(stat(1, 10), stat(1, 11)), true, "a different size at the same mtime is a replacement");
+	assert.equal(renderChangedUnderRead(stat(1, 10), stat(1, 10)), false, "an unchanged file is not a replacement");
+	assert.equal(renderChangedUnderRead(undefined, stat(1, 10)), true, "a file that appeared under the read is one");
+	assert.equal(renderChangedUnderRead(stat(1, 10), undefined), false, "a file that vanished has no version to vouch for");
+});
+
+test("externalRenderWins is the one external-edit rule both readers share", () => {
+	const read = (over) => ({ text: "# Project Memory", changed: false, mtimeMs: 200, ...over });
+	const key = (text) => ({ text, dropped: 0 });
+	assert.equal(externalRenderWins(read(), key("edit"), "fold", 100), true, "a newer, different render is an external edit");
+	assert.equal(externalRenderWins(read({ changed: true }), key("edit"), "fold", 100), false, "a read that raced decides nothing");
+	assert.equal(externalRenderWins(read({ text: "" }), key("edit"), "fold", 100), false, "an empty render is a file cleared by hand, not an edit");
+	assert.equal(externalRenderWins(read({ text: " \n\t" }), key("edit"), "fold", 100), false, "so is a whitespace-only render");
+	assert.equal(externalRenderWins(read(), key(""), "fold", 100), false, "a render with no key has nothing to compare");
+	assert.equal(externalRenderWins(read(), key("fold"), "fold", 100), false, "our own output is not an edit");
+	assert.equal(externalRenderWins(read({ mtimeMs: 100 }), key("edit"), "fold", 100), false, "a tie is not newer: the journal keeps the document");
+	assert.equal(externalRenderWins(read({ mtimeMs: 50 }), key("edit"), "fold", 100), false, "an older render is a torn window");
+	assert.equal(externalRenderWins(read({ mtimeMs: undefined }), key("edit"), "fold", 100), false, "a render with no time cannot win");
+	assert.equal(externalRenderWins(read(), key("edit"), "fold", undefined), false, "a journal with no time is not older than the render");
+});
+
+test("a render replaced under the read does not win it, and a stable newer render still does", async () => {
+	const root = await project();
+	await recordMemoryDocument(root, "# Project Memory\n\n- the journal seed\n");
+	const journal = memoryJournalFile(root);
+	const past = new Date(Date.now() - 60_000);
+	await utimes(journal, past, past);
+	const file = memoryFile(root);
+	await rm(file, { force: true });
+	execFileSync("mkfifo", [file]);
+
+	const loaded = await replaceUnderRead({
+		root,
+		file,
+		start: () => loadMemory(root),
+		older: "# Project Memory\n\n- older bytes handed to the reader\n",
+		newer: "# Project Memory\n\n- external edit newer than the journal\n",
+	});
+
+	// The pair below is the discriminator: a reader that started after the replacement would adopt
+	// the replacement (source === file), so this cannot pass unless the read really spanned it.
+	assert.equal(loaded.source, journal, "the fold stands instead of bytes the read cannot vouch for");
+	assert.match(loaded.text, /journal seed/);
+	assert.ok(!loaded.text.includes("older bytes"), "the older version is not adopted");
+	assert.match(await readFile(file, "utf8"), /external edit newer than the journal/, "the replacement really landed under the read");
+
+	// Without this half the guard would be a blanket refusal of external edits.
+	const stable = await loadMemory(root);
+	assert.equal(stable.source, file);
+	assert.match(stable.text, /external edit newer than the journal/);
+});
+
+test("the adopt refuses a key the file no longer holds, and still takes the file's current one", async () => {
+	const root = await project();
+	await recordMemoryDocument(root, "# Project Memory\n\n- the journal seed\n");
+	const journal = memoryJournalFile(root);
+	const past = new Date(Date.now() - 60_000);
+	await utimes(journal, past, past);
+	const file = memoryFile(root);
+	const replacement = "# Project Memory\n\n- the replacement the borrowed key must not shadow\n";
+	await writeFile(file, replacement, "utf8");
+
+	// A key the write path could have taken and then had invalidated (this test fabricates it):
+	// journaling it would push the journal's mtime past the replacement, so the adopt must refuse it.
+	const stale = memoryComparisonKey("# Project Memory\n\n- the bytes the caller read before the model call\n", MAX_MEMORY_CHARS);
+	// Without this the case would also pass if the key function collapsed every render to one key:
+	// the refusal below has to be about staleness, not about an empty or shared key.
+	assert.ok(stale && stale !== memoryComparisonKey(replacement, MAX_MEMORY_CHARS), "the borrowed key is a real, different key");
+	assert.equal(await adoptExternalEdit(root, MAX_MEMORY_CHARS, { renderKey: stale }), false);
+	assert.ok(!(await readFile(journal, "utf8")).includes("before the model call"), "the stale version never entered the journal");
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /the memory render changed before the memory journal could record the edit/);
+	assert.equal(await readFile(file, "utf8"), replacement, "the replacement is untouched");
+
+	// The guard refuses staleness, not edits: the file's own key is still adopted.
+	assert.equal(await adoptExternalEdit(root, MAX_MEMORY_CHARS, { renderKey: memoryComparisonKey(replacement, MAX_MEMORY_CHARS) }), true);
+	assert.match(await readFile(journal, "utf8"), /replacement the borrowed key must not shadow/);
+});
+
+test("the adopt leaves a render that already equals the fold alone, and one older than the journal too", async () => {
+	const root = await project();
+	await recordMemoryDocument(root, "# Project Memory\n\n- the document the journal already holds\n");
+	const journal = memoryJournalFile(root);
+	const file = memoryFile(root);
+	const past = new Date(Date.now() - 60_000);
+
+	// Our own output, re-stamped newer: adopting it would only duplicate a record the journal has.
+	const own = await readFile(file, "utf8");
+	await utimes(journal, past, past);
+	await writeFile(file, own, "utf8");
+	const before = (await readMemoryJournal(journal)).entries.length;
+	assert.equal(await adoptExternalEdit(root), false, "a render equal to the fold is our own output");
+	assert.equal((await readMemoryJournal(journal)).entries.length, before, "nothing was journalled");
+
+	// A render older than the journal and different from it is a torn write window, not an edit.
+	await writeFile(file, "# Project Memory\n\n- a render older than the journal\n", "utf8");
+	await utimes(file, past, past);
+	assert.equal(await adoptExternalEdit(root), false, "an older render is not an edit to adopt");
+	assert.ok(!(await readFile(journal, "utf8")).includes("older than the journal"), "the older bytes never entered the journal");
+
+	// The positive control: a newer, different render is adopted.
+	await writeFile(file, "# Project Memory\n\n- a hand edit newer than the journal\n", "utf8");
+	assert.equal(await adoptExternalEdit(root), true, "a newer, different render is adopted");
+	assert.match(await readFile(journal, "utf8"), /a hand edit newer than the journal/);
+});
+
+test("loadMemorySync still adopts a stable newer render", async () => {
+	const root = await project();
+	await recordMemoryDocument(root, "# Project Memory\n\n- written by the plugin\n");
+	const journal = memoryJournalFile(root);
+	const past = new Date(Date.now() - 60_000);
+	await utimes(journal, past, past);
+	await writeFile(memoryFile(root), "# Project Memory\n\n- edited by hand\n", "utf8");
+	assert.match(loadMemorySync(root), /edited by hand/, "the sync reader and the async one share the rule");
+	assert.equal(loadMemorySync(root), (await loadMemory(root)).text);
+});
+
+test("a render cleared by hand does not win the read, and does not make a pass look stale", async () => {
+	const root = await project();
+	await recordMemoryDocument(root, "# Project Memory\n\n- the document the journal holds\n");
+	const journal = memoryJournalFile(root);
+	const fold = (await loadMemory(root)).text;
+	// Truncated by hand after the journal was written, so it is newer than the journal. The comparison
+	// key of an empty document is the canonical bare header, not "", so this cannot be decided by key.
+	await writeFile(memoryFile(root), "", "utf8");
+	const loaded = await loadMemory(root);
+	assert.equal(loaded.source, journal, "a blank render is not an external edit");
+	assert.match(loaded.text, /the document the journal holds/);
+	assert.equal(loadMemorySync(root), loaded.text, "both readers agree");
+
+	// The write path too. A pass that built its reply from the fold must not be told the memory changed,
+	// which would refuse a real consolidation and name the bare header as "the newer content".
+	const result = await recordMemoryDocument(root, "# Project Memory\n\n- this pass's reply\n", MAX_MEMORY_CHARS, { basisKey: fold });
+	assert.equal(result.written, true, "a cleared render does not make the pass look stale");
+	assert.match(await readFile(memoryFile(root), "utf8"), /this pass's reply/);
+	assert.ok(!(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8").catch(() => "")).includes("the memory changed while this pass's reply was being built"), "and that refusal is not logged with a wrong cause");
+
+	// Whitespace-only is the same state, and it is the one the key cannot tell apart from content.
+	await writeFile(memoryFile(root), " \n\t\n", "utf8");
+	assert.equal((await loadMemory(root)).source, journal, "a whitespace-only render is not an edit either");
+});
+
+test("an edit landing under the adopt's own read is left for the next pass", async () => {
+	const root = await project();
+	await recordMemoryDocument(root, "# Project Memory\n\n- the journal seed\n");
+	const journal = memoryJournalFile(root);
+	const past = new Date(Date.now() - 60_000);
+	await utimes(journal, past, past);
+	const file = memoryFile(root);
+	await rm(file, { force: true });
+	execFileSync("mkfifo", [file]);
+
+	const adopted = await replaceUnderRead({
+		root,
+		file,
+		start: () => adoptExternalEdit(root),
+		older: "# Project Memory\n\n- older bytes handed to the reader\n",
+		newer: "# Project Memory\n\n- external edit newer than the journal\n",
+	});
+
+	assert.equal(adopted, false, "nothing is journalled for a read that spanned a replacement");
+	const journalText = await readFile(journal, "utf8");
+	assert.ok(!journalText.includes("older bytes"), "the version the file dropped never entered the journal");
+	assert.match(await readFile(file, "utf8"), /external edit newer than the journal/, "the replacement is still the file's content");
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /the memory render changed before the memory journal could record the edit/);
 });
 
 test("loadMemorySync folds the same document the async reader returns", async () => {
