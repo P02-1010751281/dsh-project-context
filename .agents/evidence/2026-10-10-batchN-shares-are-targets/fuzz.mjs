@@ -24,6 +24,8 @@ const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.
 const imp = (rel) => import(pathToFileURL(path.join(repo, "lib", rel)).href);
 const sections = await imp("project-memory/sections.js");
 const schema = await imp("project-memory/memory-schema.js");
+const limits = await imp("shared/limits.js");
+const ITEM_CAP = limits.MAX_LIST_ITEM_CHARS;
 
 const HEADINGS = ["project", "invariants", "pitfalls", "index"];
 const SKELETON = schema.memoryStructureOverheadChars(); // 67: header + four `## H\n` + three separators
@@ -45,8 +47,11 @@ const makeSections = () => {
   return out;
 };
 // The renderer's own normalization, so P2's premise is measured on the entries it will actually pack.
+// The cost is the CANONICAL one: each entry clipped to the per-item cap (the largest cap the packing can
+// give a section). Summing raw lengths instead inflates the premise, and P2 then skips exactly the case
+// where a long entry's phantom demand costs a neighbour its entry — the defect the fix removed.
 const normalize = (value) => value.replace(/\s+/g, " ").trim().replace(/^-\s+/, "").trim();
-const costOf = (list) => list.map(normalize).filter((entry) => /[\p{L}\p{N}]/u.test(entry)).reduce((sum, entry) => sum + entry.length + 3, 0);
+const costOf = (list) => list.map(normalize).filter((entry) => /[\p{L}\p{N}]/u.test(entry)).reduce((sum, entry) => sum + Math.min(entry.length, ITEM_CAP) + 3, 0);
 
 const N = 200_000;
 let p1 = 0;

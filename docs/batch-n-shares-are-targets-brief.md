@@ -58,13 +58,15 @@
 
 - `src/project-memory/memory-schema.ts`：新增 `memoryStructureOverheadChars()`；`share` / `MEMORY_SECTION_PROMPT_SHARE`
   的文档改为「目标值」。
-- `src/project-memory/sections.ts`：`allocationFor` + `allocationForSections`；`renderMemoryDocument` 用额度打包；
-  `memorySectionOverage` 同源。
-- `src/project-memory/index.ts`：四处「段超预算」文案改为「文档到达上限」（落地损失行、refused 损失行、
-  `memoryLossDetail`、`refusedLossCause`）。
+- `src/project-memory/sections.ts`：`allocationFor` + `allocationForSections`（需求按 `min(条目长度, MAX_LIST_ITEM_CHARS)`
+  计，见 §6 的 F1）；`renderMemoryDocument` 用额度打包；`memorySectionOverage` 同源。
 - `src/project-memory/consolidate.ts`：`memorySectionRule` 的段行与引导句、`memoryBudgetRule` 补目标说明、
-  `memoryLossRetryRule` 末句。
-- `test/sections.test.mjs`：新增「借用」与「池是真实 body」两条具名用例；改写两条既有夹具。
+  `memoryLossRetryRule` 末句、`MEMORY_SURVIVAL_CAPTION`（F3）。
+- `src/project-memory/index.ts`：四处「段超预算」文案改为「文档到达上限」（落地损失行、refused 损失行、
+  `memoryLossDetail`、`refusedLossCause`）＋四处同义注释（F4）。
+- `test/sections.test.mjs`：新增三条具名用例（借用、池是真实 body、长条目不拖累邻段）；强化「fits ⇒ no drops」
+  性质（生成器进入 `>800` 区间、前提改为规范文档）；改写两条既有夹具。
+- `.agents/evidence/2026-10-10-batchN-shares-are-targets/`：20 万组模糊探针（F1 的判别器）＋小 cap 边界的既有权证明。
 - `test/logic.test.mjs`：四处回执文案、section rule 断言、`never past` 负例、tier C 夹具。
 - `CHANGELOG.md`：`未发布` 下的 project-memory 条目。
 
@@ -74,35 +76,63 @@
 cd /mnt/Data/Projects/dsh-project-context
 pnpm typecheck            # 0
 pnpm build                # 0；lib/client.js 仍 28575 字节
-pnpm test                 # 418 通过 / 0 失败
+pnpm test                 # 419 通过 / 0 失败
 ```
 
-变异轮（脚本一次跑完 4 个，每个都 `tsc` 0 错 + 标记进 `lib/` + 恢复后 `sha256sum -c` OK + 重建后 0 标记）：
+变异轮（脚本一次跑完 5 个，每个都 `tsc` 0 错 + 标记进/出 `lib/` 已核对 + 恢复后 `sha256sum -c` OK + 重建后 0 标记）：
 
 | 变异体 | 被杀的用例 | 触发断言 |
 |---|---|---|
 | 池按 Σtargets 封顶 | 「the pool is the document's real body…」 | `droppedItems 1 !== 0` |
-| 完全忽略池（硬 share） | 5 条（含借用用例） | 借用/夹具系列 |
-| per-item cap 取自 share | 「a section over its share borrows…」 | `350 !== 800` |
-| overage 报 share 而非额度 | 「memorySectionOverage mirrors the renderer…」 | `353 !== 806` |
+| 完全忽略池（硬 share） | 6 条（含借用与长条目用例） | 借用/夹具系列 |
+| per-item cap 取自 share | 2 条（借用、长条目） | `350 !== 800` |
+| overage 报 share 而非额度 | 「memorySectionOverage mirrors the renderer…」 | `353 !== 803` |
+| **需求改回未裁剪（F1 本身）** | 3 条：长条目用例、强化后的性质测试、overage | `806 !== 803`、`droppedItems !== 0` |
 
-**一个变异体被判无效而不是存活**：把池的表达式直接换成 Σtargets 会让 `memoryStructureOverheadChars`
-变成未使用，`tsc` 报 `TS6133`（退出 2）。按纪律重塑为「池被目标和封顶」后才是有效变异体
-——这正是 `dsh-plugin-mutation-round` 的「有效性三连」要拦的那类假红。
+第五个变异体是**修复靶**：它在修复前**存活**（复核 F1 + F5 指出旧生成器 1–300 字符、结构上进不了 item-cap 区间），
+修复后连同新增具名用例一起被杀。**一个变异体被判无效而不是存活**：把池的表达式直接换成 Σtargets 会让
+`memoryStructureOverheadChars` 变成未使用，`tsc` 报 `TS6133`（退出 2）。按纪律重塑为「池被目标和封顶」
+后才是有效变异体——这正是 `dsh-plugin-mutation-round` 的「有效性三连」要拦的那类假红。
 
-本批**未做**独立复核前的自我声明：独立只读复核在提交后进行，结论见本文件的「6. 复核」一节。
+入库模糊探针（`.agents/evidence/2026-10-10-batchN-shares-are-targets/fuzz.mjs`，20 万组）是 F1 的**判别器**：
+把「装得下就不丢」的前提改成按 item cap 裁剪后，对**修复前**的 lib（`ee62e3e`）**FAIL（P2 违反 4,598 / 148,978 组）**，
+对修复后 **PASS**（P1/P2/P3 全 0 违反）。
 
-## 6. 复核（独立只读子代理）
+## 6. 复核（独立只读子代理）与随之落地的修复
 
-（待回填：见本轮会话的复核报告。）
+复核结论：**没有阻塞性缺陷落在池机制本身**，但它找到了三条真问题，本批已修：
+
+- **F1（真缺陷，已修）**：分配器量**未裁剪**的条目长度、打包按裁剪后的长度收费，于是持有一条长条目的段在
+  `overTotal` 里被放大，真正超额的段拿不到应得份额，**在文档远没满时丢整条**，并报成「文档到达上限」——
+  端到端就是一条拟合法的回复被 `lossy-refused`。现按 `min(条目长度, MAX_LIST_ITEM_CHARS)` 计需求。
+  **有意偏离 pi**（`origin/master` 同一行同样未裁剪）。
+- **F3（真、次要，已修）**：`MEMORY_SURVIVAL_CAPTION` 仍说「a **section** that does not fit its budget」，
+  与新的段规则自相矛盾；pi `e2184af` 改的正是这一句，本批此前漏了。
+- **F4（nit，已修）**：`index.ts` 四处注释与 `sections.ts` 的「smallest section budget is 588」（真值 353）。
+- **F2（nit，既有且不可达，只记录）**：`cap < 67` 时超上限、以及共享为 0 时空段也计一次 drop —— 在
+  `4e0aa0f` 完全相同（602 组比对 `overNewOnly 0`），生产不可达（`maxMemoryChars` 下限 4000）。
+- **F5（nit，已加强）**：原「fits ⇒ no drops」性质测试的前提取自被分配器使用的同一个开销常量，且生成器
+  只出 1–300 字符，结构上看不见 F1；现生成器进入 `>800` 区间、前提改为按 item cap 裁剪的规范文档。
+- **F6（仅提交信息）**：提交信息里的 66 / 3934 / 3924 是错的（函数 67、body 3933、Σtargets 3922）；
+  提交已推送故不重写，正确数字在本文件、`CHANGELOG.md` 与测试注释中。
+
+复核**未能**验证的：宿主在线行为（真实模型调用与提示词效果）、上限不变式的穷尽证明（用代数 + 采样）、
+以及「把需求裁剪到 `MAX_LIST_ITEM_CHARS` 是否是不动点的**正确**修法而不是安全上界」——最后一条正是本批
+保留的边界（见 §7）。
 
 ## 7. 边界与残留（**不要读成已修**）
 
+- **需求是上界，不是不动点**：分配器按 `min(条目长度, MAX_LIST_ITEM_CHARS)` 计需求，而打包按该段**实际**
+  借到的额度算 item cap。当某段借到的额度小于 item cap、且持有**多条**长条目时，仍可能丢掉一条本该保住的
+  条目。真正的修法是让分配与 item cap 迭代到 `min(len, itemCap(allowance))` 的自洽解——那是另一个设计，
+  不是一行修正。已写进 `renderMemoryDocument` 的文档注释，未关。
+- `cap < 67`（小于文档骨架）时文档必然超上限：**`4e0aa0f` 就有**，生产不可达（`maxMemoryChars` 下限 4000）。
 - `MEMORY.md` / `CONTEXT.md` 里写下的「占用份额」散文不随本批改变；仍按现跑
   `.agents/evidence/2026-10-05-memory-share-fix-offline-verify/share-fit.mjs` 判读。
 - 本批**改了 `src/` 行为**，需要宿主重启才在线；判据照旧「19387 持有者启动晚于最后一个 `src/` 提交」。
 - 不改配置键、无新依赖、两个 profile 无需改动。
 - tier C 的**拒绝语义**没变（`refuses` 仍由「会丢整条」驱动），变的是「什么情况下会丢」——现在只有文档满才会。
+- 本批**有意偏离 pi 两处**：需求裁剪（F1）与不端口 `droppedSamples`；两处都写在上文。
 
 ## 8. 下一批的入口（同一 triage 记录）
 

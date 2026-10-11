@@ -130,7 +130,14 @@ function allocationForSections(sections: MemorySections, cap: number): number[] 
 	const budgets = memorySectionBudgets(cap);
 	return allocationFor(
 		budgets.map((budget) => budget.chars),
-		budgets.map((budget) => toEntries(sections[sectionKey(budget.heading)] ?? []).reduce((sum, entry) => sum + entry.length + BULLET_OVERHEAD_CHARS, 0)),
+		// What the section would cost at the largest per-item cap the packing can give it. Measuring the
+		// raw entry length instead inflates the overage of a section holding an over-long entry, and that
+		// phantom demand starves the genuinely over-target sections: a reply that fits the cap loses an
+		// entry to a neighbour's inflation. The item cap never exceeds MAX_LIST_ITEM_CHARS, so clipping
+		// here is an upper bound on the cost — exact once a section is lent enough to reach the item cap.
+		budgets.map((budget) =>
+			toEntries(sections[sectionKey(budget.heading)] ?? []).reduce((sum, entry) => sum + Math.min(entry.length, MAX_LIST_ITEM_CHARS) + BULLET_OVERHEAD_CHARS, 0),
+		),
 		Math.max(0, cap - memoryStructureOverheadChars()),
 	);
 }
@@ -144,6 +151,12 @@ function allocationForSections(sections: MemorySections, cap: number): number[] 
  * is only ever over its own target because another section left room, so a drop means the document cap
  * itself is full. Because a single entry always fits an empty section, `text.length <= cap` holds by
  * construction.
+ *
+ * The demand the allocation is fed is an upper bound, not the packed cost: entries are measured at
+ * `MAX_LIST_ITEM_CHARS` before the section knows its item cap. That can still drop an entry a
+ * tighter fixed point would have kept when a section is lent less than the item cap and holds
+ * several long entries; the boundary is recorded rather than closed, because the alternative —
+ * iterating the allocation against the item cap — is a different design, not a one-line correction.
  *
  * The renderer writes no truncation marker: the stored marker is stripped again by the write path, so
  * the drop is reported through the returned counts instead.
@@ -160,7 +173,7 @@ export function renderMemoryDocument(sections: MemorySections, cap: number): Mem
 		const budget = budgets[index];
 		const list = entries[index];
 		if (budget.chars < MIN_SECTION_BUDGET_CHARS) {
-			// Unreachable while MIN_MEMORY_CHARS is 4000 (the smallest section budget is 588). The
+			// Unreachable while MIN_MEMORY_CHARS is 4000 (the smallest section budget is 353). The
 			// heading is still rendered so the document keeps its four-section shape and stays readable
 			// by sectionsFromMarkdown, which requires all four headings.
 			sectionDropped += 1;

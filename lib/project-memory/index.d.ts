@@ -30,7 +30,7 @@ export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" 
  * what the user needs to act on, so they ride in their own field instead.
  */
 export type RefusedLoss = {
-    /** Sections that would have lost at least one entry to their budget. */
+    /** Sections that would have lost at least one entry because the document reached its cap. */
     sectionDropped: number;
     /** Entries that would have been dropped whole. */
     droppedItems: number;
@@ -43,7 +43,7 @@ export type RefusedLoss = {
  * A consolidation pass loses content in two places that the stored document cannot show afterwards,
  * because both happen before the write: the input fit hides characters of the stored artifacts from
  * the model (`memoryHiddenChars` / `contextHiddenChars`), and the section render drops whole entries
- * that overflow a section's share (`sectionDropped` / `droppedItems`), with `itemTruncated` counting
+ * once the document reaches its cap (`sectionDropped` / `droppedItems`), with `itemTruncated` counting
  * entries cut to the per-item cap. Carrying them here is what lets the receipt name the mechanism and
  * the count: without it a pass that dropped twelve entries read exactly like a clean one.
  *
@@ -72,9 +72,9 @@ export type ConsolidateReport = {
      * cap is the only place its loss is recorded: without it such a write is completely silent.
      */
     memoryWriteDroppedChars: number;
-    /** Sections of the landed memory that lost at least one entry to their budget. */
+    /** Sections of the landed memory that lost at least one entry because the document reached its cap. */
     sectionDropped: number;
-    /** Entries dropped whole from the landed memory because their section's budget was full. */
+    /** Entries dropped whole from the landed memory because its character cap was full. */
     droppedItems: number;
     /** Entries of the landed memory cut to their section's per-item cap and kept. */
     itemTruncated: number;

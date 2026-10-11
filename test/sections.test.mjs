@@ -26,6 +26,7 @@ import {
 } from "../lib/project-memory/sections.js";
 import { MEMORY_SECTIONS, MEMORY_SECTION_PROMPT_SHARE, memorySchemaOverheadChars, memorySectionBudgets, memorySectionPromptBudgets, memoryStructureOverheadChars } from "../lib/project-memory/memory-schema.js";
 import { MAX_MEMORY_CHARS } from "../lib/shared/project-state.js";
+import { MAX_LIST_ITEM_CHARS } from "../lib/shared/limits.js";
 
 /** The documented contract, spelled out here so a silent table edit is caught. */
 const DOCUMENTED = [
@@ -179,7 +180,11 @@ test("memorySectionOverage mirrors the renderer, so a retry prompt names the rea
 	assert.equal(bigRows[0].truncatedEntries, bigRender.itemTruncated, "the over-long entry is the truncation");
 	assert.equal(bigRows[0].over, 0, "a single entry always fits its section, so nothing is over budget");
 	assert.ok(bigRows[0].itemCap > 0 && bigRows[0].itemCap < 803, `the entry was cut to the section's own item cap, got ${bigRows[0].itemCap}`);
-	assert.equal(bigRows[0].budget, 803 + 3, "Index borrows its whole overage, so the retry names what it may actually spend");
+	assert.equal(
+		bigRows[0].budget,
+		800 + 3,
+		"Index borrows its whole overage, so the retry names what it may spend: the 803 the entry costs at the 800-character item cap",
+	);
 
 	const many = { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] };
 	const manyRender = renderMemoryDocument(many, 4000);
@@ -238,6 +243,25 @@ test("a section over its share borrows the room its neighbours left instead of d
 	assert.equal(sectionsFromMarkdown(keptWhole.text).index[0].length, 800, "the entry is cut to the per-item cap, not to the share");
 });
 
+test("an over-long entry does not cost a neighbour its entry", () => {
+	// The demand the allocator is fed is measured at MAX_LIST_ITEM_CHARS. Measuring the RAW length let a
+	// 2000-character Project entry inflate the pool arithmetic and drop an Invariants entry whole while the
+	// canonical document was 2979 of 4000 — a fitting reply refused with "the memory document reached its
+	// character cap", which is exactly the misattribution this batch exists to remove. The control holds
+	// the same Invariants content with no long neighbour, so a drop there cannot be the long entry's doing.
+	const invariants = ["i".repeat(700), "i".repeat(700), "i".repeat(700)];
+	const control = renderMemoryDocument({ project: [], invariants, pitfalls: [], index: [] }, 4000);
+	const probe = renderMemoryDocument({ project: ["p".repeat(2000)], invariants, pitfalls: [], index: [] }, 4000);
+	assert.equal(control.droppedItems, 0, "fixture: the Invariants content fits on its own");
+	assert.equal(probe.sectionDropped, 0, "the over-long neighbour must not cost Invariants a section drop");
+	assert.equal(probe.droppedItems, 0, "nor a whole entry");
+	assert.equal(
+		probe.text.length,
+		memoryStructureOverheadChars() + (Math.min(2000, MAX_LIST_ITEM_CHARS) + 3) + invariants.reduce((sum, entry) => sum + entry.length + 3, 0),
+		"the canonical document is what the render produces",
+	);
+});
+
 test("the pool is the document's real body, not the sum of the targets", () => {
 	// The boundary the independent review caught: content whose canonical document fits the cap while the
 	// floored targets do not cover it. At cap 4000 the structure costs 67 characters, so bodies may spend
@@ -267,18 +291,22 @@ test("renderMemoryDocument fits 2000 random caps (the budget holds by constructi
 	}
 	assert.equal(over, 0);
 
-	// The guarantee the borrowing exists for, stated as a property: when the canonical document fits the
-	// cap, nothing is dropped, however unevenly the content sits across the sections. The premise has to
-	// be the document's own size (structure plus entries), not the sum of the targets: a target-floored
-	// pool is a few characters smaller than the cap, and charging those as drops is the bug this property
-	// exists to catch.
+	// The guarantee the borrowing exists for, stated as a property: when the CANONICAL document fits the
+	// cap, nothing is dropped, however unevenly the content sits across the sections. The premise has to be
+	// the document's own size after the item cap — structure plus each entry clipped to
+	// MAX_LIST_ITEM_CHARS, which is the largest cap the packing can give it. Two ways to get this wrong:
+	// summing the targets instead of the body (a few characters smaller, so fits looks like overflow), and
+	// summing the RAW entry lengths (a long entry inflates the premise and hides the case where the packed
+	// document fits). Both are the bugs this property exists to catch, so the generator reaches past the
+	// item cap.
 	let fitsButDropped = 0;
 	let considered = 0;
 	for (let index = 0; index < 2000; index += 1) {
 		const cap = 4000 + Math.floor(Math.random() * 196_001);
-		const make = () => Array.from({ length: Math.floor(Math.random() * 6) }, () => "z".repeat(1 + Math.floor(Math.random() * 300)));
+		const make = () => Array.from({ length: Math.floor(Math.random() * 6) }, () => "z".repeat(1 + Math.floor(Math.random() * 2000)));
 		const shape = [make(), make(), make(), make()];
-		const wantedDoc = memoryStructureOverheadChars() + shape.reduce((sum, list) => sum + list.reduce((n, entry) => n + entry.length + 3, 0), 0);
+		const wantedDoc =
+			memoryStructureOverheadChars() + shape.reduce((sum, list) => sum + list.reduce((n, entry) => n + Math.min(entry.length, MAX_LIST_ITEM_CHARS) + 3, 0), 0);
 		if (wantedDoc > cap) continue;
 		considered += 1;
 		const fits = renderMemoryDocument({ project: shape[0], invariants: shape[1], pitfalls: shape[2], index: shape[3] }, cap);

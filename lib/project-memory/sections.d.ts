@@ -56,6 +56,12 @@ export type MemoryRender = {
  * itself is full. Because a single entry always fits an empty section, `text.length <= cap` holds by
  * construction.
  *
+ * The demand the allocation is fed is an upper bound, not the packed cost: entries are measured at
+ * `MAX_LIST_ITEM_CHARS` before the section knows its item cap. That can still drop an entry a
+ * tighter fixed point would have kept when a section is lent less than the item cap and holds
+ * several long entries; the boundary is recorded rather than closed, because the alternative —
+ * iterating the allocation against the item cap — is a different design, not a one-line correction.
+ *
  * The renderer writes no truncation marker: the stored marker is stripped again by the write path, so
  * the drop is reported through the returned counts instead.
  */
