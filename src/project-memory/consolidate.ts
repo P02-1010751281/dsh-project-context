@@ -541,7 +541,13 @@ export function consolidateProjectState(
 			// headroom reserved out of the same cap, a shorter prompt, and no tool — the reminder asks
 			// for the JSON text shape, which a tool call could not satisfy. dsh reports this as
 			// `max-tokens` (pi calls it `length`); matching the wrong string would never retry.
-			usedInput = fitMemoryInput(existing.text, existingContext, config.maxTokens, auxModel, config.maxOutputTokens, RETRY_OUTPUT_HEADROOM_TOKENS);
+			// The headroom is the flat constant **or** the hidden reasoning this attempt actually spent,
+			// whichever is larger: the reserve is capped at 8192 while a reasoning route can spend far
+			// more, so a retry carrying only +4096 asks again with the very headroom that just starved it
+			// (pi `099ebf3`). `attempt.reasoningTokens` is 0 when the adapter reports none, so a route
+			// that reports no hidden thinking keeps exactly the flat constant it had before.
+			const retryHeadroom = Math.max(RETRY_OUTPUT_HEADROOM_TOKENS, attempt.reasoningTokens);
+			usedInput = fitMemoryInput(existing.text, existingContext, config.maxTokens, auxModel, config.maxOutputTokens, retryHeadroom);
 			attempt = await call(usedInput, [TRUNCATED_REPLY_RULE], undefined);
 			resolved = read(attempt, false);
 		}

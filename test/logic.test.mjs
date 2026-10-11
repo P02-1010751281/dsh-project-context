@@ -4812,8 +4812,8 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 	}
 	assert.equal(calls.length, 2, `one retry after the truncation, and no more (failure: ${failure?.message ?? "none"})`);
 	assert.equal(failure, undefined, `the retried pass must succeed, got: ${failure?.message}`);
-	// The retry reserves RETRY_OUTPUT_HEADROOM_TOKENS more out of the same cap, which shows up as
-	// a larger requested cap or as less stored content sent — the retry never sends more.
+	// The retry adds its headroom (the flat constant or the spend, whichever is larger) out of the same
+	// cap, which shows up as a larger requested cap or as less stored content sent — never more.
 	const sentMemory = (call) => /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(call.messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
 	assert.ok(
 		calls[1].maxTokens > calls[0].maxTokens || sentMemory(calls[1]).length < sentMemory(calls[0]).length,
@@ -4833,6 +4833,67 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 	assert.match(firstPrompt, /condensing its wording, not by dropping entries/, "the caption's own wording is pinned");
 	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n", "the successful retry is accepted");
 	assert.deepEqual(warnings, [], `a recovered truncation is not a failure: ${JSON.stringify(warnings)}`);
+});
+
+test("the truncation retry carries the hidden reasoning the first attempt actually spent", async () => {
+	// A reasoning route can spend far more on hidden thinking than the 8192 reserve the cap charges it:
+	// the field case (pi `099ebf3`) spent 20489 and was cut off again by the same flat +4096 headroom.
+	// The retry must therefore ask for at least what the first attempt really spent.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-reasoning-"));
+	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+	// Sized so the first fit is driven by the document rather than by the configured floor: the retry's
+	// extra headroom then shows up as a larger requested cap instead of being absorbed by that floor.
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${"记".repeat(9000)}\n`, "utf8");
+	const OBSERVED_REASONING_TOKENS = 20_000;
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ text: CUT_REPLY, reason: { kind: "max-tokens" }, usage: { inputTokens: 10, outputTokens: 8192, reasoningTokens: OBSERVED_REASONING_TOKENS } },
+			{ text: COMPLETE_REPLY, reason: { kind: "stop" }, usage: { inputTokens: 10, outputTokens: 200 } },
+		],
+	});
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 131_072, consolidateTurns: 1, maxMemoryChars: 40_000 });
+
+	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	assert.equal(calls.length, 2, "one retry after the truncation");
+	// The fixture's ceiling (131072) does not bind here, so the requested cap grows by exactly the
+	// headroom the retry passes: asserting equality (not a tolerance) is what rules out an
+	// implementation that carries only part of the spend, e.g. `max(CONSTANT, observed - CONSTANT)`.
+	assert.equal(
+		calls[1].maxTokens - calls[0].maxTokens,
+		OBSERVED_REASONING_TOKENS,
+		`the retry carries the spend: caps ${calls[0].maxTokens} -> ${calls[1].maxTokens}`,
+	);
+	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n", "the successful retry is accepted");
+});
+
+test("the truncation retry never asks for less than the flat headroom", async () => {
+	// The pin on the other side: the fix takes the larger of the flat constant and the spend, so any
+	// smaller report must not shrink the retry's room below what every route got before. Both the
+	// "no usage reported" (0) and the "some, but under the constant" shapes are covered, which is what
+	// separates a `max` from a ternary that would drop the constant as soon as anything is reported.
+	for (const reported of [0, 1024]) {
+		const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-small-reasoning-"));
+		await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
+		await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${"记".repeat(9000)}\n`, "utf8");
+		const { calls, ctx, agent } = await consolidationFixture({
+			root,
+			replies: [
+				{ text: CUT_REPLY, reason: { kind: "max-tokens" }, usage: { inputTokens: 10, outputTokens: 8192, reasoningTokens: reported } },
+				{ text: COMPLETE_REPLY, reason: { kind: "stop" }, usage: { inputTokens: 10, outputTokens: 200 } },
+			],
+		});
+		const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 131_072, consolidateTurns: 1, maxMemoryChars: 40_000 });
+
+		const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+		assert.equal(calls.length, 2, `one retry after the truncation (reported ${reported})`);
+		assert.equal(
+			calls[1].maxTokens - calls[0].maxTokens,
+			RETRY_OUTPUT_HEADROOM_TOKENS,
+			`a report of ${reported} keeps the flat headroom: caps ${calls[0].maxTokens} -> ${calls[1].maxTokens}`,
+		);
+		assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n", "the successful retry is accepted");
+	}
 });
 
 test("a reply cut off twice is reported as an output-limit failure and writes nothing", async () => {
