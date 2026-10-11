@@ -116,15 +116,16 @@ export declare const MEMORY_SURVIVAL_CAPTION = "The existing-memory block below 
 /**
  * The memory layout the pass actually writes, stated with the real per-section budgets.
  *
- * The stored memory carries these exact sections in this order, and `renderMemoryDocument` enforces
- * each section's share of the cap by dropping whole entries. The cap is per project, so the section
- * budgets have to be built per pass instead of sitting in the static rules — and like
- * `memoryBudgetRule`, every number here is in characters.
+ * The stored memory carries these exact sections in this order. `renderMemoryDocument` treats each
+ * section's share as a target rather than a cap: it pools what an under-target section leaves and lends
+ * it to the over-target ones, dropping whole entries only when the whole document reaches
+ * `maxMemoryChars`. The cap is per project, so the section budgets have to be built per pass instead of
+ * sitting in the static rules — and like `memoryBudgetRule`, every number here is in characters.
  *
- * Each section states two numbers: the figure the prompt asks for, and the hard budget the renderer
- * refuses past. The gap is deliberate — a reply written to the hard budget spends the headroom the
- * next pass needs, and the model cannot count characters — so the target, not the refusal bound, is
- * what the model is told to aim at. Both come from the one table so neither can drift.
+ * Each section states two numbers: the figure the prompt asks for, and the share it expects to take.
+ * The gap is deliberate — a reply written to the share spends the headroom the next pass needs, and the
+ * model cannot count characters — so the target, not the share, is what the model is told to aim at.
+ * Both come from the one table so neither can drift.
  */
 export declare function memorySectionRule(maxMemoryChars: number): string;
 /**
@@ -132,7 +133,9 @@ export declare function memorySectionRule(maxMemoryChars: number): string;
  *
  * A word hint is not the enforced bound: the document is cut at `maxMemoryChars` **characters** on
  * write, so a reply that satisfies a word count can still lose whatever sat at the end — and the
- * model had no way to know. The cap is per project, so the line has to be built per pass.
+ * model had no way to know. The cap is per project, so the line has to be built per pass. The
+ * per-section figures above are targets the renderer may exceed by borrowing, so the cap is named here
+ * as the only hard limit.
  */
 export declare function memoryBudgetRule(maxMemoryChars: number, currentChars: number): string;
 /**

@@ -14,7 +14,7 @@ export type MemorySectionSpec = {
 	heading: string;
 	/** What belongs in the section, rendered next to its heading in the prompt. */
 	description: string;
-	/** Share of the budgeted body this section should stay within; the shares sum to 1. */
+	/** Share of the budgeted body this section is expected to take; the shares sum to 1. */
 	share: number;
 };
 
@@ -28,6 +28,11 @@ export type MemorySectionSpec = {
  * so consolidation became a coin flip (three passes, one write). Rebalanced 2026-10-05 to
  * `0.17 / 0.45 / 0.29 / 0.09`, which gives all four sections comparable headroom over the document
  * they hold; `memorySectionPromptBudgets` is what stops a reply from spending it.
+ *
+ * A share is a target, not a cap (2026-10-10, pi `e2184af`): the renderer pools what an under-target
+ * section leaves and lends it to the over-target ones, so a section only ever loses entries when the
+ * whole document reaches `maxMemoryChars`. The numbers here are still what the prompt shows and what
+ * the pool is measured against; they stopped being a per-section refusal.
  */
 export const MEMORY_SECTIONS: readonly MemorySectionSpec[] = [
 	{ heading: "Project", description: "purpose, stack, structure", share: 0.17 },
@@ -51,6 +56,21 @@ export function memorySchemaOverheadChars(): number {
 	return MEMORY_HEADER.length + MEMORY_SECTIONS.reduce((sum, section) => sum + `## ${section.heading}\n\n`.length + MEMORY_SECTION_GAP_CHARS, 0);
 }
 
+/**
+ * What the rendered document spends outside the section bodies, exactly: the header, each heading with
+ * its newline, and the blank line between neighbouring sections.
+ *
+ * `memorySchemaOverheadChars` is deliberately more generous than this (it reserves a blank line after
+ * every section rather than between them), because the per-section targets are shares of the remainder
+ * and under-reserving there would let a document that fills every target exceed the cap. The renderer's
+ * pool has to use this exact figure instead: charging the pool a structurally unused gap spends
+ * characters as dropped entries that the document had room for.
+ */
+export function memoryStructureOverheadChars(): number {
+	// `heading` carries the name only, so each one costs its name, the "## " prefix, and its newline.
+	return MEMORY_HEADER.length + MEMORY_SECTIONS.reduce((sum, section) => sum + section.heading.length + 4, 0) + (MEMORY_SECTIONS.length - 1);
+}
+
 /** Per-section body budgets for a document cap, floored so they plus the overhead never exceed it. */
 export function memorySectionBudgets(cap: number): MemorySectionBudget[] {
 	const body = Math.max(0, cap - memorySchemaOverheadChars());
@@ -58,13 +78,13 @@ export function memorySectionBudgets(cap: number): MemorySectionBudget[] {
 }
 
 /**
- * Fraction of a section's hard budget the prompt asks the model to aim for.
+ * Fraction of a section's share the prompt asks the model to aim for.
  *
- * The budget is a refusal, not a target: a reply a few hundred characters over a section drops whole
- * entries and is refused as `lossy-refused`, and the model cannot count characters. A document
- * written to the hard budget therefore spends the headroom the next pass needs, which is how this
- * project's memory locked itself. The margin — applied to `memorySectionBudgets` rather than
- * restated as a second set of numbers — leaves the reply room for that estimation error.
+ * The share is where the document's budget is expected to go, not a limit the renderer refuses past:
+ * the model cannot count characters, and a reply that spends every share to its brim leaves the next
+ * pass no room, which is how this project's memory locked itself. The margin — applied to
+ * `memorySectionBudgets` rather than restated as a second set of numbers — leaves the reply room for
+ * that estimation error.
  */
 export const MEMORY_SECTION_PROMPT_SHARE = 0.9;
 

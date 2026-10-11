@@ -36,23 +36,25 @@ export declare function normalizeMemoryEntry(value: string): string;
 export declare function isMemoryEntryEmpty(value: string): boolean;
 /** True when no section has a single entry worth storing. */
 export declare function sectionsSemanticallyEmpty(sections: MemorySections): boolean;
-/** What a render cost: the document plus what the per-section budgets had to give up. */
+/** What a render cost: the document plus what the document's cap had to give up. */
 export type MemoryRender = {
     text: string;
     /** Sections that lost at least one entry. */
     sectionDropped: number;
-    /** Entries dropped because their section's budget was full. */
+    /** Entries dropped because the document's cap was full, not because a section was over its share. */
     droppedItems: number;
     /** Entries clipped to their section's per-item cap. */
     itemTruncated: number;
 };
 /**
- * Render the sections into the stored document, enforcing `cap` per section.
+ * Render the sections into the stored document, keeping the whole document within `cap`.
  *
- * Each section is clipped on its own: the per-item cap is derived from that section's budget, every
- * entry is cut to it with the line-boundary clipper (never a raw `slice`, which can split a surrogate
- * pair), and an entry that still does not fit is dropped whole rather than halved. Because a single
- * entry always fits an empty section, `text.length <= cap` holds by construction.
+ * The allocation runs before the packing because what a section may spend decides its per-item cap:
+ * every entry is cut to that cap with the line-boundary clipper (never a raw `slice`, which can split a
+ * surrogate pair), and an entry that still does not fit is dropped whole rather than halved. A section
+ * is only ever over its own target because another section left room, so a drop means the document cap
+ * itself is full. Because a single entry always fits an empty section, `text.length <= cap` holds by
+ * construction.
  *
  * The renderer writes no truncation marker: the stored marker is stripped again by the write path, so
  * the drop is reported through the returned counts instead.
@@ -67,11 +69,11 @@ export declare function renderMemoryDocument(sections: MemorySections, cap: numb
  */
 export type MemorySectionOverage = {
     heading: string;
-    /** The section's share of the cap, in characters. */
+    /** What the renderer lets this section spend after lending and borrowing, in characters. */
     budget: number;
     /** The per-item cap this section's entries were clipped to. */
     itemCap: number;
-    /** Characters the entries need beyond the budget after each is clipped to the per-item cap. */
+    /** Characters the entries need beyond what the section may spend, after each is clipped to the per-item cap. */
     over: number;
     /** Entries the renderer would drop whole at this size. */
     droppedEntries: number;
@@ -80,7 +82,10 @@ export type MemorySectionOverage = {
 };
 /**
  * What each section would lose if it were rendered now, computed with `renderMemoryDocument`'s exact
- * arithmetic: the same per-item cap, the same `- ` overhead, the same whole-entry drop.
+ * arithmetic: the same allocation, the same per-item cap, the same `- ` overhead, the same whole-entry
+ * drop. The allocation is what makes a section's `budget` its post-borrow allowance rather than its
+ * share: once a pool exists a section over its share only loses entries when the document is full, and a
+ * retry prompt that named the share would ask the model to cut the wrong amount.
  *
  * Only sections that would actually lose something are returned, so an empty result means every
  * section fits. A section whose only problem is an over-long entry comes back with `over: 0` and a

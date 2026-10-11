@@ -14,7 +14,7 @@ import { MAX_LIST_ITEM_CHARS } from "../shared/limits.js";
 import { type PluginTool } from "../shared/model-call.js";
 import { CONTEXT_TOOL_SCHEMA } from "./context-schema.js";
 import { clipToLineBoundary, isMemoryTruncationLine, MEMORY_HEADER } from "./document.js";
-import { MEMORY_SECTIONS, memorySectionBudgets } from "./memory-schema.js";
+import { MEMORY_SECTIONS, memorySectionBudgets, memoryStructureOverheadChars } from "./memory-schema.js";
 
 /** The four fixed sections, in document order; each holds one self-contained entry per bullet. */
 export type MemorySections = {
@@ -76,12 +76,12 @@ export function sectionsSemanticallyEmpty(sections: MemorySections): boolean {
 	return SECTION_KEYS.every((key) => toEntries(sections[key] ?? []).length === 0);
 }
 
-/** What a render cost: the document plus what the per-section budgets had to give up. */
+/** What a render cost: the document plus what the document's cap had to give up. */
 export type MemoryRender = {
 	text: string;
 	/** Sections that lost at least one entry. */
 	sectionDropped: number;
-	/** Entries dropped because their section's budget was full. */
+	/** Entries dropped because the document's cap was full, not because a section was over its share. */
 	droppedItems: number;
 	/** Entries clipped to their section's per-item cap. */
 	itemTruncated: number;
@@ -94,12 +94,56 @@ const BULLET_OVERHEAD_CHARS = 3;
 const MIN_SECTION_BUDGET_CHARS = 8;
 
 /**
- * Render the sections into the stored document, enforcing `cap` per section.
+ * What each section may spend, in document order.
  *
- * Each section is clipped on its own: the per-item cap is derived from that section's budget, every
- * entry is cut to it with the line-boundary clipper (never a raw `slice`, which can split a surrogate
- * pair), and an entry that still does not fit is dropped whole rather than halved. Because a single
- * entry always fits an empty section, `text.length <= cap` holds by construction.
+ * The per-section numbers are targets, not caps: the document cap is the only hard limit. A section
+ * that needs less than its target leaves the rest in a pool, and the sections over their targets draw
+ * from that pool in proportion to how far over they are. When the pool covers every overage, each
+ * section gets exactly what it needs and nothing is dropped at all.
+ *
+ * This is what stops the renderer from spending entries to balance a document that still has room: an
+ * idle section's headroom covers another section's overage instead of the overage being dropped.
+ *
+ * The pool is the document's own body budget, not the sum of the targets: the targets are floored
+ * shares of a deliberately conservative overhead, so charging the pool from them leaves a few
+ * structurally unused characters that would then be spent as dropped entries.
+ */
+function allocationFor(targets: readonly number[], wanted: readonly number[], body: number): number[] {
+	const allowed = wanted.map((need, index) => Math.min(need, targets[index]));
+	const pool = body - allowed.reduce((sum, value) => sum + value, 0);
+	const over = wanted.map((need, index) => Math.max(0, need - targets[index]));
+	const overTotal = over.reduce((sum, value) => sum + value, 0);
+	if (pool <= 0 || overTotal === 0) return allowed;
+	// Proportional to the overage, floored: the floors can only hand out less than the pool, and when the
+	// pool covers every overage each section gets its own overage back rather than a fraction of it.
+	const extra = over.map((want) => (want === 0 ? 0 : Math.min(want, Math.floor((pool * want) / overTotal))));
+	return allowed.map((value, index) => value + extra[index]);
+}
+
+/**
+ * The allocation `renderMemoryDocument` makes for these sections, in `memorySectionBudgets` order.
+ *
+ * Extracted so the renderer and `memorySectionOverage` cannot drift: the tier-C retry names the numbers
+ * that rule produced, and a second estimate would ask the model to fix the wrong amount.
+ */
+function allocationForSections(sections: MemorySections, cap: number): number[] {
+	const budgets = memorySectionBudgets(cap);
+	return allocationFor(
+		budgets.map((budget) => budget.chars),
+		budgets.map((budget) => toEntries(sections[sectionKey(budget.heading)] ?? []).reduce((sum, entry) => sum + entry.length + BULLET_OVERHEAD_CHARS, 0)),
+		Math.max(0, cap - memoryStructureOverheadChars()),
+	);
+}
+
+/**
+ * Render the sections into the stored document, keeping the whole document within `cap`.
+ *
+ * The allocation runs before the packing because what a section may spend decides its per-item cap:
+ * every entry is cut to that cap with the line-boundary clipper (never a raw `slice`, which can split a
+ * surrogate pair), and an entry that still does not fit is dropped whole rather than halved. A section
+ * is only ever over its own target because another section left room, so a drop means the document cap
+ * itself is full. Because a single entry always fits an empty section, `text.length <= cap` holds by
+ * construction.
  *
  * The renderer writes no truncation marker: the stored marker is stripped again by the write path, so
  * the drop is reported through the returned counts instead.
@@ -109,27 +153,32 @@ export function renderMemoryDocument(sections: MemorySections, cap: number): Mem
 	let droppedItems = 0;
 	let itemTruncated = 0;
 	const rendered: string[] = [];
-	for (const budget of memorySectionBudgets(cap)) {
-		const key = sectionKey(budget.heading);
-		const entries = toEntries(sections[key] ?? []);
+	const budgets = memorySectionBudgets(cap);
+	const entries = budgets.map((budget) => toEntries(sections[sectionKey(budget.heading)] ?? []));
+	const allowed = allocationForSections(sections, cap);
+	for (let index = 0; index < budgets.length; index += 1) {
+		const budget = budgets[index];
+		const list = entries[index];
 		if (budget.chars < MIN_SECTION_BUDGET_CHARS) {
 			// Unreachable while MIN_MEMORY_CHARS is 4000 (the smallest section budget is 588). The
 			// heading is still rendered so the document keeps its four-section shape and stays readable
 			// by sectionsFromMarkdown, which requires all four headings.
 			sectionDropped += 1;
-			droppedItems += entries.length;
+			droppedItems += list.length;
 			rendered.push(`## ${budget.heading}\n`);
 			continue;
 		}
-		const itemCap = Math.max(1, Math.min(MAX_LIST_ITEM_CHARS, budget.chars - BULLET_OVERHEAD_CHARS));
+		const spentLimit = allowed[index];
+		const itemCap = Math.max(1, Math.min(MAX_LIST_ITEM_CHARS, spentLimit - BULLET_OVERHEAD_CHARS));
 		const kept: string[] = [];
 		let spent = 0;
 		let lost = false;
-		for (const entry of entries) {
+		for (const entry of list) {
 			const clipped = clipToLineBoundary(entry, itemCap);
 			const cost = clipped.length + BULLET_OVERHEAD_CHARS;
-			if (spent + cost > budget.chars) {
-				// Whole-entry drop: a half entry reads as a fact while being unusable.
+			if (spent + cost > spentLimit) {
+				// Whole-entry drop: a half entry reads as a fact while being unusable. Only reachable when the
+				// document's own cap is full, never because a neighbouring section left room.
 				lost = true;
 				droppedItems += 1;
 				continue;
@@ -158,11 +207,11 @@ export function renderMemoryDocument(sections: MemorySections, cap: number): Mem
  */
 export type MemorySectionOverage = {
 	heading: string;
-	/** The section's share of the cap, in characters. */
+	/** What the renderer lets this section spend after lending and borrowing, in characters. */
 	budget: number;
 	/** The per-item cap this section's entries were clipped to. */
 	itemCap: number;
-	/** Characters the entries need beyond the budget after each is clipped to the per-item cap. */
+	/** Characters the entries need beyond what the section may spend, after each is clipped to the per-item cap. */
 	over: number;
 	/** Entries the renderer would drop whole at this size. */
 	droppedEntries: number;
@@ -172,7 +221,10 @@ export type MemorySectionOverage = {
 
 /**
  * What each section would lose if it were rendered now, computed with `renderMemoryDocument`'s exact
- * arithmetic: the same per-item cap, the same `- ` overhead, the same whole-entry drop.
+ * arithmetic: the same allocation, the same per-item cap, the same `- ` overhead, the same whole-entry
+ * drop. The allocation is what makes a section's `budget` its post-borrow allowance rather than its
+ * share: once a pool exists a section over its share only loses entries when the document is full, and a
+ * retry prompt that named the share would ask the model to cut the wrong amount.
  *
  * Only sections that would actually lose something are returned, so an empty result means every
  * section fits. A section whose only problem is an over-long entry comes back with `over: 0` and a
@@ -180,34 +232,39 @@ export type MemorySectionOverage = {
  */
 export function memorySectionOverage(sections: MemorySections, cap: number): MemorySectionOverage[] {
 	const rows: MemorySectionOverage[] = [];
-	for (const budget of memorySectionBudgets(cap)) {
-		const entries = toEntries(sections[sectionKey(budget.heading)] ?? []);
-		if (entries.length === 0) continue;
+	const budgets = memorySectionBudgets(cap);
+	const entries = budgets.map((budget) => toEntries(sections[sectionKey(budget.heading)] ?? []));
+	const allowed = allocationForSections(sections, cap);
+	for (let index = 0; index < budgets.length; index += 1) {
+		const budget = budgets[index];
+		const list = entries[index];
+		if (list.length === 0) continue;
 		// Mirrors the renderer's own floor branch (unreachable while MIN_MEMORY_CHARS is 4000): the
 		// heading is kept and every entry is lost.
 		if (budget.chars < MIN_SECTION_BUDGET_CHARS) {
-			rows.push({ heading: budget.heading, budget: budget.chars, itemCap: 0, over: 0, droppedEntries: entries.length, truncatedEntries: 0 });
+			rows.push({ heading: budget.heading, budget: budget.chars, itemCap: 0, over: 0, droppedEntries: list.length, truncatedEntries: 0 });
 			continue;
 		}
-		const itemCap = Math.max(1, Math.min(MAX_LIST_ITEM_CHARS, budget.chars - BULLET_OVERHEAD_CHARS));
+		const spentLimit = allowed[index];
+		const itemCap = Math.max(1, Math.min(MAX_LIST_ITEM_CHARS, spentLimit - BULLET_OVERHEAD_CHARS));
 		let demand = 0;
 		let spent = 0;
 		let droppedEntries = 0;
 		let truncatedEntries = 0;
-		for (const entry of entries) {
+		for (const entry of list) {
 			const clipped = clipToLineBoundary(entry, itemCap);
 			const cost = clipped.length + BULLET_OVERHEAD_CHARS;
 			demand += cost;
-			if (spent + cost > budget.chars) {
+			if (spent + cost > spentLimit) {
 				droppedEntries += 1;
 				continue;
 			}
 			spent += cost;
 			if (clipped !== entry) truncatedEntries += 1;
 		}
-		const over = demand - budget.chars;
+		const over = demand - spentLimit;
 		if (over > 0 || truncatedEntries > 0) {
-			rows.push({ heading: budget.heading, budget: budget.chars, itemCap, over: Math.max(0, over), droppedEntries, truncatedEntries });
+			rows.push({ heading: budget.heading, budget: spentLimit, itemCap, over: Math.max(0, over), droppedEntries, truncatedEntries });
 		}
 	}
 	return rows;

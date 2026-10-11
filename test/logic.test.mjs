@@ -1545,7 +1545,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	assert.notEqual(clipped, memoryUpdateReply(plainReport("clipped")).text, "a lossy clipped pass must not read as a lossless one");
 
 	const dropped = memoryUpdateReply(plainReport("updated", { sectionDropped: 1, droppedItems: 12 })).text;
-	assert.match(dropped, /1 section\(s\) exceeded their budget and 12 whole entry\(ies\) were dropped/);
+	assert.match(dropped, /12 whole entry\(ies\) were dropped from 1 section\(s\) because the memory document reached its character cap/);
 	assert.notEqual(dropped, clean, "an entry-dropping pass must not read as a clean one");
 	assert.doesNotMatch(dropped, /shortened version of the existing content/, "drops are the render's loss, not a shortened input");
 
@@ -1556,7 +1556,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// Both mechanisms in one pass are named separately, not collapsed into one number.
 	const both = memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 9, sectionDropped: 1, droppedItems: 3, itemTruncated: 1 })).text;
 	assert.match(both, /9 character\(s\) of the stored memory/);
-	assert.match(both, /1 section\(s\) exceeded their budget and 3 whole entry\(ies\) were dropped/);
+	assert.match(both, /3 whole entry\(ies\) were dropped from 1 section\(s\) because the memory document reached its character cap/);
 	assert.match(both, /1 entry\(ies\) exceeded their section's per-item cap/);
 	assert.match(both, /; /, "the two mechanisms are separate clauses");
 
@@ -1594,7 +1594,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 
 	// A failure that happened after a write landed must not hide what landed.
 	const partial = memoryUpdateReply(plainReport("failed", { memoryWritten: true, contextWritten: false, sectionDropped: 1, droppedItems: 4 })).text;
-	assert.match(partial, /^Memory: update failed; see \.agents\/memory\/errors\.log\. The memory had already landed, with this loss: 1 section\(s\) exceeded their budget and 4 whole entry\(ies\) were dropped\.$/);
+	assert.match(partial, /^Memory: update failed; see \.agents\/memory\/errors\.log\. The memory had already landed, with this loss: 4 whole entry\(ies\) were dropped from 1 section\(s\) because the memory document reached its character cap\.$/);
 });
 
 test("fitMemoryInput reports the hidden characters per artifact, and clipped stays their summary", () => {
@@ -1735,7 +1735,7 @@ test("only a request-shape refusal buys the tools-free retry on the memory side 
 
 test("a per-item truncation with no section overflow still logs a complete loss line", async () => {
 	// The same branch's other shape: one entry over the per-item cap that still fits its own section.
-	// The section-drop test filters on `exceeded their budget`, so this line — which carries only the
+	// The section-drop test filters on `reached its character cap`, so this line — which carries only the
 	// truncation clause — is invisible to it, and it is also the shape that would expose a prefix left
 	// dangling with an empty description after the colon.
 	const root = await memoryProject("dsh-memory-item-cap-log-");
@@ -1764,7 +1764,7 @@ test("a per-item truncation with no section overflow still logs a complete loss 
 		/MEMORY\.md was rendered lossily: 1 entry\(ies\) exceeded their section's per-item cap and were truncated$/,
 		`the line names what landed, got ${lines[0]}`,
 	);
-	assert.doesNotMatch(lines[0], /exceeded their budget/, "no section overflowed, so the line must not claim one");
+	assert.doesNotMatch(lines[0], /reached its character cap/, "no section lost a whole entry, so the line must not claim the document was full");
 });
 
 test("tier C: one targeted retry fixes a lossy reply, and the retry names the overage without carrying content", async () => {
@@ -1819,7 +1819,7 @@ test("tier C: the refusal is cap-driven, which is what keeps a refusing tier fro
 	// the whole self-lock argument — the refusal follows the budgets, so raising the cap is the lever
 	// that decides whether this repo's own memory can still be updated at all.
 	const reply = JSON.stringify({
-		memory: { project: Array.from({ length: 120 }, (_, index) => `entry number ${index}`), invariants: [], pitfalls: [], index: [] },
+		memory: { project: Array.from({ length: 120 }, (_, index) => `entry number ${index} ${"x".repeat(60)}`), invariants: [], pitfalls: [], index: [] },
 		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
 	});
 	const run = async (cap) => {
@@ -5029,13 +5029,15 @@ test("the memory section rule states the same sections, order and character budg
 		const target = targets[index].chars;
 		assert.equal(targets[index].heading, section.heading);
 		// Both numbers are stated, and they come from the one table: the figure the prompt asks for and
-		// the budget the renderer refuses past.
+		// the share the section is expected to take. Neither is a refusal bound any more — the renderer
+		// lends an under-target section's room to an over-target one.
 		assert.ok(
-			rule.includes(`## ${section.heading}: ${section.description} (aim for about ${target} characters; never past ${section.chars})`),
+			rule.includes(`## ${section.heading}: ${section.description} (aim for about ${target} characters; its ${section.chars}-character share is a target, not a cap)`),
 			`the rule budgets ${section.heading}`,
 		);
-		assert.ok(target < section.chars, `${section.heading}: the stated target is inside the hard budget`);
+		assert.ok(target < section.chars, `${section.heading}: the stated target is inside the share`);
 	}
+	assert.doesNotMatch(rule, /never past/, "the share is no longer stated as a cap the renderer refuses past");
 	for (const [index, section] of budgets.entries()) {
 		if (index === 0) continue;
 		assert.ok(rule.indexOf(`## ${budgets[index - 1].heading}:`) < rule.indexOf(`## ${section.heading}:`), `the order is fixed at ${section.heading}`);
@@ -5070,7 +5072,9 @@ test("the lossy retry asks for compression instead of naming entries to drop", (
 	// The cap-only path is covered too: a reply carrying no sections still has to be compressed.
 	const capOnly = memoryLossRetryRule([], 1234);
 	assert.match(capOnly, /- the memory_markdown you returned was about 1234 character\(s\) over the memory cap/);
-	assert.match(capOnly, /apply the same ladder without sections/);
+	assert.match(capOnly, /apply the same ladder without them/);
+	// The shares are targets now, so no retry may attribute a loss to a section budget.
+	assert.doesNotMatch(capOnly, /rather than a section budget/, "the retry attributes the loss to the document cap, not a section budget");
 });
 
 test("requestPluginText and its meta variant keep the error and abort semantics", async () => {

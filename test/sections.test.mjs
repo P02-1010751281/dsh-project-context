@@ -24,7 +24,7 @@ import {
 	sectionsFromToolCall,
 	sectionsSemanticallyEmpty,
 } from "../lib/project-memory/sections.js";
-import { MEMORY_SECTIONS, MEMORY_SECTION_PROMPT_SHARE, memorySchemaOverheadChars, memorySectionBudgets, memorySectionPromptBudgets } from "../lib/project-memory/memory-schema.js";
+import { MEMORY_SECTIONS, MEMORY_SECTION_PROMPT_SHARE, memorySchemaOverheadChars, memorySectionBudgets, memorySectionPromptBudgets, memoryStructureOverheadChars } from "../lib/project-memory/memory-schema.js";
 import { MAX_MEMORY_CHARS } from "../lib/shared/project-state.js";
 
 /** The documented contract, spelled out here so a silent table edit is caught. */
@@ -136,8 +136,9 @@ test("renderMemoryDocument writes the canonical header, schema order, and no tru
 	assert.deepEqual(parsed, { project: ["p1"], invariants: ["i1", "i2"], pitfalls: ["q1"], index: ["x1"] });
 });
 
-test("renderMemoryDocument enforces the cap per section: clip an item, drop a flooded section whole", () => {
-	// A huge single entry: the per-item cap has to come from the section budget, not MAX_LIST_ITEM_CHARS.
+test("renderMemoryDocument keeps the document inside the cap and drops entries only when it is full", () => {
+	// A huge single entry: its section borrows the room the idle ones left, so the entry is kept (cut to
+	// the per-item cap) instead of being dropped for exceeding its own share.
 	const big = renderMemoryDocument({ project: [], invariants: [], pitfalls: [], index: ["x".repeat(803)] }, 4000);
 	assert.ok(big.text.length <= 4000);
 	assert.equal(big.itemTruncated, 1);
@@ -149,13 +150,17 @@ test("renderMemoryDocument enforces the cap per section: clip an item, drop a fl
 	assert.ok(many.droppedItems > 0);
 	assert.ok(!many.text.includes("_[memory truncated"));
 
-	// An entry clipped to the per-item cap and then rejected for good is dropped, not truncated: it is
-	// not in the document, so counting it as truncated would report a loss that never landed.
-	const clippedThenDropped = renderMemoryDocument({ project: ["p".repeat(500), "q".repeat(900)], invariants: [], pitfalls: [], index: [] }, 4000);
-	assert.equal(clippedThenDropped.droppedItems, 1, "the second entry does not fit beside the first");
+	// Once the document is really full the clipper still applies: an entry cut to the per-item cap and
+	// then rejected is dropped, not truncated. It is not in the document, so counting it as truncated
+	// would report a loss that never landed. The fixture fills Project's whole borrowed allowance (38
+	// entries of 100 characters cost 103 each = 3914, the body cap at 4000 being 3934) so the appended
+	// 900-character entry has nowhere to go.
+	const filled = Array.from({ length: 38 }, () => "s".repeat(100));
+	const clippedThenDropped = renderMemoryDocument({ project: [...filled, "q".repeat(900)], invariants: [], pitfalls: [], index: [] }, 4000);
+	assert.equal(clippedThenDropped.droppedItems, 1, "the section is full, so the long entry does not fit");
 	assert.equal(clippedThenDropped.itemTruncated, 0, "the dropped entry is not also reported as truncated");
-	assert.ok(clippedThenDropped.text.includes("p".repeat(500)), "the kept entry is in the document");
-	assert.ok(!clippedThenDropped.text.includes("q".repeat(100)), "the dropped entry is not");
+	assert.ok(clippedThenDropped.text.includes("s".repeat(100)), "the kept entries are in the document");
+	assert.ok(!clippedThenDropped.text.includes("q"), "the dropped entry is not");
 });
 
 test("memorySectionOverage mirrors the renderer, so a retry prompt names the real overage", () => {
@@ -174,7 +179,7 @@ test("memorySectionOverage mirrors the renderer, so a retry prompt names the rea
 	assert.equal(bigRows[0].truncatedEntries, bigRender.itemTruncated, "the over-long entry is the truncation");
 	assert.equal(bigRows[0].over, 0, "a single entry always fits its section, so nothing is over budget");
 	assert.ok(bigRows[0].itemCap > 0 && bigRows[0].itemCap < 803, `the entry was cut to the section's own item cap, got ${bigRows[0].itemCap}`);
-	assert.equal(bigRows[0].budget, memorySectionBudgets(4000).find((section) => section.heading === "Index").chars, "the budget in the prompt is the section's real share");
+	assert.equal(bigRows[0].budget, 803 + 3, "Index borrows its whole overage, so the retry names what it may actually spend");
 
 	const many = { project: Array.from({ length: 400 }, (_, index) => `short entry ${index}`), invariants: [], pitfalls: [], index: [] };
 	const manyRender = renderMemoryDocument(many, 4000);
@@ -187,13 +192,69 @@ test("memorySectionOverage mirrors the renderer, so a retry prompt names the rea
 
 	// The clipped-then-dropped shape: the entry is cut to the cap and then rejected whole, which the
 	// renderer reports as a drop and not as a truncation. The overage must agree.
-	const clippedThenDropped = { project: ["p".repeat(500), "q".repeat(900)], invariants: [], pitfalls: [], index: [] };
+	const filled = Array.from({ length: 38 }, () => "s".repeat(100));
+	const clippedThenDropped = { project: [...filled, "q".repeat(900)], invariants: [], pitfalls: [], index: [] };
 	const ctdRender = renderMemoryDocument(clippedThenDropped, 4000);
 	const ctdRows = memorySectionOverage(clippedThenDropped, 4000);
 	assert.equal(ctdRender.droppedItems, 1, "fixture: the renderer drops exactly one entry here");
 	assert.equal(ctdRows[0].droppedEntries, ctdRender.droppedItems, "and the overage agrees with the renderer");
 	assert.equal(ctdRows[0].truncatedEntries, 0, "the clipped-then-dropped entry is not counted as truncated");
 	assert.ok(ctdRows[0].over > 0);
+});
+
+test("a section over its share borrows the room its neighbours left instead of dropping entries", () => {
+	// The defect this fixes: the shares were hard caps, so this fixture lost Invariants entries even
+	// though the document was nowhere near its cap — an idle Project's headroom could not cover the
+	// overage. The old hard-share renderer is the mutation these assertions redden on.
+	const share = memorySectionBudgets(4000).find((section) => section.heading === "Invariants").chars;
+	const overShare = Array.from({ length: 10 }, (_, index) => `invariant ${index} ${"x".repeat(170)}`);
+	const demand = overShare.reduce((sum, entry) => sum + entry.length + 3, 0);
+	assert.ok(demand > share, `fixture: the entries really are over the Invariants share (${demand} > ${share})`);
+	const borrowed = renderMemoryDocument({ project: [], invariants: overShare, pitfalls: ["p"], index: ["i"] }, 4000);
+	assert.equal(borrowed.sectionDropped, 0, "a section over its share borrows instead of dropping entries");
+	assert.equal(borrowed.droppedItems, 0);
+	assert.ok(borrowed.text.length <= 4000, "the borrowed document stays inside the cap");
+	assert.equal(sectionsFromMarkdown(borrowed.text).invariants.length, 10, "every over-share entry survives the borrow");
+
+	// The other half: when the document is really full, entries do go — and the over-share section still
+	// takes the room its neighbours left, while a neighbour under its share keeps every entry.
+	const full = renderMemoryDocument(
+		{ project: [], invariants: Array.from({ length: 400 }, (_, index) => `entry-${index}-${"y".repeat(40)}`), pitfalls: ["keep me"], index: ["and me"] },
+		4000,
+	);
+	const parsedFull = sectionsFromMarkdown(full.text);
+	const invariantsSpent = parsedFull.invariants.reduce((sum, entry) => sum + entry.length + 3, 0);
+	assert.ok(full.droppedItems > 0 && full.sectionDropped >= 1, "a document that is really full still drops entries");
+	assert.ok(invariantsSpent > share, "the over-share section takes the room its neighbours left");
+	assert.deepEqual(parsedFull.pitfalls, ["keep me"], "a neighbour under its share keeps every entry");
+	assert.deepEqual(parsedFull.index, ["and me"]);
+	assert.ok(full.text.length <= 4000);
+
+	// The per-item cap follows the borrowed allowance, not the share: at cap 4000 the Index share is 353,
+	// so an 803-character entry would be clipped hard there, but Index borrows the idle room and the entry
+	// is cut at the MAX_LIST_ITEM_CHARS bound instead. This reddens if the item cap goes back to the share.
+	const keptWhole = renderMemoryDocument({ project: [], invariants: [], pitfalls: [], index: ["z".repeat(803)] }, 4000);
+	assert.equal(keptWhole.itemTruncated, 1);
+	assert.equal(sectionsFromMarkdown(keptWhole.text).index[0].length, 800, "the entry is cut to the per-item cap, not to the share");
+});
+
+test("the pool is the document's real body, not the sum of the targets", () => {
+	// The boundary the independent review caught: content whose canonical document fits the cap while the
+	// floored targets do not cover it. At cap 4000 the structure costs 66 characters, so bodies may spend
+	// 3934, while the four floored shares only add up to 3924. Ten 390-character entries need 3930 —
+	// inside the cap, outside the target sum — and charging the pool from the target sum drops one.
+	const tightEntries = Array.from({ length: 10 }, () => "t".repeat(390));
+	const need = tightEntries.reduce((sum, entry) => sum + entry.length + 3, 0);
+	const targetSum = memorySectionBudgets(4000).reduce((sum, section) => sum + section.chars, 0);
+	assert.ok(need > targetSum, `fixture: the entries exceed the target sum (${need} > ${targetSum})`);
+	assert.ok(
+		need + memoryStructureOverheadChars() <= 4000,
+		`fixture: the canonical document still fits the cap (${need + memoryStructureOverheadChars()} <= 4000)`,
+	);
+	const tight = renderMemoryDocument({ project: [], invariants: tightEntries, pitfalls: [], index: [] }, 4000);
+	assert.equal(tight.droppedItems, 0, "structurally unused characters are not spent as a dropped entry");
+	assert.equal(tight.text.length, memoryStructureOverheadChars() + need, "all ten entries are in the document");
+	assert.ok(tight.text.length <= 4000);
 });
 
 test("renderMemoryDocument fits 2000 random caps (the budget holds by construction)", () => {
@@ -205,6 +266,26 @@ test("renderMemoryDocument fits 2000 random caps (the budget holds by constructi
 		if (text.length > cap) over += 1;
 	}
 	assert.equal(over, 0);
+
+	// The guarantee the borrowing exists for, stated as a property: when the canonical document fits the
+	// cap, nothing is dropped, however unevenly the content sits across the sections. The premise has to
+	// be the document's own size (structure plus entries), not the sum of the targets: a target-floored
+	// pool is a few characters smaller than the cap, and charging those as drops is the bug this property
+	// exists to catch.
+	let fitsButDropped = 0;
+	let considered = 0;
+	for (let index = 0; index < 2000; index += 1) {
+		const cap = 4000 + Math.floor(Math.random() * 196_001);
+		const make = () => Array.from({ length: Math.floor(Math.random() * 6) }, () => "z".repeat(1 + Math.floor(Math.random() * 300)));
+		const shape = [make(), make(), make(), make()];
+		const wantedDoc = memoryStructureOverheadChars() + shape.reduce((sum, list) => sum + list.reduce((n, entry) => n + entry.length + 3, 0), 0);
+		if (wantedDoc > cap) continue;
+		considered += 1;
+		const fits = renderMemoryDocument({ project: shape[0], invariants: shape[1], pitfalls: shape[2], index: shape[3] }, cap);
+		if (fits.droppedItems > 0) fitsButDropped += 1;
+	}
+	assert.equal(fitsButDropped, 0, `a document that fits the cap never drops (${fitsButDropped} violations of ${considered})`);
+	assert.ok(considered > 100, `the property needs a real sample, got ${considered}`);
 });
 
 test("sectionsFromMarkdown accepts only a plain four-section bullet document and falls back otherwise", () => {
