@@ -115,6 +115,29 @@ ctx.on('llm/stream', (options, next) => {
 兜底**（B2 选项标签本身写着「备用兜底」）。因此本批**只落一个**：先按 §2/§3 做 B1，若复核或探针证明
 durability 口子不可接受，则改落 B2，并在 CHANGELOG 与本节写明被否的证据——**不得两个都留、不得留死代码**。
 
+### 落地裁决（2026-10-11，本批）：落 **B1-a**，B2 被否
+
+- **落的是 B1-a**（窄化 tracker：只把 pass 的**写阶段**交给 `SessionWorkTracker`）。入库探针
+  `.agents/evidence/2026-10-11-batchS-aux-route/aux-route-probe.mjs` 的三段各钉一环：① 用真实 `apply()` 布线 +
+  内联的 checkpoint policy 证明「身份已盖章、flush 在派发前返回」；② 用**修复前布线**的等价构造（整段 pass 挂 tracker）
+  证明环路仍可复现（flush 停在 pass 后面，只有 `FLUSH_WAIT_MS` 兜底），它不依赖树的状态，是本批的对照；
+  ③ 证明注册发生在模型调用**之后**且恰好一次。修复前 `exit 10`、修复后 `exit 0`。
+- **B2 被否的理由**：B2 是「字段名是会话身份、放的却是传输路由元数据」的语义谎报，而 B1-a 的代价被探针与用例
+  证明可接受——破环只要求「注册进 tracker 的那一段不等待派发」，而写阶段本来就不等待任何派发，所以 tracker 的
+  语义没有被削弱，只是被**说准**了（`src/shared/lifecycle.ts` 的类注释写明了这条唯一契约）。B2 的唯一优势是
+  不动 tracker，而 B1-a 对 tracker 的改动只是删掉两个调用位的整段 pass 注册（改为把写阶段交给同一个 tracker），
+  没有引入新状态、新键或新配置。
+- **B1-a 的已接受代价（登记，不是缺陷）**：`agent/status` / `agent/disposed` 上那次自动 pass 的**模型调用**不再被
+  `session/flush` await（写阶段仍然被 await）。旧行为把整段 pass 挂在 flush 上，代价是每次辅助调用白等满
+  `FLUSH_WAIT_MS`（90 s），且那次 flush 会在 pass 写下任何东西之前就给出「durable」的结论。模型调用本身不是可
+  持久化的工作，它的失败由 pass 自己的报告（`ConsolidateReport.status` / 命令回执）与 `errors.log` 承担——
+  `index.ts` 的两处 `void … .catch(() => undefined)` 与旧的 `pending.track` 吞掉拒绝的方式等价（tracker 的
+  `work.then(() => undefined, () => undefined)` 同样不上抛），所以这一半行为未变。
+- **B1-b 未采用**：重入守卫会让该会话在该窗口内的**任何** flush 提前返回（不只是 checkpoint 那一次），比 B1-a 粗。
+- **被本批改写的既有测试信号**：`test/top-level-gate.test.mjs` 的 `fire()`、`test/autolearn.test.mjs` 的开关用例
+  原先用 `session/flush` 当「整段 pass 完成」的信号；这正是本批窄化掉的东西，已改为按该文件既有的
+  「有界窗口 + 阳性对照」观察模型调用本身。
+
 ## 7. 立即解锁（与本批解耦，用户操作）
 
 设置卡片里的 `Provider` / `Model` 是**整理与技能沉淀共用**的路由覆盖，`resolveTarget` 第一优先读它
@@ -134,4 +157,6 @@ durability 口子不可接受，则改落 B2，并在 CHANGELOG 与本节写明�
 - 若最终落 B2，必须登记：路由键是**传输元数据**而非会话身份；`plugin-package-inventory-deepseek`
   这类按 `sessionId` 找 agent 的第三方插件会因为 `agents.get()` 取不到而跳过（当前行为不变）。
 - `FLUSH_WAIT_MS = 90_000` 是共享常量（`src/shared/lifecycle.ts:10`），本批不调整它本身；
-  若 B1-a 之后仍有别的路径依赖「整段 pass 被 flush await」，必须在 brief 里点名。
+  若 B1-a 之后仍有别的路径依赖「整段 pass 被 flush await」，必须在 brief 里点名。**点名结果**：`src/` 里没有
+  这样的路径（唯一读者是 `SessionWorkTracker.flush`，唯一写入者现在是 pass 的写阶段）；依赖它的是**两处测试信号**
+  与「`agent/disposed` 的模型调用被 flush await」这一条语义，前者已按 §6 改写、后者已作为 B1-a 的代价登记。

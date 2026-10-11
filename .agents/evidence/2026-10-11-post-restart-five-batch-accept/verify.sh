@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Post-restart acceptance for the five batches one restart certified (2026-10-11).
+# Post-restart acceptance for the six batches one restart certified (2026-10-11).
 #
 # Batches N (`2462d59`), O (`d405708`), Q (`1b18799`), R (`ee2e3b9`) and Q2 (`9edd119`) all changed
 # `src/project-memory/`, and none of them has a triggerable online surface: their observable
 # behaviour needs a real consolidation reply (a partial document, a lossy render, a truncation), so
-# no session log can witness them on demand. The acceptance is therefore a chain, re-derived here:
+# no session log can witness them on demand. Batch S (`0bf0b31`, the auxiliary-call session identity
+# and the narrowed durability tracker) joined them the same day, and it does have one user-facing
+# witness that a script cannot take: a real `/memory update` on the `opencode-go` route must no
+# longer write `MissingSessionID` into `.agents/memory/errors.log` (brief §5.6 — user action, after
+# the restart). The acceptance is therefore a chain, re-derived here:
 #
 #   1. the whole-tree load criterion (holder start after the last `src/` commit) plus per-batch
 #      attribution, `lib/` cleanliness, the restart target and live plugin activation
@@ -17,8 +21,8 @@
 #      continuation receives its second `session/title` after its own first human input
 #      -> `.agents/evidence/2026-10-07-handoff-retitle-accept/retitle-accept.mjs` (exit 2 =
 #      unobservable, never a failure);
-#   4. the behaviour the loaded code was probed for — the Q2 guard probe and the memory-share fit
-#      probe both `exit 0` against that same `lib/`.
+#   4. the behaviour the loaded code was probed for — the Q2 guard probe, the memory-share fit probe
+#      and batch S's aux-route probe all `exit 0` against that same `lib/`.
 #
 # What this does NOT witness is stated in README.md: checks 1-4 prove the memory write path is
 # loaded and behaves as probed, not that it has been exercised in the running host.
@@ -64,6 +68,8 @@ node .agents/evidence/2026-10-11-batchQ2-acceptance-guard/probe.mjs >/dev/null 2
 if [ $? -eq 0 ]; then ok "Q2 probe exit 0 (merge / refuse / report)"; else bad "Q2 probe failed"; fi
 node .agents/evidence/2026-10-05-memory-share-fix-offline-verify/share-fit.mjs >/dev/null 2>&1
 if [ $? -eq 0 ]; then ok "share-fit exit 0 (no whole-entry loss, byte-identical round trip)"; else bad "share-fit failed"; fi
+node .agents/evidence/2026-10-11-batchS-aux-route/aux-route-probe.mjs >/dev/null 2>&1
+if [ $? -eq 0 ]; then ok "batch S probe exit 0 (identity stamped, flush returns before dispatch, write phase tracked)"; else bad "batch S aux-route probe failed"; fi
 
 printf '\n%s\n' "$([ "$fail" -eq 0 ] && echo 'RESULT: PASS' || echo 'RESULT: FAIL')"
 exit "$fail"
