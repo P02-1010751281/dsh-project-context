@@ -1912,7 +1912,84 @@ test("tier C: a reply carrying no entries is the empty-skeleton gate's case, not
 	assert.equal(report.refusedLoss, undefined, "the cap is not named as what stopped the write");
 	assert.equal(report.memoryWritten, false);
 	assert.equal(report.status, "updated", "the context still landed");
-	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /carried no entries/);
+	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /was not a writable memory document/);
+});
+
+test("a conversational reply cannot replace a stored memory", async () => {
+	// The opaque path's own defect (batch Q): `isHeadingOnlyDocument` is one-sided by design and calls any
+	// wrapper holding real words content, so the model's opening line — carrying the canonical title —
+	// replaced the whole stored memory, silently and with no cap refusal to name. A reply is a memory
+	// document now only when it carries this extension's own shape.
+	const stored = "# Project Memory\n\n## Project\n- a durable fact worth keeping\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n";
+	for (const [label, reply] of [
+		["pi's field opener", "# Project Memory\n\nI'll review the frozen revision and record the durable lessons now."],
+		["prose plus one bullet", "# Project Memory\n\nI'll do the following:\n- review"],
+	]) {
+		const root = await memoryProject("dsh-opaque-shape-", stored);
+		const { calls, ctx, agent } = await consolidationFixture({
+			root,
+			replies: [{ text: JSON.stringify({ memory_markdown: reply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+		});
+		const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+		const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+		assert.equal(calls.length, 1, `${label}: a refused reply is not worth a retry`);
+		assert.equal(report.status, "updated", `${label}: the context still landed`);
+		assert.equal(report.memoryWritten, false, label);
+		assert.equal(report.refusedLoss, undefined, `${label}: the cap is not named as what stopped the write`);
+		assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, `${label}: the stored memory is byte-identical`);
+		assert.match(
+			await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"),
+			/\[memory\] the consolidation reply was not a writable memory document; the stored memory was kept unchanged$/m,
+			label,
+		);
+	}
+
+	// The control: a reply carrying the shape still lands, so the gate refuses the shape, not the path.
+	const root = await memoryProject("dsh-opaque-shape-ok-", stored);
+	const control = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a rewritten durable fact\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const controlReport = await consolidateProject(control.ctx, config, control.agent, { force: true, silent: true });
+
+	assert.equal(controlReport.memoryWritten, true, JSON.stringify(controlReport));
+
+	// The stored-side floor: a store with nothing worth protecting (below the floor once its title is
+	// stripped) does not refuse, so a fresh project is not frozen out of its first memory.
+	const small = await memoryProject("dsh-opaque-shape-small-", "# Project Memory\n\n- tiny\n");
+	const smallFixture = await consolidationFixture({
+		root: small,
+		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\nI'll review the frozen revision and record the durable lessons now.", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+
+	const smallReport = await consolidateProject(smallFixture.ctx, config, smallFixture.agent, { force: true, silent: true });
+
+	assert.equal(smallReport.memoryWritten, true, "a store below the floor has nothing to protect");
+	assert.match(await readFile(path.join(small, ".agents", "memory", "MEMORY.md"), "utf8"), /I'll review the frozen revision/);
+
+	// Which door closes an over-cap prose reply is a property of the STORE, not of the reply, so both ends
+	// are pinned. `an over-cap opaque reply is refused instead of landing a capped document` covers the
+	// below-floor store (both `storedIsDocument` terms false, so tier C's cap path still owns it); against a
+	// mature four-section store the same reply is closed by the shape gate first, so there is no retry and
+	// the cap is never named as the blocker.
+	const overCap = `# Project Memory\n\n${"a prose memory paragraph. ".repeat(400)}`;
+	const matureRoot = await memoryProject("dsh-opaque-shape-overcap-", stored);
+	const mature = await consolidationFixture({
+		root: matureRoot,
+		replies: [{ text: JSON.stringify({ memory_markdown: overCap, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const tight = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4_000, forceDedupeMs: 0 });
+
+	const matureReport = await consolidateProject(mature.ctx, tight, mature.agent, { force: true, silent: true });
+
+	assert.equal(mature.calls.length, 1, "the shape gate closes it before tier C, so the over-cap reply gets no retry");
+	assert.equal(matureReport.status, "updated", JSON.stringify(matureReport));
+	assert.equal(matureReport.refusedLoss, undefined, "the cap is not named as what stopped the write");
+	assert.equal(await readFile(path.join(matureRoot, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the mature store is byte-identical");
 });
 
 test("a failure after a refusal does not hide the refusal", async () => {
@@ -2222,7 +2299,7 @@ test("the memory read cap is counted as characters the model was not shown", asy
 	// Guard the other half: the fit must not clip, or the count below could be the fit's.
 	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, false, "fixture: the input fit is not the cap here");
 
-	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 
@@ -2253,7 +2330,7 @@ test("the read cap and the input fit are counted separately, never substituted f
 	assert.ok(loaded.cappedDroppedChars > 0, "fixture: the read cap cut the stored document");
 	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, true, "fixture: the fit cuts the already-capped text too");
 
-	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 

@@ -23,7 +23,9 @@ import {
 	type MemoryRender,
 	type MemorySectionOverage,
 	type MemorySections,
+	OPAQUE_DOCUMENT_MIN_CHARS,
 	RECORD_MEMORY_TOOL,
+	hasMemoryDocumentShape,
 	isHeadingOnlyDocument,
 	memorySectionOverage,
 	renderMemoryDocument,
@@ -364,17 +366,50 @@ function resolveReply(completion: CompletionOutcome, allowTools: boolean): Resol
 }
 
 /**
+ * The stored-side half of the opaque gate: whether the store holds a document worth protecting.
+ *
+ * A canonical four-section parse is a document by definition. Anything else — a hand-written memory in
+ * another shape, a legacy free-form memory — is judged by substance, because it is exactly as much to lose
+ * as a canonical one; and a store below the floor (a fresh project) has nothing to protect, which is what
+ * keeps a short reply's own "too short to be a change" report (`index.ts`) honest instead of turning it
+ * into this refusal.
+ */
+function storedIsDocument(text: string): boolean {
+	return (
+		sectionsFromMarkdown(text) !== undefined ||
+		text.replace(/^\s*#\s*Project Memory[ \t]*(?:\r?\n|$)/i, "").trim().length >= OPAQUE_DOCUMENT_MIN_CHARS
+	);
+}
+
+/**
+ * A conversational reply that would replace a real memory: not this extension's shape, long enough to be
+ * a deliberate document, and aimed at a store that already holds one.
+ */
+function isConversationalOpaque(reply: string, storedText: string): boolean {
+	return !hasMemoryDocumentShape(reply) && reply.trim().length >= OPAQUE_DOCUMENT_MIN_CHARS && storedIsDocument(storedText);
+}
+
+/**
  * True when a resolved reply carries nothing worth storing.
  *
- * The opaque entry has no sections, so its half of the gate is "is this a document at all". The
- * sectioned entries are judged on the document the renderer would actually store, not only on the
- * section arrays: an entry that is itself a heading (`"## Project"`) contains letters, so the
- * array-level check passes, but it renders to a structural line — the very bytes the opaque half
- * refuses. Judging both keeps the two halves agreeing on the same document; a real entry (`- p1`,
- * `- #1 rule must hold`, `- a durable fact`) is content in both, so nothing genuine is refused.
+ * The opaque entry has no sections, so its half of the gate is "is this a document at all", in two steps:
+ * a body-less reply is refused outright, and any other opaque reply must carry this extension's own shape
+ * whenever the store holds a document. That second step closes the silent whole-document replacement:
+ * `isHeadingOnlyDocument` is one-sided by design and calls any wrapper holding real words content, so
+ * `# Project Memory\n\nI'll review the frozen revision …` used to replace the stored memory. Refusing it
+ * costs a legitimately written but unparseable reply — the stored memory is kept and a diagnostic is
+ * logged — which is the trade the shape gate accepted over a silent replacement.
+ *
+ * The sectioned entries are judged on the document the renderer would actually store, not only on the
+ * section arrays: an entry that is itself a heading (`"## Project"`) contains letters, so the array-level
+ * check passes, but it renders to a structural line — the very bytes the opaque half refuses. Judging both
+ * keeps the two halves agreeing on the same document; a real entry (`- p1`, `- #1 rule must hold`,
+ * `- a durable fact`) is content in both, so nothing genuine is refused.
  */
-function replyIsSemanticallyEmpty(resolved: ResolvedReply, render: MemoryRender | undefined): boolean {
-	if (resolved.sections === undefined) return isHeadingOnlyDocument(resolved.result.memory);
+function replyIsSemanticallyEmpty(resolved: ResolvedReply, render: MemoryRender | undefined, storedText: string): boolean {
+	if (resolved.sections === undefined) {
+		return isHeadingOnlyDocument(resolved.result.memory) || isConversationalOpaque(resolved.result.memory, storedText);
+	}
 	return sectionsSemanticallyEmpty(resolved.sections) || (render !== undefined && isHeadingOnlyDocument(render.text));
 }
 
@@ -539,7 +574,7 @@ export function consolidateProjectState(
 		// A reply with no entries at all is the empty-skeleton gate's case, not tier C's: there is
 		// nothing to shrink, and calling it a refusal would name the cap as the blocker when the
 		// semantic gate is what stops the write.
-		if (loss.retryWorthy && !replyIsSemanticallyEmpty(resolved, render)) {
+		if (loss.retryWorthy && !replyIsSemanticallyEmpty(resolved, render, existing.text)) {
 			// The retry exists to avoid a refusal, not to decide one: the first reply's own loss already
 			// says whether it may be stored. A retry that dies for its own reason — a transport error, an
 			// unreadable reply — must therefore not erase that decision. Reporting `failed` would hide a
@@ -565,7 +600,7 @@ export function consolidateProjectState(
 			// nothing — an empty stream, or a tool call the JSON-text prompt cannot read — would turn a
 			// real but oversized memory into "no new memory", and the semantic-empty gate would then skip
 			// the write while the receipt reported a plain update.
-			if (retryResolved !== undefined && !replyIsSemanticallyEmpty(retryResolved, retryRender)) {
+			if (retryResolved !== undefined && !replyIsSemanticallyEmpty(retryResolved, retryRender, existing.text)) {
 				const retryLoss = memoryLoss(retryResolved, retryRender, config.maxMemoryChars);
 				// Ask for a smaller document, but never at the price of the memory: a retry that would be
 				// refused does not replace a first reply that would have landed (an entry cut to its
@@ -580,18 +615,19 @@ export function consolidateProjectState(
 			// reply whenever the retry did not answer at all.
 			memoryLossyRefused = loss.refuses;
 		}
-		const semanticEmpty = replyIsSemanticallyEmpty(resolved, render);
+		const semanticEmpty = replyIsSemanticallyEmpty(resolved, render, existing.text);
 		// The gate above owns a reply with no entries; a refusal must not claim the cap stopped it.
 		if (semanticEmpty) memoryLossyRefused = false;
 		const result: ConsolidationResult = { ...resolved.result, memory: render === undefined ? resolved.result.memory : render.text };
 		const version = (nextVersion += 1);
 		throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
 		if (semanticEmpty && existing.text.trim()) {
-			// A reply with no entries at all renders as a bare four-heading skeleton, and an opaque
-			// reply that is only headings is the same thing with the headings lost. Writing either
-			// would replace a real memory with nothing, so the write is skipped outright — and since
-			// that is a silent no-op from the outside, it always leaves a diagnostic.
-			await logError(projectRoot, "memory", "the consolidation reply carried no entries; the stored memory was kept unchanged");
+			// Two shapes land here: a reply with no entries at all (a bare four-heading skeleton, and an
+			// opaque reply that is only headings, which is the same thing with the headings lost), and a
+			// conversational opaque reply aimed at a store that already holds a document. Writing either
+			// would replace a real memory with something that is not one, so the write is skipped
+			// outright — and since that is a silent no-op from the outside, it always leaves a diagnostic.
+			await logError(projectRoot, "memory", "the consolidation reply was not a writable memory document; the stored memory was kept unchanged");
 		}
 		if (result.contextUnusable) {
 			// Memory still lands, but CONTEXT.md keeps its previous content: say so on every pass, not

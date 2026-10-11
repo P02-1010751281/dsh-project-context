@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	hasMemoryDocumentShape,
 	isHeadingOnlyDocument,
 	isMemoryEntryEmpty,
 	memorySectionOverage,
@@ -451,7 +452,59 @@ test("isHeadingOnlyDocument refuses a body-less reply, however it is wrapped", (
 
 	// A heading's own text is not a body: a document made only of heading lines carries nothing.
 	assert.ok(isHeadingOnlyDocument("## Project Memory uses Postgres\n"));
-	// The recorded fail-open boundary: a wrapper that holds real words is content.
+	// The boundary this function records is now closed one level up: a wrapper that holds real words still
+	// counts as content here, and `hasMemoryDocumentShape` is what refuses it in front of a live store.
 	assert.ok(!isHeadingOnlyDocument(`Here is the consolidated project memory:\n${skeleton}`));
 	assert.ok(!isHeadingOnlyDocument("Project Memory\n---\nInvariants\n---\n"));
+	assert.ok(!hasMemoryDocumentShape(`Here is the consolidated project memory:\n${skeleton}`));
+});
+
+test("hasMemoryDocumentShape accepts only this extension's own document shape", () => {
+	// The acceptance gate the opaque path reads (batch Q): a reply may replace a stored memory only when it
+	// carries at least one known `## <section>` heading at column 0 with a `- ` entry at column 0 under it,
+	// outside fenced blocks. A subset of the four sections is a legitimate partial document; everything else
+	// is a shape this extension never writes. pi's wider subsets (any heading, bullet or fence anywhere)
+	// lived through review rounds 18-21 and produced a fail-open in each one, so the gate is the schema.
+	const accepted = {
+		"the full document": "## Project\n- a\n\n## Invariants\n- b\n\n## Pitfalls\n- c\n\n## Index\n- d",
+		"one section alone": "## Project\n- a",
+		"the optional title first": "# Project Memory\n\n## Project\n- a",
+		"a CRLF document": "# Project Memory\r\n\r\n## Project\r\n- a",
+		"a plain CR document": "# Project Memory\r## Project\r- a",
+		"a U+2028 document": "# Project Memory\u2028## Project\u2028- a",
+		"a fenced sample between the heading and its entry": "## Project\n```\n- not an entry\n```\n- a",
+		"a known heading after an unknown one": "## Notes\n- no\n\n## Pitfalls\n- yes",
+		// Recorded boundary, kept so it is not "fixed" by accident: prose between our heading and a later
+		// column-0 entry does not end the section, so the reply still carries the shape.
+		"prose between the heading and a later entry": "## Project\nsome prose\n- a",
+	};
+	for (const [label, text] of Object.entries(accepted)) {
+		assert.ok(hasMemoryDocumentShape(text), label);
+	}
+	// The shape gate is deliberately looser than the parse: a partial document is writable but still opaque,
+	// so it replaces the stored memory verbatim rather than being rendered into four sections.
+	assert.equal(sectionsFromMarkdown("## Project\n- a"), undefined, "a partial document is not parseable");
+
+	const refused = {
+		// pi's v0.4.7 field incident: a conversational opener carrying the canonical title.
+		"a conversational opener": "# Project Memory\n\nI'll review the frozen revision and record the durable lessons now.",
+		"prose plus one bullet": "# Project Memory\n\nI'll do the following:\n- review",
+		"prose with no heading at all": "Here is the consolidated project memory.",
+		"a heading with no entry": "## Project\n",
+		"an empty document": "",
+		"an entry before any heading": "- a",
+		"a star bullet": "## Project\n* a",
+		"a numbered entry": "## Project\n1. a",
+		"an indented entry": "## Project\n  - a",
+		"an unknown section": "## Notes\n- a",
+		"a deeper heading": "### Project\n- a",
+		"a heading inside a fence": "```\n## Project\n- a\n```",
+		"a fence opened behind a list marker swallows what follows": "## Project\n- ```\n- a",
+		"a setext heading": "Project\n-------\n- a",
+		"an HTML heading": "<h2>Project</h2>\n- a",
+		"a section ended by a lower heading": "## Project\n# Notes\n- a",
+	};
+	for (const [label, text] of Object.entries(refused)) {
+		assert.ok(!hasMemoryDocumentShape(text), label);
+	}
 });

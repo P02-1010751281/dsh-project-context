@@ -36,6 +36,15 @@ function sectionKey(heading: string): SectionKey {
 
 const SECTION_KEYS: SectionKey[] = MEMORY_SECTIONS.map((section) => sectionKey(section.heading));
 
+/**
+ * Heading text (lower-cased) to section. Both readers of a `## <section>` heading — the shape gate and
+ * `sectionsFromMarkdown` — resolve it through this one map, so "which headings are ours" is written down
+ * once.
+ */
+const SECTION_KEY_BY_HEADING = new Map<string, SectionKey>(
+	MEMORY_SECTIONS.map((section) => [section.heading.toLowerCase(), sectionKey(section.heading)]),
+);
+
 /** A character that makes an entry worth keeping; symbols and formatting alone do not. */
 const CONTENT_RE = /[\p{L}\p{N}]/u;
 
@@ -286,6 +295,10 @@ export function memorySectionOverage(sections: MemorySections, cap: number): Mem
 /** An ATX heading: one or more `#` followed by whitespace or end of line. `#1 rule` is not one. */
 const ATX_HEADING_RE = /^#{1,}(?:\s.*)?$/;
 
+/** The one optional document title, and the only heading level a section may use. */
+const HEADER_RE = /^#\s*Project Memory$/i;
+const HEADING_RE = /^##\s+(.+)$/;
+
 /** Line separators a reply may use. Normalized to `\n` before anything else looks at lines. */
 const LINE_SEPARATOR_RE = /\r\n?|[\u2028\u2029]/g;
 
@@ -297,6 +310,28 @@ const DECORATION_RE = /^(?:(?:>\s*|[-*+]\s+|\d+[.)]\s+))*/;
 
 /** A fence line, capturing its family so a `~~~` block is not closed by a `````` line. */
 const FENCE_LINE_RE = /^(`{3,}|~{3,})\s*(.*)$/;
+
+/** A fence line as CommonMark reads it: a run of three or more backticks or tildes plus whatever follows. */
+export type FenceToken = { char: string; run: string; info: string };
+
+/** The fence line in `value`, or `undefined` when the line is not a fence line at all. */
+export function readFenceLine(value: string): FenceToken | undefined {
+	const match = FENCE_LINE_RE.exec(value);
+	return match ? { char: match[1][0], run: match[1], info: match[2].trim() } : undefined;
+}
+
+/**
+ * Whether `token` closes a block opened by `open`: the same character, at least as long, and nothing but
+ * whitespace after the run — an info string makes a line an opener, not a closer.
+ *
+ * Both readers of fences (the heading-only gate and the document-shape gate) share this, so neither can
+ * mirror only half the rule. dsh had this rule inlined in the heading-only gate once; a second hand-rolled
+ * reader in the shape gate is exactly the kind of near-copy that drifts.
+ */
+export function fenceCloses(token: FenceToken, open: FenceToken): boolean {
+	return token.char === open.char && token.run.length >= open.run.length && token.info === "";
+}
+
 const THEMATIC_LINE_RE = /^(?:[-*_]\s*){3,}$/;
 const HTML_HEADING_LINE_RE = /^<h[1-6][^>]*>.*<\/h[1-6]>$/i;
 /**
@@ -351,12 +386,14 @@ function canonicalLine(line: string): string {
  * decoration is dropped first, `- # 1 rule must hold` is judged on `# 1 rule must hold`, i.e. as a
  * heading: a memory whose body is only such bullets is refused.
  *
- * The gate is a heuristic and it is deliberately one-sided. Any wrapper that holds real words — a
- * prose preamble, an element with text inside, a `---` setext heading — is content, because the only
- * other answer is "refuse a memory the model did write". A body-less reply decorated that way
- * therefore still gets through; those boundaries are recorded rather than closed. Markup alone does
- * not: a lone `<T>` and an `<hN>…</hN>` pair are both refused (`isTagOnlyLine` /
- * `HTML_HEADING_LINE_RE`), so the fail-open covers wrappers carrying words, not empty tags.
+ * The gate is a heuristic and it is deliberately one-sided: any wrapper that holds real words — a
+ * prose preamble, an element with text inside, a `---` setext heading — is content, because this
+ * function's only other answer would be "refuse a memory the model did write". It is therefore not the
+ * last word on what may replace a stored memory: `hasMemoryDocumentShape` is the gate the opaque path
+ * actually reads, and it refuses such a wrapper outright whenever the store already holds a document.
+ * Markup alone is still refused here: a lone `<T>` and an `<hN>…</hN>` pair are both structural
+ * (`isTagOnlyLine` / `HTML_HEADING_LINE_RE`), so the fail-open covers wrappers carrying words, not
+ * empty tags.
  *
  * This is also looser than the `sectionsFromMarkdown` contract: there, anything unusual means "fall
  * back to the verbatim path"; here, anything unusual must still count as content.
@@ -370,10 +407,7 @@ export function isHeadingOnlyDocument(value: string): boolean {
 	const lines = raw.map(canonicalLine);
 	// Fences are read from the RAW line: in markdown a decorated line (`> ``` `) does not close a block,
 	// so canonicalizing first would let it flip the parity and let `===` eat a real body line.
-	const fences = raw.map((line) => {
-		const match = FENCE_LINE_RE.exec(line);
-		return match ? { run: match[1], char: match[1][0], info: match[2].trim() } : undefined;
-	});
+	const fences = raw.map((line) => readFenceLine(line));
 	const structural = lines.map(
 		(line, index) => line === "" || fences[index] !== undefined || THEMATIC_LINE_RE.test(line) || isTagOnlyLine(line) || HTML_HEADING_LINE_RE.test(line),
 	);
@@ -381,12 +415,12 @@ export function isHeadingOnlyDocument(value: string): boolean {
 	// but never inside a block: there it is just a line of the body, and eating the line above it would
 	// drop that block's only real content. A block closes only on its OWN family, so a `~~~` block is
 	// not closed by a `````` line.
-	let openFence: { run: string; char: string; info: string } | undefined;
+	let openFence: FenceToken | undefined;
 	for (let index = 0; index < lines.length; index += 1) {
 		const fence = fences[index];
 		if (fence) {
 			if (!openFence) openFence = fence;
-			else if (fence.char === openFence.char && fence.run.length >= openFence.run.length && fence.info === "") openFence = undefined;
+			else if (fenceCloses(fence, openFence)) openFence = undefined;
 			continue;
 		}
 		// The underline is tested on the RAW line: `- ===` is a bullet, not a setext underline.
@@ -397,8 +431,100 @@ export function isHeadingOnlyDocument(value: string): boolean {
 		.some((line) => !ATX_HEADING_RE.test(line) && CONTENT_RE.test(line));
 }
 
-const HEADER_RE = /^#\s*Project Memory$/i;
-const HEADING_RE = /^##\s+(.+)$/;
+/**
+ * The substance floor shared by both sides of the opaque gate: a stored memory shorter than this (once
+ * its title is stripped) is a fresh project with nothing worth protecting, and a reply shorter than this
+ * is not a change worth storing. `index.ts` reads the same constant for its write floor, so the number
+ * that decides "too small to be a memory" is written down once.
+ */
+export const OPAQUE_DOCUMENT_MIN_CHARS = 40;
+
+/**
+ * Whether `line` ends the scope a `## <section>` heading opened: another heading, a setext underline, or
+ * the start of an HTML block. All three are fail-closed — the reply merely loses its claim to be a
+ * document, and the stored memory is kept.
+ *
+ * A single `-` is a setext underline in CommonMark, like `=` and `--`, and up to three leading spaces are
+ * still a setext line (four make it an indented code block). Anything starting with `<` opens an HTML
+ * block, which swallows what follows: the spec's starts include `<?`, `<!`, `<![CDATA[` and a block tag
+ * name ending the line, so matching only same-line closed tags would leave those open. This extension
+ * never writes a line starting with `<`.
+ *
+ * Callers must normalize line endings first, so the `$` anchors can be trusted.
+ */
+function endsSectionScope(line: string): boolean {
+	return /^\s*#/.test(line) || /^ {0,3}(?:=+|-+)[ \t]*$/.test(line) || /^\s*</.test(line);
+}
+
+/**
+ * The line with every leading list marker removed (`- - ``` ` -> ` ``` `).
+ *
+ * The leading-space strip is capped at three spaces *per pass* and the loop re-applies it, so a line
+ * indented four or more spaces can still be read as a fence here. That is deliberately loose and
+ * fail-closed — it can only hide content, never publish a reply that markdown would call prose.
+ */
+function stripListMarkers(value: string): string {
+	let out = value;
+	for (;;) {
+		const next = out.replace(/^ {1,3}/, "").replace(/^([-*+][ \t]+|\d+[.)][ \t]+)/, "");
+		if (next === out) return out;
+		out = next;
+	}
+}
+
+/**
+ * Whether `value` carries this extension's own document shape: at least one known `## <section>` heading
+ * at column 0 with at least one `- ` entry at column 0 under it, outside fenced blocks.
+ *
+ * This is the gate the opaque path reads before it lets a reply replace a stored memory. The defect it
+ * closes: `isHeadingOnlyDocument` is one-sided and calls any wrapper holding real words content, so a
+ * conversational reply carrying the canonical title (`# Project Memory\n\nI'll review the frozen
+ * revision …`) replaced the whole stored memory, silently. The acceptance rule is this module's vocabulary
+ * and nothing wider: a subset of the four sections is a legitimate partial document (`## Project\n- x`),
+ * while another heading level, a setext or HTML heading, `*`, numbered or indented entries, prose and a
+ * heading with no entry are not the shape this extension writes, so a reply carrying them never enters
+ * the store — the memory is kept and a diagnostic is logged.
+ *
+ * Hand-rolling a wider markdown subset here (any heading, bullet or fence anywhere) was pi's round 18-21
+ * review detour: four rounds, each finding another fail-open, and its only gain was accepting reply shapes
+ * this extension never writes. So the gate is the schema itself. Line endings are normalized first, like
+ * every other anchored reader in this module.
+ */
+export function hasMemoryDocumentShape(value: string): boolean {
+	let inFence: FenceToken | undefined;
+	let underKnownHeading = false;
+	for (const line of value.replace(LINE_SEPARATOR_RE, "\n").split("\n")) {
+		// A fence may be indented by up to three spaces (four make it an indented code block), and it may
+		// open behind a list marker — `- ``` ` is a fence in a list item, not an entry. Markers are stripped
+		// repeatedly, so a nested item (`- - ``` `) is a fence too, and only *outside* a block: inside one,
+		// `- ``` ` is content, and stripping there would let it close the block early.
+		const fence = readFenceLine(inFence ? line.replace(/^ {1,3}/, "") : stripListMarkers(line));
+		if (inFence) {
+			if (fence && fenceCloses(fence, inFence)) inFence = undefined;
+			continue;
+		}
+		if (fence) {
+			// The heading is *not* forgotten here: a fenced sample between a section and its entries must not
+			// cost the section (`## Project` + a fenced block + `- x` is still a document). The fence state
+			// already keeps the block's own lines out of the scan.
+			inFence = fence;
+			continue;
+		}
+		const heading = HEADING_RE.exec(line);
+		if (heading) {
+			underKnownHeading = SECTION_KEY_BY_HEADING.has(heading[1].trim().toLowerCase());
+			continue;
+		}
+		// Any other ATX heading ends the section, and so does a setext underline or an HTML heading: the
+		// entry under it is not under `## Project`. Both resets are fail-closed.
+		if (endsSectionScope(line)) {
+			underKnownHeading = false;
+			continue;
+		}
+		if (underKnownHeading && line.startsWith("- ")) return true;
+	}
+	return false;
+}
 
 /**
  * Read a stored memory document back into sections, or `undefined` when it is not a plain
@@ -416,9 +542,6 @@ export function sectionsFromMarkdown(value: string): MemorySections | undefined 
 		if (isMemoryTruncationLine(lines[index])) lines[index] = "";
 		break;
 	}
-	const headingByLower = new Map<string, SectionKey>(
-		MEMORY_SECTIONS.map((section) => [section.heading.toLowerCase(), sectionKey(section.heading)]),
-	);
 	const sections: MemorySections = { project: [], invariants: [], pitfalls: [], index: [] };
 	const seen = new Set<SectionKey>();
 	let current: SectionKey | undefined;
@@ -433,7 +556,7 @@ export function sectionsFromMarkdown(value: string): MemorySections | undefined 
 		}
 		const heading = HEADING_RE.exec(line);
 		if (heading) {
-			const key = headingByLower.get(heading[1].trim().toLowerCase());
+			const key = SECTION_KEY_BY_HEADING.get(heading[1].trim().toLowerCase());
 			// An unknown section (`## Notes`) means this document is not the fixed schema.
 			if (!key) return undefined;
 			current = key;

@@ -36,6 +36,7 @@ import {
 	writeAtomic,
 } from "../shared/project-state.js";
 import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
+import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
 import { withMemoryLock } from "../shared/lock.js";
 
 export const name = "project-memory";
@@ -189,17 +190,19 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return cleanReport("deduped");
 
 			const memoryText = outcome.result.memory.trim();
-			// A reply that carried no entries renders as a bare four-heading skeleton: it is over the
-			// length floor but is not a memory, so the pass's gate must win over the length heuristic.
+			// A reply that carried no entries renders as a bare four-heading skeleton, and a conversational
+			// opaque reply is one that carries no section of ours at all: both are over the length floor but
+			// are not memories, so the pass's gate must win over the length heuristic.
 			// A refused reply is excluded for the opposite reason: it is a real memory this plugin
 			// deliberately did not store, and writing it would be the silent loss the refusal exists to
-			// prevent.
+			// prevent. The floor is the same constant the opaque gate reads, so "too small to be a
+			// memory" is one number, not two.
 			const memoryRefused = outcome.memoryLossyRefused;
-			const memoryChanged = !memoryRefused && !outcome.semanticEmpty && memoryText.length >= 40;
+			const memoryChanged = !memoryRefused && !outcome.semanticEmpty && memoryText.length >= OPAQUE_DOCUMENT_MIN_CHARS;
 			if (!memoryChanged && !memoryRefused && !outcome.semanticEmpty && memoryText.length > 0) {
 				// The length floor discards a short reply with no other trace at all: a tiny but real
 				// memory must not vanish while the receipt still reports the pass as clean.
-				await logError(projectRoot, "memory", `the consolidation reply carried a ${memoryText.length}-character memory, below the ${40}-character floor; the stored memory was kept unchanged`);
+				await logError(projectRoot, "memory", `the consolidation reply carried a ${memoryText.length}-character memory, below the ${OPAQUE_DOCUMENT_MIN_CHARS}-character floor; the stored memory was kept unchanged`);
 			}
 			/** What a refused reply would have lost, named per refusal and never counted as landed. */
 			let refusedLoss: RefusedLoss | undefined;

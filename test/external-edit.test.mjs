@@ -26,7 +26,10 @@ import { memoryFile } from "../lib/shared/project-state.js";
 
 const SEED = "# Project Memory\n\n- the memory this pass read before the model call.\n";
 const HAND_EDIT = "# Project Memory\n\n- the hand edit that landed while the reply was being built.\n";
-const REPLY_MEMORY = "# Project Memory\n\n- the reply's own line, which must never reach the file while the edit is newer.\n";
+// The reply carries the section shape batch Q requires of any opaque reply aimed at a store that already
+// holds a document (`hasMemoryDocumentShape`): a bare `- ` list under the title is no longer writable, so a
+// free-form fixture would be refused at the semantic gate before the race this suite is about.
+const REPLY_MEMORY = "# Project Memory\n\n## Project\n- the reply's own line, which must never reach the file while the edit is newer.\n";
 const REPLY = JSON.stringify({ memory_markdown: REPLY_MEMORY, context: { title: "stale", summary: "s", key_points: [], open_tasks: [] } });
 
 /** One project with a journal-backed memory, plus a model stub that can act mid-call. */

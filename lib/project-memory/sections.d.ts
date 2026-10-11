@@ -98,6 +98,23 @@ export type MemorySectionOverage = {
  * non-zero `truncatedEntries`: it needs rewording, not merging.
  */
 export declare function memorySectionOverage(sections: MemorySections, cap: number): MemorySectionOverage[];
+/** A fence line as CommonMark reads it: a run of three or more backticks or tildes plus whatever follows. */
+export type FenceToken = {
+    char: string;
+    run: string;
+    info: string;
+};
+/** The fence line in `value`, or `undefined` when the line is not a fence line at all. */
+export declare function readFenceLine(value: string): FenceToken | undefined;
+/**
+ * Whether `token` closes a block opened by `open`: the same character, at least as long, and nothing but
+ * whitespace after the run — an info string makes a line an opener, not a closer.
+ *
+ * Both readers of fences (the heading-only gate and the document-shape gate) share this, so neither can
+ * mirror only half the rule. dsh had this rule inlined in the heading-only gate once; a second hand-rolled
+ * reader in the shape gate is exactly the kind of near-copy that drifts.
+ */
+export declare function fenceCloses(token: FenceToken, open: FenceToken): boolean;
 /**
  * True when a document carries no usable content at all.
  *
@@ -118,17 +135,45 @@ export declare function memorySectionOverage(sections: MemorySections, cap: numb
  * decoration is dropped first, `- # 1 rule must hold` is judged on `# 1 rule must hold`, i.e. as a
  * heading: a memory whose body is only such bullets is refused.
  *
- * The gate is a heuristic and it is deliberately one-sided. Any wrapper that holds real words — a
- * prose preamble, an element with text inside, a `---` setext heading — is content, because the only
- * other answer is "refuse a memory the model did write". A body-less reply decorated that way
- * therefore still gets through; those boundaries are recorded rather than closed. Markup alone does
- * not: a lone `<T>` and an `<hN>…</hN>` pair are both refused (`isTagOnlyLine` /
- * `HTML_HEADING_LINE_RE`), so the fail-open covers wrappers carrying words, not empty tags.
+ * The gate is a heuristic and it is deliberately one-sided: any wrapper that holds real words — a
+ * prose preamble, an element with text inside, a `---` setext heading — is content, because this
+ * function's only other answer would be "refuse a memory the model did write". It is therefore not the
+ * last word on what may replace a stored memory: `hasMemoryDocumentShape` is the gate the opaque path
+ * actually reads, and it refuses such a wrapper outright whenever the store already holds a document.
+ * Markup alone is still refused here: a lone `<T>` and an `<hN>…</hN>` pair are both structural
+ * (`isTagOnlyLine` / `HTML_HEADING_LINE_RE`), so the fail-open covers wrappers carrying words, not
+ * empty tags.
  *
  * This is also looser than the `sectionsFromMarkdown` contract: there, anything unusual means "fall
  * back to the verbatim path"; here, anything unusual must still count as content.
  */
 export declare function isHeadingOnlyDocument(value: string): boolean;
+/**
+ * The substance floor shared by both sides of the opaque gate: a stored memory shorter than this (once
+ * its title is stripped) is a fresh project with nothing worth protecting, and a reply shorter than this
+ * is not a change worth storing. `index.ts` reads the same constant for its write floor, so the number
+ * that decides "too small to be a memory" is written down once.
+ */
+export declare const OPAQUE_DOCUMENT_MIN_CHARS = 40;
+/**
+ * Whether `value` carries this extension's own document shape: at least one known `## <section>` heading
+ * at column 0 with at least one `- ` entry at column 0 under it, outside fenced blocks.
+ *
+ * This is the gate the opaque path reads before it lets a reply replace a stored memory. The defect it
+ * closes: `isHeadingOnlyDocument` is one-sided and calls any wrapper holding real words content, so a
+ * conversational reply carrying the canonical title (`# Project Memory\n\nI'll review the frozen
+ * revision …`) replaced the whole stored memory, silently. The acceptance rule is this module's vocabulary
+ * and nothing wider: a subset of the four sections is a legitimate partial document (`## Project\n- x`),
+ * while another heading level, a setext or HTML heading, `*`, numbered or indented entries, prose and a
+ * heading with no entry are not the shape this extension writes, so a reply carrying them never enters
+ * the store — the memory is kept and a diagnostic is logged.
+ *
+ * Hand-rolling a wider markdown subset here (any heading, bullet or fence anywhere) was pi's round 18-21
+ * review detour: four rounds, each finding another fail-open, and its only gain was accepting reply shapes
+ * this extension never writes. So the gate is the schema itself. Line endings are normalized first, like
+ * every other anchored reader in this module.
+ */
+export declare function hasMemoryDocumentShape(value: string): boolean;
 /**
  * Read a stored memory document back into sections, or `undefined` when it is not a plain
  * four-section bullet document.
