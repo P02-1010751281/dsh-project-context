@@ -92,8 +92,11 @@ I'll review the frozen revision and record the durable lessons now.
 - `test/sections.test.mjs`：新增形状表用例；在 `isHeadingOnlyDocument` 的边界断言旁补一条
   「同一个 wrapper 通不过形状门」。
 - `test/logic.test.mjs`：新增端到端用例「a conversational reply cannot replace a stored memory」
-  （两条被拒形状 + 落地对照 + store 低于下限的边界）；改诊断断言；两条读上限夹具的回复改成带形状。
+  （两条被拒形状 + 落地对照 + store 低于下限的边界 + 复核后补的「同一 over-cap 回复在成熟 store 上由形状门
+  而非 tier C 拦下」配对）；改诊断断言；两条读上限夹具的回复改成带形状。
 - `test/external-edit.test.mjs`：`REPLY_MEMORY` 夹具带上形状（理由写进注释）。
+- `.agents/evidence/2026-10-10-opaque-reply-acceptance/`：README 补 post-Q 预期输出，
+  新增 `receipt-probe.mjs`（拒绝在**用户可见面**上是响的）。
 - `lib/`：随构建产物提交。
 
 ## 5. 验证（**数字会过期，跑命令而不是引用它们**）
@@ -104,17 +107,24 @@ I'll review the frozen revision and record the durable lessons now.
 - 判别器：`node .agents/evidence/2026-10-10-opaque-reply-acceptance/probe.mjs` → 修复前 **exit 10
   （DEFECT PRESENT）**，现在 **exit 0（DEFECT CLOSED）**，第 3 节两条被拒回复
   `memoryWritten=false` / `stored byte-identical=true`、裸骨架仍被拒。README 里两份预期输出都留档。
-- **6 个变异体全部被杀**，每个都 `tsc` 0 错、标记进 `lib/` 已核对、恢复后 `sha256sum -c` 全通过、
+- **7 个变异体全部被杀**，每个都 `tsc` 0 错、标记进 `lib/` 已核对、恢复后 `sha256sum -c` 全通过、
   重建后 `lib/` 0 标记：
   ① `has/() || true`（任何 `## 标题` 都算我们的）→ 打红形状表用例；
   ② 去掉 `endsSectionScope` 的 `underKnownHeading = false` 复位 → 打红形状表用例；
   ③ 条目判据 `&&` 改 `||`（第 0 列任何 `- ` 都算）→ 打红形状表用例 + `isHeadingOnlyDocument` 边界那条；
   ④ 围栏状态不记录（`if (fence) continue;`）→ 打红形状表用例（`## Project` 在围栏里也成立）；
   ⑤ `storedIsDocument` 恒真 → 打红新端到端用例的「store 低于下限」断言，另打红 3 条上限用例；
-  ⑥ 诊断串改回旧措辞 → 打红新端到端用例 + 骨架用例（后者正是按新字段串钉的）。
+  ⑥ 诊断串改回旧措辞 → 打红新端到端用例 + 骨架用例（后者正是按新字段串钉的）；
+  ⑦ `isConversationalOpaque` 恒假（形状门整体失效）→ **只**打红新端到端用例，含复核后新增的
+  「成熟 store 上由形状门而非 tier C 拦下」那一对（这是复核 finding 4「该既有用例只在低于下限的窗口成立」
+  的补钉）。
 - **一处自查陷阱（值得记下来）**：第一轮 4 个变异体的标记核对全部报 0，看起来像「变异体没进 `lib/`」。
   实际是 `tsc` 用**空格**缩进而我的 `grep -F` 传的是**制表符**，且多行标记根本不能喂给按行匹配的
   `grep`。逐条核对时改用不带前导空白的片段后全部命中——**标记核对失败不等于变异体无效**。
+- **另一处（恢复脚本的方向性）**：⑦ 是在 `src/` 快照**之后**才补做的，它的 `trap` 恢复把**快照之后**
+  改的 `src/project-memory/index.ts` 注释一并回滚了（`diff -rq` 立刻报出「与快照逐字节相同」这个
+  不该出现的结论，才注意到）。**从快照恢复只保证回到快照，不保证回到最新**：重新落地那处注释并
+  **重新快照**之后才做最终门禁。
 
 ## 6. 边界与残留（**不要读成已修**）
 
