@@ -153,7 +153,7 @@ test("renderMemoryDocument keeps the document inside the cap and drops entries o
 	// Once the document is really full the clipper still applies: an entry cut to the per-item cap and
 	// then rejected is dropped, not truncated. It is not in the document, so counting it as truncated
 	// would report a loss that never landed. The fixture fills Project's whole borrowed allowance (38
-	// entries of 100 characters cost 103 each = 3914, the body cap at 4000 being 3934) so the appended
+	// entries of 100 characters cost 103 each = 3914, the body cap at 4000 being 3933) so the appended
 	// 900-character entry has nowhere to go.
 	const filled = Array.from({ length: 38 }, () => "s".repeat(100));
 	const clippedThenDropped = renderMemoryDocument({ project: [...filled, "q".repeat(900)], invariants: [], pitfalls: [], index: [] }, 4000);
@@ -240,8 +240,8 @@ test("a section over its share borrows the room its neighbours left instead of d
 
 test("the pool is the document's real body, not the sum of the targets", () => {
 	// The boundary the independent review caught: content whose canonical document fits the cap while the
-	// floored targets do not cover it. At cap 4000 the structure costs 66 characters, so bodies may spend
-	// 3934, while the four floored shares only add up to 3924. Ten 390-character entries need 3930 —
+	// floored targets do not cover it. At cap 4000 the structure costs 67 characters, so bodies may spend
+	// 3933, while the four floored shares only add up to 3922. Ten 390-character entries need 3930 —
 	// inside the cap, outside the target sum — and charging the pool from the target sum drops one.
 	const tightEntries = Array.from({ length: 10 }, () => "t".repeat(390));
 	const need = tightEntries.reduce((sum, entry) => sum + entry.length + 3, 0);
