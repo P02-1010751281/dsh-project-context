@@ -1286,6 +1286,20 @@ escaping into the extension runner — which **this pass did not reproduce in ds
 flush, and the dispose event/emit chain was not read, so no dsh escape was found or excluded. The loss
 would be certain; the safety gain here is unverified.
 
+**Evidence added 2026-10-10 (the ruling this pass asked for):** the dispose event/emit chain was read at
+the running host's revision and probed live — see
+`.agents/evidence/2026-10-10-batchP-dispose-escape/` (README + `probe.mjs` / `probe2.mjs`, both
+`RESULT: CONTAINED`). Verdict: **NOT REACHABLE**. The exception is contained twice over: the host core's
+`emitDisposed` (`packages/core/agent/src/index.ts`, the only production emitter; `emit` mode, not awaited)
+wraps every listener in `try/catch` **and** `.catch`es its returned promise, and the plugin's own
+`SessionWorkTracker.track` (`src/shared/lifecycle.ts`) consumes the rejection with
+`work.then(() => undefined, () => undefined)` before it can reach the core. Containment is load-bearing:
+the host's `installFailLoud` turns an `unhandledRejection` into `process.exit(1)`. pi's motive was quoted
+from `033fa75` / `eff6a56` — its handler is `async` and **awaits**, dsh's is fire-and-forget through a
+swallowing tracker, which is why the chain does not reproduce. The cost side is real and measured: with
+`force: true` the throttle never applies and only `forceDedupeMs` (15 s, overridden by neither profile)
+dedupes, so the forced pass runs a model call at essentially every disposal.
+
 ### Batch Q — a reply is a memory document only when it has our shape (dsh shares the defect, probe-proven)
 
 dsh's opaque path publishes the model's raw text as `MEMORY.md`, and its only guard is the skeleton gate.
