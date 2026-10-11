@@ -1300,6 +1300,12 @@ swallowing tracker, which is why the chain does not reproduce. The cost side is 
 `force: true` the throttle never applies and only `forceDedupeMs` (15 s, overridden by neither profile)
 dedupes, so the forced pass runs a model call at essentially every disposal.
 
+**RULED 2026-10-11 (user): NOT PORTED.** The flush stays model-calling: with the escape ruled out, what a
+port would buy is unverified while the loss it costs is certain (a session ending between two throttled
+passes stops reaching `MEMORY.md`). Recorded as a decided residual, not an open item — do not re-open it
+as a defect. It stays reproducible from the evidence directory above if the host's emit chain ever
+changes (re-read `emitDisposed` before trusting the verdict again).
+
 ### Batch Q — a reply is a memory document only when it has our shape (dsh shares the defect, probe-proven)
 
 dsh's opaque path publishes the model's raw text as `MEMORY.md`, and its only guard is the skeleton gate.
@@ -1384,6 +1390,13 @@ fail-opens in four rounds, so round 22 shrank the rule to the schema itself.
   substitute found is the command-name-keyed client slot `conversation.chat.commandview`, and occupying it replaces
   the shipped card (not publicly exported), so it is a user-visible tradeoff awaiting a ruling. Spec, per-path
   behaviour and costs: `docs/batch-r-retry-headroom-brief.md`.
+
+  **RULED 2026-10-11 (user): the notice half is NOT PORTED either — recorded as a residual.** Occupying the
+  keyed client slot would either pin our client code to ui-chat's unexported card shape or ship a plainer row
+  than the built-in one, to replace a `执行中…`/`Running…` shimmer that dsh already shows; the cost is that
+  `/memory update` and `/autolearn` keep only that generic line while a reasoning route may take minutes.
+  Re-open entry: `docs/batch-r-retry-headroom-brief.md` §8 — the host-surface answer there ("no host-side
+  channel") is settled and does not need re-probing, only the UI tradeoff does.
 
 ### Reproducible commands
 
