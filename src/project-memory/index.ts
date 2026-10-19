@@ -423,15 +423,30 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
 	/** In-flight consolidation work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
+	/**
+	 * `interpolate` is part of the host's `PromptContext` since 0.2.x; the pinned
+	 * `@deepseek-ai/dsh-system-prompt` types this plugin builds against (0.1.7-rc.2)
+	 * predate it. A host that does not know the flag simply ignores it, so widen the
+	 * registration type locally instead of dropping the guard.
+	 */
+	type LiteralContext = Parameters<Context["systemPrompt"]["context"]>[0] & { readonly interpolate?: boolean };
+	const registerLiteralContext = (literal: LiteralContext): void => {
+		ctx.systemPrompt.context(literal);
+	};
 
-	ctx.systemPrompt.context({
+	// Both documents are user/prose files, not prompt templates: a literal `{{...}}` in MEMORY.md or
+	// CONTEXT.md (e.g. documenting a handlebars placeholder) must reach the model as written rather
+	// than fail the whole turn as a "malformed prompt variable reference".
+	registerLiteralContext({
 		name: "project-memory",
 		order: 190,
+		interpolate: false,
 		text: (assembleContext) => projectMemoryInjection(assembleContext.agent?.session.header.cwd, effectivePluginConfig(entry).maxMemoryChars),
 	});
-	ctx.systemPrompt.context({
+	registerLiteralContext({
 		name: "project-context",
 		order: 210,
+		interpolate: false,
 		text: (assembleContext) => projectContextInjection(assembleContext.agent?.session.header.cwd),
 	});
 
