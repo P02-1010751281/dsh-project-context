@@ -1,0 +1,42 @@
+# read now: 2026-10-20T18:31:15+08:00
+
+=== A. desktop: the profile cannot be dumped (managed by Electron); the running host is the evidence ===
+error: profile "desktop" is managed exclusively by the Electron application
+
+=== B. live host inventory (the running desktop) ===
+== 5. live plugin activation (host inventory) ==
+http://127.0.0.1:33147 条目总数: 224
+  ✓ active   enabled=true  include:project-context
+enabled 但非 active: 0
+store 校验: 已关闭（--expect-store off）
+
+=== C. web profile: our four entries composed, none disabled ===
+1273:# == dsh-project-context, patched by /home/user/.dsh/profiles/web/cordis.patch.yml
+1274-- id: project-context
+1275-  name: dsh-project-context
+--
+1280:# == dsh-project-context
+1281-- id: project-memory
+1282-  name: dsh-project-context/memory
+disabled rows among ours: 0
+
+=== D. ctxdev profile: same ===
+389:# == dsh-project-context, patched by /home/user/.dsh/profiles/ctxdev/cordis.patch.yml
+390-- id: project-context
+391-  name: dsh-project-context
+--
+404:# == dsh-project-context
+405-- id: project-autolearn
+406-  name: dsh-project-context/autolearn
+disabled rows among ours: 0
+
+=== E. peer ranges vs the runtime version ===
+runtime 0.2.1-rc.2 ; our peers:
+  @deepseek-ai/cordis ^4.0.2
+  @deepseek-ai/dsh-agent >=0.1.7-rc.2
+  @deepseek-ai/dsh-commands >=0.1.7-rc.2
+  @deepseek-ai/dsh-llm >=0.1.7-rc.2
+  @deepseek-ai/dsh-session >=0.1.7-rc.2
+  @deepseek-ai/dsh-settings >=0.1.7-rc.2
+  @deepseek-ai/dsh-system-prompt >=0.1.7-rc.2
+  @deepseek-ai/schemastery ^3.18.2

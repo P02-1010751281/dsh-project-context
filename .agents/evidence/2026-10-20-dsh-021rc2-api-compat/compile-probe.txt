@@ -1,0 +1,16 @@
+# read now: 2026-10-20T18:31:11+08:00  dsh=0.2.1-rc.2
+# store: /nix/store/2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2
+
+=== host vs 2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2 ===
+mapped: @deepseek-ai/cordis, @deepseek-ai/dsh-agent, @deepseek-ai/dsh-commands, @deepseek-ai/dsh-llm, @deepseek-ai/dsh-session, @deepseek-ai/schemastery
+missing: (none)
+wrote /tmp/dsh-api-probe-021/tsconfig.host.json
+exit=0 errors=0
+=== client vs 2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2 ===
+mapped: @deepseek-ai/cordis, @deepseek-ai/dsh-client-locale/client, @deepseek-ai/dsh-client-store, @deepseek-ai/dsh-client-ui-plugin-manager/client, @deepseek-ai/dsh-client-ui-primitives, @deepseek-ai/dsh-client-ui-renderer/client, @deepseek-ai/dsh-client-ui-settings/client, @deepseek-ai/dsh-client-ui-slots
+missing: (none)
+exit=0 errors=0
+both halves clean against 2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2
+
+=== control: the repo's own typecheck against its pinned devDeps (0.1.7-rc.2) ===
+pnpm typecheck -> exit 0 (see /tmp/gate-typecheck.log in the run; errors=0)

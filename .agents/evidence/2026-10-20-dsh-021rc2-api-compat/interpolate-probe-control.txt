@@ -1,0 +1,9 @@
+host module   /home/user/.dsh/desktop/nix-project/2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js
+built plugin  /tmp/interp-control/index.js
+
+PASS  A. default context interpolates `{{name}}`  — handlebars: INTERPOLATED
+PASS  B. a spaced `{{ model }}` throws on the default path  — malformed prompt variable reference "{{ model }}" in context "probe" (variable names match /^[a-z][a-z0-9_]*$/)
+PASS  C. `interpolate: false` preserves the text verbatim  — documented as {{ model }}
+FAIL  D. built lib carries `interpolate: false` twice  — found []
+
+RESULT: FAIL (1 claim(s): D. built lib carries `interpolate: false` twice)

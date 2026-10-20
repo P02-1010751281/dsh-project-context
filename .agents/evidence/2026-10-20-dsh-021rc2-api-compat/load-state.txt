@@ -1,0 +1,31 @@
+repo       /mnt/Data/Projects/dsh-project-context
+listener   --port 33147
+
+== 1. load criterion (whole tree) ==
+holder     pid=58890  started 2026-10-19 09:42:29
+last src/  6109688  committed 2026-10-19T10:15:43+08:00
+VERDICT: NEGATIVE — the holder started before the last src/ commit; a restart is what makes it live
+
+== 2. per-batch attribution (holder start vs each batch's own src/ commit) ==
+  AFTER the holder (not live)      6109688  2026-10-19T10:15:43+08:00  fix(project-memory): mark the memory/context injections as literal text
+  IN the holder (live)             0bf0b31  2026-10-11T16:52:25+08:00  fix(aux-route): stamp the live session on auxiliary calls, track only the write phase
+  IN the holder (live)             9edd119  2026-10-11T13:10:24+08:00  fix(memory): a partial document merges or is refused instead of replacing the store
+  IN the holder (live)             ee2e3b9  2026-10-11T11:54:13+08:00  fix(memory): the truncation retry carries the hidden reasoning it spent
+  IN the holder (live)             1b18799  2026-10-11T11:22:31+08:00  fix(memory): a reply is a memory document only when it has our shape
+  IN the holder (live)             d405708  2026-10-11T10:51:35+08:00  fix(memory): one consistent render read, and one rule for when it wins
+  IN the holder (live)             a3977c9  2026-10-11T08:54:17+08:00  fix(memory): measure the allocator's demand at the item cap, not the raw entry length
+  IN the holder (live)             2462d59  2026-10-11T08:34:22+08:00  fix(memory): make the section shares targets, so only the document cap drops entries
+
+== 3. lib/ build state ==
+git diff --exit-code -- lib : clean
+
+== 4. restart target vs live stores ==
+wrapper    2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2
+  = 2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2  (electron:57801, host:58890)
+
+== 5. live plugin activation (host inventory) ==
+http://127.0.0.1:33147 条目总数: 224
+  ✓ active   enabled=true  include:project-context
+enabled 但非 active: 0
+store 校验: 已关闭（--expect-store off）
+RESULT: PASS
