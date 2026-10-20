@@ -1440,3 +1440,124 @@ read one by one; pi's own prose about dsh was never treated as evidence, and eve
 above was read in dsh's `src/` or `test/`. pi's field numbers (118-byte reply, 29.9 KB memory, 20489
 hidden-thinking tokens) are quoted as pi's record, not re-measured here. No probe was run and no host
 was restarted; `src/` was untouched by this pass.
+
+## Tenth pass — 2026-10-20 (96 commits after the ninth pass)
+
+pi's `master` advanced from the ninth pass's end (`d25ecab`, `v0.4.9-6-gd25ecab`) to `e631c99`
+(`v0.4.14-1-ge631c99`); the `v0.4.14` tag peels to `7fce639`, so the range is `d25ecab..e631c99`:
+**96 commits, 0 merges**, spanning `v0.4.10`–`v0.4.14` (five releases; `v0.4.10` peels to `7b38cf4`).
+Shape: 40 `docs`, 32 `fix`, 15 `test`, 8 `chore`, 1 `feat`; scopes 36 `handoff`, 28 `memory`, 10 `audit`,
+6 `release`, 5 `issue`, 4 `review`, 2 `skills`, 1 `skill`. The local pi checkout is left at its own
+`1a958ce`, so every revision below is read from `origin/master`; `git log --all --not origin/master` is
+empty (no second branch).
+
+The ninth pass ported pi's memory write path (N/O/Q/R). This range moves the two *other* subsystems: pi
+rebuilt the physical-floor baseline on the session's own usage records (v0.4.10), reworked what a
+handoff carries and when it runs against pi's automatic compaction (v0.4.11), stopped a refused reply
+from publishing its context section (v0.4.13), and ran a 17-round review chain on the refusal
+diagnostics (v0.4.14). dsh's handoff is a different transaction — it creates a fresh child and admits
+one seed message (`perform.ts` / `child.ts`), with no replay, no skill carry and no per-toolResult cap
+— so most of the v0.4.10/v0.4.11 surface has no dsh counterpart. **Two memory fixes are port-worthy;
+one handoff race is a design question; nothing is ported by this pass.**
+
+### The fix/feat commits, one row per commit
+
+| pi commit | subject | disposition | where it lands / why not |
+|---|---|---|---|
+| `466ebcd` | measure the floor's baseline from usage records | PI-ONLY | dsh's floor is `overhead + keep + MIN` from the harness envelope, never a subtraction of a char estimate from provider usage (`threshold.ts:40-60`, `:337-350`); the measured session quoted there (`495117 − 231793` vs a 42845 envelope) is the defect pi replaces, and it is structurally absent here |
+| `f071a27` | honest baseline for mixed scripts / compaction summaries | PI-ONLY | pi's per-record density; dsh's envelope, keep and `MIN_*` share the meter's `/4` base by construction |
+| `3abd207` | bound the baseline instead of scaling it | PI-ONLY | same records |
+| `acbf228` | images out of the density basis, drop outgrown records | PI-ONLY | same |
+| `270b1b4` | charge each record the prefix pi sent | PI-ONLY | same |
+| `12c0f72` | apply the last context edit to raw messages | PI-ONLY | same |
+| `c31e40c` | drop what convertToLlm drops | PI-ONLY | same |
+| `b9addeb` | an excluded bash execution is not a replay head | PI-ONLY | same |
+| `e23620d` | re-anchor on a provable overhead increase | PI-ONLY | same |
+| `9d0ef59` | tighten the overhead re-anchor | PI-ONLY | same |
+| `44f7104` | invalidate records billed before the newest compaction | PI-ONLY | same; dsh's measurement is a projection read, not a record list |
+| `1952178` | same-size mtime-preserving replacement | **PORT-WORTHY (T1)** | `renderChangedUnderRead` compares mtime + size and calls the gap "the accepted residual" (`load.ts:100-106`); pi adds `ctimeMs` (userspace cannot set it) and pins the six boundary cases. Target: the one predicate plus both readers |
+| `0ca14ba` | stop the successor baseline ratchet | PI-ONLY | pi's usage-record ratchet; dsh's two-term rule has no baseline term (`threshold.ts:411-455`) |
+| `3f584ee` | keep loaded skills and modes across a handoff | PI-ONLY | the child is a fresh session seeded with one message; model selection, permission preset and `agentPreset` are carried (`child.ts`), and a loaded skill body rides only as a (1500-char-clipped) tool result in the tail |
+| `7b6f72d` | `/skill:` loads as active skills | PI-ONLY | pi's active-skill scanner; dsh has no such list |
+| `cb634b6` | nested tool-result reads in active skills | PI-ONLY | dsh's message model has no `nestedCalls` (`grep -rl nestedCalls` over the 0.2.1 store: 0 files) |
+| `c67ed8e` | standalone skill + file-index residuals | PI-ONLY | both halves depend on the two rows above |
+| `1431950` | run the handoff before automatic compaction | **DESIGN (U1)** | `compaction-basic` auto-compacts on `agent/pre-step` (`auto: true`, default `thresholdRatio 0.8`; store `compaction-basic/src/index.ts:140-170`), while our handoff runs at `turn/end` (`auto.ts`) and reads `session.deriveMessages()` (`shared/conversation.ts:159`), which compaction shadows. Live reachability: the desktop profile disables `compaction-basic` (inventory probe: 全部停用); the web profile composes it enabled. dsh has no `session_before_compact` equivalent (0 production hits for the hook names), so pi's `{cancel:true}` has no seam here |
+| `c653f1f` | let retrying overflow recovery compact | PI-ONLY | pi's overflow-retry bookkeeping in the same hook |
+| `a27f2fd` | cap carried tool-result text (feat) | ALREADY IN DSH (other shape) | every tool result is clipped to 1500 chars in `conversationMessageSections` (`shared/conversation.ts:163-166`) and the tail is bounded by `handoffBudgetRecentTokens`; there is no per-toolResult lever, and both profiles run `recent 0` |
+| `1a71b73` | warn the cap can force a re-read | n/a | the clip is fixed, not configurable |
+| `0580b2d` | v0.4.11 review follow-ups | PI-ONLY | replay/skill/file-index, covered above |
+| `31cfb64` | keep the replayed assistant shape coherent | PI-ONLY | dsh seeds one `pluginUserMessage`; there is no replay |
+| `bf22a8a` | zero replayed usage | PI-ONLY | same |
+| `11bd38a` | a refused reply no longer publishes its context section | **PORT-WORTHY (T2)** | dsh writes the reply's CONTEXT.md before returning the refusal: the context block (`index.ts:330-338`) runs for every outcome, then `stale-context` (`:382`) or `lossy-refused`/`partial-refused` (`:390-392`) returns. pi gates it on `!memoryRefused` and logs the non-publication. Target: `index.ts`'s `write` half, with the local `fallbackUpdate` decision for a fresh project |
+| `56dda5d` | truthful diagnostics for fresh projects | ALREADY IN DSH | dsh's receipts name memory and context separately and never claim a previous CONTEXT.md stays effective; `stale-context` names what landed (`index.ts:663-667`) |
+| `69c114f` | emit diagnostics after the effect | ALREADY IN DSH | dsh's refusal lines describe the decision, not a pending write (`index.ts:238-260`) |
+| `a5e70f1` | stop naming a stale snapshot | ALREADY IN DSH | `stale` says the newer memory stays effective (`index.ts:662`) |
+| `c855f2e` | finish the refusal wording | PI-ONLY | pi's report strings |
+| `78bad89` | refusal-only suppression / recovered wording | PI-ONLY | pi's recovery branch |
+| `fe00482` | fail closed on a non-string memory field | ALREADY IN DSH | `parseConsolidation` returns undefined unless `memory_markdown` is a string (`shared/reply-json.ts:99`), and a JSON-shaped reply then fails rather than being coerced |
+| `921ff8f` | every no-write diagnostic pass-scoped | ALREADY IN DSH | dsh logs each occurrence, not once per project (`index.ts:238` comment) |
+| `c352bcf` | describe a clipped prompt, not a rewrite | ALREADY IN DSH | the `clipped` receipt says the pass was given a shortened version (`index.ts:657-660`) |
+
+The remaining 15 `test` commits (`e466134`, `d5a2af9`, `70b45c7`, `fd7fb32`, `5304b2f`, `dddd0c6`,
+`fe6ca60`, `4dd688e`, `7c64497`, `76c09af`, `0226d43`, `97c71cc`, `d4ff8a3`, `60e11ec`, `7fce639`) pin
+the fixes above and carry no separate mechanism; the 40 `docs` and 8 `chore` commits are pi's own
+records, memory renders, audits and release evidence, for which dsh keeps `docs/` and
+`.agents/evidence/` instead.
+
+### Port batches (not started)
+
+**T1 — the read-consistency flag must see a ctime move.** `load.ts:renderChangedUnderRead` gains
+`ctimeMs`; the comment drops "accepted residual". One mutation: dropping the ctime clause reddens the
+mtime-preserving-replacement case only. No config, no user-visible text.
+
+**T2 — a refused reply must not publish its context.** The context write is gated on the memory half's
+decision (`memoryRefused || memoryKeptStale`), and the receipt's `contextWritten` follows. One ruling is
+needed: on a fresh project the local `fallbackUpdate` is not the reply's context — pi's v0.4.14 round 1
+fixed exactly the wording that called a placeholder "the reply's context", so T2 must decide whether the
+fallback still lands. That is why this is a batch, not a one-line fix.
+
+**U1 — handoff vs automatic compaction.** dsh's auto compaction runs at `agent/pre-step`; our handoff
+runs at `turn/end` and reads the derived surface, so a turn that crosses the compaction line before it
+ends compacts first and the handoff sees the compressed branch (pi's `1431950`). The desktop profile
+already disables `compaction-basic`, so this is reachable only on the web profile today. There is no dsh
+pre-compaction hook to cancel from; the batch starts with a seam ruling (waterfall order on
+`agent/pre-step`, or a dsh-core pre-compaction hook), not with code.
+
+### Reproducible commands
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P fetch origin
+git -C $P rev-parse HEAD origin/master                      # 1a958ce / e631c99 (local HEAD is stale by design)
+git -C $P log --all --oneline --not origin/master           # empty: no second branch
+git -C $P rev-list --count d25ecab..origin/master           # 96
+git -C $P rev-list --count --merges d25ecab..origin/master  # 0
+git -C $P describe --tags d25ecab                           # v0.4.9-6-gd25ecab
+git -C $P describe --tags origin/master                     # v0.4.14-1-ge631c99
+git -C $P rev-parse 'v0.4.14^{commit}'                      # 7fce639
+git -C $P rev-parse 'v0.4.10^{commit}'                      # 7b38cf4
+git -C $P log --format='%s' d25ecab..origin/master | sed 's/(.*//' | cut -d: -f1 | sort | uniq -c
+git -C $P show 1952178 -- extensions/project-context/memory/store.ts
+git -C $P show 11bd38a -- extensions/project-context/memory/report.ts
+git -C $P show 1431950 -- extensions/project-context/handoff/run.ts
+D=/mnt/Data/Projects/dsh-project-context
+git -C $D sed -n '96,110p' src/project-memory/load.ts        # renderChangedUnderRead + the residual comment
+git -C $D sed -n '325,395p' src/project-memory/index.ts      # the context write runs before every refusal return
+git -C $D grep -n 'const memoryRefused' src/project-memory/index.ts
+git -C $D sed -n '155,182p' src/shared/conversation.ts       # deriveMessages + the 1500-char tool-result clip
+R=/nix/store/2dkhrxz33piz9cpvncy0grjg3kfvrs2v-dsh-desktop-0.2.1-rc.2/lib/dsh-desktop/repo
+grep -n 'agent/pre-step' $R/packages/compaction/compaction-basic/src/index.ts
+grep -rl 'nestedCalls' $R/packages | wc -l                   # 0
+node /etc/nixos/scripts/dsh-live-inventory-probe.mjs --url http://127.0.0.1:33147 --expect compaction-basic --expect-store off  # 全部停用
+```
+
+### The honest boundary
+
+This is a per-module read of what pi's fixes touch and of the mechanism under its dsh name, not a
+semantic diff of the two trees; anything outside this repo (dsh core, `/etc/nixos`, the profiles under
+`~/.dsh`) is not owned here. dsh was read at `4ea6ee9`, and the dsh-core facts (the compaction hook, the
+absence of `nestedCalls`, the profile activation) were read in the running 0.2.1-rc.2 store checkout
+named above, never inferred from our call path. pi's prose about dsh was never treated as evidence. The
+15 `test` commits were classified from their subjects and the files they touch, not read line by line;
+the 40 `docs` and 8 `chore` commits were classified by scope. No probe was run for the port candidates,
+no host was restarted, and `src/` was untouched by this pass.

@@ -102,7 +102,7 @@
 
 ## Index
 - README.md and CHANGELOG.md describe current behaviour and per-version changes; the README is the only place the version line lives outside `package.json`.
-- docs/, `CHANGELOG.md`'s 未发布 and the per-batch briefs (`docs/batch-{n,q2,r,s}-*-brief.md`, `docs/handoff-candidates-b-c.md`, `docs/upstream-pi-triage.md`) carry the pi triage, port batches and per-item port mappings; briefs and rationale live there rather than in memory.
+- docs/, `CHANGELOG.md`'s 未发布 and the per-batch briefs (`docs/batch-{n,q2,r,s}-*-brief.md`, `docs/handoff-candidates-b-c.md`, `docs/upstream-pi-triage.md`) carry the pi triage, port batches and per-item port mappings; the tenth pass (2026-10-20, 96 commits to v0.4.14) queued T1/T2 and one compaction-race seam — and dsh's handoff is a fresh-child transaction, so compare the mechanism before porting; briefs and rationale live there rather than in memory.
 - src/project-context/index.ts holds the archive write gates; src/shared/config.ts and client/locales.ts hold the config keys and the client hint strings.
 - src/project-memory/{consolidate.ts,sections.ts,memory-schema.ts,document.ts,load.ts,injection.ts} hold memory reading, rendering, capping, tier C and progressive injection; src/project-autolearn/{pass,schema,skill,candidate,inventory,prompt}.ts hold the autolearn pass and the supersede marker; src/project-handoff/{auto,perform,threshold,command,index}.ts hold handoff decisions, receipts and the command surface.
 - src/shared/model-call.ts (`requestPluginTextWithMeta`) is the single auxiliary-call entry point and must stamp the live session id; src/shared/lifecycle.ts holds the durability tracker whose `track` may only wrap post-model halves.
