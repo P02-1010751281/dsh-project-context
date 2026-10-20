@@ -1475,7 +1475,7 @@ one handoff race is a design question; nothing is ported by this pass.**
 | `e23620d` | re-anchor on a provable overhead increase | PI-ONLY | same |
 | `9d0ef59` | tighten the overhead re-anchor | PI-ONLY | same |
 | `44f7104` | invalidate records billed before the newest compaction | PI-ONLY | same; dsh's measurement is a projection read, not a record list |
-| `1952178` | same-size mtime-preserving replacement | **PORT-WORTHY (T1)** | `renderChangedUnderRead` compares mtime + size and calls the gap "the accepted residual" (`load.ts:100-106`); pi adds `ctimeMs` (userspace cannot set it) and pins the six boundary cases. Target: the one predicate plus both readers |
+| `1952178` | same-size mtime-preserving replacement | **PORT-WORTHY (T1) — landed 2026-10-20** (the reading below is the pre-port state) | `renderChangedUnderRead` compared mtime + size and called the gap "the accepted residual"; pi adds `ctimeMs` (userspace cannot set it) and pins the six boundary cases. Landed as `2fc8957`: the one predicate plus both readers |
 | `0ca14ba` | stop the successor baseline ratchet | PI-ONLY | pi's usage-record ratchet; dsh's two-term rule has no baseline term (`threshold.ts:411-455`) |
 | `3f584ee` | keep loaded skills and modes across a handoff | PI-ONLY | the child is a fresh session seeded with one message; model selection, permission preset and `agentPreset` are carried (`child.ts`), and a loaded skill body rides only as a (1500-char-clipped) tool result in the tail |
 | `7b6f72d` | `/skill:` loads as active skills | PI-ONLY | pi's active-skill scanner; dsh has no such list |
@@ -1504,11 +1504,16 @@ the fixes above and carry no separate mechanism; the 40 `docs` and 8 `chore` com
 records, memory renders, audits and release evidence, for which dsh keeps `docs/` and
 `.agents/evidence/` instead.
 
-### Port batches (not started)
+### Port batches
 
-**T1 — the read-consistency flag must see a ctime move.** `load.ts:renderChangedUnderRead` gains
-`ctimeMs`; the comment drops "accepted residual". One mutation: dropping the ctime clause reddens the
-mtime-preserving-replacement case only. No config, no user-visible text.
+**T1 — landed 2026-10-20 (`2fc8957`).** The read-consistency flag sees a ctime move:
+`renderChangedUnderRead` compares `ctimeMs` as well, so a same-size replacement that preserves mtime
+(`cp -p`, `rsync -t`) is a change; both readers and the adopt's pre-append recheck inherit it through
+that one predicate, and the comment's "accepted residual" wording is gone — only a replacement inside
+the filesystem's ctime granularity stays invisible. The pin is the pure-decision case in
+`test/memory-store.test.mjs`, and mutation "drop the ctime clause" reddens the mtime-preserving
+boundary alone. One batch commit, no config, no user-visible text; `CHANGELOG.md` 未发布 carries the
+gate.
 
 **T2 — a refused reply must not publish its context.** The context write is gated on the memory half's
 decision (`memoryRefused || memoryKeptStale`), and the receipt's `contextWritten` follows. One ruling is

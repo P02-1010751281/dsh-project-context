@@ -7,6 +7,13 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 T1：读一致性标志看见 ctime —— 保留 mtime 的同尺寸替换不再隐形，第十次 pi triage）**
+
+- 修复：**保留 mtime 的同尺寸替换此前对读一致性标志不可见，而发布侧正靠这个标志决定「不写」⇒ 方向 fail open**。`readRenderWithMtime` / `readRenderWithMtimeSync` 的 `changed` 来自 `renderChangedUnderRead`，旧判据只比 `mtime` + `size`：`cp -p` / `rsync -t` 这类写回保留 mtime、且落下的字节数相同，两样都不动，于是那次替换被当成「读到的同一版」——`externalRenderWins` 因此采纳被换掉的内容，`adoptExternalEdit` 的 append 前复核也因此放行（批次 O 登记的残留①）。现在判据加入 **`ctimeMs`**：用户态改不动 ctime，所以同尺寸、同 mtime、内容被换过也判为变更，写回让给下一次 pass；两个读者与 adopt 仍只经这一个纯判据（没有第二份副本）。pi `1952178`。
+- 判别器：`test/memory-store.test.mjs` 的纯决策用例从 5 格边界扩到 6 格，新增「same-size mtime-preserving replacement」。变异「去掉 ctime 子句」只打红这一行（`AssertionError: a same-size mtime-preserving replacement is a replacement: only ctime moves`），其余五格保持绿；`tsc` 0 错、标记进 `lib/` 已核对、`src/` 从 `sha256sum` 校验过的 `/tmp` 快照逐文件恢复、重建后 `lib/` 0 标记。
+- 门禁（现跑，不引用这里的历史数字）：`pnpm typecheck` 0；`pnpm test` **440 通过 / 0 失败**（本批未增删用例，只把既有纯决策用例的边界从 5 格扩到 6 格并改名）；`pnpm build` 0（`lib/client.js` 仍 28575 字节）；`lib/` 与新鲜 `tsc --outDir` 编译 `diff -rq` 只剩 `client.js`。
+- 边界：残留只剩**落在文件系统 ctime 粒度内的那次替换**——`stat` 看不见，任何基于 stat 的判据都看不见，已写进 `renderChangedUnderRead` 的注释（原注释的「accepted residual」措辞随之删除）。本批不改配置键、无新依赖、两个 profile 无需改动，但**改了 `src/` 行为，需要宿主重启才在线**；它与 `6109688` 的同一次重启覆盖。
+
 **project-memory / project-autolearn（批次 S：辅助模型调用的会话身份，以及它带出的 checkpoint 环路）**
 
 - 修复：**在要求会话身份的路由上，本插件的辅助模型调用一律 400**（`opencode-go` 回 `{"type":"MissingSessionID","message":"Request is missing x-opencode-session and cannot be routed efficiently."}`），于是 `/memory update` 与技能沉淀在**拿到回复之前**就失败，整理 pass 从未走到写路径。链路五环，每条可复读：本会话路由是 `opencode-go`（profile 的 `agent-default-model`）→ pi-ai 的 opencode provider **只在请求带 `sessionId` 时**挂该头（`@earendil-works/pi-ai@0.87.1/dist/providers/opencode-headers.js` 的 `if (!options?.sessionId || hasHeader(...)) return options`）→ dsh 自己的两个辅助调用都盖章（`packages/compaction/compaction-basic/src/summarizer.ts:160`、`packages/session/session-title-llm/src/index.ts:268`）→ 本插件**故意**不盖（旧注释：「Deliberately no `sessionId`: an auxiliary call must not enter the loop's session-checkpoint path…」）→ 网关 400，`requestPluginTextWithMeta` 把 provider 的错误原样上抛（这是正确行为，未改）。**不是 N/O/Q/R/Q2 的回归**：那五批改的是对回复的验收/合并/拒绝与重试头寸，本错误发生在拿到回复之前。
