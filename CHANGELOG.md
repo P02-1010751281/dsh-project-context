@@ -7,6 +7,15 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 T2：被拒回复不得发布其 context 段 —— 一次拒绝不落半个 pass，第十次 pi triage）**
+
+- 修复：**context 写入对所有结局都执行，于是被插件拒绝存储的回复仍然整文件替换 `CONTEXT.md`**。`src/project-memory/index.ts` 的写半段里，context 块排在 `stale-context` 与 `lossy-refused` / `partial-refused` 的返回**之前**，而 context 是整文件替换 —— pi 的现场案例是一条被策划过的 open-task 列表被旧快照改回来（`11bd38a`）。现在写入以 memory 半边为闸：`contextRefused = memoryRefused || memoryKeptStale`，被拒 pass **两个产物都不发布**；日志按「回复自带 context / 本地占位 fallback」分两支，既不留下静默 no-op，也不把占位说成回复的 ctx 段。`/memory update` 的 `stale-context` 状态随之不可达，已从状态联合与回执分支删除，`lossy-refused` / `partial-refused` 回执里已成死码的「The context was updated」子句一并删除。
+- 裁决（用户 2026-10-20，选项 A「严格对齐 pi」）：fresh 项目那个由**活会话首条用户消息**生成的 `fallbackUpdate` 占位 context **也不落盘** —— 它不是被拒回复的 context，但被拒 pass 是「什么都没决定」的 pass，所以什么都不发布；pi `56dda5d` 的 fresh-project 教训由此在本地实现（占位被跳过的日志不再声称「previous CONTEXT.md stays effective」）。
+- 判别器：新增 `test/refusal-publish.test.mjs`（3 条：被策划的 `CONTEXT.md` 逐字节不变；fresh 项目拿不到占位；**正向对照** —— 同一 fresh 形状无拒绝时占位照常落盘）。变异「把 `contextRefused` 置为 `false`」`tsc` 0 错、标记进 `lib/` 已核对，打红 5 条具名用例（两条新的拒绝用例、unwritable-CONTEXT.md 那条、`external-edit` 的 stale 用例、tier C 的 context 落盘断言），正向对照保持绿；`src/` 从 `sha256sum` 校验过的 `/tmp` 快照恢复、重建后 `lib/` 0 标记。
+- **被本批改写的既有测试信号**（被测语义真的变了，不是迁就）：`external-edit` 的 stale 用例从 `stale-context` + context 落盘改为 `stale` + 两个产物都不落盘；tier C 用例的 `contextWritten: true` 改为 `false`；「a failure after a refusal」用例的注入点（`CONTEXT.md` 建成目录）随闸一起失效，改为钉**新语义**：被拒 pass 根本不尝试写，所以不可写的 `CONTEXT.md` 不能再把拒绝变成 `failed`；`a clipped CONTEXT.md render` 的夹具补成完整四段文档（第二 pass 原先是靠「被拒仍写 context」才走到 clipped 渲染的）。
+- 门禁（现跑，不引用历史数字）：`pnpm typecheck` 0；`pnpm test` **443 通过 / 0 失败**（本批前 440，新增 3 条）；`pnpm build` 0（`lib/client.js` 仍 28575 字节）；`lib/` 与新鲜 `tsc --outDir` 编译 `diff -rq` 只剩 `client.js`。
+- 边界：不改配置键、无新依赖、两个 profile 无需改动；**改了 `src/` 行为，需要宿主重启才在线**（与 `6109688`、`2fc8957` 同一次重启覆盖）。登记残留：被拒 pass 之后已没有可达的普通抛出点（`readOptional` / `readMemoryJournal` / `logError` 都自吞异常），所以「拒绝在一次晚到的抛出里存活」这一覆盖随本批变为不可达；`refusedLoss` 跨抛出的携带仍留在代码里作未来改动的护栏。
+
 **project-memory（批次 T1：读一致性标志看见 ctime —— 保留 mtime 的同尺寸替换不再隐形，第十次 pi triage）**
 
 - 修复：**保留 mtime 的同尺寸替换此前对读一致性标志不可见，而发布侧正靠这个标志决定「不写」⇒ 方向 fail open**。`readRenderWithMtime` / `readRenderWithMtimeSync` 的 `changed` 来自 `renderChangedUnderRead`，旧判据只比 `mtime` + `size`：`cp -p` / `rsync -t` 这类写回保留 mtime、且落下的字节数相同，两样都不动，于是那次替换被当成「读到的同一版」——`externalRenderWins` 因此采纳被换掉的内容，`adoptExternalEdit` 的 append 前复核也因此放行（批次 O 登记的残留①）。现在判据加入 **`ctimeMs`**：用户态改不动 ctime，所以同尺寸、同 mtime、内容被换过也判为变更，写回让给下一次 pass；两个读者与 adopt 仍只经这一个纯判据（没有第二份副本）。pi `1952178`。

@@ -357,7 +357,8 @@ built from); `recordMemoryDocument` refuses to publish a reply whose baseline no
 returns `{written:true} | {written:false, kept}`, with the pre-append window closed by the exported
 `nextRenderSupersedes` predicate. Both refusal paths journal the newer bytes. The pass counts what
 landed, not what it attempted (`wroteMemory` / `wroteContext`), and the receipt gained `stale` /
-`stale-context` so no wording claims a memory write that did not happen. Deliberate deviations: dsh
+`stale-context` so no wording claims a memory write that did not happen (batch T2 later merged
+`stale-context` back into `stale`: a refused pass now publishes neither artifact). Deliberate deviations: dsh
 has no `normalizeMemoryReply`/`preserveMarker` split (one `normalizeMemoryDocument` does both jobs),
 so `preserveMarker` is not ported; `keepReason` becomes the two report values instead of a field, and
 `dd2adcc`'s extra refusal of the "shortened the existing memory" line collapses into the single
@@ -1488,8 +1489,8 @@ one handoff race is a design question; nothing is ported by this pass.**
 | `0580b2d` | v0.4.11 review follow-ups | PI-ONLY | replay/skill/file-index, covered above |
 | `31cfb64` | keep the replayed assistant shape coherent | PI-ONLY | dsh seeds one `pluginUserMessage`; there is no replay |
 | `bf22a8a` | zero replayed usage | PI-ONLY | same |
-| `11bd38a` | a refused reply no longer publishes its context section | **PORT-WORTHY (T2)** | dsh writes the reply's CONTEXT.md before returning the refusal: the context block (`index.ts:330-338`) runs for every outcome, then `stale-context` (`:382`) or `lossy-refused`/`partial-refused` (`:390-392`) returns. pi gates it on `!memoryRefused` and logs the non-publication. Target: `index.ts`'s `write` half, with the local `fallbackUpdate` decision for a fresh project |
-| `56dda5d` | truthful diagnostics for fresh projects | ALREADY IN DSH | dsh's receipts name memory and context separately and never claim a previous CONTEXT.md stays effective; `stale-context` names what landed (`index.ts:663-667`) |
+| `11bd38a` | a refused reply no longer publishes its context section | **PORT-WORTHY (T2) — landed 2026-10-20** (the reading below is the pre-port state) | dsh wrote the reply's CONTEXT.md before returning the refusal: the context block ran for every outcome, then `stale-context` or `lossy-refused`/`partial-refused` returned. Ported as the memory-decision gate (`contextRefused = memoryRefused || memoryKeptStale`): both artifacts are withheld, and the user ruling below decides the fresh-project fallback |
+| `56dda5d` | truthful diagnostics for fresh projects | ALREADY IN DSH, hardened by T2 | dsh never claimed a previous CONTEXT.md stays effective; T2 added the other half — the non-publication line tells a reply-carried section from the session-derived placeholder, and the placeholder is not published either (user ruling 2026-10-20) |
 | `69c114f` | emit diagnostics after the effect | ALREADY IN DSH | dsh's refusal lines describe the decision, not a pending write (`index.ts:238-260`) |
 | `a5e70f1` | stop naming a stale snapshot | ALREADY IN DSH | `stale` says the newer memory stays effective (`index.ts:662`) |
 | `c855f2e` | finish the refusal wording | PI-ONLY | pi's report strings |
@@ -1515,11 +1516,20 @@ the filesystem's ctime granularity stays invisible. The pin is the pure-decision
 boundary alone. One batch commit, no config, no user-visible text; `CHANGELOG.md` 未发布 carries the
 gate.
 
-**T2 — a refused reply must not publish its context.** The context write is gated on the memory half's
-decision (`memoryRefused || memoryKeptStale`), and the receipt's `contextWritten` follows. One ruling is
-needed: on a fresh project the local `fallbackUpdate` is not the reply's context — pi's v0.4.14 round 1
-fixed exactly the wording that called a placeholder "the reply's context", so T2 must decide whether the
-fallback still lands. That is why this is a batch, not a one-line fix.
+**T2 — landed 2026-10-20.** A refused reply publishes neither artifact: `contextRefused =
+memoryRefused || memoryKeptStale` gates the context write, and the status `stale-context` is gone with
+it (`stale` now means neither artifact landed; the `lossy-refused` / `partial-refused` receipts lost
+their dead "The context was updated" clause). The ruling the design needed was the fresh-project one:
+the local `fallbackUpdate` is not the reply's context, and the user chose (option A, 2026-10-20) that a
+refused pass publishes nothing rather than a session-derived placeholder — so the non-publication line
+distinguishes a reply-carried section from the placeholder, and never claims a previous `CONTEXT.md`
+that does not exist. Pins: `test/refusal-publish.test.mjs` (curated context byte-identical; fresh
+project gets no placeholder; positive control publishes it when nothing was refused) plus the rewritten
+stale/tier-C assertions; mutation "`contextRefused = false`" kills 5 cases and leaves the control green.
+Registered residual: with the write gated, nothing can throw after a refusal any more
+(`readOptional` / `readMemoryJournal` / `logError` all swallow), so the old "a failure after a refusal
+does not hide it" scenario is unreachable; the test now pins the gate itself (an unwritable `CONTEXT.md`
+cannot turn the refusal into `failed`), and `refusedLoss`'s carry across a throw stays as a guard.
 
 **U1 — handoff vs automatic compaction.** dsh's auto compaction runs at `agent/pre-step`; our handoff
 runs at `turn/end` and reads the derived surface, so a turn that crosses the compaction line before it
