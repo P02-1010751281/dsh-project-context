@@ -54,10 +54,12 @@ export declare function renderIsNewerThanJournal(renderMtimeMs: number | undefin
  */
 export declare function externalRenderWins(render: RenderRead, renderKey: NormalizedMemory, foldedKey: string, journalMtimeMs: number | undefined): boolean;
 /**
- * Whether a read spanned a replacement: the file's identity moved under it. The test is mtime +
- * size, so a replacement that keeps both (a same-size edit inside the filesystem's timestamp
- * granularity) stays invisible, which is the accepted residual. A file that appeared under the read
- * (no `before`) counts as changed, and a file that vanished is `undefined` and cannot be vouched for.
+ * Whether a read spanned a replacement: the file's identity moved under it. `mtime` + `size` are what
+ * a replacement normally moves; `ctime` catches the one that does not — a writer that preserves mtime
+ * (`cp -p`, `rsync -t`) and lands the same byte count leaves both untouched, and userspace cannot set
+ * ctime, so that copy is still seen. What remains is a replacement inside the filesystem's ctime
+ * granularity, which no stat can see. A file that appeared under the read (no `before`) counts as
+ * changed, and a file that vanished is `undefined` and cannot be vouched for.
  */
 export declare function renderChangedUnderRead(before: Stats | undefined, after: Stats | undefined): boolean;
 /**

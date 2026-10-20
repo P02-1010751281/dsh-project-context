@@ -263,13 +263,17 @@ test("renderIsNewerThanJournal is the one mtime rule the readers and the adopt s
 	assert.equal(renderIsNewerThanJournal(100, undefined), false, "an unreadable journal time is not a newer render");
 });
 
-test("a read that spans a replacement is detected by mtime or size, and a stable read is not", () => {
-	const stat = (mtimeMs, size) => ({ mtimeMs, size });
-	assert.equal(renderChangedUnderRead(stat(1, 10), stat(2, 10)), true, "a newer mtime is a replacement");
-	assert.equal(renderChangedUnderRead(stat(1, 10), stat(1, 11)), true, "a different size at the same mtime is a replacement");
-	assert.equal(renderChangedUnderRead(stat(1, 10), stat(1, 10)), false, "an unchanged file is not a replacement");
-	assert.equal(renderChangedUnderRead(undefined, stat(1, 10)), true, "a file that appeared under the read is one");
-	assert.equal(renderChangedUnderRead(stat(1, 10), undefined), false, "a file that vanished has no version to vouch for");
+test("a read that spans a replacement is detected by mtime, size or ctime, and a stable read is not", () => {
+	// The three fields the decision reads, chosen so each case moves exactly one of them. The
+	// mtime-preserving replacement is the case that only ctime can see: mutation "drop the ctime
+	// clause" must redden that line alone.
+	const version = (mtimeMs, size, ctimeMs) => ({ mtimeMs, size, ctimeMs });
+	assert.equal(renderChangedUnderRead(version(10, 100, 500), version(10, 100, 500)), false, "an unchanged file is not a replacement");
+	assert.equal(renderChangedUnderRead(version(10, 100, 500), version(11, 100, 500)), true, "a newer mtime is a replacement");
+	assert.equal(renderChangedUnderRead(version(10, 100, 500), version(10, 101, 500)), true, "a different size at the same mtime is a replacement");
+	assert.equal(renderChangedUnderRead(version(10, 100, 500), version(10, 100, 501)), true, "a same-size mtime-preserving replacement is a replacement: only ctime moves");
+	assert.equal(renderChangedUnderRead(undefined, version(10, 100, 500)), true, "a file that appeared under the read is one");
+	assert.equal(renderChangedUnderRead(version(10, 100, 500), undefined), false, "a file that vanished has no version to vouch for");
 });
 
 test("externalRenderWins is the one external-edit rule both readers share", () => {
