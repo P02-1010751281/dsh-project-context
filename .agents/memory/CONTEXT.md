@@ -21,6 +21,7 @@ Last updated: 2026-10-20T10:35:59.691Z
 
 ## Open tasks
 
+- **第十次 pi 上游三查（2026-10-20，`d25ecab..e631c99`，v0.4.10–v0.4.14）**：96 个提交已逐条归类，见 [`docs/upstream-pi-triage.md`](docs/upstream-pi-triage.md) 的 Tenth pass。未开工的三项：**T1** 读一致性判据要看见 ctime 移动（改 `renderChangedUnderRead`，机械小批）；**T2** 被拒回复不得发布其 context 段（改 `src/project-memory/index.ts` 的写半段），需要一条裁决 —— fresh 项目的 `fallbackUpdate` 是否仍落盘；**U1** handoff 与自动 compaction 的先后无 dsh 钩子可取消，且 desktop profile 已停用 `compaction-basic`。`src/` 本轮未动。
 - **重启桌面宿主让 `6109688` 上线（用户操作）**：现跑 `node .agents/evidence/2026-10-11-pre-restart-readiness/check.mjs --port <GUI 端口>` 得 `VERDICT: NEGATIVE`；重启后同一判据应 POSITIVE，且 inventory 里 `include:project-context` 仍 active。宿主插件只在 boot 加载，这一条没有替代路径。⚠️ `dsh-desktop-restart.sh --verify-only` 在第二台 store（DSH-AV 的 19388）活着时会独立报 FAIL，判据只认 `check.mjs`；重启脚本始终由用户运行。
 - **批次 S 的端到端见证（用户操作，只在 `opencode-go` 路由上有诊断力）**：先切模型到 `opencode-go`/`deepseek-v4.1-flash`；**再让该会话跑完一个普通轮次**（不可省：切模型只写 `model/selection`，`resolveTarget` 读 `request/header`）；然后跑 `/memory update`。验收需两条同时满足：①`grep -c MissingSessionID .agents/memory/errors.log` 不增（现为 4）；②折叠该会话最后一条 `request/header` 得到的 provider 是 `opencode-go`（命令见 Key points）。只满足前半在 `command-code` 上必然成立，是假通过。结果发我，我判定并落档。
 - **可选的下一批（等用户点名）**：把 devDependencies 从 0.1.7-rc.2 抬到 0.2.1-rc.2，需重生成 lockfile 并重建 `lib/`，并在 `test/literal-injection.test.mjs` 旁复核本地类型加宽是否可去掉。
