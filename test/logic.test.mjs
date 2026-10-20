@@ -1490,12 +1490,12 @@ test("the bare /session-log reads, `write` writes, and `now` is retired", async 
 /**
  * A consolidation report for a status, with every loss count zero unless a case overrides it.
  * The written flags default to what that status means: a clean `updated`/`clipped` pass wrote both
- * artifacts, a `stale` pass wrote only the context, and the no-op statuses wrote nothing.
+ * artifacts, a `stale` pass wrote neither (batch T2), and the no-op statuses wrote nothing.
  */
 const plainReport = (status, loss = {}) => ({
 	status,
 	memoryWritten: status === "updated" || status === "clipped",
-	contextWritten: status === "updated" || status === "clipped" || status === "stale-context",
+	contextWritten: status === "updated" || status === "clipped",
 	memoryHiddenChars: 0,
 	contextHiddenChars: 0,
 	contextDroppedChars: 0,
@@ -1561,14 +1561,11 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	assert.match(both, /; /, "the two mechanisms are separate clauses");
 
 	// A refused memory write lost nothing from the stored file, so its report must carry no counts —
-	// otherwise the receipt would blame the context for a memory that was never written.
+	// otherwise the receipt would blame the context for a memory that was never written. Batch T2
+	// added the context to the refusal: the reply is not published at all, so neither artifact may
+	// be named, and the one wording a stale pass has says exactly that much.
 	assert.equal(memoryUpdateReply(plainReport("stale")).text, "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it.");
-	assert.equal(
-		memoryUpdateReply(plainReport("stale-context")).text,
-		"Memory: context updated; memory was not rewritten because it changed while this pass's reply was being built — the newer memory stays effective.",
-		"a stale-context receipt with no landed loss keeps its exact wording",
-	);
-	assert.match(memoryUpdateReply(plainReport("stale-context", { contextHiddenChars: 40 })).text, /40 character\(s\) of the stored context/, "the context landed, so a context hidden from the model is reported");
+	assert.doesNotMatch(memoryUpdateReply(plainReport("stale", { contextHiddenChars: 40 })).text, /context/, "a stale report carries no context count, because no context landed");
 
 	// The other two loss sites the same receipt has to name: the reply's own write cap (an opaque or
 	// oversized reply never reaches the section renderer) and the context render's own budgets.
@@ -1672,12 +1669,20 @@ test("tier C: a reply that would be stored lossily is refused after one retry, a
 	assert.ok(first.refusedLoss.sectionDropped > 0, "the refused loss is reported apart from the landed counts");
 	assert.ok(first.refusedLoss.droppedItems > 0);
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), before, "the stored memory is byte-identical");
-	assert.equal(first.contextWritten, true, "the context is a separate artifact and still lands");
+	// Batch T2: the context half of a refused reply is not published either. The reply carried one, so
+	// the pass says which artifact was skipped and that no CONTEXT.md exists to fall back to.
+	assert.equal(first.contextWritten, false, "a refused reply publishes neither artifact");
+	await assert.rejects(readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8"), "no CONTEXT.md is created by a refused pass");
+	assert.match(
+		(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").find((line) => line.includes("refused reply's context section")),
+		/the refused reply's context section was not published; no CONTEXT\.md was written/,
+	);
 
 	const receipt = memoryUpdateReply(first).text;
 	assert.match(receipt, /was kept unchanged/, "the receipt says the memory was kept");
 	assert.match(receipt, /one targeted retry did not fix it/);
 	assert.match(receipt, /whole entry\(ies\) would have been dropped/, "the refusal names what it avoided");
+	assert.doesNotMatch(receipt, /context/i, "the receipt cannot claim a context that was withheld with the refusal");
 	assert.notEqual(receipt, memoryUpdateReply(plainReport("updated")).text, "a refusal cannot read as a clean pass");
 
 	// The version claim is released on a refusal, so a second forced pass really re-runs.
@@ -2117,9 +2122,11 @@ test("batch Q2: a retry that answers with an unmergeable partial cannot replace 
 	assert.ok(!after.includes("some prose"), "the retry's unmergeable partial is never written");
 });
 
-test("a failure after a refusal does not hide the refusal", async () => {
-	const root = await memoryProject("dsh-tierc-refusal-failure-", "# Project Memory\n\n## Project\n- original\n");
-	// The context write fails after the refusal was decided: CONTEXT.md is a directory here.
+test("a refused pass never touches CONTEXT.md, so an unwritable one cannot turn the refusal into a failure", async () => {
+	// Batch T2: the context write is gated on the memory decision, so a refused pass does not attempt it
+	// at all. Before that, a CONTEXT.md that failed to write (a directory here) turned the refusal into a
+	// plain `failed` — a later failure hiding a decision the pass had already made.
+	const root = await memoryProject("dsh-tierc-refusal-unwritable-context-", "# Project Memory\n\n## Project\n- original\n");
 	await mkdir(path.join(root, ".agents", "memory", "CONTEXT.md"), { recursive: true });
 	const { ctx, agent } = await consolidationFixture({
 		root,
@@ -2129,11 +2136,16 @@ test("a failure after a refusal does not hide the refusal", async () => {
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.equal(report.status, "failed", JSON.stringify(report));
+	assert.equal(report.status, "lossy-refused", JSON.stringify(report));
 	assert.equal(report.memoryWritten, false);
 	assert.equal(report.contextWritten, false);
-	assert.ok(report.refusedLoss !== undefined, "the refusal survives into the failure");
-	assert.match(memoryUpdateReply(report).text, /The memory was not written: the reply would have been stored lossily/);
+	assert.ok(report.refusedLoss !== undefined, "the refusal is reported, not swallowed by a failed write");
+	assert.match(memoryUpdateReply(report).text, /was kept unchanged — .*would have been stored lossily/);
+	// The pass skipped the write rather than attempting and failing it: the gate's own line says so.
+	assert.match(
+		await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"),
+		/the refused reply's context section was not published/,
+	);
 });
 
 test("tier C: a refusal releases the pass claim, so a forced re-run re-reports instead of saying deduped", async () => {
@@ -2474,8 +2486,11 @@ test("the read cap and the input fit are counted separately, never substituted f
 
 test("a clipped CONTEXT.md render reaches the receipt and logs on every pass", async () => {
 	const root = await memoryProject("dsh-context-clip-receipt-", "# Project Memory\n\n## Project\n- original\n");
+	// A complete four-section document, so both passes merge and land: batch T2 withholds the context of a
+	// refused pass, and a partial reply would be refused on the second pass for its shape rather than
+	// reaching the clipped render this test is about.
 	const reply = JSON.stringify({
-		memory_markdown: "# Project Memory\n\n## Project\n- a durable fact kept by this pass, past the length floor\n",
+		memory_markdown: "# Project Memory\n\n## Project\n- a durable fact kept by this pass, past the length floor\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n",
 		context: { title: "t", summary: "s".repeat(20_000), key_points: [], open_tasks: [] },
 	});
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
@@ -2487,7 +2502,7 @@ test("a clipped CONTEXT.md render reaches the receipt and logs on every pass", a
 	assert.notEqual(memoryUpdateReply(first).text, memoryUpdateReply(plainReport("updated")).text, "a clipped context must not read as a clean pass");
 
 	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
-	assert.ok(second.contextDroppedChars > 0, "the second pass drops too");
+	assert.ok(second.contextDroppedChars > 0, `the second pass drops too: ${JSON.stringify(second)}`);
 	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
 		.filter((line) => line.includes("CONTEXT.md was clipped"));

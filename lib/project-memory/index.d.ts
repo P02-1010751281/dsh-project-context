@@ -30,7 +30,7 @@ interface ConsolidateOptions {
     track?: ((work: Promise<unknown>) => void) | undefined;
 }
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "stale-context" | "lossy-refused" | "partial-refused";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused";
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
  *

@@ -74,16 +74,21 @@ test("an edit landing during the model call is kept and the reply is not publish
 	const { root, ctx, agent, config, errors, infos } = await fixture({ beforeReply: () => writeFile(memoryFile(root), HAND_EDIT, "utf8") });
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: false });
 
-	assert.equal(report.status, "stale-context", "the context still landed, but the memory reply did not");
+	assert.equal(report.status, "stale", "a refused reply publishes nothing, so there is no stale-context status left");
 	const stored = await readFile(memoryFile(root), "utf8");
 	assert.equal(stored, HAND_EDIT, "the hand edit stays on disk");
 	assert.ok(!stored.includes("must never reach the file"), "the reply's memory is not published");
 	// The edit is in the history too: refusing is not the same as discarding.
 	const entries = (await readMemoryJournal(memoryJournalFile(root))).entries;
 	assert.ok(entries.some((entry) => entry.text.includes("the hand edit that landed")), "the newer bytes entered the journal");
-	assert.match(await errors(), /the memory changed while this pass's reply was being built/, "the refusal is recorded");
-	// The receipt must not claim the write that was refused.
-	assert.ok(infos.some((line) => line.includes("project context updated")), "the receipt names what did land");
+	const log = await errors();
+	assert.match(log, /the memory changed while this pass's reply was being built/, "the refusal is recorded");
+	// Batch T2: the reply's context section is withheld with its memory, and the pass says so instead of
+	// leaving a silent no-op. This fixture has no CONTEXT.md, so the line must not claim a previous one.
+	assert.equal(report.contextWritten, false, "the context half of a refused reply is not published");
+	assert.match(log, /the refused reply's context section was not published; no CONTEXT\.md was written/);
+	// The receipt must not claim either write that was refused.
+	assert.ok(!infos.some((line) => line.includes("project context updated")), "no context landed, so none is receipted");
 	assert.ok(!infos.some((line) => line.includes("project memory and context updated")), "a kept memory is not reported as written");
 });
 
