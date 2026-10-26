@@ -465,6 +465,13 @@ export interface HandoffSplit {
 	tail: string;
 	/** Raw user messages of both parts, for `auto` language resolution. */
 	languageMessages: HandoffLanguageMessage[];
+	/**
+	 * True when at least one carried section was cut at its render cap, so the tail is not that
+	 * conversation verbatim. The seed reads it to choose between the "verbatim" and "trimmed" carry
+	 * statements (pi's `carryKept` / `carryTrimmed`); `false` for an empty tail, which gets the
+	 * "nothing was carried" statement instead.
+	 */
+	trimmedTail: boolean;
 }
 
 /**
@@ -498,6 +505,7 @@ export function handoffSplit(session: Session, keepChars: number): HandoffSplit 
 		older: truncateMiddle(olderSections.map((section) => section.rendered).join("\n\n"), MAX_CONVERSATION_CHARS),
 		tail: tailSections.map(replaySection).join("\n\n"),
 		languageMessages: languageMessagesOf([...olderSections, ...tailSections]),
+		trimmedTail: tailSections.some((section) => section.clipped === true),
 	};
 }
 

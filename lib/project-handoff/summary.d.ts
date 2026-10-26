@@ -16,8 +16,16 @@ export declare function renderHandoff(session: Session, fileOperations: string, 
     log: string;
     index: string;
 }, language: HandoffLanguage): string;
-/** The first message of the fresh session; the archive pointers keep the raw history reachable. */
+/**
+ * The first message of the fresh session; the archive pointers keep the raw history reachable.
+ *
+ * The carried state is stated explicitly in three shapes, mirroring pi's post-J `carryKept` /
+ * `carryTrimmed` / `carryNothing`: a tail was carried verbatim, a tail was carried but one of its
+ * messages was cut at the render cap, or nothing was carried at all (a zero recent budget). The third
+ * one matters because a silent seed reads as "nothing to see here", while pi tells the successor to
+ * work from the log instead.
+ */
 export declare function continuation(parentId: string, fileOperations: string, tail: string, archive: {
     log: string;
     index: string;
-}, language?: HandoffLanguage, pending?: string, decision?: UserDecision): string;
+}, language?: HandoffLanguage, pending?: string, decision?: UserDecision, trimmedTail?: boolean): string;

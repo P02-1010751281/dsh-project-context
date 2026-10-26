@@ -30,7 +30,15 @@ export function renderHandoff(session: Session, fileOperations: string, archive:
 	return parts.join("\n");
 }
 
-/** The first message of the fresh session; the archive pointers keep the raw history reachable. */
+/**
+ * The first message of the fresh session; the archive pointers keep the raw history reachable.
+ *
+ * The carried state is stated explicitly in three shapes, mirroring pi's post-J `carryKept` /
+ * `carryTrimmed` / `carryNothing`: a tail was carried verbatim, a tail was carried but one of its
+ * messages was cut at the render cap, or nothing was carried at all (a zero recent budget). The third
+ * one matters because a silent seed reads as "nothing to see here", while pi tells the successor to
+ * work from the log instead.
+ */
 export function continuation(
 	parentId: string,
 	fileOperations: string,
@@ -39,6 +47,7 @@ export function continuation(
 	language: HandoffLanguage = "en",
 	pending?: string,
 	decision?: UserDecision,
+	trimmedTail = false,
 ): string {
 	const text = SCAFFOLDING[language];
 	// The markers wrap the mechanical "previous session details" block. `isHandoffContinuationText`
@@ -47,8 +56,10 @@ export function continuation(
 	const details = [text.detailsHeading, "", text.detailSessionId(parentId), text.continuationArchive(archive.log, archive.index)];
 	const files = fileOperations.trim();
 	if (files.length > 0) details.push("", files);
+	const carried = tail.length === 0 ? text.continuationNothing : trimmedTail ? text.continuationTrimmed : text.continuationCarried;
 	const parts = [
 		text.continuationPreamble(parentId),
+		carried,
 		text.continuationVerify,
 		text.continuationContextNote,
 		"",
@@ -57,19 +68,19 @@ export function continuation(
 		"</handoff>",
 	];
 	if (tail.length > 0) {
-		parts.push("", "<recent-conversation>", text.continuationCarried, tail, "</recent-conversation>");
+		parts.push("", "<recent-conversation>", tail, "</recent-conversation>");
 	}
 	// The user's own last input. A decision arrives either as a typed message or as the tool result
-	// answering `ask_user_question`, and with `handoffBudgetRecentTokens: 0` the tail carries neither,
-	// so summary prose was the only place it could survive — which is how a session that had already
-	// settled a question handed its successor the same question to ask again. With that budget at 0
-	// the tail cannot carry the open question either, so the explicit block is the only thing that
-	// keeps a `wait` handoff from silently dropping the decision the previous session stopped on. It
-	// also replaces the usual closing: "start with the next concrete step" immediately after "wait for
-	// the user" reads as the last instruction and cancels the wait.
+	// answering `ask_user_question`, and the carried tail contains both — so with a tail the block
+	// would only duplicate what the successor can already read (pi post-J has no such block at all).
+	// It is rendered exactly when the tail cannot carry it, which is the case it was built for: with
+	// `handoffBudgetRecentTokens: 0` nothing is carried, and a session that had already settled a
+	// question once handed its successor the same question to ask again. In that shape it also
+	// replaces the usual closing: "start with the next concrete step" immediately after "wait for the
+	// user" reads as the last instruction and cancels the wait.
 	if (pending !== undefined && pending.trim().length > 0) {
 		parts.push("", text.pendingHeading, "", pending.trim(), "", text.pendingWait);
-	} else if (decision !== undefined) {
+	} else if (decision !== undefined && tail.length === 0) {
 		// `readSessionInputs` only produces a decision with content: a message carries non-empty text
 		// and an answer carries at least one answered question, so there is no empty block to guard.
 		parts.push("", text.decisionHeading, "");

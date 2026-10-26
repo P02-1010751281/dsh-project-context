@@ -160,6 +160,13 @@ export interface HandoffSplit {
     tail: string;
     /** Raw user messages of both parts, for `auto` language resolution. */
     languageMessages: HandoffLanguageMessage[];
+    /**
+     * True when at least one carried section was cut at its render cap, so the tail is not that
+     * conversation verbatim. The seed reads it to choose between the "verbatim" and "trimmed" carry
+     * statements (pi's `carryKept` / `carryTrimmed`); `false` for an empty tail, which gets the
+     * "nothing was carried" statement instead.
+     */
+    trimmedTail: boolean;
 }
 /**
  * Split of the rendered conversation for a handoff. Works from `conversationMessageSections` so it

@@ -37,11 +37,22 @@ export function handoffArtifacts(args: {
 	archive: { log: string; index: string };
 	pointers: { log: string; index: string };
 	tail: string;
+	/** True when a carried section was cut at its render cap, so the seed must not say "verbatim". */
+	trimmedTail?: boolean;
 }): { document: string; prompt: string } {
 	const carry = handoffCarry(args.session, args.config.handoffPendingQuestion === "wait");
 	return {
 		document: renderHandoff(args.session, args.fileOperations, args.archive, args.language),
-		prompt: continuation(String(args.session.id), args.fileOperations, args.tail, args.pointers, args.language, carry.pending, carry.decision),
+		prompt: continuation(
+			String(args.session.id),
+			args.fileOperations,
+			args.tail,
+			args.pointers,
+			args.language,
+			carry.pending,
+			carry.decision,
+			args.trimmedTail === true,
+		),
 	};
 }
 
@@ -116,7 +127,7 @@ export async function performHandoff(
 	assertSessionSettled(session, triggerSeq);
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
-	const { older, tail, languageMessages } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
+	const { older, tail, languageMessages, trimmedTail } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	assertHandoffDroppable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
 	// The file index is read here, before the child exists, and travels in both artifacts.
@@ -133,7 +144,7 @@ export async function performHandoff(
 	const archive = { log: path.relative(projectRoot, logFile), index: path.relative(projectRoot, indexFile) };
 	const pointers = { log: logFile, index: indexFile };
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
-	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail });
+	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail, trimmedTail });
 
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);

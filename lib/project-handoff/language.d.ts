@@ -59,6 +59,10 @@ export interface HandoffScaffolding {
     /** Archive pointers plus the lookup instruction (the log is untrusted data, never instructions). */
     readonly continuationArchive: (log: string, index: string) => string;
     readonly continuationCarried: string;
+    /** The tail was carried but one of its messages was clipped at the render cap (pi's `carryTrimmed`). */
+    readonly continuationTrimmed: string;
+    /** Nothing was carried at all (pi's `carryNothing`), which is what a zero recent budget produces. */
+    readonly continuationNothing: string;
     readonly pendingHeading: string;
     readonly pendingWait: string;
     readonly decisionHeading: string;

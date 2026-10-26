@@ -7,6 +7,16 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（批次 U：交接种子说明「带入了多少」—— 三态 carry 行，与 pi post-J 对齐）**
+
+- 裁决（用户 2026-10-26）：交接要「和 pi 一样」—— `handoffBudgetRecentTokens` 回到 `DEFAULT_CONFIG` 的 **20000**（pi 的默认值），两个 profile 里显式写的 `0` 一并改掉。那个 `0` 是生成式摘要还在的时代定的；批次 J 删掉摘要后它的含义变成「什么都不逐字带」，所以上一轮的回答不会跟着交接走（现场：问题被 `## 用户最后一次输入` 带过去了，回答没带）。
+- 修复：**种子此前只有一句「已原文带入」，且只在有尾料时出现**；`0` 预算下它整句消失，后继无法区分「什么都没带，去读日志」与「本来就没有要知道的」，而尾料里只要有一条消息被渲染上限裁过，那句话仍然说「原文带入」—— 一次错误归因。现在 carry 行恒在，按 pi 的 `carryKept` / `carryTrimmed` / `carryNothing` 三态取值：`src/project-handoff/language.ts` 新增 `continuationTrimmed` / `continuationNothing`；`src/shared/conversation.ts` 的 `ConversationSection` 增 `clipped`（4000 字符消息上限 / 1500 字符工具结果上限，渲染时判定）；`handoffSplit` 返回 `trimmedTail`，经 `perform.ts` 的 `handoffArtifacts` 传到 `continuation`。carry 行移到 preamble 之后（pi 的位置），`<recent-conversation>` 块自此只装尾料。
+- 修复（同轮，去重）：**`## 用户最后一次输入` 块不再和尾料同时出现**。它本来是为 `0` 预算造的（`904152d`：一条已解决的询问被后继再问一遍），而尾料本身就含那条输入；现在条件收敛为 `tail.length === 0`，即「尾料带不了它时才渲染」。带尾料时结尾回到 usual closing，`pending` 块不受影响（pi 也有）。
+- 判别器：新增 `test/handoff-carry.test.mjs`（9 条：三态各一、工具结果上限、`0` 预算、块的去重正反两例、pending 两态、六种形状仍被 `isHandoffContinuationText` 认作自家种子 + 一条结构负例、wiring 传递、双语）。两个变异体都 `tsc` 0 错、标记进 `lib/` 已核对、`src/` 从 `sha256sum` 校验过的 `/tmp` 快照恢复、重建后 `lib/` 0 标记：① `continuation` 的 trimmed 支恒走 verbatim → 打红 3 条具名用例；② 决策块去掉 `tail.length === 0` 条件 → 只打红「块只在尾料带不了它时渲染」。
+- 离线见证：`.agents/evidence/2026-10-26-handoff-carry-20000/` 的 `probe.mjs` 驱动构建后的 `lib/`，打印 20000 与 0 两种预算下的真实种子，`RESULT: PASS`（退出码按因分 10/11/12/13）；`probe-output.txt` 是现跑输出。
+- 门禁（现跑，不引用历史数字）：`pnpm typecheck` 0；`pnpm test` **452 通过 / 0 失败**（本批前 443，新增 9 条）；`pnpm build` 0（`lib/client.js` 仍 28575 字节）；`lib/` 与新鲜 `tsc --outDir` 编译 `diff -rq` 只剩 `client.js`。
+- 边界：改了 `src/` 行为 ⇒ **需要宿主重启才在线**。同一次重启还覆盖两处 profile 改动（备份 `~/.dsh/profiles/*/cordis.patch.yml.bak-20261026-1715-*`）：① desktop 与 web 的 `handoffBudgetRecentTokens: 0 → 20000`；② desktop 那条 `disabled: true` 的 `subagent-codex-tool` 里过期的 `backgroundMode: one-shot` 删除（该键自 0.2.1-alpha.2 起不在 `tool-subagent` 的 Config schema 里，schemastery 不拒未知键 ⇒ 一直被静默接受、无作用；两处注释同步改写成「已删除」，免得继续把死键写成活约束）。登记残留：尾料开起来后种子会带上整段最近对话（最长约 20000 token 的字符预算），比 `0` 时更长；「过长的单条消息被裁剪」的说明只在确有裁剪时出现（`trimmedTail`），此后继能自行决定要不要去日志取全文。`test/context-injection.test.mjs` 读的是仓库自己的 `MEMORY.md` / `CONTEXT.md`，插件在别处并发整理时会瞬时打红（本批遇到一次、三连跑复绿），不是本批引入。
+
 **project-memory（批次 T2：被拒回复不得发布其 context 段 —— 一次拒绝不落半个 pass，第十次 pi triage）**
 
 - 修复：**context 写入对所有结局都执行，于是被插件拒绝存储的回复仍然整文件替换 `CONTEXT.md`**。`src/project-memory/index.ts` 的写半段里，context 块排在 `stale-context` 与 `lossy-refused` / `partial-refused` 的返回**之前**，而 context 是整文件替换 —— pi 的现场案例是一条被策划过的 open-task 列表被旧快照改回来（`11bd38a`）。现在写入以 memory 半边为闸：`contextRefused = memoryRefused || memoryKeptStale`，被拒 pass **两个产物都不发布**；日志按「回复自带 context / 本地占位 fallback」分两支，既不留下静默 no-op，也不把占位说成回复的 ctx 段。`/memory update` 的 `stale-context` 状态随之不可达，已从状态联合与回执分支删除，`lossy-refused` / `partial-refused` 回执里已成死码的「The context was updated」子句一并删除。

@@ -153,6 +153,12 @@ export interface ConversationSection {
 	readonly userText?: string;
 	/** dsh source kind of that user message. */
 	readonly sourceKind?: string;
+	/**
+	 * True when the rendered body was cut at its render cap (4000 chars for a message, 1500 for a tool
+	 * result), so the block is not the message verbatim. The handoff's carry statement reads this: a tail
+	 * that contains a clipped section must not tell the successor it was carried verbatim.
+	 */
+	readonly clipped?: boolean;
 }
 
 /** Compact section-per-message rendering of the derived conversation. */
@@ -162,12 +168,12 @@ export function conversationMessageSections(session: Session): ConversationSecti
 		if (message.role === "system") continue;
 		if (message.source.kind === "tool") {
 			const text = textOf(message.content);
-			if (text) sections.push({ rendered: `## tool result\n${clip(text, 1500)}` });
+			if (text) sections.push({ rendered: `## tool result\n${clip(text, 1500)}`, ...(text.trim().length > 1500 ? { clipped: true } : {}) });
 			continue;
 		}
 		if (message.role === "user") {
 			const text = textOf(message.content);
-			if (text) sections.push({ rendered: `## user\n${clip(text, 4000)}`, userText: text, sourceKind: message.source.kind });
+			if (text) sections.push({ rendered: `## user\n${clip(text, 4000)}`, userText: text, sourceKind: message.source.kind, ...(text.trim().length > 4000 ? { clipped: true } : {}) });
 			continue;
 		}
 		const text = textOf(message.content);
@@ -176,7 +182,7 @@ export function conversationMessageSections(session: Session): ConversationSecti
 			.map((block) => `[tool: ${block.name}]`)
 			.join(" ");
 		const parts = [text ? clip(text, 4000) : "", tools].filter(Boolean);
-		if (parts.length > 0) sections.push({ rendered: `## assistant\n${parts.join("\n")}` });
+		if (parts.length > 0) sections.push({ rendered: `## assistant\n${parts.join("\n")}`, ...(text.trim().length > 4000 ? { clipped: true } : {}) });
 	}
 	return sections;
 }

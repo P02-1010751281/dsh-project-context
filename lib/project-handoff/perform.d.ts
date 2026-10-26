@@ -32,6 +32,8 @@ export declare function handoffArtifacts(args: {
         index: string;
     };
     tail: string;
+    /** True when a carried section was cut at its render cap, so the seed must not say "verbatim". */
+    trimmedTail?: boolean;
 }): {
     document: string;
     prompt: string;

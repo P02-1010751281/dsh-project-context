@@ -48,6 +48,12 @@ export interface ConversationSection {
     readonly userText?: string;
     /** dsh source kind of that user message. */
     readonly sourceKind?: string;
+    /**
+     * True when the rendered body was cut at its render cap (4000 chars for a message, 1500 for a tool
+     * result), so the block is not the message verbatim. The handoff's carry statement reads this: a tail
+     * that contains a clipped section must not tell the successor it was carried verbatim.
+     */
+    readonly clipped?: boolean;
 }
 /** Compact section-per-message rendering of the derived conversation. */
 export declare function conversationMessageSections(session: Session): ConversationSection[];
