@@ -1576,3 +1576,36 @@ named above, never inferred from our call path. pi's prose about dsh was never t
 15 `test` commits were classified from their subjects and the files they touch, not read line by line;
 the 40 `docs` and 8 `chore` commits were classified by scope. No probe was run for the port candidates,
 no host was restarted, and `src/` was untouched by this pass.
+
+## Verification — 2026-10-28 (no new range; U1 re-checked on dsh 0.2.1-rc.3)
+
+Not a pass: this records why a pass is **not** owed, and re-checks the one port item the tenth pass left
+open, because the running dsh line changed since that pass read rc.2.
+
+- **The range is empty.** `git -C $P fetch origin` → `rev-parse origin/master` = `e631c99`, which is
+  the tenth pass's own range end (`v0.4.14-1-ge631c99`); `rev-list --count e631c99..origin/master` = 0
+  and `log --all --oneline --not origin/master` is empty (still one branch). There is nothing new to
+  classify, so the disposition table above stands unchanged and nothing is ported here.
+- **The local checkout was fast-forwarded** (`git merge --ff-only origin/master`, clean tree, 0 ahead),
+  so the tenth pass's line "local HEAD is stale by design" describes the tree at that time, not a rule:
+  `rev-parse HEAD` now also reads `e631c99`. The pass still reads `origin/master`, never a remembered
+  hash.
+- **U1 stays blocked, now confirmed on rc.3.** Automatic compaction still enters through the
+  `agent/pre-step` waterfall (`packages/compaction/compaction-basic/src/index.ts:158` in the
+  `n03wa62v81r54b4sx9cygy88fqjhg1cm-dsh-desktop-0.2.1-rc.3` store), and rc.3 adds no dedicated
+  pre-compaction hook for a plugin to cancel from (`grep -rn compaction packages/core/*/src` filtered by
+  `on(` / `emit(` → 0 hits). So the batch still starts with the same seam ruling — waterfall ordering on
+  `agent/pre-step` versus a dsh-core hook — and no code.
+- The rc.3 model-listing delta is a dsh-side question, not a pi one; its re-probe lives in
+  `.agents/evidence/2026-10-28-rc3-listing-reprobe/README.md`.
+
+```sh
+P=/mnt/Data/Projects/pi-project-context
+git -C $P fetch origin
+git -C $P rev-parse HEAD origin/master                        # e631c99 / e631c99 after the ff-merge
+git -C $P rev-list --count e631c99..origin/master             # 0
+git -C $P log --all --oneline --not origin/master             # empty
+R=/nix/store/n03wa62v81r54b4sx9cygy88fqjhg1cm-dsh-desktop-0.2.1-rc.3/lib/dsh-desktop/repo
+grep -rn "'agent/pre-step'" $R/packages/compaction/compaction-basic/src/index.ts   # :158, unchanged
+grep -rn compaction $R/packages/core/*/src 2>/dev/null | grep -iE "on\(|emit\("          # 0 hits
+```
