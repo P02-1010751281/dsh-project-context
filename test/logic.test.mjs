@@ -59,6 +59,7 @@ import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-conte
 import { effectivePluginConfig, publishProjectContextSettings } from "../lib/shared/settings.js";
 import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
+import { sessionViews } from "./session-views.mjs";
 
 /**
  * The handoff plugin declares `systemPrompt` (its pressure-line contribution), so a fixture that
@@ -72,7 +73,7 @@ function message(role, text) {
 	return { role, source: { kind: role }, content: [{ type: "text", text }] };
 }
 function fakeSession(messages) {
-	return { deriveMessages: () => messages };
+	return sessionViews(messages);
 }
 
 /**
@@ -537,6 +538,10 @@ test("queueSessionIndexEntry upserts one line per session and refreshes the titl
 	await queueSessionIndexEntry(root, {
 		...session,
 		snapshotEvents: () => [{ type: "session/title", seq: 1, time: 0, data: { title: "renamed" } }],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	});
 	const text = await readFile(path.join(root, ".agents", "memory", "session-logs", "INDEX.md"), "utf8");
 	const entries = parseSessionIndex(text);
@@ -2760,6 +2765,10 @@ function fakeEventSession(events, id = "session-abcdef", cwd = "/tmp/fake-projec
 		id,
 		header: { version: 3, createdAt: Date.UTC(2026, 8, 13), cwd, isSeeded: false },
 		snapshotEvents: () => events,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 		deriveMessages: () => [],
 	};
 }
@@ -2828,6 +2837,10 @@ test("resolvePluginConfig, settingPatch and the pending-question check behave", 
 		id: "s1",
 		header: {},
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 		// `MessageBase.source` is required on every derived message; a fixture without it would not
 		// be a Session shape at all.
 		deriveMessages: () => [
@@ -3112,6 +3125,10 @@ test("the automatic handoff waits for background subagents to settle", async () 
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
 		snapshotEvents: () => events,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	});
 	const spawned = { type: "subagent/catalog", time: Date.now() - 60_000, data: { childId: "child-live", mode: "continuable" } };
 	const settledEvent = { type: "user/message", time: Date.now() - 30_000, data: { source: { kind: "subagent-settled", senderSessionId: "child-live" } } };
@@ -3149,6 +3166,10 @@ test("subagent work is read as turn activity, not as residency", async () => {
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
 		snapshotEvents: () => events,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	});
 	const created = [];
 	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined };
@@ -3236,6 +3257,10 @@ test("a skipped automatic handoff says why in the server log", async () => {
 		deriveMessages: () => [message("user", "hello"), message("assistant", "hi")],
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait" });
 
@@ -3281,6 +3306,10 @@ test("the status receipt names the term that refused the threshold, not always t
 		deriveMessages: () => [],
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	// One measurement, three windows. `handoffBudgetRecentTokens: 0` makes the floor
 	// `overhead + 0 + MIN_DROP_TOKENS`, and this fixture reports no envelope, so the floor is
@@ -3461,6 +3490,10 @@ test("the status receipt follows the handoff language and names the setting by i
 		deriveMessages: () => [message("user", "这个记忆整理流程要怎么改？先把交接这块看一遍。")],
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 11_800, surfaceTokens: 0 }) } : undefined),
@@ -3490,6 +3523,10 @@ test("the receipt names whether the harness envelope was read, because the thres
 		deriveMessages: () => [],
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const oneProjection = (breakdown) => ({
 		snapshot: (_session, keys) => ({
@@ -3551,6 +3588,10 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 		deriveMessages: () => [],
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	// No envelope is reported, so the floor and `asked` carry only `keep` (20_000 by default) and the target.
 	const statusAt = async (contextWindow, over) => {
@@ -3657,6 +3698,10 @@ test("a manual handoff on a conversation that fits the carried window is refused
 		header: { cwd, createdAt: Date.now() },
 		deriveMessages: () => [message("user", "hello"), message("assistant", "hi"), message("user", "again")],
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 		requestHeader: () => undefined,
 	};
 	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model" });
@@ -3700,6 +3745,10 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 		requestHeader: () => undefined,
 		ownEvents: () => [],
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffEnabled: false, handoffBudgetRecentTokens: 0 });
 	// The switch is off, and the threshold gate is closed too — but at a narrower window than before: at
@@ -3745,6 +3794,10 @@ test("a manual handoff refuses while a background subagent is still running", as
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
 		snapshotEvents: () => events,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	});
 	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 
@@ -3831,6 +3884,10 @@ test("a handoff child inherits the parent's session-local model and permission p
 			deriveMessages: () => conversation,
 			requestHeader,
 			snapshotEvents: () => [],
+			// These fixtures' logs carry control records only (turn ends, catalog rows,
+			// settled markers); projecting them to messages is not modelled here, so the
+			// append-origin read finds nothing and falls back to the surface, exactly as before.
+			deriveEventMessage: () => null,
 		};
 		const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
 		const reply = await runManual(ctx, session, entry, new AbortController().signal);
@@ -3964,6 +4021,10 @@ test("the automatic handoff yields to a session that is already on its next turn
 			requestHeader: () => undefined,
 			ownEvents: () => own,
 			snapshotEvents: () => own,
+			// These fixtures' logs carry control records only (turn ends, catalog rows,
+			// settled markers); projecting them to messages is not modelled here, so the
+			// append-origin read finds nothing and falls back to the surface, exactly as before.
+			deriveEventMessage: () => null,
 		};
 		let error;
 		try {
@@ -4090,6 +4151,10 @@ test("the auto-handoff listener passes the trigger offset through to the settle 
 		requestHeader: () => undefined,
 		ownEvents: () => own,
 		snapshotEvents: () => own,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
@@ -4169,6 +4234,10 @@ test("a turn/end that lands while an attempt is in flight is re-evaluated, not l
 		requestHeader: () => undefined,
 		ownEvents: () => own,
 		snapshotEvents: () => own,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
@@ -4237,6 +4306,10 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 			requestHeader: () => undefined,
 			ownEvents: () => [{ type: "turn/end", seq: 10, time: Date.now() }],
 			snapshotEvents: () => [],
+			// These fixtures' logs carry control records only (turn ends, catalog rows,
+			// settled markers); projecting them to messages is not modelled here, so the
+			// append-origin read finds nothing and falls back to the surface, exactly as before.
+			deriveEventMessage: () => null,
 		};
 		const ctx = {
 			on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
@@ -4298,6 +4371,10 @@ test("a disabled automatic handoff ignores turn/end entirely", async () => {
 		requestHeader: () => undefined,
 		ownEvents: () => [{ type: "turn/end", seq: 10, time: Date.now() }],
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
@@ -4337,6 +4414,10 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 		requestHeader: () => undefined,
 		ownEvents: () => own,
 		snapshotEvents: () => own,
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
@@ -4403,6 +4484,10 @@ test("an open question defers the handoff, and the answer’s first idle takes i
 		requestHeader: () => undefined,
 		ownEvents: () => [],
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 
@@ -4431,6 +4516,10 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 			requestHeader: () => undefined,
 			ownEvents: () => [],
 			snapshotEvents: () => [],
+			// These fixtures' logs carry control records only (turn ends, catalog rows,
+			// settled markers); projecting them to messages is not modelled here, so the
+			// append-origin read finds nothing and falls back to the surface, exactly as before.
+			deriveEventMessage: () => null,
 		};
 		const ctx = {
 			get: (name) => (name === "sessionController" ? {
@@ -4717,6 +4806,10 @@ test("the manual handoff stays exempt from the settle guard", async () => {
 		requestHeader: () => undefined,
 		ownEvents: () => [{ type: "turn/start", seq: 5, time: Date.now() }, { type: "turn/end", seq: 6, time: Date.now() }],
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		get: (name) => (name === "sessionController" ? {
@@ -4912,6 +5005,10 @@ async function consolidationFixture({ root, replies, modelInfo, throwOnCall }) {
 			id: "session-truncation",
 			header: { cwd: root, createdAt: Date.now() },
 			snapshotEvents: () => [],
+			// These fixtures' logs carry control records only (turn ends, catalog rows,
+			// settled markers); projecting them to messages is not modelled here, so the
+			// append-origin read finds nothing and falls back to the surface, exactly as before.
+			deriveEventMessage: () => null,
 			deriveMessages: () => [],
 			requestHeader: () => undefined,
 		},
@@ -5500,6 +5597,10 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 		requestHeader: () => undefined,
 		ownEvents: () => [],
 		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
 	};
 	const ctx = {
 		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },

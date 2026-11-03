@@ -23,6 +23,7 @@ import { isHandoffContinuationText, SCAFFOLDING } from "../lib/project-handoff/l
 import { handoffArtifacts, retitleAfterRename } from "../lib/project-handoff/perform.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
+import { sessionViews } from "./session-views.mjs";
 
 const ARCHIVE = { log: "logs/session-parent/session.md", index: "logs/INDEX.md" };
 /** The mechanical file index the payload carries now that the summary is gone. */
@@ -61,7 +62,7 @@ function toolResult(callId, text) {
 }
 
 function fakeSession(messages) {
-	return { deriveMessages: () => messages };
+	return { ...sessionViews(messages) };
 }
 
 test("a typed user message is carried verbatim", () => {
@@ -383,7 +384,7 @@ test("the wiring carries the decision into the seed prompt", () => {
 	const session = {
 		id: "session-parent-1234",
 		header: { cwd: "/project", createdAt: 0 },
-		deriveMessages: () => [userMessage("我去重启桌面宿主（推荐）")],
+		...sessionViews([userMessage("我去重启桌面宿主（推荐）")]),
 	};
 	const { prompt } = handoffArtifacts({
 		session,

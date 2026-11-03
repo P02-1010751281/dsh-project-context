@@ -23,6 +23,7 @@ import { isHandoffContinuationText, SCAFFOLDING } from "../lib/project-handoff/l
 import { handoffArtifacts } from "../lib/project-handoff/perform.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
+import { sessionViews } from "./session-views.mjs";
 
 const ARCHIVE = { log: "/abs/logs/session-parent/session.md", index: "/abs/logs/INDEX.md" };
 const FILES = "<read-files>\nsrc/project-handoff/summary.ts\n</read-files>";
@@ -43,7 +44,7 @@ function toolResult(text) {
 
 function fakeSession(messages) {
 	// `handoffArtifacts` also renders the archived document, which reads the session header.
-	return { id: "session-parent", header: { cwd: "/tmp/dsh-handoff-carry" }, deriveMessages: () => messages };
+	return { id: "session-parent", header: { cwd: "/tmp/dsh-handoff-carry" }, ...sessionViews(messages) };
 }
 
 /** A short conversation whose sections all sit under their render caps. */

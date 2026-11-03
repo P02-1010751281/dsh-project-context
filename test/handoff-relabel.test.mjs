@@ -49,13 +49,22 @@ function userEvent(seq, text, kind = "user") {
 	return { type: "user/message", seq, time: seq, data: { source: { kind }, content: [{ type: "text", text }] } };
 }
 
+/** One event of the fixture's log, projected the way the fake session projects its whole surface. */
+function asMessage(event) {
+	return { role: "user", source: { kind: event.data.source.kind }, content: event.data.content };
+}
+
 /** A session whose derived conversation can differ from its log, as a compaction makes it. */
 function fakeSession(events, derived = events) {
 	return {
 		id: "session-child-1",
 		header: { cwd: "/project" },
 		snapshotEvents: () => events,
-		deriveMessages: () => derived.map((event) => ({ role: "user", source: { kind: event.data.source.kind }, content: event.data.content })),
+		deriveMessages: () => derived.map(asMessage),
+		// The handoff reads the log through the projector, so a fixture whose log and surface differ
+		// must supply it; `asMessage` is the same mapping `deriveMessages` folds, which is what makes
+		// the two views differ only by which events they are given.
+		deriveEventMessage: (event) => asMessage(event),
 	};
 }
 

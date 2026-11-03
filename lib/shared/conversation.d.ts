@@ -3,6 +3,7 @@
  * the handoff split and the language detector all consume — plus the input fitting that keeps
  * a consolidation request inside its budget.
  */
+import { type Message } from "@deepseek-ai/dsh-llm";
 import { type Session } from "@deepseek-ai/dsh-session";
 /**
  * What the pass sends instead of the stored artifacts, plus the budget it asks for.
@@ -55,8 +56,49 @@ export interface ConversationSection {
      */
     readonly clipped?: boolean;
 }
-/** Compact section-per-message rendering of the derived conversation. */
-export declare function conversationMessageSections(session: Session): ConversationSection[];
+/**
+ * Which events a rendered conversation is read from.
+ *
+ * `surface` is what the model's own history holds: `deriveMessages()`, the fold of the
+ * model-visible surface, where a replacement copy stands in for whatever it shadowed.
+ * `append-origin` is every event that entered the surface at its own log position and was never a
+ * replacement copy — which upstream's `isAppendSurfaceEvent` documents as a *transcript's* durable
+ * source material precisely because the surface "would erase conversation the user already saw".
+ * A compaction's checkpoint is such a replacement, so reading append-origin events lets the span it
+ * summarized be rendered instead of the summary that replaced it.
+ */
+export type ConversationSource = "surface" | "append-origin";
+/**
+ * The messages of one session under a {@link ConversationSource}.
+ *
+ * The append-origin read is not a second fold of the surface: it walks the append-only log and
+ * projects each append-origin event through the session's own `deriveEventMessage`, so logged
+ * message projections still apply and the restored messages keep their durable identity.
+ *
+ * Reading a replacement copy is what a compaction hides, so dropping the copy instead of the node it
+ * replaced is the whole difference. Two replacement producers make that visible, and both are
+ * deliberate: a compaction checkpoint disappears while the messages it summarized return, and a
+ * pruned tool result reads as its original, longer content (the section's own render cap still
+ * bounds it). A runtime-context snapshot is a `system/message`, so no section renders it either way.
+ *
+ * The test is "is a replacement copy", not "is an append". Upstream makes that distinction hard for a
+ * *live* session — `surfaceOpOf` refuses a surface-eligible event that carries no marker, so such an
+ * event cannot enter a log at all, and a fork copies whole events (`buildForkSeed` slices the prefix),
+ * so a forked session keeps its markers too. The tolerance is therefore for the remaining caller: an
+ * object built by hand, which this plugin is handed in tests and must not silently shorten. An event
+ * without the marker cannot be standing in for another node, so it is read like an append.
+ * @param session - the session to read.
+ * @param source - which event family to read; defaults to the model-visible surface.
+ * @returns the projected messages, in log order.
+ */
+export declare function conversationMessages(session: Session, source?: ConversationSource): readonly Message[];
+/**
+ * Compact section-per-message rendering of a conversation.
+ * @param session - the session to read.
+ * @param source - which event family to read; see {@link ConversationSource}.
+ * @returns one section per message that renders any text.
+ */
+export declare function conversationMessageSections(session: Session, source?: ConversationSource): ConversationSection[];
 /** Compact, budgeted rendering of the derived conversation for the learn prompt. */
 export declare function conversationText(session: Session): string;
 /** One event as `session.snapshotEvents()` returns them. */

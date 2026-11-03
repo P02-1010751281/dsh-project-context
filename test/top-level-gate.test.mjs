@@ -86,6 +86,10 @@ function fakeAgent(cwd, { id, origin, turns = 3 } = {}) {
 			id,
 			header,
 			snapshotEvents: () => events,
+			// These fixtures' logs carry control records only (turn ends, catalog rows,
+			// settled markers); projecting them to messages is not modelled here, so the
+			// append-origin read finds nothing and falls back to the surface, exactly as before.
+			deriveEventMessage: () => null,
 			ownEvents: () => events,
 			// Derived messages carry a `source.kind`; the conversation renderer reads it to tell a
 			// tool result from a human turn.

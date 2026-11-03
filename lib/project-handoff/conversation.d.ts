@@ -100,6 +100,12 @@ export declare function handoffCarry(session: Session, pendingEnabled: boolean):
  * service *stores* is its own normalized form, so that the prefix survives it is checked after the
  * call rather than assumed — see `retitleAfterRename` in `perform.ts`; a label with no visible
  * character never reaches the service at all, see {@link hasVisibleText}.
+ * The label names the continuation after the parent's **last human input**, and it reads that input
+ * from the append-origin log for the same reason {@link handoffSplit} does: a compaction that
+ * summarizes the user's instruction (realistic — one sentence followed by a long tool span can fall
+ * out of the retained window) leaves only the checkpoint node on the surface, whose `source.kind` is
+ * not `user`. The filter below would then skip every candidate and fall back to the parent id, so the
+ * seed would quote the user's words while its own title said `↪ handoff · 9f3c1a2b`.
  * @param session - the session being handed off.
  * @param fallback - the parent's short id, used when the session carries no human input.
  * @returns the label, without the prefix.
@@ -149,9 +155,28 @@ export declare function firstHandoffInput(session: Session): {
     seq: number;
     label: string;
 } | undefined;
-/** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
+/**
+ * File index from tool calls (read/write/edit), mirroring pi's compaction file tracking.
+ *
+ * Read from the append-origin log rather than the surface. A compaction shadows the span it
+ * summarized, so every `read`/`write`/`edit` call inside that span would leave the index — the
+ * successor would be handed "what this session touched" minus everything it did early on, which is
+ * the misattribution this repo treats as its worst defect class. pi avoided the same loss by
+ * cancelling the compaction before it happened; dsh has no cancellable pre-compaction hook, but it
+ * does keep the log, and upstream names append-origin events as a transcript's durable source.
+ * @param session - the session being handed off.
+ * @returns the `<read-files>` / `<modified-files>` blocks, or `""` when no call qualifies.
+ */
 export declare function fileOperations(session: Session): string;
-/** Raw derived messages of a whole session, for a status read that does not split it. */
+/**
+ * Raw messages of a whole session, for a status read that does not split it.
+ *
+ * The same **append-origin** source {@link handoffSplit} feeds the `auto` decision from, so the
+ * language a receipt names is the language the seed was rendered in. Reading the surface here let a
+ * compaction summarize away every message in the user's own language: the detector samples the whole
+ * conversation ({@link languageSamples}), the checkpoint that replaced the span is not the user's text
+ * (`sourceKind` filters it out), so the receipt could report `en` while the seed carried Chinese.
+ */
 export declare function sessionLanguageMessages(session: Session): HandoffLanguageMessage[];
 export interface HandoffSplit {
     /** The older part, dropped from the continuation and reachable only through the session log. */
@@ -173,6 +198,17 @@ export interface HandoffSplit {
  * can (a) replace a recognized continuation prompt in the carried tail with {@link REPLAY_MARKER}
  * and (b) hand `auto` detection the unclipped text, since the rendered section cuts user text at
  * 4000 characters — shorter than a real continuation, which would hide its closing line.
+ *
+ * The section list is read from **append-origin** events, not the model-visible surface. This is the
+ * dsh-native answer to pi's `session_before_compact` cancel: pi stopped the compaction from running
+ * so the handoff could carry an intact branch, while dsh cannot cancel one and does not need to — the
+ * log is append-only and a compaction's checkpoint is itself a surface *replacement*, so reading
+ * append-origin events renders the summarized span and drops the summary that stood in for it.
+ * Reading the surface here would hand the successor a compressed branch as if it were the
+ * conversation, which is exactly the wrong-cause defect this repo treats as its worst.
+ * @param session - the session being handed off.
+ * @param keepChars - characters of the most recent messages to carry verbatim; `0` carries no tail.
+ * @returns the older span, the verbatim tail and whether that tail was clipped at a render cap.
  */
 export declare function handoffSplit(session: Session, keepChars: number): HandoffSplit;
 /** Resolve the language for one handoff: explicit config wins, otherwise the conversation decides. */

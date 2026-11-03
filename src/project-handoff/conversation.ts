@@ -7,7 +7,7 @@
 
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { conversationMessageSections, humanUserText, type ConversationSection } from "../shared/conversation.js";
+import { conversationMessageSections, conversationMessages, humanUserText, type ConversationSection } from "../shared/conversation.js";
 import { clipTitle, truncateMiddle } from "../shared/text.js";
 import { MAX_CONVERSATION_CHARS } from "../shared/project-state.js";
 import { type HandoffLanguage, type HandoffLanguageMessage, REPLAY_MARKER, isHandoffContinuationText, resolveLanguage } from "./language.js";
@@ -210,12 +210,20 @@ interface SessionInputs {
 }
 
 /**
- * One pass over the derived messages, in order. See {@link UserDecision} for why this exists.
+ * One pass over the transcript's messages, in order. See {@link UserDecision} for why this exists.
  *
  * Positions are kept, not just the winners: the user's last input and an open question can both be
  * present, and which of them owns the continuation's closing depends on which came last. The question
  * is tracked on its own axis rather than as "the last conversational message", because an injected
  * user-role block arriving after an open question would otherwise look like it superseded it.
+ *
+ * Read from the **append-origin** log, like {@link handoffSplit}, and for the same reason: what a
+ * successor is told was said must not depend on what a compaction left on the model-visible surface.
+ * The surface can shadow an `ask_user_question` call while its answer stays in the retained tail, and
+ * a checkpoint user-role node then counts as the newest user turn — two ways for the same defect, a
+ * deferral gate that reads a different conversation than the tail it guards. The cost of the log read
+ * is that a *replaced* assistant reply still reads here, which is the safe direction: a question the
+ * model really asked is carried, never the summary that stood in for it.
  */
 function readSessionInputs(session: Session): SessionInputs {
 	const asked = new Map<string, readonly AskedQuestion[]>();
@@ -224,7 +232,7 @@ function readSessionInputs(session: Session): SessionInputs {
 	let decision: UserDecision | undefined;
 	let decisionIndex = -1;
 	let index = 0;
-	for (const message of session.deriveMessages()) {
+	for (const message of conversationMessages(session, "append-origin")) {
 		const at = index;
 		index += 1;
 		if (message.role === "assistant") {
@@ -337,13 +345,19 @@ const HANDOFF_LABEL_CHARS = 20;
  * service *stores* is its own normalized form, so that the prefix survives it is checked after the
  * call rather than assumed — see `retitleAfterRename` in `perform.ts`; a label with no visible
  * character never reaches the service at all, see {@link hasVisibleText}.
+ * The label names the continuation after the parent's **last human input**, and it reads that input
+ * from the append-origin log for the same reason {@link handoffSplit} does: a compaction that
+ * summarizes the user's instruction (realistic — one sentence followed by a long tool span can fall
+ * out of the retained window) leaves only the checkpoint node on the surface, whose `source.kind` is
+ * not `user`. The filter below would then skip every candidate and fall back to the parent id, so the
+ * seed would quote the user's words while its own title said `↪ handoff · 9f3c1a2b`.
  * @param session - the session being handed off.
  * @param fallback - the parent's short id, used when the session carries no human input.
  * @returns the label, without the prefix.
  */
 export function handoffLabel(session: Session, fallback: string): string {
 	let last = "";
-	for (const message of session.deriveMessages()) {
+	for (const message of conversationMessages(session, "append-origin")) {
 		if (message.role !== "user" || message.source.kind !== "user") continue;
 		const text = messageText(message.content);
 		if (text.length === 0 || isHandoffContinuationText(text)) continue;
@@ -407,11 +421,22 @@ export function firstHandoffInput(session: Session): { seq: number; label: strin
 	return undefined;
 }
 
-/** File index from tool calls (read/write/edit), mirroring pi's compaction file tracking. */
+/**
+ * File index from tool calls (read/write/edit), mirroring pi's compaction file tracking.
+ *
+ * Read from the append-origin log rather than the surface. A compaction shadows the span it
+ * summarized, so every `read`/`write`/`edit` call inside that span would leave the index — the
+ * successor would be handed "what this session touched" minus everything it did early on, which is
+ * the misattribution this repo treats as its worst defect class. pi avoided the same loss by
+ * cancelling the compaction before it happened; dsh has no cancellable pre-compaction hook, but it
+ * does keep the log, and upstream names append-origin events as a transcript's durable source.
+ * @param session - the session being handed off.
+ * @returns the `<read-files>` / `<modified-files>` blocks, or `""` when no call qualifies.
+ */
 export function fileOperations(session: Session): string {
 	const read = new Set<string>();
 	const modified = new Set<string>();
-	for (const message of session.deriveMessages()) {
+	for (const message of conversationMessages(session, "append-origin")) {
 		if (message.role !== "assistant") continue;
 		for (const block of message.content) {
 			if (block.type !== "tool-call") continue;
@@ -445,9 +470,17 @@ function languageMessagesOf(sections: readonly ConversationSection[]): HandoffLa
 	return messages;
 }
 
-/** Raw derived messages of a whole session, for a status read that does not split it. */
+/**
+ * Raw messages of a whole session, for a status read that does not split it.
+ *
+ * The same **append-origin** source {@link handoffSplit} feeds the `auto` decision from, so the
+ * language a receipt names is the language the seed was rendered in. Reading the surface here let a
+ * compaction summarize away every message in the user's own language: the detector samples the whole
+ * conversation ({@link languageSamples}), the checkpoint that replaced the span is not the user's text
+ * (`sourceKind` filters it out), so the receipt could report `en` while the seed carried Chinese.
+ */
 export function sessionLanguageMessages(session: Session): HandoffLanguageMessage[] {
-	return languageMessagesOf(conversationMessageSections(session));
+	return languageMessagesOf(conversationMessageSections(session, "append-origin"));
 }
 
 /** A previous continuation prompt is replaced in place, keeping the message order around it. */
@@ -479,9 +512,20 @@ export interface HandoffSplit {
  * can (a) replace a recognized continuation prompt in the carried tail with {@link REPLAY_MARKER}
  * and (b) hand `auto` detection the unclipped text, since the rendered section cuts user text at
  * 4000 characters — shorter than a real continuation, which would hide its closing line.
+ *
+ * The section list is read from **append-origin** events, not the model-visible surface. This is the
+ * dsh-native answer to pi's `session_before_compact` cancel: pi stopped the compaction from running
+ * so the handoff could carry an intact branch, while dsh cannot cancel one and does not need to — the
+ * log is append-only and a compaction's checkpoint is itself a surface *replacement*, so reading
+ * append-origin events renders the summarized span and drops the summary that stood in for it.
+ * Reading the surface here would hand the successor a compressed branch as if it were the
+ * conversation, which is exactly the wrong-cause defect this repo treats as its worst.
+ * @param session - the session being handed off.
+ * @param keepChars - characters of the most recent messages to carry verbatim; `0` carries no tail.
+ * @returns the older span, the verbatim tail and whether that tail was clipped at a render cap.
  */
 export function handoffSplit(session: Session, keepChars: number): HandoffSplit {
-	const sections = conversationMessageSections(session);
+	const sections = conversationMessageSections(session, "append-origin");
 	let start = sections.length;
 	if (keepChars > 0) {
 		let used = 0;

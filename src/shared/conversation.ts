@@ -4,8 +4,8 @@
  * a consolidation request inside its budget.
  */
 
-import { type ToolCallBlock } from "@deepseek-ai/dsh-llm";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Message, type ToolCallBlock } from "@deepseek-ai/dsh-llm";
+import { isReplacementSurfaceEvent, isSurfaceEligibleType, type Session } from "@deepseek-ai/dsh-session";
 import { isHandoffContinuationText } from "../project-handoff/language.js";
 import { MAX_CONVERSATION_CHARS } from "./project-state.js";
 import { MAX_ADAPTIVE_OUTPUT_TOKENS, MIN_CLIP_CHARS, REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, allocateTokens, reasoningReserveTokens } from "./output-budget.js";
@@ -161,10 +161,74 @@ export interface ConversationSection {
 	readonly clipped?: boolean;
 }
 
-/** Compact section-per-message rendering of the derived conversation. */
-export function conversationMessageSections(session: Session): ConversationSection[] {
+/**
+ * Which events a rendered conversation is read from.
+ *
+ * `surface` is what the model's own history holds: `deriveMessages()`, the fold of the
+ * model-visible surface, where a replacement copy stands in for whatever it shadowed.
+ * `append-origin` is every event that entered the surface at its own log position and was never a
+ * replacement copy — which upstream's `isAppendSurfaceEvent` documents as a *transcript's* durable
+ * source material precisely because the surface "would erase conversation the user already saw".
+ * A compaction's checkpoint is such a replacement, so reading append-origin events lets the span it
+ * summarized be rendered instead of the summary that replaced it.
+ */
+export type ConversationSource = "surface" | "append-origin";
+
+/**
+ * The messages of one session under a {@link ConversationSource}.
+ *
+ * The append-origin read is not a second fold of the surface: it walks the append-only log and
+ * projects each append-origin event through the session's own `deriveEventMessage`, so logged
+ * message projections still apply and the restored messages keep their durable identity.
+ *
+ * Reading a replacement copy is what a compaction hides, so dropping the copy instead of the node it
+ * replaced is the whole difference. Two replacement producers make that visible, and both are
+ * deliberate: a compaction checkpoint disappears while the messages it summarized return, and a
+ * pruned tool result reads as its original, longer content (the section's own render cap still
+ * bounds it). A runtime-context snapshot is a `system/message`, so no section renders it either way.
+ *
+ * The test is "is a replacement copy", not "is an append". Upstream makes that distinction hard for a
+ * *live* session — `surfaceOpOf` refuses a surface-eligible event that carries no marker, so such an
+ * event cannot enter a log at all, and a fork copies whole events (`buildForkSeed` slices the prefix),
+ * so a forked session keeps its markers too. The tolerance is therefore for the remaining caller: an
+ * object built by hand, which this plugin is handed in tests and must not silently shorten. An event
+ * without the marker cannot be standing in for another node, so it is read like an append.
+ * @param session - the session to read.
+ * @param source - which event family to read; defaults to the model-visible surface.
+ * @returns the projected messages, in log order.
+ */
+export function conversationMessages(session: Session, source: ConversationSource = "surface"): readonly Message[] {
+	if (source === "surface") return session.deriveMessages();
+	const messages: Message[] = [];
+	for (const event of session.snapshotEvents()) {
+		// A log-only record (a boundary, a job registration, a meter sample) never projects a message —
+		// `deriveEventMessage`'s default branch returns null for exactly these — so the guard is kept in
+		// step with upstream's own fold rather than to prevent a defect: it spares the projector a call
+		// that would answer null, and it is the same eligibility test that fold applies.
+		if (!isSurfaceEligibleType(event.type)) continue;
+		if (isReplacementSurfaceEvent(event)) continue;
+		const message = session.deriveEventMessage(event);
+		if (message !== null) messages.push(message);
+	}
+	// A totality guarantee, not a production path: on a live session this branch is unreachable. A
+	// replace op may only cite earlier seqs, a fork copies the whole prefix and `snapshotEvents()`
+	// starts at seq 0, so every real session with a message has at least one append-origin event (and
+	// the "no message yet" case returns `[]` from both sources anyway). It exists so a caller that
+	// builds a session object by hand gets the same conversation it would have read before this seam,
+	// instead of an empty transcript it would report as "the session said nothing" — a wrong cause for
+	// a true statement. The 25 integration fixtures in `test/logic.test.mjs` take this branch.
+	return messages.length === 0 ? session.deriveMessages() : messages;
+}
+
+/**
+ * Compact section-per-message rendering of a conversation.
+ * @param session - the session to read.
+ * @param source - which event family to read; see {@link ConversationSource}.
+ * @returns one section per message that renders any text.
+ */
+export function conversationMessageSections(session: Session, source: ConversationSource = "surface"): ConversationSection[] {
 	const sections: ConversationSection[] = [];
-	for (const message of session.deriveMessages()) {
+	for (const message of conversationMessages(session, source)) {
 		if (message.role === "system") continue;
 		if (message.source.kind === "tool") {
 			const text = textOf(message.content);

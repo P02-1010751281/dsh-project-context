@@ -23,6 +23,7 @@ import {
 } from "../lib/project-handoff/language.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { PluginSettingsSchema } from "../lib/shared/settings.js";
+import { sessionViews } from "./session-views.mjs";
 
 /** One raw sample message in the shape `handoffSplit` produces. */
 function user(text, sourceKind = "user") {
@@ -43,7 +44,7 @@ function message(role, text, sourceKind) {
 }
 
 function fakeSession(messages) {
-	return { deriveMessages: () => messages };
+	return { ...sessionViews(messages) };
 }
 
 const ARCHIVE = { log: "logs/session-parent/session.md", index: "logs/INDEX.md" };
@@ -56,7 +57,7 @@ test("the resolved language reaches HANDOFF.md and the child's first message", (
 	const session = {
 		id: "session-parent-1234",
 		header: { cwd: "/project", createdAt: 0 },
-		deriveMessages: () => [message("user", "这个记忆整理流程要怎么改？"), message("assistant", "先看 journal，再决定。")],
+		...sessionViews([message("user", "这个记忆整理流程要怎么改？"), message("assistant", "先看 journal，再决定。")]),
 	};
 	const config = { ...DEFAULT_CONFIG, handoffPendingQuestion: "wait" };
 	assert.equal(resolveHandoffLanguage(sessionLanguageMessages(session), config), "zh", "auto follows the conversation");
@@ -116,10 +117,10 @@ test("the pending question is carried into the continuation only under wait", ()
 	const asking = {
 		id: "session-parent-1234",
 		header: { cwd: "/project", createdAt: 0 },
-		deriveMessages: () => [
+		...sessionViews([
 			message("user", "帮我改一下"),
 			message("assistant", "Which branch should I use?"),
-		],
+		]),
 	};
 	const wait = { ...DEFAULT_CONFIG, handoffPendingQuestion: "wait" };
 	const defer = { ...DEFAULT_CONFIG, handoffPendingQuestion: "defer" };
@@ -378,11 +379,11 @@ test("tool output reaches the handoff tail, not just the tool name", () => {
 	// hundreds of `[tool: …]` stubs and no output at all. rc.2 carries the result as a first-class
 	// `role: 'tool'` message whose `text` blocks hold it.
 	const session = {
-		deriveMessages: () => [
+		...sessionViews([
 			{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "run the suite" }] },
 			{ role: "assistant", source: { kind: "model" }, content: [{ type: "tool-call", id: "c1", name: "bash", arguments: "{}" }] },
 			{ role: "tool", source: { kind: "tool", callId: "c1" }, toolCallId: "c1", content: [{ type: "text", text: "134 passing" }] },
-		],
+		]),
 	};
 	const split = handoffSplit(session, 100_000);
 	assert.match(split.tail, /## assistant\n\[tool: bash\]/);
