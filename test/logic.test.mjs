@@ -3114,6 +3114,59 @@ test("a console diagnostic is masked, flattened and bounded", () => {
 	assert.equal(diagnosticMessage(new Error("token: abcdefghij")).includes("[redacted]"), true);
 });
 
+test("the automatic handoff never runs under its trigger, however droppable the session is", async () => {
+	// The threshold gate is the first thing the chain does, and until this case nothing pinned it at
+	// the adapter level: deleting `decide.ts`'s below-threshold early return left the entire suite
+	// green. The fixture is built so that gate is the *only* thing in the way. Its droppable span is
+	// 50 042 chars — 40 × 1 500 truncated to `MAX_CONVERSATION_CHARS` (50 000) plus the truncation
+	// marker — which `CHARS_PER_TOKEN = 3.5` turns into 14 298 tokens, well over gate 5's 8 000
+	// minimum. So a session over its trigger really would hand off: the trigger is the discriminator.
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	let caseId = 0;
+	const session = () => ({
+		id: `session-below-threshold-${caseId}`,
+		header: { cwd: process.cwd(), createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		snapshotEvents: () => [],
+		// No catalog rows and no settled markers: the only gates that could speak are the threshold
+		// and the drop minimum, which is what makes the negative control below unambiguous.
+		deriveEventMessage: () => null,
+	});
+	const created = [];
+	const controller = { create: async () => { created.push(1); return { sessionId: "child-1" }; }, rename: async () => undefined };
+	const ctxFor = (totalTokens) => ({
+		get: (name) => (name === "sessionController" ? controller : name === "tokenMeter" ? { measure: () => ({ totalTokens, surfaceTokens: totalTokens }) } : undefined),
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
+		logger: { info() {}, warn() {} },
+	});
+	// Fixed ratio so the trigger is hand-computable: 40% of a 200 000 window = 80 000, far clear of
+	// the 8 000 floor. An expected number that came out of the module under test would be circular.
+	// `handoffBudgetRecentTokens: 0` makes the whole conversation droppable, so nothing but the
+	// trigger can withhold it.
+	const config = resolvePluginConfig({
+		provider: "test-provider", model: "test-model",
+		handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0,
+		handoffThresholdAuto: false, handoffThresholdRatio: 0.4,
+	});
+
+	// 50 000 is under the 80 000 trigger, with no pending question and no live subagent to blame. The
+	// call is *not* wrapped: this path must return normally, and a throw before `create` would make
+	// `created.length === 0` true for the wrong reason — the silence has to be the gate's, not a crash's.
+	caseId += 1;
+	await maybeAutoHandoff(ctxFor(50_000), session(), config);
+	assert.equal(created.length, 0, "a session under its trigger must not hand off, however much it could drop");
+
+	// Positive control: the same conversation one measurement over the trigger *does* create a child,
+	// so the zero above cannot be a fixture that never hands off at all. The seed then fails (this
+	// fixture has no live agent registry), which is why the call is caught — creation is the proof.
+	caseId += 1;
+	await maybeAutoHandoff(ctxFor(120_000), session(), config).catch(() => undefined);
+	assert.equal(created.length, 1, "the same fixture over the trigger creates a child session");
+	// Negative control: removing `decide.ts`'s below-threshold early return turns the first half into
+	// 1 and leaves the second green — the trigger is the only difference between the two cases.
+});
+
 test("the automatic handoff waits for background subagents to settle", async () => {
 	// A session over the threshold whose last turn ended while a subagent is still running: when
 	// that subagent settles, dsh wakes this session again, so handing off now would leave parent and

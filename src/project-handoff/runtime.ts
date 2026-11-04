@@ -5,6 +5,7 @@
 
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
+import { type MeasuredContext } from "./measure.js";
 
 /** Structural view of the web/API session runtime; the service is optional per profile. */
 export interface SessionControllerLike {
@@ -46,22 +47,10 @@ export function projectionEnvelope(projections: SessionProjectionsLike | undefin
 	return (typeof systemTokens === "number" ? systemTokens : 0) + (typeof toolsTokens === "number" ? toolsTokens : 0);
 }
 
-/**
- * Which read supplied {@link ContextMeasurement.overheadTokens}, or `undefined` when neither did.
- *
- * `"projection"` is the harness's own composition (`contextBreakdown`). `"meter"` is an envelope the
- * meter volunteered — the same *quantity*, but not the harness's answer, so it must not be reported as
- * if it were (this repo's recurring defect class is a right value under a wrong attribution).
- */
-export type EnvelopeSource = "projection" | "meter";
-
-/** {@link measuredContext}'s result: `threshold.ts`'s `ContextMeasurement` plus where the envelope came from. */
-export interface MeasuredContext {
-	readonly totalTokens: number;
-	readonly surfaceTokens: number;
-	readonly overheadTokens?: number;
-	readonly envelopeSource?: EnvelopeSource;
-}
+// The measurement's shape lives in `measure.ts`, which imports nothing: this module loads the host
+// session package, so a decision module that took the type from here would load that package too.
+// Re-exported so this file's own callers (`gate.ts`) keep importing it from one place.
+export type { EnvelopeSource, MeasuredContext } from "./measure.js";
 
 /**
  * The meter's measurement plus the harness-reported envelope, ready for `threshold.ts`. One entry

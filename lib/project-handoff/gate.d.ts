@@ -1,6 +1,6 @@
 /**
  * The single resolution of the automatic trigger's inputs: the routed window, the measured
- * context, and the threshold — or the refusal that stands in for it.
+ * context, and the threshold — or `undefined` when a guardrail refused to produce one.
  *
  * It exists so nothing *reports* a decision the decision did not make. `auto.ts` consumes the
  * returned object, and the injected pressure line records that very object (see `display.ts`)
@@ -12,19 +12,19 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { type MeasuredContext } from "./runtime.js";
-import { type ThresholdRefusal, resolveThreshold } from "./threshold.js";
+import { resolveThreshold } from "./threshold.js";
 /**
  * Everything the trigger decides on, resolved once.
  *
- * `threshold` is `undefined` when a guardrail refuses; `refusal` then names which term bound it, so
- * a caller that *shows* the state does not have to render every refusal as a claim about the window
- * (see `thresholdRefusal`).
+ * `threshold` is `undefined` when a guardrail refuses. The *cause* is deliberately not carried here:
+ * the one surface that shows it is the `/handoff status` receipt, and that reads `thresholdRefusal`
+ * from the same measurement itself (`command.ts`). Keeping a second copy on this object only gave the
+ * decision a field no caller consumed.
  */
 export interface ResolvedHandoffGate {
     readonly contextWindow: number;
     readonly measurement: MeasuredContext;
     readonly threshold: ReturnType<typeof resolveThreshold>;
-    readonly refusal: ThresholdRefusal | undefined;
 }
 /**
  * Resolve the trigger for one session, or `undefined` when this profile/session cannot be measured

@@ -4,6 +4,7 @@
  */
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
+import { type MeasuredContext } from "./measure.js";
 /** Structural view of the web/API session runtime; the service is optional per profile. */
 export interface SessionControllerLike {
     create(request: {
@@ -54,21 +55,7 @@ export interface SessionProjectionsLike {
  * and `handoffSplit` are measured in, so the floor stays internally consistent.
  */
 export declare function projectionEnvelope(projections: SessionProjectionsLike | undefined, session: Session): number | undefined;
-/**
- * Which read supplied {@link ContextMeasurement.overheadTokens}, or `undefined` when neither did.
- *
- * `"projection"` is the harness's own composition (`contextBreakdown`). `"meter"` is an envelope the
- * meter volunteered — the same *quantity*, but not the harness's answer, so it must not be reported as
- * if it were (this repo's recurring defect class is a right value under a wrong attribution).
- */
-export type EnvelopeSource = "projection" | "meter";
-/** {@link measuredContext}'s result: `threshold.ts`'s `ContextMeasurement` plus where the envelope came from. */
-export interface MeasuredContext {
-    readonly totalTokens: number;
-    readonly surfaceTokens: number;
-    readonly overheadTokens?: number;
-    readonly envelopeSource?: EnvelopeSource;
-}
+export type { EnvelopeSource, MeasuredContext } from "./measure.js";
 /**
  * The meter's measurement plus the harness-reported envelope, ready for `threshold.ts`. One entry
  * point so the automatic path and the `/handoff status` receipt cannot read different envelopes.
