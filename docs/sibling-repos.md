@@ -39,6 +39,10 @@ done
 - 测试是 `tests/run_tests.py` + `tests/test_contextctl.py`（Python），不是 `node --test`。
 - 没有 tag：版本只体现在 `.codex-plugin/plugin.json` 的 `version` 字段。
 
+**状态机与接口面**（每个事件的 matcher、超时、输出协议，以及它没有辅助模型调用这件事）不写在这
+里，见 [harness-state-machines-spec.md](harness-state-machines-spec.md)：那份 spec 用稳定 ID 登记
+了三边的接口面、我们的接入点与 shim。
+
 ## 为什么不能混着改
 
 三者的**写路径**（谁在什么事件上写哪个文件）完全不同，dsh 侧的不变量在另外两个仓里没有对应
