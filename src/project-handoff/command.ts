@@ -13,7 +13,7 @@ import { pendingSubagentWork } from "./guard.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
 import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { performHandoff } from "./perform.js";
-import { type SessionControllerLike, type SessionProjectionsLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
+import { type SessionControllerLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { handedOff, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
 import { resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "./threshold.js";
 
@@ -110,7 +110,7 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 	const parts: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const target = resolveTarget(session, config);
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
-	const projections = ctx.get("sessionProjections") as SessionProjectionsLike | undefined;
+	const projections = ctx.get("sessionProjections");
 	if (target !== undefined && meter !== undefined) {
 		const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
 		const contextWindow = resolved.context?.contextWindow;

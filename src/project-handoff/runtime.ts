@@ -4,6 +4,12 @@
  */
 
 import { type Session } from "@deepseek-ai/dsh-session";
+import { type SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
+// Type-only and load-bearing, so do not "clean up" this import. `contextBreakdown` is not part of
+// the projection package's own `SessionProjectionMap`: the token meter contributes that key through
+// a module augmentation, and this import is what pulls it into the program. Drop it and
+// `snapshot(session, ["contextBreakdown"])` no longer typechecks — `test/projection-typing` pins that.
+import { type ContextBreakdownProjection } from "@deepseek-ai/dsh-token-meter";
 import { type PluginConfig } from "../shared/config.js";
 import { type MeasuredContext } from "./measure.js";
 
@@ -18,18 +24,11 @@ export interface SessionControllerLike {
 }
 
 /**
- * Structural view of the session projection registry (`ctx.sessionProjections`,
- * `@deepseek-ai/dsh-session-projection`). The token meter registers `contextBreakdown` with it —
- * the harness's own answer to "what is the prompt made of" — and `snapshot` is synchronous.
- */
-export interface SessionProjectionsLike {
-	snapshot(session: Session, keys?: readonly string[]): { asOfSeq: number; values: Record<string, unknown> };
-}
-
-/**
  * The envelope the next request carries beyond the conversation, for `threshold.ts`.
  *
- * Read from the harness's `contextBreakdown` projection (`systemTokens + toolsTokens`). It is
+ * Read from the harness's own `contextBreakdown` projection (`systemTokens + toolsTokens`), which is
+ * a synchronous read of an already-folded view — the harness's answer to "what is the prompt made
+ * of", not something this plugin derives. It is
  * **never** derived by subtracting two meter outputs: `tokenMeter.measure`'s `totalTokens` is anchored
  * on the provider's `usage` while its `surfaceTokens` is priced by a fixed-density heuristic, so the
  * difference is `envelope + density error` — 263324 against a real 42845 on one measured session, an
@@ -39,10 +38,15 @@ export interface SessionProjectionsLike {
  * The composition is the meter's fixed-density estimate, the same basis `keep`, `MIN_DROP_TOKENS`
  * and `handoffSplit` are measured in, so the floor stays internally consistent.
  */
-export function projectionEnvelope(projections: SessionProjectionsLike | undefined, session: Session): number | undefined {
-	const value = projections?.snapshot(session, ["contextBreakdown"]).values.contextBreakdown;
-	if (value === undefined || value === null || typeof value !== "object") return undefined;
-	const { systemTokens, toolsTokens } = value as { systemTokens?: unknown; toolsTokens?: unknown };
+export function projectionEnvelope(projections: SessionProjectionRegistry | undefined, session: Session): number | undefined {
+	const breakdown: ContextBreakdownProjection | undefined = projections?.snapshot(session, ["contextBreakdown"]).values.contextBreakdown;
+	// The declared type is a contract with the host, not a guarantee about host state: a registry from
+	// another build can still hand back a differently shaped value, and guessing there would put the
+	// floor on a made-up number. Reading through `unknown` keeps that check honest instead of letting
+	// the type make it look redundant.
+	if (breakdown === undefined || breakdown === null) return undefined;
+	const systemTokens: unknown = breakdown.systemTokens;
+	const toolsTokens: unknown = breakdown.toolsTokens;
 	if (typeof systemTokens !== "number" && typeof toolsTokens !== "number") return undefined;
 	return (typeof systemTokens === "number" ? systemTokens : 0) + (typeof toolsTokens === "number" ? toolsTokens : 0);
 }
@@ -62,7 +66,7 @@ export type { EnvelopeSource, MeasuredContext } from "./measure.js";
  */
 export function measuredContext(
 	meter: TokenMeterLike,
-	projections: SessionProjectionsLike | undefined,
+	projections: SessionProjectionRegistry | undefined,
 	session: Session,
 ): MeasuredContext {
 	const measured = meter.measure(session);

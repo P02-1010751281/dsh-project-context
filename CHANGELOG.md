@@ -7,6 +7,18 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（`SH-1` 拆除：投影读取改用声明类型，删除手写结构化视图）**
+
+- 性质：**行为等价重构 + 一处依赖声明**，无「修复」项。`src/project-handoff/runtime.ts` 的 `SessionProjectionsLike` 删除，`projectionEnvelope` / `measuredContext` 改用 `SessionProjectionRegistry`，`gate.ts` / `command.ts` 的 `ctx.get("sessionProjections") as …` 断言一并去掉；运行时逻辑与回执文案一字未改（`projectionEnvelope` 仍对畸形值返回 `undefined`，仍不从两个计量器输出相减）。
+- 为什么**必须两个包**：那一行同时依赖两份类型 —— `sessionProjections` 服务由 `@deepseek-ai/dsh-session-projection` 声明，而 `contextBreakdown` 这个**键**不在该包自己的 `SessionProjectionMap` 里，由 `@deepseek-ai/dsh-token-meter` 的 module augmentation 贡献。实测只 import 前者时键类型塌成 `never` 且属性报不存在；两个都 import 时 0 错。
+- 依赖只进 `devDependencies`（`0.1.7-rc.2`，与我们六包同线），**不进 `peerDependencies`**：两个服务都是可选的（缺失时 `projectionEnvelope` 返回 `undefined`，回执写 `harness envelope unavailable`），而 peer 是「宿主必须提供」的契约；加进 peer 会把门禁从 6 条收紧到 8 条，并让能优雅降级的老宿主在 peer 判定上失败。类型导入编译后擦除，运行时不依赖它们。
+- 判别器：新增 `test/projection-typing.test.mjs` + `test/fixtures/projection-typing/`，一次 `tsc` 跑两个同构 fixture —— 正确键必须 0 诊断，差一个字的键必须恰好 1 条且点名该键。**两侧对照都真开火**：去掉 token-meter import → 正控制挂；把读取降级成 `: any` → 判别器挂（这一步还暴露并改掉了判别器自己的一句错误归因：它原本会把「两个 fixture 都通过」报成「tsc 没编译 fixture」）。
+- 变异轮（3 个 mutator，全部被杀，逐个先编译到 `lib/` 并确认标记在位）：M1 `projectionEnvelope` 只返回 `systemTokens` → 2 条回执用例红；M2 删掉「两个字段都不是数字 → `undefined`」守卫 → 1 条红；M3 `measuredContext` 把 `envelopeSource: "projection"` 错标成 `"meter"` → 1 条红。恢复走哈希校验过的 `/tmp` 快照，`sha256sum -c` 通过后重建，`lib/` 0 标记。
+- 门禁（现跑）：`pnpm typecheck` 0；`pnpm test` **477 通过 / 0 失败**（本批前 476）；`pnpm build` 0（`lib/client.js` 28575 字节）；`src/` 里 `SessionProjectionsLike` 0 命中。
+- **纠正预检的一处错结论**：预检称同线加载 `peers check` 输出 `No peer dependency issues found` —— 那条跑在干净 `/tmp` 沙盒，pnpm 自解析到 cordis 4.0.5。真实锁文件钉 `cordis 4.0.2`，而 `dsh-agent@0.1.7-rc.2` 本来就要求 `~4.0.4`；把 HEAD 三件套复制到 `/tmp` 用同一把 pnpm 跑对照，未满足的仍是同样 **2 条**（`cordis`、`schemastery`）。所以真实结论是**新增 0 条未满足的 peer 名**，不是「0 条」；这 2 条是既存残差，修它要动 cordis / schemastery 的 devDeps，属独立批次。
+- 判据从「版本相等」改为「**锁定版签名是运行线的子集**」：0.1.7 的 `snapshot` 入参是 `readonly Extract<keyof SessionProjectionMap, string>[]`，运行线 `0.2.2-rc.1` 是 `ProjectionKeySelection`（同一数组形式 ∪ `ReadonlySet`）；返回的 `ProjectionSnapshot` 与 `ContextBreakdownProjection` 两线逐字相同。下一版若把 `keys` 收窄或改返回形状，判别器会先红。
+- 边界：**改了 `src/` ⇒ 需要一次宿主重启才上线**（用户操作）；`SH-2`（`ctx.get` 读未声明服务）**没有**因本批消失，这一批只换掉了类型。证据与复核命令：`.agents/evidence/2026-11-05-sh1-removal/README.md`。
+
 **project-handoff（批次 W：决策 seam —— 把自动交接的闸链切成「纯判据 + 适配器」）**
 
 - 性质：**行为等价重构**，不是缺陷修复 —— 因此本条目没有「修复」项，那句「修复都伴随变异校验」不适用本批；判别力证据来自下面 A–F 的实测变异。目的只有一个：把「该不该交接」的判断从宿主读取里切出来，让第二个宿主能复用同一份判据，而不是各写一套阈值。

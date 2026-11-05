@@ -3,6 +3,7 @@
  * of a session. Each service is optional per profile, so every view is read defensively.
  */
 import { type Session } from "@deepseek-ai/dsh-session";
+import { type SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
 import { type PluginConfig } from "../shared/config.js";
 import { type MeasuredContext } from "./measure.js";
 /** Structural view of the web/API session runtime; the service is optional per profile. */
@@ -31,20 +32,11 @@ export interface SessionControllerLike {
     }): Promise<unknown>;
 }
 /**
- * Structural view of the session projection registry (`ctx.sessionProjections`,
- * `@deepseek-ai/dsh-session-projection`). The token meter registers `contextBreakdown` with it —
- * the harness's own answer to "what is the prompt made of" — and `snapshot` is synchronous.
- */
-export interface SessionProjectionsLike {
-    snapshot(session: Session, keys?: readonly string[]): {
-        asOfSeq: number;
-        values: Record<string, unknown>;
-    };
-}
-/**
  * The envelope the next request carries beyond the conversation, for `threshold.ts`.
  *
- * Read from the harness's `contextBreakdown` projection (`systemTokens + toolsTokens`). It is
+ * Read from the harness's own `contextBreakdown` projection (`systemTokens + toolsTokens`), which is
+ * a synchronous read of an already-folded view — the harness's answer to "what is the prompt made
+ * of", not something this plugin derives. It is
  * **never** derived by subtracting two meter outputs: `tokenMeter.measure`'s `totalTokens` is anchored
  * on the provider's `usage` while its `surfaceTokens` is priced by a fixed-density heuristic, so the
  * difference is `envelope + density error` — 263324 against a real 42845 on one measured session, an
@@ -54,7 +46,7 @@ export interface SessionProjectionsLike {
  * The composition is the meter's fixed-density estimate, the same basis `keep`, `MIN_DROP_TOKENS`
  * and `handoffSplit` are measured in, so the floor stays internally consistent.
  */
-export declare function projectionEnvelope(projections: SessionProjectionsLike | undefined, session: Session): number | undefined;
+export declare function projectionEnvelope(projections: SessionProjectionRegistry | undefined, session: Session): number | undefined;
 export type { EnvelopeSource, MeasuredContext } from "./measure.js";
 /**
  * The meter's measurement plus the harness-reported envelope, ready for `threshold.ts`. One entry
@@ -64,7 +56,7 @@ export type { EnvelopeSource, MeasuredContext } from "./measure.js";
  * whether the envelope was read or not (at a 1M window with a small `keep` the knee, not the floor, is
  * what binds), so a value alone leaves "did `contextBreakdown` parse?" unanswerable from the receipt.
  */
-export declare function measuredContext(meter: TokenMeterLike, projections: SessionProjectionsLike | undefined, session: Session): MeasuredContext;
+export declare function measuredContext(meter: TokenMeterLike, projections: SessionProjectionRegistry | undefined, session: Session): MeasuredContext;
 /**
  * Structural view of the workspace registry (`ctx.workspaceRegistry`); the service
  * is optional per profile, and `resolveByPath` canonicalizes like the registry does.

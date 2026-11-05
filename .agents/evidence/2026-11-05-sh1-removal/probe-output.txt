@@ -1,0 +1,7 @@
+=== 探针：只 import session-projection（期望 2 条错）===
+.agents/evidence/2026-11-05-sh1-removal/probe-no-meter.ts(9,41): error TS2322: Type 'string' is not assignable to type 'never'.
+.agents/evidence/2026-11-05-sh1-removal/probe-no-meter.ts(9,69): error TS2339: Property 'contextBreakdown' does not exist on type 'Partial<SessionProjectionMap>'.
+EXIT: 2
+
+=== 探针：两个都 import（期望 0 错）===
+EXIT: 0

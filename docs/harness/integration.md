@@ -52,50 +52,60 @@
 
 ## 3. shim 决定
 
-### 3.1 是真 shim 的（3 条，都在 dsh 侧）
+### 3.1 是真 shim 的（2 条，都在 dsh 侧）
 
 | ID | 位置 | 抹平什么 | 决定 | 拆除条件 |
 |---|---|---|---|---|
-| `SH-1` | `src/project-handoff/runtime.ts` 的结构化视图（`SessionProjectionsLike` 等） | 投影服务的类型不在我们已声明的依赖里 | **留**（§3.2 预检：可拆，未落地） | 在锁定线上加两个 type-only 依赖（预检已通） |
 | `SH-2` | 各处 `ctx.get("name")`（11 个服务） | 服务未声明；`ctx.foo` 未注入会抛，`ctx.get` 只返回 `undefined` | **留** | 对应服务进入我们的 `inject` 声明 |
 | `SH-3` | `isTopLevel(session)` 闸门 | `SessionHeader.origin` 只有闭字面量 `'subagent'`，没有「顶层」正向标记 | **留** | 上游提供显式顶层判据 |
 
-### 3.2 `SH-1` 的拆除条件（2026-11-05 预检修订）
+### 3.2 `SH-1` 已拆除（2026-11-05 落地）
 
-上一轮登记的拆除条件是「上游导出该类型，或我们改为声明注入」。**直接按运行线把包加进来**
-不通，原因如下（这四条仍是 2026-11-05 之前核实的现状）：
+`src/project-handoff/runtime.ts` 手写的 `SessionProjectionsLike` 已删除，改为两个包的声明类型。
+拆除的**判据**与预检版本不同，原因记在下面，因为它同时纠正了预检的一处错误结论。
 
-1. **我们没有那个包**。`@deepseek-ai/dsh-session-projection` 不在 `package.json` 的
-   `dependencies` / `peerDependencies` 里，顶层 `node_modules/@deepseek-ai/` 也没有它。
-2. **它在 `.pnpm` 里，但只是别人的 peer**。它作为 `dsh-agent` 的 peer 被装进了
-   `node_modules/.pnpm/`（`0.1.7-rc.2`），我们**不能**从自己的源码 `import` 它——pnpm 的
-   隔离布局不允许。
-3. **`contextBreakdown` 这个键的类型增强来自 `@deepseek-ai/dsh-token-meter`**，而后者同样不在
-   我们的依赖里。就算拿到 `SessionProjectionMap`，它也是**空的合并可扩展接口**，不含我们这个键。
-4. **两条线的签名不同**：`.pnpm` 里的 `0.1.7-rc.2` 签名是
-   `snapshot(session, keys?: readonly Extract<keyof SessionProjectionMap, string>[])`，
-   运行中的 `0.2.2-rc.1` 是 `snapshot(session, keys?: ProjectionKeySelection)`
-   （`ProjectionKeySelection` 还接受 `ReadonlySet`）。按运行线绑死会与其余五个包冲突；
-   绑 `0.1.7` 则只有在承认「签名是运行线的子集」这条判据后才成立（见下）。
+**为什么必须是两个包。** 我们读的不只是服务对象，还有它上面的一个键：
 
-所以**按运行线直接加进来是不行的**：预检（2026-11-05）把六个锁定包与两个 `0.2.2-rc.1`
-新包混在一起跑 `pnpm install`，退出码是 **0**，只打一行 `[WARN]`，而 `pnpm peers check` 列出
-**7 条 unmet peer**（`cordis` 装 4.0.5 而新包要 `~4.1.0`；`dsh-session-projection` 装 0.2.2
-而 `dsh-agent` 要 0.1.7-rc.2；`dsh-session`/`dsh-llm` 同样反向）。装得上不等于接对了，
-而且 install 的退出码不会拦住它 —— 这是本仓库最忌的静默错配。
+```ts
+projections.snapshot(session, ["contextBreakdown"]).values.contextBreakdown
+```
 
-拆除条件因此改写为：**在我们已锁定的同一条线上**同时（a）把 `dsh-session-projection` 与
-`dsh-token-meter` 都列为依赖（`0.1.7-rc.2` 的 peer 与我们六个包逐条吻合），（b）让
-`contextBreakdown` 的类型增强来自我们声明的包，且（c）锁定版的 `snapshot` 签名是运行线的
-**子集**、返回形状相同 —— 不是版本相等。预检把 (c) 核对为：入参 0.1.7 的
-`readonly (keyof SessionProjectionMap)[]` ⊆ 0.2.2 的 `ProjectionKeySelection`
-（= 同一数组形式 ∪ `ReadonlySet`），且 `ProjectionSnapshot` 与 `ContextBreakdownProjection`
-两条线**逐字相同**，0.2.2 多出来的 `SessionProjectionSummaryExcluded<T>` 只是 `T & {brand}`。
-A 路探针的 `pnpm peers check` 输出 `No peer dependency issues found`。
+`sessionProjections` 这个服务由 `@deepseek-ai/dsh-session-projection` 声明（`declare module
+'@deepseek-ai/cordis'`），而 `contextBreakdown` **不在**该包自己的 `SessionProjectionMap` 里 ——
+它由 `@deepseek-ai/dsh-token-meter` 通过 module augmentation 贡献。缺任一个都会断：只有前者时
+`keyof SessionProjectionMap` 不含这个键，只有后者时连服务类型都没有。实测把 token-meter 的
+import 去掉，键类型直接塌成 `never`、`contextBreakdown` 报「属性不存在」；加回来 0 错。
 
-这仍是**判据改写**，不是免费通过：它需要 `pnpm typecheck`（把键写错必须编译失败）与一轮
-变异证明，落地前结构化视图继续承重。预检记录：
-[2026-11-05-sh1-removal-precheck](../.agents/evidence/2026-11-05-sh1-removal-precheck/README.md)。
+**依赖加在哪一栏。** 只加 `devDependencies`（`0.1.7-rc.2`，与我们六包同线），**不加
+`peerDependencies`**。理由：这两个服务是**可选**的（`ctx.get` 返回 `undefined` 时
+`projectionEnvelope` 退回 `keep + MIN`，回执如实写 `harness envelope unavailable`），而 peer
+声明是「宿主必须提供」的契约。加进 peer 会把门禁收紧到 8 条，而 0.1.5 一类老宿主本来能优雅降级，
+却会在 peer 判定上失败。类型导入在编译后擦除，运行时不依赖这两个包。
+
+**预检的错结论已纠正。** 预检称 A 路 `pnpm peers check` 输出
+`No peer dependency issues found` —— 那是在干净的 `/tmp` 沙盒里跑的，pnpm 自己解析到
+cordis 4.0.5 所以看起来干净。**真实锁文件把 cordis 钉在 4.0.2**，而 `dsh-agent@0.1.7-rc.2`
+本来就要求 `~4.0.4`：HEAD 状态用同一把 pnpm 跑 `peers check` 同样报 **2 条**未满足
+（`cordis`、`schemastery`）。落地后的真实结论是**新增 0 条未满足的 peer 名**，不是「0 条」：
+差异只在「wanted by」列表里多了 4 个新包（`dsh-token-meter`、`dsh-compaction`、
+`dsh-compaction-image-offload`、`dsh-llm-retry`）——它们并入既有的那条 `cordis ~4.0.4` 缺口。
+这 2 条是既存残差，与本批无关，不去顺手修（那要动 cordis 与 schemastery 的 devDeps，是独立批次）。
+
+**判据从「版本相等」改成「签名是运行线的子集」。** 锁定版 `snapshot` 的入参是
+`readonly Extract<keyof SessionProjectionMap, string>[]`，运行线 `0.2.2-rc.1` 是
+`ProjectionKeySelection`（同一数组形式 ∪ `ReadonlySet`）；我们只用数组形式，故锁定版入参是
+运行线的子集，返回的 `ProjectionSnapshot` 与 `ContextBreakdownProjection` 两线逐字相同。
+绑定的是**可编译的调用面**，不是版本号。
+
+**已证的（本轮）。** `pnpm typecheck` 0 错；`pnpm test` 477/477；`pnpm build` 通过；
+`lib/` 0 个变异标记；新增判别器 `test/projection-typing.test.mjs` 证明「正确键编译通过、差一个字
+的键编译失败」，且两侧对照都真的开火：去掉 token-meter import → 键塌成 `never`；把读取降级成
+`any` → 判别器失败。变异轮 3 个 mutator 全部被杀（详见证据包）。
+
+**未证的（下一步）。** `src/` 改了必须重启宿主才上线；重启后的验收见证据包。另外残余 shim
+`SH-2`（`ctx.get` 读未声明服务）**没有**因为本批消失——这一批只换掉了类型。
+
+证据：[2026-11-05-sh1-removal](../.agents/evidence/2026-11-05-sh1-removal/README.md)。
 
 ### 3.3 不是 shim 的（上一轮误记，本轮改判）
 
@@ -118,7 +128,8 @@ A 路探针的 `pnpm peers check` 输出 `No peer dependency issues found`。
 
 | 项 | 上一轮 | 本轮 | 依据 |
 |---|---|---|---|
-| `SH-1` 能否拆 | 「上游导出该类型即可」 | **能拆**（预检已通，未落地）：在锁定线加两个 type-only 依赖 | 按运行线直接加会得到 7 条 unmet peer（install 仍退出 0）；同线加则 `peers check` 为 0，且 0.1.7 的签名是运行线的子集、返回形状逐字相同 |
+| `SH-1` 能否拆 | 「上游导出该类型即可」 | **能拆**：在锁定线加两个 type-only devDep | 按运行线直接加会得到 7 条 unmet peer（install 仍退出 0）；同线加**新增 0 条**未满足的 peer 名（既存 2 条仍在，见 §3.2），且 0.1.7 的签名是运行线的子集、返回形状逐字相同 |
+| `SH-1` 是否已拆 | **能拆**（预检已通，未落地） | **已拆除**：结构化视图删除，改两个 type-only devDep | `pnpm typecheck` 0 错、477/477、判别器两侧对照开火、3 个变异全杀 |
 | `SH-4` / `SH-5` | 记为 shim | **撤销 shim 身份** | `interpolate` 是文档化选项，默认 `true` |
 | `SH-6` ~ `SH-9` | 与本仓库 shim 混在一张表 | **移到 pi / codex 各自文档** | 不是本仓库的债 |
 | `tools/pre-execute` | 「上游存在但我们未接」 | 同上，**并明确列为「决定不接」** | `src/` 0 命中 |
@@ -130,5 +141,6 @@ A 路探针的 `pnpm peers check` 输出 `No peer dependency issues found`。
 
 - **接的面是 9 行决定 / 11 个接口**（6 个事件 + 注入 + 命令 + 辅助模型 + 服务读取 + 投影；
   `agent/*` 那行含 3 个事件），另外 2 类明确「不接」（`tools/pre-execute`、`compaction/*`）。
-- **真 shim 只有 3 条**，全在 dsh 侧，且 3 条的拆除条件本轮都**不成立**。
+- **真 shim 只剩 2 条**（`SH-2`、`SH-3`），全在 dsh 侧；`SH-1` 已于 2026-11-05 拆除，条件不再「不成立」。
 - 上一轮 9 条 shim 里有 2 条分类错误、4 条归属错误；修正后这个数字才能用来判断技术债。
+- 数字要现读，不抄：`grep -rc SessionProjectionsLike src/` 应为 `0`，`pnpm peers check` 的未满足条数要拿 HEAD 状态跑一遍再比，不要直接引用本节的数字。

@@ -12,7 +12,7 @@
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { type MeasuredContext, type SessionControllerLike, type SessionProjectionsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
+import { type MeasuredContext, type SessionControllerLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { resolveThreshold } from "./threshold.js";
 
 /**
@@ -47,7 +47,7 @@ export async function resolveHandoffGate(
 ): Promise<ResolvedHandoffGate | undefined> {
 	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
-	const projections = ctx.get("sessionProjections") as SessionProjectionsLike | undefined;
+	const projections = ctx.get("sessionProjections");
 	if (!controller || !meter) return undefined;
 	const target = resolveTarget(session, config);
 	if (!target) return undefined;
