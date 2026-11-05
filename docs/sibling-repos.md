@@ -40,8 +40,8 @@ done
 - 没有 tag：版本只体现在 `.codex-plugin/plugin.json` 的 `version` 字段。
 
 **状态机与接口面**（每个事件的 matcher、超时、输出协议，以及它没有辅助模型调用这件事）不写在这
-里，见 [harness-state-machines-spec.md](harness-state-machines-spec.md)：那份 spec 用稳定 ID 登记
-了三边的接口面、我们的接入点与 shim。
+里，见 [harness/](harness/README.md)：按宿主分成 `dsh.md` / `pi.md` / `codex.md` 三份事实文档，
+外加 `integration.md` 记录我们接哪些接口、哪些是真 shim 的决定。
 
 ## 为什么不能混着改
 
