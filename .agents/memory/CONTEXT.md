@@ -43,7 +43,7 @@ Last updated: 2026-11-04T14:36:33.350Z
 - `SH-1` 本轮确认**不能拆**：`dsh-session-projection` 不在我们依赖里、只作为 `dsh-agent` 的 peer 落在 `.pnpm`；`contextBreakdown` 的类型增强来自同样不依赖的 `dsh-token-meter`；锁定的 `0.1.7-rc.2` 与运行中 `0.2.2-rc.1` 的 `snapshot` 签名还不同
 - 三边接口面完整数字（现读命令在 `docs/harness/README.md` §4）：dsh 63 个事件（我们注册 6）、pi 41 个事件 + 33 个方法（扩展注册 6）、codex 7 个 hook（全用）
 - 批次 U 的上线证据已补：`.agents/evidence/2026-11-05-batch-u-live-carry/`，扫 141 个交接种子 —— 130 个批次 U 前的种子**完全没有 carry 行**（阴性对照），11 个批次 U 后的种子全是 `trimmed` 且每条正文有 11–23 处 `[...truncated...]` 见证，其中 3 个由当前宿主产出（`09:59` / `10:30` / `10:58`，含本会话）；`carried` 与 `nothing` 无生产样本，`nothing` 在 `handoffBudgetRecentTokens: 20000` 下不可达
-- 判据陷阱：**展示层横幅不等于 store 原文** —— 桌面把 trimmed carry 行重排成「已原文带入…；过长的…裁剪」的合并句，而同一会话 store 里是干净的 `continuationTrimmed`；判断种子一律读 `session.v4.jsonl.zstd`，不读对话窗口文本
+- 判据陷阱：**展示层横幅不等于 store 原文** —— 交给模型的那份文本把 trimmed carry 行重排成「已原文带入…；过长的…裁剪」的合并句，而同一会话 store 里是干净的 `continuationTrimmed`；判断种子一律读 `session.v4.jsonl.zstd`，不读对话窗口文本
 
 ## Open tasks
 
