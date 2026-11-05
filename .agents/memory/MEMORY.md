@@ -116,7 +116,7 @@
 
 ## Index
 - README.md and CHANGELOG.md describe current behaviour and per-version changes; the README is the only place the version line lives outside `package.json`.
-- docs/, `CHANGELOG.md`'s 未发布 and the per-batch briefs (`docs/batch-{n,q2,r,s,t1,t2,w}-*-brief.md` / `-spec.md`, `docs/handoff-candidates-b-c.md`, `docs/upstream-pi-triage.md`) carry the pi triage, port batches and per-item port mappings; briefs and rationale live there rather than in memory.
+- docs/ carries the per-batch briefs (`batch-*-brief.md` / `-spec.md`), `handoff-candidates-b-c.md` and `upstream-pi-triage.md` for port batches and triage, with the rationale there rather than in memory; `harness-state-machines-spec.md` registers the three harnesses' state machines, interfaces, integration points and shims by stable ID.
 - src/project-context/index.ts holds the archive write gates; src/shared/config.ts and client/locales.ts hold the config keys and the client hint strings.
 - Directory responsibilities: `src/project-memory/` read/render/cap/tier C/injection; `src/project-autolearn/` the pass plus the supersede marker; `src/project-handoff/` decisions, receipts, the command surface, the seed (`summary.ts`), its tail (`conversation.ts`) and the banner variants (`language.ts`). File lists: `ls src/project-*/`.
 - src/project-handoff/{decide,measure}.ts hold the pure judgement and its type host and `auto.ts` the adapter, with the spec `docs/batch-w-decision-seam-spec.md`, the read-only audit `.agents/evidence/2026-11-03-handoff-decision-seam/audit.md` and the case suite `test/handoff-decide.test.mjs`.
