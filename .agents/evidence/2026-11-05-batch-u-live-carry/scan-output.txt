@@ -1,0 +1,69 @@
+### 1) real store, running host ===================================
+built strings from lib/project-handoff/language.js
+  continuationCarried: 上一会话最近的消息已原文带入，用于保持连续性。
+  continuationTrimmed: 上一会话最近的消息已带入本会话；过长的单条消息按渲染上限裁剪，完整内容仍在旧会话日志里。
+  continuationNothing: 上一会话没有原文带入本会话，细节都在下面的会话日志里。
+
+seeds found: 141
+pre-batch-U seeds with no carry line (negative control): 130
+post-batch-U seeds: 11
+carry line not matching a built string: 0
+
+     created (local)   variant  trunc  session
+ 2026-10-26 17:29:44   trimmed     22  session-830fcc21-4524-48b4-8901-b44303eda83f
+ 2026-10-28 16:42:54   trimmed     23  session-4ecec409-d462-4c4d-9bee-640986157470
+ 2026-11-03 21:37:29   trimmed     17  session-63a01923-292a-49ff-a96d-fd3c0b15cc9b
+ 2026-11-03 22:07:14   trimmed     15  session-fde0051b-fc16-4e6c-a4cb-ffdc2778f45a
+ 2026-11-03 22:39:30   trimmed     11  session-e431558e-8c8a-412d-89e5-67d4c7eb38c2
+ 2026-11-03 23:13:39   trimmed     15  session-0186e73c-37a5-49b9-a05b-c5498d0c688d
+ 2026-11-04 21:15:56   trimmed     14  session-8db69806-e2ac-411f-be4f-1a3c296b3187
+ 2026-11-04 23:03:59   trimmed     18  session-91216b55-8184-404e-8d99-4b04190d1832
+ 2026-11-05 09:59:08   trimmed     20  session-63f3ffa9-8432-4f8e-b7dd-b01f5caaf2b7
+ 2026-11-05 10:30:54   trimmed     18  session-b19f942e-2236-4f75-be08-bc4f6b8d3c58
+ 2026-11-05 10:58:25   trimmed     12  session-03d84b78-3730-4f56-85b1-1426411dce23
+
+seeds produced under the running host: 3
+  2026-11-05 09:59:08  session-63f3ffa9-8432-4f8e-b7dd-b01f5caaf2b7  trimmed
+  2026-11-05 10:30:54  session-b19f942e-2236-4f75-be08-bc4f6b8d3c58  trimmed
+  2026-11-05 10:58:25  session-03d84b78-3730-4f56-85b1-1426411dce23  trimmed
+
+variant counts (post-batch-U): {'trimmed': 11}
+RESULT: PASS
+EXIT: 0
+
+### 2) negative control: built string tampered (expect 12) ========
+  2026-11-05 10:30:54  session-b19f942e-2236-4f75-be08-bc4f6b8d3c58  UNKNOWN
+  2026-11-05 10:58:25  session-03d84b78-3730-4f56-85b1-1426411dce23  UNKNOWN
+
+variant counts (post-batch-U): {'UNKNOWN': 11}
+FAIL: carry line does not match the built strings
+EXIT: 12
+
+### 3) negative control: trimmed line without a witness (expect 13)
+seeds produced under the running host: 1
+  2026-11-05 10:50:00  session-s0000000-0000-4000-8000-000000000000  trimmed
+
+variant counts (post-batch-U): {'trimmed': 1}
+FAIL(code 13): session-s0000000-0000-4000-8000-000000000000 claim contradicts its body
+EXIT: 13
+
+### 4) negative control: carried line with a witness (expect 14) ===
+seeds produced under the running host: 1
+  2026-11-05 10:50:00  session-s0000000-0000-4000-8000-000000000000  carried
+
+variant counts (post-batch-U): {'carried': 1}
+FAIL(code 14): session-s0000000-0000-4000-8000-000000000000 claim contradicts its body
+EXIT: 14
+
+### 5) negative control: store with no seed at all (expect 11) =====
+pre-batch-U seeds with no carry line (negative control): 0
+post-batch-U seeds: 0
+FAIL: no post-batch-U seed found
+EXIT: 11
+
+### 6) negative control: host start after every seed (expect 15) ===
+ 2026-11-05 10:58:25   trimmed     12  session-03d84b78-3730-4f56-85b1-1426411dce23
+
+seeds produced under the running host: 0
+FAIL: no seed under the running host
+EXIT: 15

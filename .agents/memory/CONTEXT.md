@@ -42,12 +42,13 @@ Last updated: 2026-11-04T14:36:33.350Z
 - 真 shim 只有 3 条且全在 dsh 侧（`SH-1` 结构化投影视图 / `SH-2` `ctx.get` 读未声明服务 / `SH-3` `isTopLevel`）；`SH-4`/`SH-5` 已撤销 shim 身份（`interpolate` 是文档化选项、默认 `true`），pi / codex 自己的适配层移出本仓 shim 表
 - `SH-1` 本轮确认**不能拆**：`dsh-session-projection` 不在我们依赖里、只作为 `dsh-agent` 的 peer 落在 `.pnpm`；`contextBreakdown` 的类型增强来自同样不依赖的 `dsh-token-meter`；锁定的 `0.1.7-rc.2` 与运行中 `0.2.2-rc.1` 的 `snapshot` 签名还不同
 - 三边接口面完整数字（现读命令在 `docs/harness/README.md` §4）：dsh 63 个事件（我们注册 6）、pi 41 个事件 + 33 个方法（扩展注册 6）、codex 7 个 hook（全用）
+- 批次 U 的上线证据已补：`.agents/evidence/2026-11-05-batch-u-live-carry/`，扫 141 个交接种子 —— 130 个批次 U 前的种子**完全没有 carry 行**（阴性对照），11 个批次 U 后的种子全是 `trimmed` 且每条正文有 11–23 处 `[...truncated...]` 见证，其中 3 个由当前宿主产出（`09:59` / `10:30` / `10:58`，含本会话）；`carried` 与 `nothing` 无生产样本，`nothing` 在 `handoffBudgetRecentTokens: 20000` 下不可达
+- 判据陷阱：**展示层横幅不等于 store 原文** —— 桌面把 trimmed carry 行重排成「已原文带入…；过长的…裁剪」的合并句，而同一会话 store 里是干净的 `continuationTrimmed`；判断种子一律读 `session.v4.jsonl.zstd`，不读对话窗口文本
 
 ## Open tasks
 
 - `MEMORY.md` 的余量靠整行替换维护，不靠追加：增长型写入前先跑 `share-fit.mjs` 看分节占用（`Index` 最容易顶到硬预算），任何写入后用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记
 - 记忆里「dispose 插件要手工清 `dsh.profile.bundles`」是 loader 1.0 之前的整树回写行为：`0.2.2-rc.1` 的 Include 只把运行时改动写回父 patches，下次真正 dispose 插件时要先重新核实这条再照做
-- 是否为批次 U 补一条 `.agents/evidence/` 上线证据记录
 - 上一轮那次瞬时 2 条测试失败仍判为并发写入撞上 `context-injection.test.mjs` 读仓库自身 memory 文档，未记成已修；代码此后未变、三连跑复绿
 
 <!-- latest-session-title: 0.2.2-rc.1 换版重启：批次 W 上线验收与相容性核对 -->
