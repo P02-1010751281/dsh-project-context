@@ -19,7 +19,7 @@
 | 扩展形态 | cordis 插件，**进程内**，四个入口共享一个 settings 命名空间 | pi extension，**进程内**，**只有一个**扩展（`jiti` `moduleCache: false`） | **命令式子进程**，每个 hook 事件 fork 一次 `python3 hooks/context_hook.py` |
 | 事件来源 | `ctx.on(...)` 事件总线 | `pi.on(...)` host 回调 | `hooks/hooks.json` 声明 → stdin JSON 进、stdout JSON 出 |
 | 进程内状态 | 可持有（闭包、队列、节流） | 可持有，但**必须收在同一个扩展内**（模块缓存被关闭） | **不可持有**：每次调用都是新进程，状态只能落盘 |
-| 并发控制 | 事件串行；写盘走 `session/flush` | 事件串行；单飞靠扩展内状态 | `file_lock()` + 原子写（`atomic_write`） |
+| 并发控制 | 单进程；待写工作由 `SessionWorkTracker` 按会话登记，`session/flush` 落盘 | 单飞状态只能放在扩展内（`moduleCache: false`） | `file_lock()` + 原子写（`atomic_write`） |
 | 辅助模型调用 | `ctx.llm.stream()`（`src/shared/model-call.ts`） | `ctx.modelRegistry.complete()` | **无**：0 处网络/模型调用，整理交回宿主 agent 执行（见 `CDX-P3`） |
 | 失败姿态 | 事件处理器内 `warn`/退避 | 处理器内 catch，不阻塞主循环 | 进程内顶层 catch：写 `errors.log` 后 `print("{}")`，**绝不阻塞宿主** |
 
