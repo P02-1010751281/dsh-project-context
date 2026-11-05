@@ -1,0 +1,9 @@
+http://127.0.0.1:32891 条目总数: 241
+  ✓ active   enabled=true  include:project-context
+  ✓ active   enabled=true  include:project-memory
+  ✓ active   enabled=true  include:project-autolearn
+  ✓ active   enabled=true  include:project-handoff
+enabled 但非 active: 0
+安装中 wrapper: p9lpls1hljr0xzhw9hrc81qpfq3x4ydv-dsh-desktop-0.2.2-rc.1
+  ✓ p9lpls1hljr0xzhw9hrc81qpfq3x4ydv-dsh-desktop-0.2.2-rc.1  (electron:249628, host:250828)
+RESULT: PASS

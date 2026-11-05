@@ -1,0 +1,23 @@
+# dsh --profile <p> --dump-config（本项目四条目所在段）
+## web rc=0 lines=2533
+  2486:# == dsh-project-context, patched by /home/user/.dsh/profiles/web/cordis.patch.yml
+  2487:- id: project-context
+  2488:  name: dsh-project-context
+  2493:# == dsh-project-context
+  2494:- id: project-memory
+  2495:  name: dsh-project-context/memory
+  2496:- id: project-autolearn
+  2497:  name: dsh-project-context/autolearn
+  2498:- id: project-handoff
+  2499:  name: dsh-project-context/handoff
+## ctxdev rc=0 lines=1636
+  1595:# == dsh-project-context, patched by /home/user/.dsh/profiles/ctxdev/cordis.patch.yml
+  1596:- id: project-context
+  1597:  name: dsh-project-context
+  1603:- id: project-memory
+  1604:  name: dsh-project-context/memory
+  1610:# == dsh-project-context
+  1611:- id: project-autolearn
+  1612:  name: dsh-project-context/autolearn
+  1613:- id: project-handoff
+  1614:  name: dsh-project-context/handoff

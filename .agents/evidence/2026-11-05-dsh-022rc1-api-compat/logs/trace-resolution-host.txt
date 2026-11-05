@@ -1,0 +1,27 @@
+# tsc --traceResolution 模块落点（host 半边）
+# 判定：落在 store 树 = 探针真的读了候选树；落在仓库 node_modules = 假绿
+total_resolved=21
+from_store=21
+from_node_modules=0
+
+/lib/dsh-desktop/repo/packages/attachment/attachment/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/attachment/attachment/lib/types/types.d.ts
+/lib/dsh-desktop/repo/packages/core/agent/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/core/scope/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/core/session/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/core/session/lib/types/types.d.ts
+/lib/dsh-desktop/repo/packages/core/system-prompt/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/interaction/commands/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/llm/llm/lib/types/brand.d.ts
+/lib/dsh-desktop/repo/packages/llm/llm/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/llm/llm/lib/types/types.d.ts
+/lib/dsh-desktop/repo/packages/session/session-projection/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/session/session-projection/lib/types/types.d.ts
+/lib/dsh-desktop/repo/packages/typert/protocol/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/util/brand/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/util/package-manifest/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/util/values/lib/types/index.d.ts
+/lib/dsh-desktop/repo/packages/workspace/workspace/lib/types/types.d.ts
+/lib/dsh-desktop/repo/vendor/cordis/lib/types/index.d.ts
+/lib/dsh-desktop/repo/vendor/cosmokit/lib/types/index.d.ts
+/lib/dsh-desktop/repo/vendor/schemastery/lib/types/index.d.ts
