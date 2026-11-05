@@ -1,0 +1,63 @@
+### 混合线解析：六个 0.1.7-rc.2 包 + 两个 0.2.2-rc.1 包
+$ pnpm install --lockfile-only --ignore-scripts   (strict-peer-dependencies=true)
+-> EXIT 0；输出只有 [WARN] Issues with peer dependencies found
+
+### $ pnpm peers check   (exit=1)
+Issues with peer dependencies found
+
+✕ unmet peer @deepseek-ai/dsh-session-projection
+  Installed: 0.2.2-rc.1
+  Wanted:
+    0.1.7-rc.2:
+      @deepseek-ai/dsh-agent@0.1.7-rc.2
+
+✕ unmet peer @deepseek-ai/cordis
+  Installed: 4.0.5
+  Wanted:
+    ~4.1.0:
+      @deepseek-ai/dsh-session-projection@0.2.2-rc.1
+      @deepseek-ai/dsh-token-meter@0.2.2-rc.1
+      @deepseek-ai/dsh-compaction@0.2.2-rc.1
+      @deepseek-ai/dsh-compaction-image-offload@0.2.2-rc.1
+      @deepseek-ai/dsh-llm-retry@0.2.2-rc.1
+      @deepseek-ai/dsh-timeout@0.2.2-rc.1
+      @deepseek-ai/dsh-util-values@0.2.2-rc.1
+
+✕ unmet peer @deepseek-ai/dsh-session
+  Installed: 0.1.7-rc.2
+  Wanted:
+    0.2.2-rc.1:
+      @deepseek-ai/dsh-session-projection@0.2.2-rc.1
+      @deepseek-ai/dsh-token-meter@0.2.2-rc.1
+      @deepseek-ai/dsh-compaction@0.2.2-rc.1
+      @deepseek-ai/dsh-compaction-image-offload@0.2.2-rc.1
+      @deepseek-ai/dsh-llm-retry@0.2.2-rc.1
+
+✕ unmet peer @deepseek-ai/dsh-llm
+  Installed: 0.1.7-rc.2
+  Wanted:
+    0.2.2-rc.1:
+      @deepseek-ai/dsh-token-meter@0.2.2-rc.1
+      @deepseek-ai/dsh-compaction@0.2.2-rc.1
+      @deepseek-ai/dsh-compaction-image-offload@0.2.2-rc.1
+      @deepseek-ai/dsh-llm-retry@0.2.2-rc.1
+
+✕ unmet peer @deepseek-ai/dsh-brand
+  Installed: 0.1.7-rc.2
+  Wanted:
+    0.2.2-rc.1:
+      @deepseek-ai/dsh-compaction@0.2.2-rc.1
+      @deepseek-ai/dsh-llm-retry@0.2.2-rc.1
+
+✕ unmet peer @deepseek-ai/dsh-commands
+  Installed: 0.1.7-rc.2
+  Wanted:
+    0.2.2-rc.1:
+      @deepseek-ai/dsh-compaction@0.2.2-rc.1
+
+✕ unmet peer @deepseek-ai/dsh-agent
+  Installed: 0.1.7-rc.2
+  Wanted:
+    0.2.2-rc.1:
+      @deepseek-ai/dsh-compaction-image-offload@0.2.2-rc.1
+      @deepseek-ai/dsh-llm-retry@0.2.2-rc.1

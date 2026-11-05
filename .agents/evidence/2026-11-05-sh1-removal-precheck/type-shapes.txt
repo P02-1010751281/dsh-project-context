@@ -1,0 +1,49 @@
+### 判据：0.1.7（我们锁定的线）与 0.2.2（运行中的线）的类型是否可互操作
+
+--- 1) contextBreakdown 的取值形状（两线逐字相同）
+0.1.7 (token-meter tarball):
+export interface ContextBreakdownProjection {
+    /** Heuristic tokens of the last nonempty surviving system prompt in surface order; 0 when none exists. */
+    systemTokens: number;
+    /** Heuristic tokens of the newest request envelope's tool schemas; 0 before any request. */
+    toolsTokens: number;
+    /** Heuristic tokens of every other visible surface node, including superseded system prompts. */
+    messageTokens: number;
+}
+0.2.2 (token-meter tarball):
+export interface ContextBreakdownProjection {
+    /** Heuristic tokens of the last nonempty surviving system prompt in surface order; 0 when none exists. */
+    systemTokens: number;
+    /** Heuristic tokens of the newest request envelope's tool schemas; 0 before any request. */
+    toolsTokens: number;
+    /** Heuristic tokens of every other visible surface node, including superseded system prompts. */
+    messageTokens: number;
+}
+
+--- 2) 0.2.2 只是套了一层交叉类型（不删字段）
+29:export type SessionProjectionSummaryExcluded<T> = T & {
+30-    readonly [sessionProjectionSummaryExcluded]: true;
+31-};
+
+--- 3) snapshot 参数：0.1.7 的数组形式是 0.2.2 的子集
+0.1.7:
+185:    snapshot(session: Session, keys?: readonly Extract<keyof SessionProjectionMap, string>[]): ProjectionSnapshot;
+0.2.2:
+135:export type ProjectionKeySelection = readonly Extract<keyof SessionProjectionMap, string>[] | ReadonlySet<Extract<keyof SessionProjectionMap, string>>;
+257:    snapshot(session: Session, keys?: ProjectionKeySelection): ProjectionSnapshot;
+
+--- 4) 返回形状（两线逐字相同）
+0.1.7:
+92:export interface ProjectionSnapshot {
+93-    /** Seq of the last event the values reflect; -1 for an empty log. */
+94-    asOfSeq: SessionSeqCursor;
+95-    /** Whole current client value per registered key. */
+96-    values: Partial<SessionProjectionMap>;
+97-}
+0.2.2:
+141:export interface ProjectionSnapshot {
+142-    /** Seq of the last event the values reflect; -1 for an empty log. */
+143-    asOfSeq: SessionSeqCursor;
+144-    /** Whole current client value per registered key. */
+145-    values: Partial<SessionProjectionMap>;
+146-}

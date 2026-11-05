@@ -56,13 +56,14 @@
 
 | ID | 位置 | 抹平什么 | 决定 | 拆除条件 |
 |---|---|---|---|---|
-| `SH-1` | `src/project-handoff/runtime.ts` 的结构化视图（`SessionProjectionsLike` 等） | 投影服务的类型在我们可依赖的范围内不可直接使用 | **留**（本轮确认不能拆，见 §3.2） | 见 §3.2 的两个前提同时成立 |
+| `SH-1` | `src/project-handoff/runtime.ts` 的结构化视图（`SessionProjectionsLike` 等） | 投影服务的类型不在我们已声明的依赖里 | **留**（§3.2 预检：可拆，未落地） | 在锁定线上加两个 type-only 依赖（预检已通） |
 | `SH-2` | 各处 `ctx.get("name")`（11 个服务） | 服务未声明；`ctx.foo` 未注入会抛，`ctx.get` 只返回 `undefined` | **留** | 对应服务进入我们的 `inject` 声明 |
 | `SH-3` | `isTopLevel(session)` 闸门 | `SessionHeader.origin` 只有闭字面量 `'subagent'`，没有「顶层」正向标记 | **留** | 上游提供显式顶层判据 |
 
-### 3.2 `SH-1` 本轮的新证据（推翻「上游导出即可拆」）
+### 3.2 `SH-1` 的拆除条件（2026-11-05 预检修订）
 
-上一轮登记的拆除条件是「上游导出该类型，或我们改为声明注入」。本轮核实后，**两条都不通**：
+上一轮登记的拆除条件是「上游导出该类型，或我们改为声明注入」。**直接按运行线把包加进来**
+不通，原因如下（这四条仍是 2026-11-05 之前核实的现状）：
 
 1. **我们没有那个包**。`@deepseek-ai/dsh-session-projection` 不在 `package.json` 的
    `dependencies` / `peerDependencies` 里，顶层 `node_modules/@deepseek-ai/` 也没有它。
@@ -71,14 +72,30 @@
    隔离布局不允许。
 3. **`contextBreakdown` 这个键的类型增强来自 `@deepseek-ai/dsh-token-meter`**，而后者同样不在
    我们的依赖里。就算拿到 `SessionProjectionMap`，它也是**空的合并可扩展接口**，不含我们这个键。
-4. **版本还不一致**：`.pnpm` 里的 `0.1.7-rc.2` 签名是
+4. **两条线的签名不同**：`.pnpm` 里的 `0.1.7-rc.2` 签名是
    `snapshot(session, keys?: readonly Extract<keyof SessionProjectionMap, string>[])`，
    运行中的 `0.2.2-rc.1` 是 `snapshot(session, keys?: ProjectionKeySelection)`
-   （`ProjectionKeySelection` 还接受 `ReadonlySet`）。直接绑死任何一个版本都会绑错。
+   （`ProjectionKeySelection` 还接受 `ReadonlySet`）。按运行线绑死会与其余五个包冲突；
+   绑 `0.1.7` 则只有在承认「签名是运行线的子集」这条判据后才成立（见下）。
 
-所以拆除条件收紧为：**同时**（a）把 `dsh-session-projection` 与 `dsh-token-meter` 都列为依赖，
-（b）把类型钉在运行中的那条版本线上，且（c）`SessionProjectionMap` 确实含 `contextBreakdown`。
-在此之前，结构化视图是承重的，不是偷懒。
+所以**按运行线直接加进来是不行的**：预检（2026-11-05）把六个锁定包与两个 `0.2.2-rc.1`
+新包混在一起跑 `pnpm install`，退出码是 **0**，只打一行 `[WARN]`，而 `pnpm peers check` 列出
+**7 条 unmet peer**（`cordis` 装 4.0.5 而新包要 `~4.1.0`；`dsh-session-projection` 装 0.2.2
+而 `dsh-agent` 要 0.1.7-rc.2；`dsh-session`/`dsh-llm` 同样反向）。装得上不等于接对了，
+而且 install 的退出码不会拦住它 —— 这是本仓库最忌的静默错配。
+
+拆除条件因此改写为：**在我们已锁定的同一条线上**同时（a）把 `dsh-session-projection` 与
+`dsh-token-meter` 都列为依赖（`0.1.7-rc.2` 的 peer 与我们六个包逐条吻合），（b）让
+`contextBreakdown` 的类型增强来自我们声明的包，且（c）锁定版的 `snapshot` 签名是运行线的
+**子集**、返回形状相同 —— 不是版本相等。预检把 (c) 核对为：入参 0.1.7 的
+`readonly (keyof SessionProjectionMap)[]` ⊆ 0.2.2 的 `ProjectionKeySelection`
+（= 同一数组形式 ∪ `ReadonlySet`），且 `ProjectionSnapshot` 与 `ContextBreakdownProjection`
+两条线**逐字相同**，0.2.2 多出来的 `SessionProjectionSummaryExcluded<T>` 只是 `T & {brand}`。
+A 路探针的 `pnpm peers check` 输出 `No peer dependency issues found`。
+
+这仍是**判据改写**，不是免费通过：它需要 `pnpm typecheck`（把键写错必须编译失败）与一轮
+变异证明，落地前结构化视图继续承重。预检记录：
+[2026-11-05-sh1-removal-precheck](../.agents/evidence/2026-11-05-sh1-removal-precheck/README.md)。
 
 ### 3.3 不是 shim 的（上一轮误记，本轮改判）
 
@@ -101,7 +118,7 @@
 
 | 项 | 上一轮 | 本轮 | 依据 |
 |---|---|---|---|
-| `SH-1` 能否拆 | 「上游导出该类型即可」 | **不能拆**，条件收紧为三项同时成立 | 包不在我们的依赖里；`contextBreakdown` 的类型来自 `dsh-token-meter`；`.pnpm` 与运行中的版本签名不同 |
+| `SH-1` 能否拆 | 「上游导出该类型即可」 | **能拆**（预检已通，未落地）：在锁定线加两个 type-only 依赖 | 按运行线直接加会得到 7 条 unmet peer（install 仍退出 0）；同线加则 `peers check` 为 0，且 0.1.7 的签名是运行线的子集、返回形状逐字相同 |
 | `SH-4` / `SH-5` | 记为 shim | **撤销 shim 身份** | `interpolate` 是文档化选项，默认 `true` |
 | `SH-6` ~ `SH-9` | 与本仓库 shim 混在一张表 | **移到 pi / codex 各自文档** | 不是本仓库的债 |
 | `tools/pre-execute` | 「上游存在但我们未接」 | 同上，**并明确列为「决定不接」** | `src/` 0 命中 |
