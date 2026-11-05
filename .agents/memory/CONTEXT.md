@@ -42,7 +42,7 @@ Last updated: 2026-11-04T14:36:33.350Z
 - 真 shim 只剩 2 条且全在 dsh 侧（`SH-2` `ctx.get` 读未声明服务 / `SH-3` `isTopLevel`）；`SH-1` 结构化投影视图已于 2026-11-05 拆除，`SH-4`/`SH-5` 撤销 shim 身份（`interpolate` 是文档化选项、默认 `true`），pi / codex 自己的适配层已移出本仓
 - `SH-1` 已落地拆除（2026-11-05）：`src/project-handoff/runtime.ts` 的 `SessionProjectionsLike` 删除，改由 `dsh-session-projection` 声明服务类型、`dsh-token-meter` 提供 `contextBreakdown` 键的 augmentation——两者缺一不可，去掉后者键类型直接塌成 `never`；两个包只进 `devDependencies`（`0.1.7-rc.2`，不进 peer，因为服务可选、必须能优雅降级）；判别器 `test/projection-typing.test.mjs` 两侧对照都开火（去掉 import → 正控制挂；读取降级成 `any` → 判别器挂），3 个 mutator 全杀，门禁 477/477；证据在 `.agents/evidence/2026-11-05-sh1-removal/`
 - 预检说「`peers check` 输出 `No peer dependency issues found`」在真实仓库里不成立：那条跑在干净 `/tmp`，pnpm 自解析到 cordis 4.0.5；真实锁文件钉 `cordis 4.0.2` 而 `dsh-agent@0.1.7-rc.2` 要 `~4.0.4`，HEAD 状态同样报 2 条（`cordis`、`schemastery`）。正确说法是「新增 0 条未满足的 peer 名」，判据要拿 HEAD 三件套在 `/tmp` 跑一遍再 diff，别直接引用预检数字
-- 环境陷阱：`/mnt/Data` 是 NTFS（`stat -f` 报 `0x7366746e`），其上的 pnpm store 会装出残缺包 —— 本轮 `install` 后 `zod@4.6.2` 缺 6 个 `.js`/`.d.ts`（`v4/core/json-schema.js` 等），让 9 个测试文件 import 就崩；判据是拿 `npm view … dist.tarball` 的上游包 `diff -rq`，与 lockfile 版本无关
+- 环境陷阱：`/mnt/Data` 是 NTFS（`stat -f` 报 `0x7366746e`），装依赖时文件会丢在 **store → `node_modules` 的链接环节**，store 本身完好（`pnpm store status` 报 untouched，按 sha512 能查到 blob）—— 2026-11-05 一次 `install` 后 `zod@4.6.2` 缺 6 个 `.js`/`.d.ts`，9 个测试文件 import 即崩；判据是拿锁文件 `integrity` 校验过的上游 tarball 逐文件哈希比对，不是 `diff -rq`（嵌套差异会假绿）
 - 三边接口面完整数字（现读命令在 `docs/harness/README.md` §4）：dsh 63 个事件（我们注册 6）、pi 41 个事件 + 33 个方法（扩展注册 6）、codex 7 个 hook（全用）
 - 批次 U 的上线证据已补：`.agents/evidence/2026-11-05-batch-u-live-carry/`，扫 141 个交接种子 —— 130 个批次 U 前的种子**完全没有 carry 行**（阴性对照），11 个批次 U 后的种子全是 `trimmed` 且每条正文有 11–23 处 `[...truncated...]` 见证，其中 3 个由当前宿主产出（`09:59` / `10:30` / `10:58`，含本会话）；`carried` 与 `nothing` 无生产样本，`nothing` 在 `handoffBudgetRecentTokens: 20000` 下不可达
 - 判据陷阱：**展示层横幅不等于 store 原文** —— 交给模型的那份文本把 trimmed carry 行重排成「已原文带入…；过长的…裁剪」的合并句，而同一会话 store 里是干净的 `continuationTrimmed`；判断种子一律读 `session.v4.jsonl.zstd`，不读对话窗口文本
@@ -53,6 +53,6 @@ Last updated: 2026-11-04T14:36:33.350Z
 - 记忆里「dispose 插件要手工清 `dsh.profile.bundles`」是 loader 1.0 之前的整树回写行为：`0.2.2-rc.1` 的 Include 只把运行时改动写回父 patches，下次真正 dispose 插件时要先重新核实这条再照做
 - 上一轮那次瞬时 2 条测试失败仍判为并发写入撞上 `context-injection.test.mjs` 读仓库自身 memory 文档，未记成已修；代码此后未变、三连跑复绿
 - 本批（`SH-1` 拆除）**尚未上线**：改了 `src/` 需宿主重启；当前宿主 pid 5210 / 端口 45649 启动于 22:52:58，早于 `lib/` 重建，验收命令在 `.agents/evidence/2026-11-05-sh1-removal/README.md` §9
-- pnpm store 在 NTFS 上这件事只修了已观测的 6 个 zod 文件，**没有**做全仓完整性审计：下次 `install` 后若出现莫名的 module-not-found，先按「上游 tarball diff」判，别先怀疑代码
+- 全仓完整性审计已于 2026-11-05 做完（`.agents/evidence/2026-11-05-pnpm-store-integrity-audit/`）：73 个包逐文件哈希，修好 1 个代码文件（`dsh-package-manifest` 缺 `lib/index.js`，11 字节 `export {};`）与 25 个 LICENSE，复验 73/73 与上游一致；恢复只落在 `node_modules` 不入 git，下次 `install` 后若出现莫名 module-not-found，先重跑该目录的 `compare.mjs`，别先怀疑代码
 
 <!-- latest-session-title: 0.2.2-rc.1 换版重启：批次 W 上线验收与相容性核对 -->

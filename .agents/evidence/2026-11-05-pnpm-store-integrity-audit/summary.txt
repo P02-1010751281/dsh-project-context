@@ -1,0 +1,16 @@
+packages audited: 73
+registry: https://registry.npmmirror.com
+
+BROKEN: 0
+FETCH-FAIL: 0
+TAR-FAIL: 0
+ERROR: 0
+
+NOTES (missing licence/notice text and/or local extras, no code defect): 0
+
+BIN TRANSFORMS (pnpm rewrote bin/ shims; not code defects): 1
+  esbuild@0.28.2  bin/esbuild (upstream 9350B, installed 11427952B)
+
+CLEAN: 73
+
+VERDICT: NO CODE DEFECTS — every upstream source file present and byte-identical
