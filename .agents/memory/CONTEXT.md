@@ -33,6 +33,7 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 条目上限：`MEMORY.md` 超 800 的条目 0、最长 788；`CONTEXT.md` 超 800 的条目 0、最长 423（Key points 节）
 - 探针产物：`.agents/evidence/2026-11-06-memory-compression-headroom/README.md` + `probe.mjs`（`--self-test`，退出码 0 清空 / 1 丢数据 / 2 无法判定 / 3 自检未开火），README 已补实测结局与「输入版本未决」段
 - 宿主为 `0.2.2-rc.1`，GUI 端口每次重启都变（本轮 35209 → 33647），探针不传 `--url` 会以 `fetch failed` 假失败
+- 本批主提交 `31f19b5`（docs-only：18 个批次档案归档、CHANGELOG 拆成 8 个版本文件、46 行引用改写、两项技能同步），推送时 `ssh.github.com` 前三次报「无法读取远程仓库」、第四次成功（瞬时故障，非权限）
 
 ## Open tasks
 
