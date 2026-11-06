@@ -46,5 +46,6 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 全仓完整性审计已于 2026-11-05 做完（`.agents/evidence/2026-11-05-pnpm-store-integrity-audit/`）：73 个包逐文件哈希，修好 1 个代码文件（`dsh-package-manifest` 缺 `lib/index.js`）与 25 个 LICENSE；恢复只落在 `node_modules` 不入 git，下次 `install` 后若出现莫名 module-not-found，先重跑该目录的 `compare.mjs`，别先怀疑代码
 - 这次 pass 之后的 `memory regression: 8 … entry(ies) are no longer present` 是**文本精确比对**的假阳性：8 条里 8 条都在新文档里以改写形式存在（逐条集合比对过），该行只是写后报告、不拒绝；历史上它报过 30 / 55 / 7 / 4 / 8 条，别据此判断记忆丢了
 - 已知噪声：`context-injection.test.mjs` 偶发 2 条失败，是并发写入撞上它读仓库自身 memory 文档，代码此后未变、三连跑复绿，未记成已修
+- 交接后旧会话「老的就没了」是 ④ 退休步骤的硬编码行为（`scheduleRetirement` 无条件、无配置键）：2026-11-06 20:17 的自动交接把上一会话 `c35a7f0f` 写成归档集第 769 条，用户 20:10 就此提问；是否加开关（如 `handoffRetireReplaced: true`）尚未裁决，真要动 `src/` 需一次宿主重启
 
 <!-- latest-session-title: 离线实测记忆两半写路径、重启验收通过、订正 10:13 拒绝的因果断言 -->

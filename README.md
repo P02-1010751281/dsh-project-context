@@ -167,6 +167,11 @@ scripts/
 | `session/flush` | 等待进行中的写入（上限 90s），保证落盘 |
 | `/session-log write` | 手动立即写出（含索引刷新） |
 
+- 本节的**归档**只表示「把会话写成 `.agents/memory/session-logs/` 下的存档文件」。它
+  **不是**「交接后旧会话从侧栏消失」的那件事：后者是 ④ 的「退休」步骤调
+  `workspaceRegistry.archiveSession()` 做的，与 `archiveEnabled` 无关（见「说明」的 ④）。
+  被隐藏的会话并没有丢——侧栏视图选项切到「全部对话（显示已归档）」，右键「取消归档」即回来，
+  日志、存档产物与工作区位置都还在。
 - `session.jsonl`：首行 header，之后每个 dsh 事件一行。进程内按游标增量
   append，长会话不重写整份；每次写入记下目标文件的 **inode + 字节数 +
   mtime**，只有三者都仍是本进程写下的那一份才追加——被外部改写（`--replace`
