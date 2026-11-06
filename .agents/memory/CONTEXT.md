@@ -50,6 +50,8 @@ Last updated: 2026-11-06T02:58:25.992Z
 - README 两处会过期的数字已改掉（不写行数与控件数、点名 `settings-form.test.mjs` 的逐键相等断言）：实测今天 21 行 / 6 布尔 / 2 枚举，其中「5 布尔 / 3 枚举」在加本键之前就已经不对
 - 20:32:25 重启后本批已生效，四条机器判据（2026-11-06 20:42 实测）：①host pid 82102 启动晚于最后 `src/` 提交 `8dc97c5`（20:28:48）②`dsh-live-inventory-probe.mjs --url http://127.0.0.1:38961` 四行 active、enabled 非 active 0、store==wrapper、`RESULT: PASS`（条目 241）③派发的 `plugins/??dsh-project-context/client.js&rev=5e876189861f` 与磁盘 `lib/client.js` 前 37270 字节逐字节相同（只多 76 字节 sourceMappingURL 尾）④`cordis_inspect_query` host `Config` 对 `include:project-context` 的投影 schema 已含 `handoffRetireReplaced`（`default: true`、`volatile: true`）
 - 本轮 GUI 端口 33647 → **38961**（探针必须传 `--url`，否则 `fetch failed` 假失败）；`~/.dsh/.credentials.yaml` 的 `client-connection/browser-session` 离线签名 cookie 可直接读取派发页与 bundle（临时脚本 `/tmp/served-bundle-check.mjs`）
+- 20:52 把 README 从 446 行瘦到 141 行：手册留 README（四个插件 / 安装 / 命令 / 写哪些文件 / 配置速查 / 行为边界 / FAQ / 开发 / 许可），机制搬进 `docs/{architecture,behavior,settings,development}.md`；搬移按节整块移动，`git diff -- README.md` 的 **393** 行删除行逐行在并集里查回，只有 `## 命令（web/交互 profile）` 标题改名这一行不在原位
+- 文档分工成为约定：**README 只留结论 + 指针，长段说明进 `docs/`**；`docs/batch-*.md` 是历史决策档案。顺带补上 README 配置表原本漏掉的 `maxMemoryChars`（21 键覆盖对照 `PluginSettingsSchema` 实测无缺）
 - 已知噪声：`context-injection.test.mjs` 偶发 2 条失败，是并发写入撞上它读仓库自身 memory 文档，代码此后未变、三连跑复绿，未记成已修
 - `handoffRetireReplaced` 已生效（默认 `true`，卡片交接区末行「交接后归档旧会话」）。要验证关掉后的效果：关掉→保存→`/handoff now`，旧会话应仍在列表里、且不在「全部对话（显示已归档）」里；开关只管以后的交接，`c35a7f0f` 与 `3a51f066` 仍在归档集里，要找回得手动「取消归档」
 
