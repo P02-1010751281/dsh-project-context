@@ -24,6 +24,8 @@
 - 体积：`src/project-memory/consolidate.ts` 809 → **863** 行（RULES 3.3 要求说明）。不拆分：新增的是门禁与一条 outcome 字段，它读的 `loadMemory` / context 切片 / `nextVersion` / `throttle` / `lastOutcome` 都在这个函数的闭包里，搬走就要把这五个状态一起外置，属于该批明确不碰的高风险重构。
 - 门禁（现跑）：`pnpm typecheck` exit 0、`pnpm build` exit 0（`lib/client.js` 37270 不变）、`pnpm test` **496 通过 / 0 失败**、`git diff --exit-code -- lib` 在提交后为空。
 - **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据仍是「承载宿主的进程启动时刻晚于本提交」，重启由用户执行。
+- **边界（本批未收口，已实测）**：门禁只覆盖**读**上限。`fitMemoryInput` 在输出预算装不下两份文档时的头尾裁剪仍是「报告、不拒绝」，而回复是整篇替换，所以**被截断后的那次重试**一旦落地，写回的就是这个剪过的视图：落地状态只会是 `clipped`，自动路径没有回执，`errors.log` 那行「given a shortened version …」也不说文件短了多少。`.agents/evidence/2026-11-06-memory-compression-headroom/cap-sweep.mjs` 现跑（当天的 CONTEXT 3160 字符、`auxModel` 带 reasoning）：第一次调用到 memory 48251 字符仍 `clipped false`；同一段文本带 4096 重试头寸时 memory 46181 起裁剪（隐藏 265）、50178 时隐藏 **5275**；用本提交前的 CONTEXT（11439 字符）实测重试隐藏 memory **5167** + context **1441** 字符。CONTEXT 长回约 **7000** 字符以上就会走到这条（实测 6000 不裁、7000 起裁 6 字符、8000 起裁 1619）。是否把它也改成拒绝是设计取舍：拒绝会让「文档大到输出装不下」的项目彻底停更，而现在的裁剪至少还能压缩——留给用户裁决。
+- **一处过期注释**：落地 pass 的 `clipped` 现在只可能由输入拟合产生（读上限会在模型调用前被拒），`src/project-memory/index.ts` 里「落地隐藏计数覆盖读上限与输出拟合、命名输出预算会指错原因」那句因此半错——现在恰恰只有输出预算能造成它。改注释会移动「最后 `src/` 提交」这个重启判据，与下一批行为改动一起改。
 
 **文档（批次档案归档 + CHANGELOG 按版本拆分）**
 
