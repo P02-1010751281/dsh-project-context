@@ -128,15 +128,17 @@ export const SECTIONS: readonly FieldSection[] = [
 		rows: [
 			{ key: "handoffEnabled", kind: "boolean" },
 			{ key: "handoffThresholdAuto", kind: "boolean" },
-			// The two threshold rows are the two modes, one each: the fixed ratio is only consulted when
-			// adaptive is off, and the summary target only reports an override in adaptive mode. The card
-			// hides whichever one the other mode has made inert, so the pair cannot read as two triggers.
+			// Only the fixed ratio is gated, because it is the other mode's *trigger*: while adaptive decides
+			// nothing consults it, and sitting next to the switch it would read as a second trigger. The
+			// summary target is not a trigger and is not gated — it is a budget that
+			// `/handoff budget summary` accepts in either mode and that only reports whether the target was
+			// honoured, so hiding it would make the card stricter than the command and take away the only
+			// control for a value the user still owns.
 			{ key: "handoffThresholdRatio", kind: "ratio", appliesWhen: { key: "handoffThresholdAuto", text: "false" } },
 			{
 				key: "handoffBudgetSummaryTokens",
 				kind: "number",
 				bounds: { min: MIN_HANDOFF_SUMMARY_TOKENS, max: MAX_HANDOFF_SUMMARY_TOKENS },
-				appliesWhen: { key: "handoffThresholdAuto", text: "true" },
 			},
 			{
 				key: "handoffBudgetRecentTokens",

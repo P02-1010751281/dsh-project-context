@@ -98,10 +98,12 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 });
 
-test("a mode-gated row renders only in the mode that reads it, and never hides a draft", () => {
-	// The two threshold rows are the two modes: `handoffBudgetSummaryTokens` only reports an override in
-	// adaptive mode, and `handoffThresholdRatio` is only consulted when adaptive is off. Hiding the inert
-	// one is what keeps the pair from reading as two competing triggers.
+test("only the other mode's trigger is gated, and a gated row never hides a draft", () => {
+	// `handoffThresholdRatio` is the other mode's trigger: while adaptive decides, nothing consults it, so
+	// the card hides it and the section never offers two competing triggers. The summary target is not a
+	// trigger — `/handoff budget summary` accepts it in either mode and it only reports whether the target
+	// was honoured — so gating it would make the card stricter than the command and remove the only
+	// control for a value the user still owns.
 	const drafts = (extra = {}) => Object.fromEntries(fields.ROWS.map((row) => [row.key, {
 		text: "0",
 		overridden: false,
@@ -111,18 +113,24 @@ test("a mode-gated row renders only in the mode that reads it, and never hides a
 	const row = (key) => fields.ROWS.find((candidate) => candidate.key === key);
 	const visible = (key, modes, state = drafts()) => fields.rowVisible(row(key), state, modes);
 
-	assert.equal(visible("handoffBudgetSummaryTokens", { handoffThresholdAuto: "true" }), true);
+	assert.equal(
+		row("handoffBudgetSummaryTokens").appliesWhen,
+		undefined,
+		"the report-only target is a budget, not the other mode's trigger, so it keeps rendering",
+	);
+	for (const mode of ["true", "false"]) {
+		assert.equal(
+			visible("handoffBudgetSummaryTokens", { handoffThresholdAuto: mode }),
+			true,
+			`the summary target renders in every mode (adaptive=${mode})`,
+		);
+	}
 	assert.equal(
 		visible("handoffThresholdRatio", { handoffThresholdAuto: "true" }),
 		false,
 		"the fixed ratio is inert while adaptive is on",
 	);
 	assert.equal(visible("handoffThresholdRatio", { handoffThresholdAuto: "false" }), true);
-	assert.equal(
-		visible("handoffBudgetSummaryTokens", { handoffThresholdAuto: "false" }),
-		false,
-		"the summary target is inert in fixed mode",
-	);
 
 	// The user's own value keeps the row: hiding an override would make it unreachable, and hiding an
 	// invalid draft would block the save with no control left to fix it.

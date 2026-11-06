@@ -360,7 +360,7 @@ test("a read-only document still shows every row, with the save disabled", () =>
 	assert.match(rendered.saveTag ?? "", /disabled/, "the save must refuse while the document is read-only");
 });
 
-test("the adaptive-only and fixed-only threshold rows swap with the mode", async () => {
+test("the fixed-only trigger row swaps with the mode, while the report-only target stays put", async () => {
 	const adaptive = page();
 	assert.ok(adaptive.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"), "adaptive mode shows the summary target");
 	assert.equal(
@@ -369,17 +369,17 @@ test("the adaptive-only and fixed-only threshold rows swap with the mode", async
 		"the fixed ratio is not read while adaptive is on, so the card must not offer it",
 	);
 
-	const fixed = page({ value: { ...VALUE, handoffThresholdAuto: false } });
+	const fixedValue = { ...VALUE, handoffThresholdAuto: false };
+	const fixed = page({ value: fixedValue });
 	assert.ok(fixed.rendered.fieldKeys.includes("handoffThresholdRatio"), "fixed mode shows the ratio");
-	assert.equal(
+	assert.ok(
 		fixed.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"),
-		false,
-		"the summary target is inert while fixed mode runs, so it must not render",
+		"the report-only target keeps rendering: /handoff budget summary accepts it in this mode too",
 	);
 	assert.equal(
 		fixed.rendered.fieldKeys.length,
-		PLATFORM_OF({ ...VALUE, handoffThresholdAuto: false }).length,
-		"exactly one of the two threshold rows replaces the other",
+		PLATFORM_OF(fixedValue).length,
+		"the ratio row joins the fixed-mode page without displacing the target",
 	);
 
 	// A switch flip is a staged set, so the pair swaps before the save rather than after it.
@@ -482,9 +482,11 @@ test("a failed save names the cause the card can observe", async () => {
 test("the ratio and bounded rows are drawn as numeric inputs", () => {
 	// `numeric` is what makes the platform's field numeric; dropping it leaves every behavioural test
 	// green, because this harness edits through the action rather than the input.
-	// Each row in the mode that renders it: the summary target is adaptive-only, the ratio fixed-only.
+	// The ratio renders only in fixed mode; the two budgets render in both, and the summary target is
+	// checked in both here so the un-gating is covered by the row-drawing test as well.
 	const modes = [
 		["handoffBudgetSummaryTokens", true],
+		["handoffBudgetSummaryTokens", false],
 		["handoffBudgetRecentTokens", true],
 		["handoffThresholdRatio", false],
 	];
