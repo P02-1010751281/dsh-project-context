@@ -189,3 +189,71 @@ tail -n 20 /mnt/Data/Projects/dsh-project-context/.agents/memory/errors.log
 A refusal that reads `N section(s) exceeded their budget` is the budget half: shrink again.
 A refusal that reads `cut off by the model output limit` is the output half: lowering `maxMemoryChars`
 will not help, the request itself is what got clamped.
+
+## The cap has now bitten in production (2026-11-06 21:27–21:31 +08:00)
+
+Measured on the same stored documents, after the 20:58 round:
+
+- `MEMORY.md` 39587 chars against `maxMemoryChars` 40000 — **413 chars of headroom**.
+- `.agents/memory/errors.log` carries 35 `stored lossily` lines. The two newest are
+  `13:27:00.051Z` and `13:30:57.690Z`, each
+  `4 whole entry(ies) would have been dropped from 3 section(s) because the memory document reached
+  its character cap` followed by `the refused reply's context section was not published`.
+  `MEMORY.md` has not changed since `12:57:32Z`, so both refusals discarded that pass's work.
+- The probe's own growth history says this is the expected outcome rather than bad luck: over the 7
+  mature passes (input ≥ 34000) growth was −734 … +3475 with p50 **+532**, and 5 of the 7 exceed 413.
+
+The state is therefore "memory frozen": every pass that adds anything is refused, and neither
+artifact is written.
+
+## Re-measured clip boundary (corrects the earlier `43500` note)
+
+`fitMemoryInput` was called with the shape the plugin actually builds —
+`auxModel = { maxTokens: info.defaultMaxTokens, reasoning: info.reasoning !== undefined }`
+(`lib/project-memory/consolidate.js:412`), i.e. `{ reasoning: true, maxTokens: 328000 }` for
+`auto/deepseek-v4.1-flash` — with `configuredMaxTokens` 8192, ceiling 32768 and the real
+`CONTEXT.md` (9077 chars):
+
+| MEMORY.md chars | requested `maxTokens` | `clipped` |
+|---|---|---|
+| 34020 | 26668 | false |
+| 39587 (the real document) | 29678 | false |
+| 43007 | 31534 | false |
+| 43798 | 31960 | false |
+| 45242 | 32711 | false |
+| 48251 | 32768 | **true**, `memoryHiddenChars` 2297 |
+
+The earlier note "43000 → needed 32732, 43500 起 clipped" does not reproduce: with the call shape the
+plugin really uses, the first clip sits between 45242 and 48251 chars at this CONTEXT size, so
+**43000 keeps 1234 tokens of slack**, not 36. Caveat: every row except 39587 is a synthetic document
+grown by repeating real `- ` lines, so its character→token rate can differ slightly from the stored
+document's; the 39587 row is the real file and matches `probe.mjs` exactly. With `reasoning: false`
+every size fits (48251 → 25739), so the reasoning reserve is what binds, not the document alone.
+
+### The two documents share that budget
+
+The table above was measured against `CONTEXT.md` at 9077 chars. Recording this round's own bullets
+grew it to 9956, and re-running the same sweep moved every row up by ~726 tokens:
+
+| MEMORY.md chars | requested `maxTokens` (CONTEXT 9956) | `clipped` |
+|---|---|---|
+| 39587 | 30404 | false |
+| 43007 | 32260 | false |
+| 43798 | 32670 | false |
+| 45242 | 32768 | **true**, `memoryHiddenChars` 939 |
+
+So the cap decision cannot be made from `MEMORY.md` alone: 879 chars of new CONTEXT bought 726 tokens
+of the same output reserve. At 43000 the slack is **508 tokens**, not 1234 — real, but it shrinks with
+every CONTEXT bullet. Recompute with `cap-sweep.mjs` in this directory before relying on any row: it
+reads whichever documents are stored at the moment it runs.
+
+## Consequences for the cap choice
+
+- `maxMemoryChars` 43000 buys 3413 more chars of headroom and still fits the output cap, but only just:
+  508 tokens to spare at CONTEXT 9956 and ~400 at 10101, because every CONTEXT character costs about
+  0.8 of the same reserve.
+- It does not shrink anything: the per-turn injection cost follows whatever a pass actually writes,
+  and the output slack follows CONTEXT.md's own growth.
+- Shrinking stays the durable lever. The cheapest cut is closed-batch narrative: 18 of the 116
+  entries match batch/CHANGELOG wording and account for 7135 chars — moving them to a doc loses no
+  fact, only their presence in the injected set.

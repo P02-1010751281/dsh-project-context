@@ -62,5 +62,13 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 文档分工：**README 只留结论 + 指针，长段说明进 `docs/`**，唯一索引是 `docs/README.md`；收口批次档案在 `docs/archive/`。README 配置表原本漏掉的 `maxMemoryChars` 已补（21 键对照 `PluginSettingsSchema` 实测无缺）
 - 已知噪声：`context-injection.test.mjs` 偶发 2 条失败，是并发写入撞上它读仓库自身 memory 文档，代码此后未变、三连跑复绿，未记成已修
 - `handoffRetireReplaced` 已生效（默认 `true`，卡片交接区末行「交接后归档旧会话」）。要验证关掉后的效果：关掉→保存→`/handoff now`，旧会话应仍在列表里、且不在「全部对话（显示已归档）」里；开关只管以后的交接，`c35a7f0f` 与 `3a51f066` 仍在归档集里，要找回得手动「取消归档」
+- 记忆已冻结（实测）：`13:27:00Z` 与 `13:30:57Z` 两次 pass 均被拒，日志是「4 whole entry(ies) … from 3 section(s) … reached its character cap」，`MEMORY.md` 自 20:57:32 未变，两个产物都没写
+- 余量核算：39587 / 40000 只剩 413 字符；成熟期（输入 ≥34000）7 次落地涨幅 −734…+3475、p50 **+532**，5/7 超过余量，故拒绝是常态而非意外
+- 订正旧记：此前「43000 → needed 32732、43500 起 clipped」按插件真实 `auxModel`（`reasoning: true`、`maxTokens` 328000；`config.maxTokens` 8192、ceiling 32768）重扫不复现——CONTEXT 9077 时 43007→31534、45242→32711 均 `clipped false`，首个裁剪在 45242–48251 之间
+- 但两份文档共用同一个输出预算：本轮 CONTEXT 从 9077 涨到 9793（+716 字符）后同样尺寸整体上移约 590 tokens，45242 已 `clipped true`、43007→32127 仍安全 —— 定上限必须同时看 CONTEXT
+- 该重扫的边界：只有 39587 那行是真文档（与 `probe.mjs` 完全一致），其余是重复真实 bullet 合成的等长文档，字符→token 密度可能略有偏差
+- 再压的最低代价落点：116 条里 18 条是批次/CHANGELOG 叙事、共 7135 字符，搬到 `docs/` 不丢事实，只是退出注入集
+- 待你定：①卡片把 `maxMemoryChars` 改 43000（多 3413 字符余量；输出半边余量按 `cap-sweep.mjs` 现跑，CONTEXT 每涨约 800 字符会吃掉约 700 tokens）②再压文档（同时省每轮注入）③不动作则记忆继续冻结
+- 复算脚本：`.agents/evidence/2026-11-06-memory-compression-headroom/cap-sweep.mjs` 读当前两份文档直接扫 `fitMemoryInput`，任何上限判断以它现跑为准
 
 <!-- latest-session-title: 离线实测记忆两半写路径、重启验收通过、订正 10:13 拒绝的因果断言 -->
