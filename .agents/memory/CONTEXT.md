@@ -36,6 +36,8 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 本批主提交 `31f19b5`（docs-only：18 个批次档案归档、CHANGELOG 拆成 8 个版本文件、46 行引用改写、两项技能同步），推送时 `ssh.github.com` 前三次报「无法读取远程仓库」、第四次成功（瞬时故障，非权限）
 - 21:15 起交付治理文档：`AGENTS.md` 115 行 8 节（概览 / 架构与数据流 / 关键目录 / 开发命令 / 代码约定 / 重要文件 / 运行时 / 测试与 QA，62 个 `path:line` 锚点全部可 resolve）、`RULES.md` 74 行 8 章（元规则→禁令，判据命令逐条实跑）；README 文档分工加了两份的指针。口径由用户确认：团队=**单人 + AI agent**（无人工 review、无 CI）；仓库**没有 CLAUDE.md**，RULES 的协作基线反推自 README/docs/MEMORY/skills。
 - AGENTS.md 由 4 个只读 scout 并行调查 + 我亲核 5 个承重文件后合成，已修正 scout 三处：会话归档目录 174→**172**、`void…catch` 的「42 处」未采用（实测 21 个 `void`、8 个带 catch）、`test/` 口径「33 个 node:test」→ 29 个 `*.test.mjs` + 1 helper + 3 fixture。RULES 的 `src`/`client` 单文件 ≤900 行是**新定天花板**（现存最大 809），不是历史规则；4.2 的 `shared → project-handoff/language` 是现存唯一反向依赖例外。
+- `maxMemoryChars` 是**读写同一把尺**（注入 `projectMemoryInjection` → `loadMemorySync`、整理读入 `loadMemory` 都用它），不是「写入前生效」：实测 39587 字符的 MEMORY.md 在 cap 18000 下注入侧只剩 17625 字符，**Pitfalls 35 条 + Index 13 条整节消失**、隐藏 22019 字符（裁剪保头部，文档顺序 Project→Invariants→Pitfalls→Index），下一轮 pass 会把截断视图写回且 tier C 不拒（`sectionsFromMarkdown` 缺节返回 `undefined`，回归报告只写 `skipped: the stored memory is not a plain four-section bullet document`，把成因误归为文档形状）。顺序只能先写小文档再降 cap
+- 64K / 128K 结论（2026-11-06 实测，已落 `docs/settings.md` 新增「小窗口」节 + `.agents/evidence/2026-11-06-small-window-presets/`）：128K 阈值恒 `107616`（84%）、与 keep 和文档大小无关，现有配置不用改；64K 容量项恒 43616，今天 overhead 27842 → `keep` 必须 ≤ 7774，默认 20000 **直接不可用**（window-headroom）、8000 差 226（drop-floor）、4000 可用但只留 15774 tokens 给对话；且整理 pass 自己也撞窗（cap 40000 + 25000 字符对话块 ≈ 66854 > 64000），压 `maxOutputTokens` 会让 `fitMemoryInput` 头尾各剪一刀（实测剪 25035 + 6112 字符），小窗口唯一的零损杠杆是把文档压小
 
 ## Open tasks
 
@@ -68,7 +70,7 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 但两份文档共用同一个输出预算：本轮 CONTEXT 从 9077 涨到 9793（+716 字符）后同样尺寸整体上移约 590 tokens，45242 已 `clipped true`、43007→32127 仍安全 —— 定上限必须同时看 CONTEXT
 - 该重扫的边界：只有 39587 那行是真文档（与 `probe.mjs` 完全一致），其余是重复真实 bullet 合成的等长文档，字符→token 密度可能略有偏差
 - 再压的最低代价落点：116 条里 18 条是批次/CHANGELOG 叙事、共 7135 字符，搬到 `docs/` 不丢事实，只是退出注入集
-- 待你定：①卡片把 `maxMemoryChars` 改 43000（多 3413 字符余量；输出半边余量按 `cap-sweep.mjs` 现跑，CONTEXT 每涨约 800 字符会吃掉约 700 tokens）②再压文档（同时省每轮注入）③不动作则记忆继续冻结
+- 待你定（按代价排序）：①再压文档（同时省每轮注入，也正是任何小窗口方案的前置条件；116 条里 18 条批次叙事 7135 字符是零事实损失落点）②卡片把 `maxMemoryChars` 改 43000（解冻记忆；输出半边余量按 `cap-sweep.mjs` 现跑，CONTEXT 每涨约 800 字符吃掉约 700 tokens）③不动作则记忆继续冻结。**顺序不可反**：`maxMemoryChars` 是读写同一把尺，降到存储文档以下会整节砍掉（见 Key points）
 - 复算脚本：`.agents/evidence/2026-11-06-memory-compression-headroom/cap-sweep.mjs` 读当前两份文档直接扫 `fitMemoryInput`，任何上限判断以它现跑为准
 
 <!-- latest-session-title: 离线实测记忆两半写路径、重启验收通过、订正 10:13 拒绝的因果断言 -->

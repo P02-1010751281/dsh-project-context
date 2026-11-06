@@ -47,7 +47,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `autolearnIntervalMs` | `1800000` | 自动沉淀最小间隔；仅在有新 MEMORY/CONTEXT 内容时执行 |
 | `maxTokens` | `8192` | 辅助模型调用的起始输出上限；整理会按「记忆+上下文需回吐的 token 数」自适应上调 |
 | `maxOutputTokens` | `32768` | 自适应上调的边界（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准。交接摘要的失败重试同样被该边界压住（`min(2×maxTokens 或 32768 的较大者, max(maxTokens, maxOutputTokens))`；边界低于起始上限时重试被取消，只发一次原请求） |
-| `maxMemoryChars` | `40000` | 记忆文档的字符上限（4000–200000）：写入前按它生效，超限**按行边界**截断并写入 `_[memory truncated at <limit> characters: <dropped> dropped]_` 标记。调大它同时抬高每轮注入量与整理输出需求——整理被「模型输出上限」截断时，调大这个值只会更糟 |
+| `maxMemoryChars` | `40000` | 记忆文档的字符上限（4000–200000），**读写同一把尺**：写入前按它生效（超限**按行边界**截断并写入 `_[memory truncated at <limit> characters: <dropped> dropped]_` 标记），而每轮注入（`projectMemoryInjection` → `loadMemorySync`）与整理 pass 的读入（`loadMemory`）用的是同一个值。因此把它降到当前文档长度**以下**不是压缩而是砍尾部：头部保留、整节消失（文档顺序是 Project → Invariants → Pitfalls → Index，先没的是 Pitfalls 与 Index），隐藏量记在 `ConsolidateReport.clipped` / `memoryHiddenChars`，下一轮 pass 写回的就是这个截断视图。要缩小窗口占用，先把手写文档压到目标尺寸，再把 cap 降到不小于新文档。调大它同时抬高每轮注入量与整理输出需求——整理被「模型输出上限」截断时，调大这个值只会更糟 |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接（含交接子会话标题的事后改名），`/handoff` 仍可用 |
 | `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
@@ -57,3 +57,24 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
 | `handoffRetireReplaced` | `true` | 交接成功后把被替换的旧会话「退休」：先停掉其中仍在跑的工作，再调 `workspaceRegistry.archiveSession(…, {stopActivity: true})` 把它从侧栏隐藏（只隐藏不删除，客户端「取消归档」可还原）。默认开启的原因：交接是**分叉**，旧会话不结束就仍算活动，会排在自己的续接会话上面。关闭后两个会话都留在列表里、旧会话里的工作也不会被停——`stopActivity` 只为让归档生效，没有归档就没有可停的东西 |
+
+## 小窗口（64K / 128K）
+
+窗口大小不改变任何字符上限——`maxMemoryChars`、`MAX_CONTEXT_CHARS`、`MAX_CONVERSATION_CHARS`
+都是绝对量，两份文档每轮无条件注入。窗口只改变交接阈值，代数两条：
+
+- `capacity = W − 16384 − 4000`（窗口预留 + 安全余量）
+- `floor = overhead + handoffBudgetRecentTokens + 8000`（`overhead` 是 harness 报的信封，即注入的文档加系统提示与工具面）
+- 可行 ⟺ `floor ≤ capacity`，阈值 = `min(knee(W), capacity)`
+
+`knee(W) ≥ W` 对 128K 及以下的窗口恒成立（膝曲线在 157K 以下不压缩），所以**小窗口上质量层永远不是约束**：
+够大时容量项恒为 84%（阈值与 `keep`、与文档大小都无关），不够时 `floor` 越界、自动交接整个不可用。
+想要更早的触发点只有固定比例（`handoffThresholdAuto: false`）一条路。
+
+第二个约束来自整理 pass 自己的请求：它 = 文档 + 它重发的 `<recent-conversation>`
+（上限 `MAX_CONVERSATION_CHARS`，不可配置）+ 回吐预算，而 `fitMemoryInput` 只按前一半做适配，
+所以会话长起来之后 pass 自己会撞窗。压 `maxOutputTokens` 不是解——ceiling 一压，
+`fitMemoryInput` 就改成头尾各剪一刀，是有损的。真正的杠杆是把两份文档压小。
+
+各尺寸的现账用 `node .agents/evidence/2026-11-06-small-window-presets/measure.mjs` 直接跑
+（那份目录的 README 里有一份 2026-11-06 的快照）。
