@@ -114,19 +114,46 @@ deleting facts instead.
 
 ## What this does not prove
 
-- It cannot prove the next live pass lands: that needs the user's host restart, because the desktop
-  host (pid 41218, started 2026-11-06 09:26:43) is older than the last `src/` commit `30e0ba1`
-  (2026-11-06 09:59:03), so the two landed batches are not loaded yet.
+- It cannot prove the next live pass lands. The restart it was waiting for has since happened (pid
+  58434, started 2026-11-06 10:51:25, later than `30e0ba1`; the live inventory probe reports all four
+  plugins active and `lib/` diffs clean against a fresh `tsc`), so the loaded code is the offlined
+  code — but no pass has run since (`errors.log` is empty after 02:23:37Z, `MEMORY.md` unchanged
+  since 10:10:04) and a pass can still refuse on growth alone.
 - It does not say what the model will write. The growth distribution is empirical and small (n=6 in
   the comparable band), and it is survivor-biased: refusals leave no journal row.
 - It does not cover the live config: the numbers assume the schema defaults `maxTokens` 8192 /
   `maxOutputTokens` 32768 / `maxMemoryChars` 40000. Re-read them through `cordis_inspect_query`
   (`Config`, entry `include:project-context`) if a profile ever overrides them.
 
-## After the restart
+## Reading the next refusal's log lines
+
+`errors.log` mixes two unrelated populations that both contain the same string, so a refusal's
+"retry failed for its own reason" line is not evidence that the model could not compress:
+
+- **A whole pass that died at its first model call** — `Error: cannot get required service "llm" in
+  inactive context`, stack through `consolidate.js`'s first `call(...)`. The plugin context is
+  already disposed, so no request is ever made.
+- **A tier C retry that died after a real first reply** — `the targeted loss retry failed for its own
+  reason, so the first reply's loss decides this pass: cannot get required service "llm" ...`.
+
+15 such rows exist since 2026-10-20, and attribution is partial on purpose:
+
+- `2026-11-06T01:26:41Z` (x2) sits 1.4 s before the next host booted (09:26:43 +08:00): it is the
+  outgoing host's dispose-time `agent/disposed` pass. That context is inactive before the pass even
+  starts, so this trigger's failures at host teardown are expected — noise, not a defect.
+- `2026-11-06T02:23:37Z` (x3) coincides with three session projection caches updating, i.e. three
+  top-level agents disposed at once, but the host was not restarting then and *why* the plugin
+  context was inactive is unresolved.
+- The `02:13:33Z` retry death is the one that decided a refusal. It is also unresolved.
+
+So the retry line dates such a failure without explaining it, and none of the "inactive context" rows
+may be counted as the model failing to compress.
+
+## After the next pass
 
 ```sh
-# 1. the two batches are live: holder start later than 30e0ba1 (2026-11-06T09:59:03+08:00)
+# 1. (passed on the 10:51:25 restart; re-run only after a further restart)
+#    the two batches are live: holder start later than 30e0ba1 (2026-11-06T09:59:03+08:00)
 ss -ltnp | grep -E '127\.0\.0\.1:(35|19)[0-9]{3}'
 ps -o lstart= -p <pid>
 git -C /mnt/Data/Projects/dsh-project-context diff --exit-code -- lib
