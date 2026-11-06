@@ -66,6 +66,13 @@ export interface PluginConfig {
 	handoffPendingQuestion: "defer" | "wait";
 	/** Handoff scaffolding language: "auto" follows the conversation, otherwise "zh" or "en". */
 	handoffLang: "auto" | "zh" | "en";
+	/**
+	 * Archive (dsh's "hide from the workspace list") the session a handoff replaced, after stopping
+	 * whatever still runs in it. On by default because a handoff *forks*: the replaced session stays
+	 * live and, being active, sorts above its own continuation. Off leaves both sessions visible and
+	 * touches none of the old session's running work.
+	 */
+	handoffRetireReplaced: boolean;
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
@@ -89,6 +96,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	handoffBudgetRecentTokens: 20_000,
 	handoffPendingQuestion: "defer",
 	handoffLang: "auto",
+	handoffRetireReplaced: true,
 };
 
 const CONFIG_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
@@ -204,5 +212,6 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		handoffBudgetRecentTokens: bounded("handoffBudgetRecentTokens", DEFAULT_CONFIG.handoffBudgetRecentTokens, MIN_HANDOFF_RECENT_TOKENS, MAX_HANDOFF_RECENT_TOKENS),
 		handoffPendingQuestion: pendingQuestion ?? DEFAULT_CONFIG.handoffPendingQuestion,
 		handoffLang: handoffLang ?? DEFAULT_CONFIG.handoffLang,
+		handoffRetireReplaced: boolean("handoffRetireReplaced", DEFAULT_CONFIG.handoffRetireReplaced),
 	};
 }

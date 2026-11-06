@@ -7,6 +7,19 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（`handoffRetireReplaced`：交接后是否归档被替换的旧会话，默认仍归档）**
+
+- 性质：一处**新增配置**，默认值等于现状（`true`），只有用户主动关掉才改变行为；不动既有语义、不动停活动时机。起因是用户 2026-11-06 20:10 报「交接后老的就没了、被归档了」：20:17 那次自动交接把 `c35a7f0f` 写成归档集第 769 条，而 `scheduleRetirement` 当时是无条件的、没有配置键。
+- 新增 `handoffRetireReplaced`（默认 `true`）：`performHandoff` 收尾时按它决定是否 `scheduleRetirement`。关掉时**既不归档也不停活动**——`stopActivity` 只是为了让宿主接受对「仍有工作」的会话做归档（不带它宿主直接拒绝），没有归档就没有要停的东西；代价是分叉出来的旧会话会排在自己的续接会话上面，也就是当初加退休要治的那个症状，所以文案把它写成一桩交易而不是一个自由开关。默认保留 `true`：不加配置的人看到的仍是现状。
+- 六个面全部就位：`config.ts`（接口 + `DEFAULT_CONFIG` + `resolvePluginConfig` 的 `boolean(...)` 校验）、`settings.ts`（带 `volatile` 标记的 schema 字段，缺标记会让整张卡无错误消失）、`client/card-fields.ts`（`ProjectContextSettings` 与行表末行）、`locales.ts`（zh/en 的 `field.*` 与 `field.*Hint`）、README（配置表一行 + ④ 段一句）。**两个 profile 都不用改**：schema 自带默认值，缺键即取默认，不存在第 H 批那种「破坏性改名、profile 与重启必须同步」的问题。
+- 判别器：新增 **1 条**用例（`handoffRetireReplaced off keeps the replaced session: nothing archived, nothing scheduled`），走真实 `apply()` 接线而非直接调函数：默认值与被显式关掉两种解析各断言一次、命令成功、**种子仍在**（正控制——排除「交接悄悄失败所以什么都没归档」的假绿）、`pendingRetire` 里没有该会话、`turn/end` 之后 `archived` 仍为空。默认态由既有用例 `a handoff retires the session it replaced, and never mid-turn` 继续钉住。总数 491 → **492**。
+- 变异轮（2 个变异体，全部被杀；每个都先 `tsc` 让源码进 `lib/`，判红后再从哈希快照逐字节还原并 `diff -q` 复验）：
+  - M1 去掉 `if (config.handoffRetireReplaced)` 这道门（即恢复成硬编码无条件退休）→ 新用例红在「nothing is scheduled for this session's turn end」。
+  - M2 让 `resolvePluginConfig` 忽略输入、恒回默认 → 新用例红在「the option reaches the resolved config」。
+- 顺带修掉两处会过期的说明：README 里「21 行 = …」改成不写数字、点名 `test/settings-form.test.mjs` 的逐键相等断言；「21 行各出现一次、5 个布尔是开关、3 个枚举」改成按字段表核对——实测今天（加本键之后）是 **21 行 / 6 布尔 / 2 枚举**，后两项在加本键之前就已经不对了。
+- 门禁（现跑，不引用历史数字）：`pnpm typecheck` 0；`pnpm test` **492 通过 / 0 失败**；`pnpm build` 0（`lib/client.js` **37270** 字节；`handoffRetireReplaced` 在 bundle 里 **5** 处，`lib/shared/config.js` 与 `lib/project-handoff/perform.js` 各 **2** 处）。
+- 边界：改了 `src/` 与 `client/` ⇒ **需要一次宿主重启**。客户端 bundle 由 client-hmr 派发（刷新即可），但新键的解析在 host 半，所以重启之前把开关关掉不会有任何效果；重启后卡片上会出现「交接后归档旧会话」一行。
+
 **文档（区分两种「归档」：① 写存档 vs ④ 交接后旧会话被隐藏）**
 
 - 性质：纯文档（README 一段要点），不改代码、不改配置键与任何默认值；起因是用户读完 §自动归档（①）后问「为什么交接后老的就没了、被归档了」，而实际原因是 ④ 的退休步骤，不是这一节。

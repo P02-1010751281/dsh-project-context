@@ -53,6 +53,13 @@ export interface PluginConfig {
     handoffPendingQuestion: "defer" | "wait";
     /** Handoff scaffolding language: "auto" follows the conversation, otherwise "zh" or "en". */
     handoffLang: "auto" | "zh" | "en";
+    /**
+     * Archive (dsh's "hide from the workspace list") the session a handoff replaced, after stopping
+     * whatever still runs in it. On by default because a handoff *forks*: the replaced session stays
+     * live and, being active, sorts above its own continuation. Off leaves both sessions visible and
+     * touches none of the old session's running work.
+     */
+    handoffRetireReplaced: boolean;
 }
 export declare const DEFAULT_CONFIG: PluginConfig;
 /** Validate one raw cordis config object and apply defaults. Throws on unknown keys or bad types. */

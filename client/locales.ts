@@ -64,6 +64,8 @@ export const zh = {
 	"field.handoffPendingQuestionHint": "defer（默认，等用户回答后再交接）或 wait（继续交接，把问题带进新会话）",
 	"field.handoffLang": "交接语言",
 	"field.handoffLangHint": "auto（默认，跟随会话语言）、zh 或 en",
+	"field.handoffRetireReplaced": "交接后归档旧会话",
+	"field.handoffRetireReplacedHint": "开启时（默认）交接成功后先停掉旧会话里仍在跑的工作，再把它归档（从侧栏隐藏，可在「全部对话（显示已归档）」里取消归档）；关闭后旧会话留在列表里、其中的工作也不被停掉，但它会排在自己的续接会话上面",
 } as const;
 
 export type SettingsCardKey = keyof typeof zh;
@@ -127,6 +129,8 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffPendingQuestionHint": "defer (default, wait for the answer before handing off) or wait (hand off and carry the question into the continuation)",
 	"field.handoffLang": "Handoff language",
 	"field.handoffLangHint": "auto (default, follows the conversation), zh or en",
+	"field.handoffRetireReplaced": "Archive the replaced session after a handoff",
+	"field.handoffRetireReplacedHint": "On (default): after a successful handoff, stop whatever still runs in the replaced session and archive it (hidden from the sidebar; unarchive it under “All conversations (show archived)”). Off: the replaced session stays in the list and nothing in it is stopped, but it sorts above the continuation that replaced it.",
 };
 
 /**

@@ -38,6 +38,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
     handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     archiveEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     memoryEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
@@ -59,5 +60,6 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
     handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>>;
 export declare function apply(ctx: Context, rawConfig: unknown): void;

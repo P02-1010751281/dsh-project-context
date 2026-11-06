@@ -226,7 +226,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 卡片本身**不是自绘的**：框架、保存按钮、文本/数字行、只读与未加载提示都来自平台的
 `@deepseek-ai/dsh-client-ui-primitives`（`SettingsForm` / `SettingsValueField` / `Switch` / `Pill` /
 `Tag` / `Button`），暂存写入用平台的 `SettingsFormModel`，本仓库只提供一张**字段表**
-（`client/card-fields.ts`：21 行 = spec + 投影 + 渲染行三者共同的唯一来源）和一份**纯几何、零颜色**
+（`client/card-fields.ts`：spec + 投影 + 渲染行三者共同的唯一来源，行数与 host schema **逐键相等**，由 `test/settings-form.test.mjs` 钉住）和一份**纯几何、零颜色**
 的排版样式表。因此保存语义也是平台的：一次**原子** `mutate`（带 revision fence）、Host 拒绝时保留草稿，
 **离开页面即丢弃草稿**——所以卡片上没有「放弃」按钮（与官方设置页一致）。
 
@@ -267,6 +267,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要；卡片按同一区间本机校验，越界或非整数草稿直接拒掉）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
+| `handoffRetireReplaced` | `true` | 交接成功后把被替换的旧会话「退休」：先停掉其中仍在跑的工作，再调 `workspaceRegistry.archiveSession(…, {stopActivity: true})` 把它从侧栏隐藏（只隐藏不删除，客户端「取消归档」可还原）。默认开启的原因：交接是**分叉**，旧会话不结束就仍算活动，会排在自己的续接会话上面。关闭后两个会话都留在列表里、旧会话里的工作也不会被停——`stopActivity` 只为让归档生效，没有归档就没有可停的东西 |
 
 ## 命令（web/交互 profile）
 
@@ -378,7 +379,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
   而工作区列表按活动度分组，于是它排在自己延续的上面——这正是用户报的「handoff 的新会话落在旧会话
   下面」。宿主没有「结束会话」的 RPC，`archiveSession` 是唯一等价物，且必须带 `stopActivity`：不带该
   标志时宿主对仍有运行中工作的会话直接**拒绝**归档；归档只隐藏，日志、归档产物与工作区位置都保留，
-  客户端可还原。带 `stopActivity` 时宿主还会经 subagent 家族的 `workspace/session-stop`，把该会话**仍在
+  客户端可还原。这一步受 `handoffRetireReplaced` 控制（默认开启，见 `## 配置`）：关掉后旧会话留在列表里，其中在跑的子代理也不会被停，代价是它仍排在自己的续接会话上面。带 `stopActivity` 时宿主还会经 subagent 家族的 `workspace/session-stop`，把该会话**仍在
   运行的子代理后代**（含 teammate）逐个 `cancel`——所以被替换会话里在跑的子代理不会变成孤儿，反过来
   也意味着交接会中断它们手上的活。时机是重点：**自动档**触发时该会话已经落定，立即退休；**手动档 `/handoff now` 跑在
   自己那一轮里**，此时归档会停掉正在渲染回执的那一轮，所以排到该会话的 `turn/end` 再退休（一次性，
@@ -407,7 +408,7 @@ pnpm test             # 先编译再跑 node:test 回归（test/）
 `test/card-render.test.mjs` 是唯一**真正渲染**卡片的测试（其余客户端测试都是对源码的字符串扫描，
 能证明某个字符串不在，不能证明控件进了 DOM）：它把 `client/settings-card.tsx` 连同平台的
 `SettingsForm` / `SettingsValueField` / `Switch` / `Pill` 用 esbuild 打成一个包，经 `react-dom/server`
-渲染，再按字段表核对——21 行各出现一次、5 个布尔是开关、3 个枚举各自每选项一个胶囊、整页只有平台的
+渲染，再按字段表核对——字段表里每一行各出现一次、布尔行渲染成开关、枚举行每个选项一个胶囊、整页只有平台的
 一个保存控件，并且保存是**一次**带 revision fence 的原子写入、被拒后草稿保留且不会卡在「保存中」。
 为此 `react` / `react-dom` / `clsx` / `zustand` / `immer` 是 **devDependencies**（浏览器 bundle 把它们
 全部外部化，只有这个测试用）。其中后三个本不是本仓库的依赖：`@deepseek-ai/dsh-client-ui-primitives`

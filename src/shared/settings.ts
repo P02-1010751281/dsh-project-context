@@ -67,6 +67,7 @@ export const PluginSettingsSchema = z.object({
 	handoffBudgetRecentTokens: z.natural().min(MIN_HANDOFF_RECENT_TOKENS).max(MAX_HANDOFF_RECENT_TOKENS).default(DEFAULT_CONFIG.handoffBudgetRecentTokens).extra("volatile", true),
 	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion).extra("volatile", true),
 	handoffLang: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLang).extra("volatile", true),
+	handoffRetireReplaced: z.boolean().default(DEFAULT_CONFIG.handoffRetireReplaced).extra("volatile", true),
 });
 
 let live: (() => PluginConfig) | undefined;

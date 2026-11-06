@@ -46,6 +46,7 @@ export interface ProjectContextSettings {
 	handoffBudgetRecentTokens: number;
 	handoffPendingQuestion: "defer" | "wait";
 	handoffLang: "auto" | "zh" | "en";
+	handoffRetireReplaced: boolean;
 }
 
 /** How one row is edited. `ratio` is a number row whose text folds `40` / `40%` into `0.4`. */
@@ -147,6 +148,10 @@ export const SECTIONS: readonly FieldSection[] = [
 			},
 			{ key: "handoffPendingQuestion", kind: "union", options: ["defer", "wait"] },
 			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
+			// A trade, not a free switch: with retirement off the replaced session stays in the sidebar and
+			// keeps whatever runs in it, but it also sorts above the continuation that replaced it — the
+			// symptom retirement was added for. The hint says so, because the two effects cannot be split.
+			{ key: "handoffRetireReplaced", kind: "boolean" },
 		],
 	},
 ];

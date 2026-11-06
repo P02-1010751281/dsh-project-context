@@ -55,6 +55,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
     handoffLang: z<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffRetireReplaced: z<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     archiveEnabled: z<boolean, boolean>;
     memoryEnabled: z<boolean, boolean>;
@@ -76,6 +77,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
     handoffLang: z<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffRetireReplaced: z<boolean, boolean>;
 }>>;
 /**
  * Publish the namespace owner's live config for the other three plugins.

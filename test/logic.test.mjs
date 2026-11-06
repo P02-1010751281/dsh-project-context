@@ -5695,6 +5695,68 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 	assert.equal(archived.length, 1, "retiring is one-shot");
 });
 
+test("handoffRetireReplaced off keeps the replaced session: nothing archived, nothing scheduled", async () => {
+	// Retirement is the default because a fork leaves the old session live and above its continuation.
+	// The opt-out has to remove the archive *and* leave the old session's work alone: `stopActivity`
+	// exists only to make the archive apply (the host refuses an archived-active session rather than
+	// stopping it), so with no archive there is nothing to stop. The handoff itself must be untouched —
+	// the positive control below is the seed, so a green run cannot be a silently failed handoff.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-no-retire-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const archived = [];
+	const seeded = [];
+	const handlers = {};
+	const commands = new Map();
+	const model = noModelCalls();
+	const session = {
+		id: `session-no-retire-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => [],
+		snapshotEvents: () => [],
+		// These fixtures' logs carry control records only (turn ends, catalog rows,
+		// settled markers); projecting them to messages is not modelled here, so the
+		// append-origin read finds nothing and falls back to the surface, exactly as before.
+		deriveEventMessage: () => null,
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		get: (name) => (name === "sessionController" ? {
+			create: async () => ({ sessionId: "child-1" }),
+			rename: async () => undefined,
+		} : name === "agents" ? { get: () => ({ followup: () => { seeded.push("seed"); } }) } : name === "workspaceRegistry" ? {
+			resolveByPath: async () => undefined,
+			archiveSession: async (id, options) => { archived.push([id, options?.stopActivity === true]); },
+		} : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: model.stream,
+		},
+	};
+
+	// The default stays "retire": the opt-out is the exception, and a default that flipped would change
+	// every existing install's sidebar without anyone asking.
+	assert.equal(DEFAULT_CONFIG.handoffRetireReplaced, true, "retirement is still the default");
+	assert.equal(resolvePluginConfig({ handoffRetireReplaced: false }).handoffRetireReplaced, false, "the option reaches the resolved config");
+
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0, handoffRetireReplaced: false });
+	const listener = handlers["session/event"]?.[0];
+	assert.ok(listener, "apply registers a session/event listener");
+
+	const reply = await commands.get("handoff").handler({ agent: { session }, rawInput: "now", signal: new AbortController().signal });
+	assert.equal(reply.kind, "success", `expected the manual handoff to run: ${JSON.stringify(reply)}`);
+	assert.deepEqual(seeded, ["seed"], "the continuation is seeded; only the retirement is missing");
+	assert.ok(!pendingRetire.has(String(session.id)), "nothing is scheduled for this session's turn end");
+	listener(session, { type: "turn/end", seq: 7, time: Date.now() });
+	assert.deepEqual(archived, [], "the replaced session must stay visible, so it must not be archived");
+	model.assertNone("the no-retirement path");
+});
+
 test("the session index names the lines its cap drops", async () => {
 	// The index is capped at 200 lines. The dropped archives stay on disk, but the index is the only
 	// navigation autolearn and the handoff pointers have, so a silent drop reads as "that session never

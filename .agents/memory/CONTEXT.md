@@ -45,7 +45,10 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 记忆里「dispose 插件要手工清 `dsh.profile.bundles`」是 loader 1.0 之前的整树回写行为：`0.2.2-rc.1` 的 Include 只把运行时改动写回父 patches，下次真正 dispose 插件时要先重新核实这条再照做
 - 全仓完整性审计已于 2026-11-05 做完（`.agents/evidence/2026-11-05-pnpm-store-integrity-audit/`）：73 个包逐文件哈希，修好 1 个代码文件（`dsh-package-manifest` 缺 `lib/index.js`）与 25 个 LICENSE；恢复只落在 `node_modules` 不入 git，下次 `install` 后若出现莫名 module-not-found，先重跑该目录的 `compare.mjs`，别先怀疑代码
 - 这次 pass 之后的 `memory regression: 8 … entry(ies) are no longer present` 是**文本精确比对**的假阳性：8 条里 8 条都在新文档里以改写形式存在（逐条集合比对过），该行只是写后报告、不拒绝；历史上它报过 30 / 55 / 7 / 4 / 8 条，别据此判断记忆丢了
+- 本批（20:27）实现 `handoffRetireReplaced`：门加在 `performHandoff` 收尾的 `if (config.handoffRetireReplaced) scheduleRetirement(…)`，六个面（config / settings / card-fields / locales / README / 测试）全动；`pnpm typecheck` 0、`pnpm test` **492**、`pnpm build` 0（`lib/client.js` **37270**，键在 bundle 里 5 处）
+- 本批两个变异体均被杀并已从 `/tmp/retire-mut/` 哈希快照还原复验：M1 去掉门 → 红在「nothing is scheduled for this session's turn end」；M2 让 `resolvePluginConfig` 忽略输入 → 红在「the option reaches the resolved config」
+- README 两处会过期的数字已改掉（不写行数与控件数、点名 `settings-form.test.mjs` 的逐键相等断言）：实测今天 21 行 / 6 布尔 / 2 枚举，其中「5 布尔 / 3 枚举」在加本键之前就已经不对
 - 已知噪声：`context-injection.test.mjs` 偶发 2 条失败，是并发写入撞上它读仓库自身 memory 文档，代码此后未变、三连跑复绿，未记成已修
-- 交接后旧会话「老的就没了」是 ④ 退休步骤的硬编码行为（`scheduleRetirement` 无条件、无配置键）：2026-11-06 20:17 的自动交接把上一会话 `c35a7f0f` 写成归档集第 769 条，用户 20:10 就此提问；是否加开关（如 `handoffRetireReplaced: true`）尚未裁决，真要动 `src/` 需一次宿主重启
+- `handoffRetireReplaced`（默认 `true`）已交付：关掉后交接**既不归档也不停活动**，代价是旧会话排在自己的续接会话上面；改了 `src/` ⇒ **要一次宿主重启**才生效，重启后卡片交接区末行是「交接后归档旧会话」，验证＝关掉它做一次 `/handoff now`，看旧会话是否仍在列表里（并在时点「全部对话（显示已归档）」里也确实没有它）
 
 <!-- latest-session-title: 离线实测记忆两半写路径、重启验收通过、订正 10:13 拒绝的因果断言 -->
