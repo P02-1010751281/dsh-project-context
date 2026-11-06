@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+> 事实快照：2026-11-06。带计数的条目都是当天的快照，引用前现读（`git ls-files lib | wc -l`、`ls .agents/skills | wc -l`、`ls docs/changelog/*.md | wc -l`、`ls docs/archive/*.md | wc -l`、`pnpm test` 的 `ℹ tests` 行）。
+
 ## 项目概览
 
 - 这是一个 **dsh（DeepSeek Harness）插件包**：一个 npm 包里并置 4 个 cordis 插件加 1 个浏览器设置卡片，共同做「项目级持久上下文」——会话归档 → 记忆整理 → 技能沉淀 → 上下文交接。
@@ -73,7 +75,7 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 
 - **模块风格**：ESM + NodeNext；相对 import 一律带 `.js`；类型导入用 `import type`；`import type {} from "@deepseek-ai/dsh-commands"` 这种空导入用来拉 Context 合并而不引运行时依赖（`src/project-context/index.ts:15`）。
 - **命名**：文件 kebab-case；一个包一个 `index.ts` 作为插件模块；函数 camelCase、类型 PascalCase、常量 UPPER_SNAKE（`src/shared/limits.ts:7`、`:12`、`:14`）。
-- **大核旁边放窄模块**：一份义务一个小文件，别往大文件里塞——`consolidate.ts` 809 行、`sections.ts` 677 行，而 `measure.ts` 27 行、`state.ts` 50 行。
+- **大核旁边放窄模块**：一份义务一个小文件，别往大文件里塞——`src/project-memory/consolidate.ts` 809 行、`src/project-memory/sections.ts` 677 行，而 `src/project-handoff/measure.ts` 27 行、`src/project-handoff/state.ts` 50 行。
 - **命令处理器不抛**：返回 `{kind: "success" | "error", text}`（`src/project-context/index.ts:125-131`）。
 - **fire-and-forget**：`void … .catch(() => undefined)`，但吞掉的异常必须进 `errors.log`，且写日志的函数自己永不抛（`src/shared/error-log.ts:57`）。
 - **状态归属**：持久状态只在文件里，布局写在 `src/shared/project-state.ts:3-12` 的注释块；其余都在进程内存（每会话 tracker、每项目根 map、交接触发状态），宿主重启即失效。
