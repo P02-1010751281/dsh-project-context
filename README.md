@@ -257,10 +257,9 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接（含交接子会话标题的事后改名），`/handoff` 仍可用 |
 | `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
-| `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值。卡片与 `/handoff threshold` 接受同样三种写法（`0.4`、`40`、`40%`），且只在固定模式下显示——自适应开启时这一项根本不被读取 |
-| `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标请求量（8000–200000）：`/handoff status` 用它判断并点名「目标没被完整采纳」，它不移动触发点，也不产生任何模型调用。触发点由护栏决定，被压掉时点名被覆盖的值与压住它的那条护栏，不静默。仅自适应模式显示 |
-| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
-| `handoffThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
+| `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值。卡片与 `/handoff threshold` 接受同样三种写法（`0.4`、`40`、`40%`），越界草稿在卡片本机就被拒（保存按钮置灰）。卡片只在固定模式下显示这一行 —— 自适应开启时触发计算不读它；例外：该行带覆盖值或非法草稿时仍显示，否则那个值无法重置 |
+| `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标请求量（8000–200000）：`/handoff status` 用它判断并点名「目标没被完整采纳」，它不移动触发点，也不产生任何模型调用。触发点由护栏决定，被压掉时点名被覆盖的值与压住它的那条护栏，不静默。仅自适应模式显示（带覆盖值或非法草稿时除外，同上一行）；越界或非整数草稿在卡片上直接拒掉 |
+| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要；卡片按同一区间本机校验，越界或非整数草稿直接拒掉）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
 
@@ -275,12 +274,11 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/memory` | 显示项目记忆路径与状态 |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
-| `/handoff` | 立即交接：摘要当前会话并另开新会话继续 |
+| `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**） |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除） |
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` | 切自适应；给比例则切固定比例。裸 `auto` 与裸比例已退役，不再生效 |
-| `/handoff budget summary 64k` / `budget recent 20k` | 每次摘要的移交量 / 逐字保留的近端对话（`budget recent 0` = 只带摘要）；summary 是被护栏约束的**请求**，被压掉时 `/handoff status` 点名 |
-| `/handoff thinking off\|session` | 切换摘要 thinking |
+| `/handoff budget summary 64k` / `budget recent 20k` | 目标请求量（只用于回执，不移动触发点）/ 逐字保留的近端对话（`budget recent 0` = 不带尾料）；summary 被护栏压掉时 `/handoff status` 点名 |
 | `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
 | `/handoff lang auto\|zh\|en` | 交接语言：自动判定或固定中文 / 英文 |
 
