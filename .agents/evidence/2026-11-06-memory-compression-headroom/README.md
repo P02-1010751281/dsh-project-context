@@ -114,16 +114,39 @@ deleting facts instead.
 
 ## What this does not prove
 
-- It cannot prove the next live pass lands. The restart it was waiting for has since happened (pid
-  58434, started 2026-11-06 10:51:25, later than `30e0ba1`; the live inventory probe reports all four
-  plugins active and `lib/` diffs clean against a fresh `tsc`), so the loaded code is the offlined
-  code — but no pass has run since (`errors.log` is empty after 02:23:37Z, `MEMORY.md` unchanged
-  since 10:10:04) and a pass can still refuse on growth alone.
+- It cannot prove the *next* pass lands. This one did (see the section above), leaving 633 characters
+  of headroom at 39367 — and 3 of the 7 measured mature passes grew past that, so the next refusal is
+  a probability, not an impossibility.
 - It does not say what the model will write. The growth distribution is empirical and small (n=6 in
   the comparable band), and it is survivor-biased: refusals leave no journal row.
 - It does not cover the live config: the numbers assume the schema defaults `maxTokens` 8192 /
   `maxOutputTokens` 32768 / `maxMemoryChars` 40000. Re-read them through `cordis_inspect_query`
   (`Config`, entry `include:project-context`) if a profile ever overrides them.
+
+## The pass that answered the question
+
+The pass this document was waiting for ran on `2026-11-06T02:58:25.989Z` (local 10:58:25) and
+**landed**: `memory.jsonl`'s last record is `op: replace` with a 39216-character text, `MEMORY.md`
+went 37780 -> 39216 and `CONTEXT.md` 10981 -> 5278, and `errors.log` records no refusal for it.
+
+It is also the first pass after the 10:51:25 restart, so by this document's own anchor it read the
+37780-character document — no ambiguity this time. That settles the question the earlier refusals left
+open: **the compression was enough**, and the refusals before it were the model failing to compress
+further, not the document being too large for the write path.
+
+It is not a clean pass, and the two blemishes are worth naming:
+
+- `memory regression: 8 Invariants/Pitfalls entry(ies) are no longer present` is a **false positive**.
+  A bullet-set comparison against `HEAD` finds all 8 present in reworded form; the check compares
+  text exactly, so a rewording reads as a disappearance. It is a post-write report and refuses
+  nothing, and the same line has appeared with 30 / 55 / 7 / 4 / 8 entries, so it must not be read as
+  evidence that memory was lost.
+- Two facts really did vanish and were restored by hand: the historical note that a cross-metric
+  subtraction once left auto mode thresholdless (re-attached to the `floor` entry) and the clause that
+  a seed's own wording is the cheapest disambiguator. Both were restored by whole-line replacement;
+  the re-measured document is 39367 with 633 characters of headroom, `sectionDropped 0 /
+  droppedItems 0 / itemTruncated 0`, a byte-identical round trip, and `needed` 26929 under the 32768
+  output bound.
 
 ## Reading the next refusal's log lines
 
