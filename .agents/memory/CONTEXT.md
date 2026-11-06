@@ -55,13 +55,14 @@ Last updated: 2026-11-06T02:10:31.485Z
 - 门禁本轮 10:02 现跑：`pnpm typecheck` 0、`pnpm test` 491 通过 / 0 失败、`pnpm build` 0（`lib/client.js` 35579 字节）、变异标记 0；`pnpm test` 现在也跑客户端 `tsc`
 - 变异轮共 8 个全杀（每次从哈希快照还原并逐字节复验）：M1 反向门→2 条模式用例红；M2 `Number(text)` 直通→3 条比例用例红；M3 删 `>1` 折算→卡片用例加 `logic.test.mjs` 的 `parseRatio`/`settingPatch` 一并红；M4 旧文案→只有文案门红；M5 hint 写法→只有 hint 门红；N1 去本机边界→2 条边界用例红；N2 成因塌回单布尔→只有成因用例红；N3 门改回读草稿→只有 `Reset` 预览用例红
 - 独立只读审查 15 条、无阻塞：两条 should-fix（措辞不持久、Reset 预览相反）已修；其余是声称不准与门禁缺口（`numeric` 行此前无测试、README 两处退役行、README 把「触发计算不读」写成「校验不读」）已一并改
-- 宿主判据（本轮 10:00 现读）：pid 41218 / 端口 35209，启动 2026-11-06 09:26:43，晚于 `4affcbe`（SH-1 拆除，11-05 23:30）但早于最后 `src`/`client` 提交 `30e0ba1`（11-06 09:59:03）→ 本批两批**未上线**；重启是用户动作，脚本在 dsh 会话内会 exit 3
-- 2026-11-06 离线判定（`.agents/evidence/2026-11-06-memory-compression-headroom/`）：压缩后 budget 半边确定清空（`sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同），output 半边也确定（`needed` 29611 < 上限 32768，`clipped false`，模型目录的 `defaultMaxTokens` 328000 并不承重）；01:36 / 01:47 两次拒绝经 `errors.log` 归因为 budget 半边，不是输出被截断
+- 宿主已于 2026-11-06 10:51:25 重启为 pid 58434 / 端口 33647（`0.2.2-rc.1`），两批代码（`dfe4f34`、`30e0ba1`）**现已上线**：`node /etc/nixos/scripts/dsh-live-inventory-probe.mjs --url http://127.0.0.1:33647 --expect dsh-project-context,dsh-project-context/memory,dsh-project-context/autolearn,dsh-project-context/handoff` 报四个插件全 `active`、store == wrapper、`RESULT: PASS`；`tsc --outDir /tmp/libcheck2` 后 `diff -rq lib` 只差 `client.js`，且该 bundle 含 `appliesWhen`/`rowVisible`/`parseRatioInput`/`boundedNumberField`
+- 2026-11-06 离线判定（`.agents/evidence/2026-11-06-memory-compression-headroom/`）：压缩后 budget 半边确定清空（`sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同），output 半边也确定（`needed` 29611 < 上限 32768，`clipped false`，模型目录的 `defaultMaxTokens` 328000 并不承重）；01:36 / 01:47 两次拒绝经 `errors.log` 归因为 budget 半边，不是输出被截断（按当前 CONTEXT 10314 字符重算 `needed` 为 29941，仍 < 32768）
+- 但压缩**没有**救回来：10:13:33 那次 pass 跑在压缩后的 37780 文档上（mtime 10:10:04 早于它），仍被拒 `3 whole entry(ies) … from 2 section(s)`，且该次重试自身失败于 `cannot get required service "llm" in inactive context`，故首稿的损失决定本次 pass；模型是被明确告知上限的（`memoryBudgetRule`：「must stay at or under 40000 characters… currently about 37780」），所以这是重写超调，不是提示缺失
 
 ## Open tasks
 
 - 宿主重启（用户执行）：`/etc/nixos/scripts/dsh-desktop-restart.sh`；验收 = 新 pid 启动时间晚于 `30e0ba1` 的 11-06 09:59:03、且 `git -C /mnt/Data/Projects/dsh-project-context diff --exit-code -- lib` 为空；界面验收：自动交接段默认只有「自适应阈值 + 摘要目标（仅报告）」，关掉自适应后两者互换（在「自适应阈值」上按重置不应触发互换），固定阈值填 `40` / `40%` 存成 `0.4`，预算金额填 `7999` 时保存按钮直接灰掉
-- `MEMORY.md` 压到 37780/40000（余量 2220），两半在当前尺寸都清空，但不是保证：journal 里 6 次成熟期落地 pass 的增长为 -156..+3475（中位 +532），其中 1 次超过 2220，故下一次整理仍可能被 tier C 拒绝；重启后先跑 `node .agents/evidence/2026-11-06-memory-compression-headroom/probe.mjs --model-cap 328000` 复测，再按 `errors.log` 的措辞分流（budget 半边须再压，output 半边降低 `maxMemoryChars` 无用）
+- `MEMORY.md` 停在 37780/40000，但 10:13 的 pass 仍被 tier C 拒绝（丢 3 条 / 跨 2 节），「压缩即够」已被证伪；三条出路待定：①再压到约 35000（要删事实，须用户点头）②`maxMemoryChars` 提到 ≤43000（实测 43000 时 `needed` 32732 < 32768 不裁剪，43500 起 `clipped true`；代价是每轮注入多约 2000 tokens）③接受持续拒绝、记忆不再增长
 - 比例行在触屏上打不出 `%`：平台只提供 `numeric` 布尔 → `inputMode="numeric"`，hint 里的 `40%` 在触屏不可达；要改只能动平台
 - 保存失败的两种成因只在 revision 可观测时才能分开；不可观测时仍退回合并文案（平台只给一个 `failed` 布尔）
 - `MEMORY.md` 的余量靠整行替换维护，不靠追加：增长型写入前先跑 `share-fit.mjs` 看分节占用（`Index` 最容易顶到硬预算），任何写入后用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记
