@@ -56,11 +56,12 @@ Last updated: 2026-11-06T02:10:31.485Z
 - 变异轮共 8 个全杀（每次从哈希快照还原并逐字节复验）：M1 反向门→2 条模式用例红；M2 `Number(text)` 直通→3 条比例用例红；M3 删 `>1` 折算→卡片用例加 `logic.test.mjs` 的 `parseRatio`/`settingPatch` 一并红；M4 旧文案→只有文案门红；M5 hint 写法→只有 hint 门红；N1 去本机边界→2 条边界用例红；N2 成因塌回单布尔→只有成因用例红；N3 门改回读草稿→只有 `Reset` 预览用例红
 - 独立只读审查 15 条、无阻塞：两条 should-fix（措辞不持久、Reset 预览相反）已修；其余是声称不准与门禁缺口（`numeric` 行此前无测试、README 两处退役行、README 把「触发计算不读」写成「校验不读」）已一并改
 - 宿主判据（本轮 10:00 现读）：pid 41218 / 端口 35209，启动 2026-11-06 09:26:43，晚于 `4affcbe`（SH-1 拆除，11-05 23:30）但早于最后 `src`/`client` 提交 `30e0ba1`（11-06 09:59:03）→ 本批两批**未上线**；重启是用户动作，脚本在 dsh 会话内会 exit 3
+- 2026-11-06 离线判定（`.agents/evidence/2026-11-06-memory-compression-headroom/`）：压缩后 budget 半边确定清空（`sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同），output 半边也确定（`needed` 29611 < 上限 32768，`clipped false`，模型目录的 `defaultMaxTokens` 328000 并不承重）；01:36 / 01:47 两次拒绝经 `errors.log` 归因为 budget 半边，不是输出被截断
 
 ## Open tasks
 
 - 宿主重启（用户执行）：`/etc/nixos/scripts/dsh-desktop-restart.sh`；验收 = 新 pid 启动时间晚于 `30e0ba1` 的 11-06 09:59:03、且 `git -C /mnt/Data/Projects/dsh-project-context diff --exit-code -- lib` 为空；界面验收：自动交接段默认只有「自适应阈值 + 摘要目标（仅报告）」，关掉自适应后两者互换（在「自适应阈值」上按重置不应触发互换），固定阈值填 `40` / `40%` 存成 `0.4`，预算金额填 `7999` 时保存按钮直接灰掉
-- `MEMORY.md` 已压到 37780/40000（余量 2220），四节都在硬预算内、round-trip 是不动点；下一次自动整理应能落地——若仍被 tier C 拒绝，说明模型的重写比输入增长超出这 2220 字符，届时再压一轮或接受它持续拒绝
+- `MEMORY.md` 压到 37780/40000（余量 2220），两半在当前尺寸都清空，但不是保证：journal 里 6 次成熟期落地 pass 的增长为 -156..+3475（中位 +532），其中 1 次超过 2220，故下一次整理仍可能被 tier C 拒绝；重启后先跑 `node .agents/evidence/2026-11-06-memory-compression-headroom/probe.mjs --model-cap 328000` 复测，再按 `errors.log` 的措辞分流（budget 半边须再压，output 半边降低 `maxMemoryChars` 无用）
 - 比例行在触屏上打不出 `%`：平台只提供 `numeric` 布尔 → `inputMode="numeric"`，hint 里的 `40%` 在触屏不可达；要改只能动平台
 - 保存失败的两种成因只在 revision 可观测时才能分开；不可观测时仍退回合并文案（平台只给一个 `failed` 布尔）
 - `MEMORY.md` 的余量靠整行替换维护，不靠追加：增长型写入前先跑 `share-fit.mjs` 看分节占用（`Index` 最容易顶到硬预算），任何写入后用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记
