@@ -160,7 +160,7 @@ grep -rn 'MUTANT' lib/ | wc -l                   # expect 0
 
 This batch changes what a reply *produces*, so a half-landed version is worse than none: land the six modules
 in one commit with its tests, run the mutation round, and only then ask the user for the host restart.
-See `docs/batch-d-autolearn-supersede-brief.md` for the format a landed batch takes (status line, mutants,
+See `docs/archive/batch-d-autolearn-supersede-brief.md` for the format a landed batch takes (status line, mutants,
 acceptance criteria pinned by tests).
 
 ## 8. Landed — what actually shipped, and where it departed from this plan

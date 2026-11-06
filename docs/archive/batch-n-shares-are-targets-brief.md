@@ -2,7 +2,7 @@
 
 日期：2026-10-10　状态：**已落地并推送**（`2462d59`，`4e0aa0f` 之上，`origin/main`）
 来源：pi `e2184af` + `59a53a4`（pi `origin/master` = `d25ecab`），triage 记录见
-[`docs/upstream-pi-triage.md`](upstream-pi-triage.md#L1210) 的「Batch N」。
+[`docs/upstream-pi-triage.md`](../upstream-pi-triage.md#L1210) 的「Batch N」。
 
 ## 1. 缺陷
 
@@ -138,7 +138,7 @@ pnpm test                 # 419 通过 / 0 失败
 
 | 批次 | pi 提交 | dsh 锚点 | 先做什么 |
 |---|---|---|---|
-| **O** | `b7e2a31` / `d950910` / `b37cb55` / `4376bb5` / `3db610c` | `src/project-memory/load.ts:87`→`:93`（同步 `:179`/`:182`）；`record.ts:55/64/66` | **已落地（2026-10-11）**：`readRenderWithMtime` / `readRenderWithMtimeSync` + 一处判据 `renderIsNewerThanJournal` + 纯决策 `externalRenderWins` + `adoptExternalEdit` 的 append 前复核；FIFO 夹具入库。`flushActionFor` / `flushMemoryRender` 属批次 **P**，本轮**未端口**。规格、变异轮与残留见 [`docs/batch-o-single-read-brief.md`](batch-o-single-read-brief.md) |
+| **O** | `b7e2a31` / `d950910` / `b37cb55` / `4376bb5` / `3db610c` | `src/project-memory/load.ts:87`→`:93`（同步 `:179`/`:182`）；`record.ts:55/64/66` | **已落地（2026-10-11）**：`readRenderWithMtime` / `readRenderWithMtimeSync` + 一处判据 `renderIsNewerThanJournal` + 纯决策 `externalRenderWins` + `adoptExternalEdit` 的 append 前复核；FIFO 夹具入库。`flushActionFor` / `flushMemoryRender` 属批次 **P**，本轮**未端口**。规格、变异轮与残留见 [`docs/archive/batch-o-single-read-brief.md`](batch-o-single-read-brief.md) |
 
 ### 批次 O 的规格（已侦察，读自 pi `origin/master`；**本轮已落地**，见上表与 `batch-o-single-read-brief.md`）
 
@@ -164,6 +164,6 @@ dsh 侧入口是 `src/project-memory/load.ts`（对应 pi 的 `store.ts`）与 `
 **判据现在写了三遍**（这正是 memory 里记的既有残留「one shared function is the fix, not another copy」）：
 `load.ts:96`（异步读，`readOptional` 后再 `stat`）、`load.ts:182`（同步读，`readMemorySync` 后再 `mtimeMs`）、
 `record.ts:66`（adopt 路径，`readOptional` 后再 `stat`）。三处都必须在同一轮改齐，否则就又多了一份拷贝。
-| **Q** | route B（`origin/master`） | `src/shared/reply-json.ts:116`；`consolidate.ts:360/374/583`；`index.ts:198/246`；`sections.ts:294` 与 `:284-292` 的边界注释；既有 pin `test/sections.test.mjs:344-350` | **已落地（2026-10-11）**：`hasMemoryDocumentShape` + 共享的 `readFenceLine`/`fenceCloses` + `storedIsDocument`/`isConversationalOpaque` 两道门 + 诊断串改名 + `OPAQUE_DOCUMENT_MIN_CHARS`；探针从 `exit 10` 转 `exit 0`（6 个变异体全杀，门禁 430 通过 / 0 失败）。规格、有意代价与残留见 [`docs/batch-q-document-shape-brief.md`](batch-q-document-shape-brief.md) |
-| **R** | `099ebf3`（重试）+ `068b7e8`/`5783610`（等待提示） | `consolidate.ts:506` 的 `RETRY_OUTPUT_HEADROOM_TOKENS`；`output-budget.ts:42-44`（输入侧已计） | **重试半边已落地（2026-10-11）**：头寸改 `Math.max(RETRY_OUTPUT_HEADROOM_TOKENS, attempt.reasoningTokens)`，探针 `.agents/evidence/2026-10-11-batchR-retry-headroom/` 从 `exit 10` 转 `exit 0`（3 个变异体全杀，门禁 432 通过 / 0 失败）；**等待提示半边探测为「宿主侧无通道」**——handler 只返回一个 `CommandResult`、`command/done` 在 `await` 之后才写、组合里没有 notice/toast service、本仓库源码扫描禁止任何 `.append(`，而 dsh 的 ui-chat 对未 settle 的命令本来就渲染「执行中…」+ shimmer；唯一替代物是按命令名 keyed 的客户端 slot `conversation.chat.commandview`，但要替换内置卡片，属用户可见 UI 取舍，**等用户裁**。规格、逐条证据与代价见 [`docs/batch-r-retry-headroom-brief.md`](batch-r-retry-headroom-brief.md) |
+| **Q** | route B（`origin/master`） | `src/shared/reply-json.ts:116`；`consolidate.ts:360/374/583`；`index.ts:198/246`；`sections.ts:294` 与 `:284-292` 的边界注释；既有 pin `test/sections.test.mjs:344-350` | **已落地（2026-10-11）**：`hasMemoryDocumentShape` + 共享的 `readFenceLine`/`fenceCloses` + `storedIsDocument`/`isConversationalOpaque` 两道门 + 诊断串改名 + `OPAQUE_DOCUMENT_MIN_CHARS`；探针从 `exit 10` 转 `exit 0`（6 个变异体全杀，门禁 430 通过 / 0 失败）。规格、有意代价与残留见 [`docs/archive/batch-q-document-shape-brief.md`](batch-q-document-shape-brief.md) |
+| **R** | `099ebf3`（重试）+ `068b7e8`/`5783610`（等待提示） | `consolidate.ts:506` 的 `RETRY_OUTPUT_HEADROOM_TOKENS`；`output-budget.ts:42-44`（输入侧已计） | **重试半边已落地（2026-10-11）**：头寸改 `Math.max(RETRY_OUTPUT_HEADROOM_TOKENS, attempt.reasoningTokens)`，探针 `.agents/evidence/2026-10-11-batchR-retry-headroom/` 从 `exit 10` 转 `exit 0`（3 个变异体全杀，门禁 432 通过 / 0 失败）；**等待提示半边探测为「宿主侧无通道」**——handler 只返回一个 `CommandResult`、`command/done` 在 `await` 之后才写、组合里没有 notice/toast service、本仓库源码扫描禁止任何 `.append(`，而 dsh 的 ui-chat 对未 settle 的命令本来就渲染「执行中…」+ shimmer；唯一替代物是按命令名 keyed 的客户端 slot `conversation.chat.commandview`，但要替换内置卡片，属用户可见 UI 取舍，**等用户裁**。规格、逐条证据与代价见 [`docs/archive/batch-r-retry-headroom-brief.md`](batch-r-retry-headroom-brief.md) |
 | **P** | `033fa75` + `eff6a56` | `index.ts:422-427` | **用户裁决为「先补证据」**：证据任务是「dsh 的 `agent/disposed` 处理器里抛出的模型调用异常能否逃逸进宿主 runner」，属只读源码+宿主面调查，见本轮会话的 P 证据报告；拿到 REACHABLE / NOT REACHABLE / UNKNOWN 后再请用户裁 |

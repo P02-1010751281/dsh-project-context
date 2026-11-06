@@ -3,7 +3,7 @@
 **Status: implemented 2026-10-05** (code and tests in `7ac5be0`; the doc commit is the one this file
 arrives in). Opened by the fifth pi triage pass (`docs/upstream-pi-triage.md` §"Fifth pass", commit `2177386`
 of pi's `f6bea1d..ca71fd3`, plus `b869be3` for the notification strings), briefed in
-`docs/batch-h-vocabulary-keys-brief.md`, and ruled on by the user before any code moved.
+`docs/archive/batch-h-vocabulary-keys-brief.md`, and ruled on by the user before any code moved.
 
 All pi claims below are read from the local pi checkout at the revision named, never from our own call path.
 The brief pins `ca71fd3`; by the time this batch started, `origin/master` had advanced to `7e9241c`, and the two

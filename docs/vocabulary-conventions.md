@@ -6,8 +6,8 @@
 不适用：第三方技能与全局技能（`~/.agents/skills/`）——那是别人的产物，本仓只读不写，也不按本文件改名。
 
 来历：`v0.3.0` 用「一个事实一个名字」收束了**命令面**；2026-10-05 的批 H 收束了**持久化配置键**与
-**`project-memory` 层的通知前缀**（证据：`docs/batch-h-vocabulary-keys-brief.md` 与
-`docs/batch-h-vocabulary-keys-ruling.md`）。写下来是为了避免再次只改一半。
+**`project-memory` 层的通知前缀**（证据：`docs/archive/batch-h-vocabulary-keys-brief.md` 与
+`docs/archive/batch-h-vocabulary-keys-ruling.md`）。写下来是为了避免再次只改一半。
 
 ---
 

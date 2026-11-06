@@ -1,7 +1,7 @@
 # Batch C tier C design — refuse a lossy memory write after one targeted retry
 
 **Status: approved and implemented 2026-10-04** (the rulings are in §10, the two implementation deviations in
-§11). Tier A landed in `038557b` (see `docs/batch-c-loss-receipt-brief.md`); tiers B and C were scoped in
+§11). Tier A landed in `038557b` (see `docs/archive/batch-c-loss-receipt-brief.md`); tiers B and C were scoped in
 §2 of that brief and deliberately not implemented. The prerequisite that unblocked C is now in place: the
 per-project cap was raised 32000 → 40000, read live from the running host's own
 `settings.describe` (`ns: project-context`, `maxMemoryChars: 40000`) — and the default layer followed the
@@ -146,7 +146,7 @@ is what the §14 round re-pinned.
 `src/project-memory/sections.ts` (exported `memorySectionOverage`, beside `renderMemoryDocument`),
 `src/project-memory/index.ts` (status member, refusal branch, receipt wording, claim release),
 `test/logic.test.mjs` (plus a new case file if the existing one gets unwieldy), and the documentation
-sync in `CHANGELOG.md` + §6 of `docs/batch-c-loss-receipt-brief.md`.
+sync in `CHANGELOG.md` + §6 of `docs/archive/batch-c-loss-receipt-brief.md`.
 
 ## 10. Decisions (settled 2026-10-04)
 

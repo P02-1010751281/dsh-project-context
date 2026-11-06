@@ -3,7 +3,7 @@
 日期：2026-10-11　状态：**已落地（`src/` 行为变了，需宿主重启才在线）**
 来源：pi `b7e2a31` / `d950910` / `b37cb55` / `4376bb5` / `3db610c`（pi `origin/master` = `d25ecab`，
 参考实现 `extensions/project-context/memory/store.ts`），triage 记录见
-[`docs/upstream-pi-triage.md`](upstream-pi-triage.md) 的「Batch O」。
+[`docs/upstream-pi-triage.md`](../upstream-pi-triage.md) 的「Batch O」。
 
 ## 1. 缺陷（三条；前两条是本批的靶，第三条是本批**自己第一版**引入并同轮修掉的）
 
@@ -142,7 +142,7 @@ node .agents/evidence/2026-10-11-batchO-single-read/cleared-render-probe.mjs # e
 ## 7. 下一批的入口
 
 - **Q**（回复须是本扩展文档形状）与 **R**（输出预算诚实 + 两个等待提示）的入口照旧在
-  [`docs/batch-n-shares-are-targets-brief.md`](batch-n-shares-are-targets-brief.md) §8；Q 的端到端
+  [`docs/archive/batch-n-shares-are-targets-brief.md`](batch-n-shares-are-targets-brief.md) §8；Q 的端到端
   缺陷已由 `.agents/evidence/2026-10-10-opaque-reply-acceptance/probe.mjs` 证明（`exit 10`），
   本批的「只由标题组成的 render」是它的读侧同类。
 - **P**（退出不再调模型生成）证据已回：**NOT REACHABLE**，代价确定——见

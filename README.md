@@ -6,13 +6,14 @@
 当前版本 **`v0.4.3`**。
 
 **文档分工**（这是这一页唯一需要先读的约定）：本文件是**手册**——装什么、怎么用、配置什么，
-每条只给结论。机制与理由在 `docs/`：
+每条只给结论。机制与理由在 [`docs/`](./docs/README.md)：
 [architecture](./docs/architecture.md)（数据流、数据布局、源码结构）、
 [behavior](./docs/behavior.md)（四个阶段各自的闸门与边界）、
 [settings](./docs/settings.md)（配置详解）、
 [development](./docs/development.md)（门禁、依赖边界、破坏性变更）。
-同目录的 `docs/batch-*.md` 是历史决策与批次档案，只在上游对账时翻。
-逐版本变更在 [CHANGELOG.md](./CHANGELOG.md)。**长段说明不再写进本文件。**
+收口的批次档案在 `docs/archive/`，唯一索引是 [docs/README.md](./docs/README.md)。
+逐版本变更：未发布看 [CHANGELOG.md](./CHANGELOG.md)，已发布版本各一份
+`docs/changelog/<version>.md`（目录在 CHANGELOG 末尾）。**长段说明不再写进本文件。**
 
 ## 四个插件
 

@@ -167,7 +167,7 @@ neither adapter reports a repair. R1's signal does not help there and is not cla
 
 This file supersedes the two closing sentences in `CHANGELOG.md` 未发布 ("未移植项现均以「已决定不移植」
 收口") and the corresponding entries in `docs/upstream-pi-triage.md`. `needsCondense` is unaffected: it
-is implemented as tier C and the decision in `docs/batch-c-tier-c-design.md` stands.
+is implemented as tier C and the decision in `docs/archive/batch-c-tier-c-design.md` stands.
 
 ## 6. Implementation — what landed, and where it deviates
 

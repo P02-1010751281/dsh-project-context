@@ -105,7 +105,7 @@ cordis 4.0.5 所以看起来干净。**真实锁文件把 cordis 钉在 4.0.2**�
 **未证的（下一步）。** `src/` 改了必须重启宿主才上线；重启后的验收见证据包。另外残余 shim
 `SH-2`（`ctx.get` 读未声明服务）**没有**因为本批消失——这一批只换掉了类型。
 
-证据：[2026-11-05-sh1-removal](../.agents/evidence/2026-11-05-sh1-removal/README.md)。
+证据：[2026-11-05-sh1-removal](../../.agents/evidence/2026-11-05-sh1-removal/README.md)。
 
 ### 3.3 不是 shim 的（上一轮误记，本轮改判）
 

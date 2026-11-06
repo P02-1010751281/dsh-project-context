@@ -3,7 +3,7 @@
 日期：2026-10-11　状态：**已落地（`src/` 行为变了，需宿主重启才在线）**
 来源：pi `origin/master` = `d25ecab` 的 route B（`extensions/project-context/memory/sections.ts:428`
 `hasMemoryDocumentShape` + `memory/pass.ts:316-342` 的门），triage 记录见
-[`docs/upstream-pi-triage.md`](upstream-pi-triage.md) 的「Batch Q」。
+[`docs/upstream-pi-triage.md`](../upstream-pi-triage.md) 的「Batch Q」。
 
 ## 1. 缺陷（opaque 路径只有一个单边的守卫）
 

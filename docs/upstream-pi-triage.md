@@ -189,7 +189,7 @@ title trims now run through it and a half pair cannot be re-encoded. Regression 
 strict-ready `record_memory` tool and renders the stored document from them, so the schema no longer
 has to guarantee the character cap. This is the largest item (33 files, ~2180 insertions), carries
 BREAKING command renames on pi's side, and needs its own batch and its own review.
-**Brief for that batch: `docs/batch-b-port-brief.md`** (it records the verified tool-surface facts
+**Brief for that batch: `docs/archive/batch-b-port-brief.md`** (it records the verified tool-surface facts
 and the three decisions the owner must take first).
 
 **Ported 2026-10-04 (batch B).** The tool surface was verified live before any edit — one
@@ -255,9 +255,9 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   for the finish-carried failure that pi deliberately excludes (pi's `AuxCallError`), because in dsh
   every adapter throw is normalized into that same in-band finish, so the code has to decide rather
   than the delivery path.
-  `docs/batch-b-residual-decisions.md` §2 owns the decision.
+  `docs/archive/batch-b-residual-decisions.md` §2 owns the decision.
 - **pi's condensation retry (`needsCondense` → a second model call to curate the shrink) IS
-  implemented, as tier C.** `docs/batch-c-tier-c-design.md` owns the contract: a reply that would
+  implemented, as tier C.** `docs/archive/batch-c-tier-c-design.md` owns the contract: a reply that would
   lose whole entries (`memoryLoss`'s `retryWorthy`) gets exactly one targeted retry on the same
   `usedInput`, carrying `memoryLossRetryRule` — pi's own instruction ("merge duplicates within a
   section and dropping the least durable entries") in dsh's words. The trigger is a superset of
@@ -279,7 +279,7 @@ plumbing slice, landed just before this batch), in five further scoped commits:
   `git log -1 --format=%cI -- src/project-memory/memory-schema.ts`, then read the file through the
   plugin's own parser instead of grepping for a heading.
 - **autolearn accepts a cut reply that parsed — inverted 2026-10-05
-  (`docs/batch-b-residual-decisions.md` §3).** This entry used to say the pass retries before it reads
+  (`docs/archive/batch-b-residual-decisions.md` §3).** This entry used to say the pass retries before it reads
   on a `max-tokens` finish, unlike the memory pass. It did, for the reason recorded here: the autolearn
   **text** path is fail-soft, so `parseAutolearn` reads an unparseable reply as
   `{skill: null, need_sessions: []}` — the same decision a model that proposed nothing returns — and
@@ -411,8 +411,8 @@ touch only docs, skills, audits or evidence.** It is not a no-op, but its portab
 
 | batch | what | pi reference | dsh target | ruling needed |
 | --- | --- | --- | --- | --- |
-| **D** | autolearn may supersede a skill the pipeline itself generated — **implemented 2026-10-05: `docs/batch-d-autolearn-supersede-brief.md`** | `2d562ce` + `extensions/project-context/autolearn/{skill,candidate,inventory,prompt,pass}.ts` at `f6bea1d`; design in `12c6390`, `6f533ef` | `src/project-autolearn/{skill,candidate,inventory,prompt,pass}.ts` | yes — it changes what a learned skill *is*, and our skills are tracked |
-| **E** | one name per fact on the command surface: `/handoff` `threshold` (merges `auto` + bare ratio) and `budget summary\|recent` (replaces `target`/`keep`); bare `/session-log` read-only, `write` writes — **implemented 2026-10-05: `docs/batch-e-command-surface-ruling.md`** | `0399e04`; design in `13feb8a`, `23dc5b3`, `811ebec`, `463ee07` | `src/project-handoff/{command,index,threshold,perform}.ts`, `src/project-context/index.ts` | yes — user-visible verb renames |
+| **D** | autolearn may supersede a skill the pipeline itself generated — **implemented 2026-10-05: `docs/archive/batch-d-autolearn-supersede-brief.md`** | `2d562ce` + `extensions/project-context/autolearn/{skill,candidate,inventory,prompt,pass}.ts` at `f6bea1d`; design in `12c6390`, `6f533ef` | `src/project-autolearn/{skill,candidate,inventory,prompt,pass}.ts` | yes — it changes what a learned skill *is*, and our skills are tracked |
+| **E** | one name per fact on the command surface: `/handoff` `threshold` (merges `auto` + bare ratio) and `budget summary\|recent` (replaces `target`/`keep`); bare `/session-log` read-only, `write` writes — **implemented 2026-10-05: `docs/archive/batch-e-command-surface-ruling.md`** | `0399e04`; design in `13feb8a`, `23dc5b3`, `811ebec`, `463ee07` | `src/project-handoff/{command,index,threshold,perform}.ts`, `src/project-context/index.ts` | yes — user-visible verb renames |
 | **F** | the cross-project boundary as a prompt rule plus a caption inside `<recent-conversation>` — **implemented 2026-10-05** | `4f26ddd` (`extensions/project-context/memory/prompt.ts`) | `src/project-memory/consolidate.ts` (`CONSOLIDATION_PROMPT_RULES`, the conversation block) | small; one caveat below |
 
 The `0399e04` **legacy-config** half has no counterpart here and is not portable as written: pi had three
@@ -541,9 +541,9 @@ docs, audits or evidence, but the two code commits are the largest pi has sent s
 
 | batch | what | pi reference | dsh target | ruling needed |
 | --- | --- | --- | --- | --- |
-| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit — brief: `docs/batch-g-autolearn-pull-brief.md` (**landed 2026-10-05**, see its §8) | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
-| **H** | a key mirrors the command path that changes it; one notification prefix per layer — brief: `docs/batch-h-vocabulary-keys-brief.md` | `2177386` (code) + `b869be3` (the six strings v0.3.0 left behind); design `998a4ae`, `a11d1ef`, `851a14f`, `ebdba28`, `f217e7d` | `src/shared/{config,settings,setting-labels}.ts`, `src/project-handoff/{command,index}.ts`, `src/project-memory/index.ts`, `client/locales.ts` | yes — seven keys are user-visible and persisted *outside* this repo |
-| **docs** | a project-owned vocabulary conventions file, so a rename cannot land half-done twice | `a11d1ef` → `.codestable/reference/vocabulary-conventions.md` | a `docs/` file; our nearest counterpart today is `docs/batch-e-command-surface-ruling.md` | small; port the rules, not pi's file |
+| **G** | autolearn *pulls* a learned skill's body on request instead of pushing every body it can fit — brief: `docs/archive/batch-g-autolearn-pull-brief.md` (**landed 2026-10-05**, see its §8) | `997447a`; design `1367027`, `998a4ae`, `8bcba99`, `3859d3d`; evidence `9e87671`, `1029b44`, `23775db`, `0ca0d91`, `34fc32d` | `src/project-autolearn/{inventory,prompt,pass,schema,parse,candidate}.ts` | yes — it adds a third tool field, and dsh already spells pi's `inspect` as `need_sessions` |
+| **H** | a key mirrors the command path that changes it; one notification prefix per layer — brief: `docs/archive/batch-h-vocabulary-keys-brief.md` | `2177386` (code) + `b869be3` (the six strings v0.3.0 left behind); design `998a4ae`, `a11d1ef`, `851a14f`, `ebdba28`, `f217e7d` | `src/shared/{config,settings,setting-labels}.ts`, `src/project-handoff/{command,index}.ts`, `src/project-memory/index.ts`, `client/locales.ts` | yes — seven keys are user-visible and persisted *outside* this repo |
+| **docs** | a project-owned vocabulary conventions file, so a rename cannot land half-done twice | `a11d1ef` → `.codestable/reference/vocabulary-conventions.md` | a `docs/` file; our nearest counterpart today is `docs/archive/batch-e-command-surface-ruling.md` | small; port the rules, not pi's file |
 
 `2177386`'s body states the obligation rather than implying it: "Six of these keys were shared with dsh, so the two
 config surfaces now differ and dsh has to adopt the new spellings; that is recorded in the file header, the docs and
@@ -660,14 +660,14 @@ This is a per-module read of what pi's commits touch and of the mechanism under 
 the two trees; anything outside this repo (dsh core, the delivery line in `/etc/nixos`, the profile files under
 `~/.dsh`) is not owned here. At the time of this pass both batches were *proposals with evidence*, not landed work:
 `src/` was not touched by this pass and nothing was ported. **Batch G has since landed** (2026-10-05, one `src/` +
-test commit: `docs/batch-g-autolearn-pull-brief.md` §8, evidence
+test commit: `docs/archive/batch-g-autolearn-pull-brief.md` §8, evidence
 `.agents/evidence/2026-10-05-autolearn-pull-model/`), so three commands in the block above describe the *pre-port*
 state and were annotated in place: the `collision && !collision.autolearn` grep now returns rc=1 (the gate reads
 `if (collision) { if (!collision.autolearn) … }`), `git grep -cn 'shown' …` reads 9 instead of 0, and the prompt rule
 now says `was not shown`. The `0 of 21` marker count is unchanged and is a fact about the corpus rather than about
 the code — nothing was ever superseded blind *because nothing was marked*, which is exactly why the defect was
 latent. **Batch H has since landed too** (2026-10-05: all seven keys renamed with no compatibility reader, plus the
-`project-memory` prefix convergence — rulings in `docs/batch-h-vocabulary-keys-ruling.md`, standing rules in
+`project-memory` prefix convergence — rulings in `docs/archive/batch-h-vocabulary-keys-ruling.md`, standing rules in
 `docs/vocabulary-conventions.md`), so the `0` above describes only the pre-port state; the seven new spellings now
 appear in `src/`, `client/` and the tests. The pi measurements quoted (`96975` characters of marked
 bodies against `20000`, four shown of seventeen) are pi's, taken from its own commits; our counterpart is the count
@@ -774,8 +774,8 @@ Everything that moves with it, in dsh's own spelling:
 **Ruling needed: yes.** This is the "half-landed is worse than none" shape: it changes how the
 successor's first message is produced and orphans a persisted key.
 
-Briefs are written: `docs/batch-i-progressive-injection-brief.md` and
-`docs/batch-j-drop-summary-brief.md`. Each states the pi references at a read revision, the dsh files
+Briefs are written: `docs/archive/batch-i-progressive-injection-brief.md` and
+`docs/archive/batch-j-drop-summary-brief.md`. Each states the pi references at a read revision, the dsh files
 and line anchors that move, the decisions that need the user's ruling, the traps and the verification
 plan, so a fresh session can start from the file alone. Both carry the 2026-10-06 rulings and the
 implementer decisions taken under them, and both are **in progress** — the batches land before the
@@ -1390,13 +1390,13 @@ fail-opens in four rounds, so round 22 shrank the rule to the schema itself.
   while dsh's chat UI already renders an unsettled command as `执行中…`/`Running…` with a shimmer. The only
   substitute found is the command-name-keyed client slot `conversation.chat.commandview`, and occupying it replaces
   the shipped card (not publicly exported), so it is a user-visible tradeoff awaiting a ruling. Spec, per-path
-  behaviour and costs: `docs/batch-r-retry-headroom-brief.md`.
+  behaviour and costs: `docs/archive/batch-r-retry-headroom-brief.md`.
 
   **RULED 2026-10-11 (user): the notice half is NOT PORTED either — recorded as a residual.** Occupying the
   keyed client slot would either pin our client code to ui-chat's unexported card shape or ship a plainer row
   than the built-in one, to replace a `执行中…`/`Running…` shimmer that dsh already shows; the cost is that
   `/memory update` and `/autolearn` keep only that generic line while a reasoning route may take minutes.
-  Re-open entry: `docs/batch-r-retry-headroom-brief.md` §8 — the host-surface answer there ("no host-side
+  Re-open entry: `docs/archive/batch-r-retry-headroom-brief.md` §8 — the host-surface answer there ("no host-side
   channel") is settled and does not need re-probing, only the UI tradeoff does.
 
 ### Reproducible commands

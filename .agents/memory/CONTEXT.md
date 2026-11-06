@@ -4,7 +4,7 @@ Last updated: 2026-11-06T02:58:25.992Z
 
 ## Summary
 
-本会话由 session-17738a1d 交接。上一轮留下的问题「压缩后 2220 字符余量够不够」按仓库技能 `dsh-memory-budget-fit-offline-verify` 做成了离线实测：先证明宿主 pid 41218 启动 09:26:43 早于最后 `src/` 提交 `30e0ba1`（09:59:03），两批代码未上线、活体观察不可行；再用宿主真正加载的 `lib/` 探针测得 budget 半边清空（`sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同）、output 半边 `needed` 29941 < 32768 不裁剪，并用真实 CJK 密度 0.4014 tok/char 算出提上限的临界（43000 时 needed 32732 不裁剪，43500 起 `clipped true`）。自检抓到两个假绿（把已渲染文本再喂渲染器必然报 0；`MemorySections` 键是小写标题）。用户随后重启，三条机器判据全过：pid 58434 启动 10:51:25、四个插件 `active` + store == wrapper + `RESULT: PASS`、`tsc --outDir /tmp/libcheck2` 后 `diff -rq lib` 只差 `client.js` 且该包含 `appliesWhen`/`rowVisible`/`parseRatioInput`/`boundedNumberField`，两批代码 `dfe4f34`、`30e0ba1` 现已生效。翻日志发现 10:13:33 还有一次拒绝（丢 3 条整条目 / 2 节），我先判定「跑在压缩后文档上」，随后自我否掉：mtime 只是必要条件，请求体不落盘、成本台账按会话聚合、宿主无 `[memory]` 日志，三处决定性证据都不存在，故改为未决并写清判别锚点（`MEMORY.md` 自 10:10:04 未变，故重启后任何拒绝都无歧义对应 37780）。重启后第一次整理 pass 已于 10:58:25 **落地**（journal `op: replace`，39216 字符），故「压缩够不够」已有答案：够用 —— `MEMORY.md` 37780 → 39216、`CONTEXT.md` 10981 → 5278，余量从 2220 降到 784。三笔提交均 docs-only：`4f6385c`（探针+证据）、`ea5e8cf`（重启验收+拒绝事实）、`713d81f`（订正为未决）；`HEAD == origin/main == 713d81f`，工作区干净，技能目录 29 未动。
+本会话由 session-4ec44b0b 交接。此前两轮：① 记忆预算离线实测 —— 宿主 pid 41218 启动早于最后 `src/` 提交 `30e0ba1`，故走离线路径；budget 半边清空、output 半边 `needed` 29941 < 32768 不裁剪、上限临界 43000 不裁剪、43500 起 `clipped true`；重启后三条机器判据全过，`dfe4f34` 与 `30e0ba1` 生效。② 用户报「README 怎么有这么长段的文字」，README 446 → 141 行，机制搬进 `docs/{architecture,behavior,settings,development}.md`（`1e3f675`）。本轮按用户选定的「2 + 3」继续整理：18 个 `docs/batch-*.md` 用 `git mv` 进 `docs/archive/`，新增 `docs/README.md` 当唯一索引；`CHANGELOG.md` 1719 行按版本拆成 8 份 `docs/changelog/v*.md`（正文逐行相等，主文件只剩未发布 + `## 版本目录`）；46 行 `docs/batch-*` 引用改成 `docs/archive/batch-*`，`.agents/evidence/` 是冻结证据、旧路径有意不回改。`src/`/`client/`/`lib/` 零改动，不需要重启。
 
 ## Key points
 
@@ -16,7 +16,7 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 上限定值：真实 CJK 密度 0.4014 tok/char 下，`maxMemoryChars` 40000 → needed 31146，43000 → 32732（不裁剪），43500 起 `clipped true`
 - 模型目录 `auto/deepseek-v4.1-flash` 的 `maxTokens: 328000` 决定 `defaultMaxTokens`，不承重；真正决定 `clipped` 的是配置 `maxOutputTokens: 32768`（schema 默认，两个 profile 都没覆盖）
 - 整理 prompt 明确告知上限：`memoryBudgetRule` 原文含「must stay at or under 40000 characters… currently about N」，故拒绝不是「没告诉模型」
-- journal 量出的成熟期（输入 ≥34000）落地涨幅 n=7：-156 / +532（中位）/ +908 / +669 / +455 / +3475 / -734（本轮），2/7 超过现在只剩的 784 余量 → 下一次仍可能是概率事件
+- journal 量出的成熟期（输入 ≥34000）落地涨幅 n=7：-156 / +532（中位）/ +908 / +669 / +455 / +3475 / -734（本轮），2/7 超过现在只剩的 413 余量 → 下一次仍可能是概率事件
 - 自检假绿一：把已渲染过的文本再喂渲染器，必然报 `sectionDropped 0`（损失在第一次渲染就被吃掉）；须构造真正超限的文档字符串，此时 budget 分支翻红 `sectionDropped 1 / droppedItems 36`
 - 自检假绿二：`MemorySections` 的键是小写标题（`project` 而非 `Project`），照 `share-fit.mjs` 写法才对齐，否则分节条目数全 0
 - 重启验收判据一：新 pid 58434、启动 2026-11-06 10:51:25，晚于最后 `src/` 提交 09:59:03
@@ -29,14 +29,14 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 10:58:25 那一次 pass 已落地（journal `op: replace`、39216 字符、`MEMORY.md` 与 `CONTEXT.md` 同时重写），是重启（10:51:25）后的第一次，故按判别锚点它无歧义读的是 37780 那版 —— 先前的拒绝是「模型没能压住」，不是文档太大
 - 本轮三笔提交均 docs-only：`4f6385c`（`2026-11-06-memory-compression-headroom/` 的 README + probe.mjs，含 CONTEXT 更新）、`ea5e8cf`（重启验收 + 拒绝事实）、`713d81f`（把「跑在压缩后文档上」改回未决 + 锚点）
 - `HEAD == origin/main == 713d81f`，工作区干净，技能目录 29 未动，重启判据未被移动（仍是 09:26:43 那代的代码提交时间对照）
-- 落地后现状：`MEMORY.md` 39216 字符（余量 784）、`CONTEXT.md` 5278 字符；渲染器复核 `sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同；output 半边 `needed` 26467 < 32768 不裁剪
+- 当前文档（2026-11-06 20:58 实测）：`MEMORY.md` **39587** 字符（10:58 pass 后 39216，本轮两处不变量改写后 39587，余量 413 / 40000）、`CONTEXT.md` **8169** 字符；渲染器复核 `sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同；output 半边 maxTokens **28922** < 32768 `clipped false`
 - 条目上限：`MEMORY.md` 超 800 的条目 0、最长 788；`CONTEXT.md` 超 800 的条目 0、最长 423（Key points 节）
 - 探针产物：`.agents/evidence/2026-11-06-memory-compression-headroom/README.md` + `probe.mjs`（`--self-test`，退出码 0 清空 / 1 丢数据 / 2 无法判定 / 3 自检未开火），README 已补实测结局与「输入版本未决」段
 - 宿主为 `0.2.2-rc.1`，GUI 端口每次重启都变（本轮 35209 → 33647），探针不传 `--url` 会以 `fetch failed` 假失败
 
 ## Open tasks
 
-- 下一次 pass 的余量只剩 784 字符，而成熟期实测 2/7 的涨幅超过它；若再被拒，日志措辞分流不变：`N section(s) exceeded their budget` / `whole entry(ies)` → budget 半边（须再压）；`cut off by the model output limit` → output 半边（此时降 `maxMemoryChars` 无用）
+- 下一次 pass 的余量只剩 413 字符（39587 / 40000），而成熟期实测 2/7 的涨幅超过它；若再被拒，日志措辞分流不变：`N section(s) exceeded their budget` / `whole entry(ies)` → budget 半边（须再压）；`cut off by the model output limit` → output 半边（此时降 `maxMemoryChars` 无用）
 - 若再被拒，三条出路按代价排序：①再压（现在要压到约 36000 才留够余量，要删事实，须用户点头）②`maxMemoryChars` 提到 ≤43000（实测 43000 时 `needed` 32732 < 32768 不裁剪，43500 起 `clipped true`；代价是每轮注入多约 2000 tokens）③接受持续拒绝、记忆不再增长
 - 界面验收：用户 18:01 实测报「关掉自适应后『摘要目标（仅报告）』消失」。我判定**比例行该隐藏、这行不该**（它是一项预算：命令任一模态都收、`config.ts` 任一模态都校验、唯一读点在自适应分支只做回执），已改回并在 `f90bbd5` 之后这一批里交付（CHANGELOG「模式门只留在固定比例行上」）：门只剩 `handoffThresholdRatio` 一行，摘要目标在两种模式下都显示。**已构建、且 bundle 已确认在派发**：2026-11-06 18:24 实测宿主派发的字节与磁盘 `lib/client.js` 逐字节相同（combo `rev=805a30a0ec8f`，前 35750 字节相同、只多 76 字节 sourceMappingURL 尾），机制是 host 挂着 `include:client-hmr` 统计轮询调 `rebuilt()`，故无需重启；请看固定模式下这一行是否出现（最多刷新一次）。其余三项仍待验：在「自适应阈值」上按重置不应触发互换；固定阈值填 `40` / `40%` 均存成 `0.4`；预算金额填 `7999` 时保存按钮直接灰掉
 - 比例行在触屏上打不出 `%`：平台只提供 `numeric` 布尔 → `inputMode="numeric"`，hint 里的 `40%` 在触屏不可达；要改只能动平台
@@ -51,7 +51,12 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 20:32:25 重启后本批已生效，四条机器判据（2026-11-06 20:42 实测）：①host pid 82102 启动晚于最后 `src/` 提交 `8dc97c5`（20:28:48）②`dsh-live-inventory-probe.mjs --url http://127.0.0.1:38961` 四行 active、enabled 非 active 0、store==wrapper、`RESULT: PASS`（条目 241）③派发的 `plugins/??dsh-project-context/client.js&rev=5e876189861f` 与磁盘 `lib/client.js` 前 37270 字节逐字节相同（只多 76 字节 sourceMappingURL 尾）④`cordis_inspect_query` host `Config` 对 `include:project-context` 的投影 schema 已含 `handoffRetireReplaced`（`default: true`、`volatile: true`）
 - 本轮 GUI 端口 33647 → **38961**（探针必须传 `--url`，否则 `fetch failed` 假失败）；`~/.dsh/.credentials.yaml` 的 `client-connection/browser-session` 离线签名 cookie 可直接读取派发页与 bundle（临时脚本 `/tmp/served-bundle-check.mjs`）
 - 20:52 把 README 从 446 行瘦到 141 行：手册留 README（四个插件 / 安装 / 命令 / 写哪些文件 / 配置速查 / 行为边界 / FAQ / 开发 / 许可），机制搬进 `docs/{architecture,behavior,settings,development}.md`；搬移按节整块移动，`git diff -- README.md` 的 **393** 行删除行逐行在并集里查回，只有 `## 命令（web/交互 profile）` 标题改名这一行不在原位
-- 文档分工成为约定：**README 只留结论 + 指针，长段说明进 `docs/`**；`docs/batch-*.md` 是历史决策档案。顺带补上 README 配置表原本漏掉的 `maxMemoryChars`（21 键覆盖对照 `PluginSettingsSchema` 实测无缺）
+- 20:55 归档 18 个批次档案：`git mv docs/batch-*.md → docs/archive/`；`docs/batch-w-decision-seam-spec.md` 留在 `docs/`，因为 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用它
+- 新增 `docs/README.md`：上半是生效文档表（12 行）、下半是归档表（18 行）、末尾是写作与引用约定（含「`.agents/evidence/` 冻结、旧路径不回改」）
+- CHANGELOG 拆分：8 个已发布版本 → `docs/changelog/v{0.1.0,0.2.0,0.2.1,0.3.0,0.4.0,0.4.1,0.4.2,0.4.3}.md`（标题升为 `#`、正文逐行相等、各带一行索引回链），主文件 1719 → 269 行只留未发布 + `## 版本目录`
+- 发布流程随之变：发版 = 把未发布整段搬进 `docs/changelog/v<new>.md` + 目录加行 + 重开空 `### 未发布`；`dsh-project-context-release` 技能的 step 2/4 与 MEMORY 的发布不变量已同步
+- 引用改写：46 行 `docs/batch-*` → `docs/archive/batch-*`（README、CHANGELOG、`docs/upstream-pi-triage.md`、`docs/vocabulary-conventions.md`、归档文件互引、`pi-upstream-triage-pass` 技能、MEMORY+CONTEXT）；`docs/repo-metadata.md` 等未被牵动
+- 文档分工：**README 只留结论 + 指针，长段说明进 `docs/`**，唯一索引是 `docs/README.md`；收口批次档案在 `docs/archive/`。README 配置表原本漏掉的 `maxMemoryChars` 已补（21 键对照 `PluginSettingsSchema` 实测无缺）
 - 已知噪声：`context-injection.test.mjs` 偶发 2 条失败，是并发写入撞上它读仓库自身 memory 文档，代码此后未变、三连跑复绿，未记成已修
 - `handoffRetireReplaced` 已生效（默认 `true`，卡片交接区末行「交接后归档旧会话」）。要验证关掉后的效果：关掉→保存→`/handoff now`，旧会话应仍在列表里、且不在「全部对话（显示已归档）」里；开关只管以后的交接，`c35a7f0f` 与 `3a51f066` 仍在归档集里，要找回得手动「取消归档」
 

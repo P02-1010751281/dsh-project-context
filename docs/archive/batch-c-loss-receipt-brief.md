@@ -103,7 +103,7 @@ three reachable paths and found three dishonest or under-stated counts:
 | a failure after a landed write reported its loss as 0 | counts contract | fixed: landed loss carried into the `failed` report |
 | `itemTruncated` counted an entry the same render then dropped whole | counter honesty | fixed: counted only once kept |
 | a reply below the 40-character floor vanished with no trace | silence | fixed: logged |
-| `clipped` with all counts zero is reachable (the loss belonged to an artifact that did not land) | boundary | accepted and documented: the base sentence is accurate, and inventing a count for an artifact that did not land would be the misattribution this repo warns about. **Closed 2026-10-05**: the status is now derived from the landed counts, so the combination is unreachable; the pass-level fact still reaches `errors.log`. See `docs/batch-c-tier-c-design.md` §14 and `CHANGELOG.md` |
+| `clipped` with all counts zero is reachable (the loss belonged to an artifact that did not land) | boundary | accepted and documented: the base sentence is accurate, and inventing a count for an artifact that did not land would be the misattribution this repo warns about. **Closed 2026-10-05**: the status is now derived from the landed counts, so the combination is unreachable; the pass-level fact still reaches `errors.log`. See `docs/archive/batch-c-tier-c-design.md` §14 and `CHANGELOG.md` |
 | doc framing said "two mechanisms" and "the stored document cannot show them" | docs | fixed: five mechanisms, each named, with the write-path one's marker acknowledged |
 | test gap: the zeroing filter and the reinstated gates were not pinned | tests | fixed: the new end-to-end tests kill those mutants |
 
@@ -113,13 +113,13 @@ byte-identical wording to the pre-change function when counts are zero; the repo
 **2026-10-05**: the first of those no longer holds for `clipped` — its zero-count wording changed with
 the tier-A residual closure (the status is now derived from the landed counts, so a zero-count clipped
 report cannot come from a pass); the other six statuses are untouched and `updated` with zero counts
-is still byte-identical. See `docs/batch-c-tier-c-design.md` §14.
+is still byte-identical. See `docs/archive/batch-c-tier-c-design.md` §14.
 
 ## 6. Deliberately not done
 
 - Tier B's refusal and tier C's targeted retry, per the ruling. A lossy pass still writes; that
   residual is recorded in `CHANGELOG.md` and `CONTEXT.md` rather than fixed.
-  **Addendum 2026-10-04: tier C is now implemented** (`docs/batch-c-tier-c-design.md`). It was unblocked by
+  **Addendum 2026-10-04: tier C is now implemented** (`docs/archive/batch-c-tier-c-design.md`). It was unblocked by
   the per-project cap going 32000 → 40000 — read live from the running desktop host's own
   `settings.describe`, not from a file — which took the Invariants headroom from 55 to 3255 characters and
   removed the self-lock this section ruled against. Tier B alone stays unimplemented and is now moot: C is
@@ -141,7 +141,7 @@ is still byte-identical. See `docs/batch-c-tier-c-design.md` §14.
   count. Measured on this repo (cap 5000, hand-edited 6337-character `MEMORY.md`): the no-journal read
   clips to 4860 characters **without writing a marker**, which is why `/memory status` was silent about
   it; both read paths now report 1477 hidden characters, the pass receipt names them, and the status
-  warning fires on the count. See `docs/batch-c-tier-c-design.md` §14 and `CHANGELOG.md`.
+  warning fires on the count. See `docs/archive/batch-c-tier-c-design.md` §14 and `CHANGELOG.md`.
 - The empty-skeleton gate is untouched. A drop still does not block a write — tier A only makes drops
   visible, it does not make them fatal.
 - No new configuration key and no change to the retry contract.

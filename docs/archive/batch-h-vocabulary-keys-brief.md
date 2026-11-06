@@ -1,6 +1,6 @@
 # Batch H port brief — config keys mirror the command path, and one notification prefix per layer
 
-**Status: implemented 2026-10-05** — rulings in `docs/batch-h-vocabulary-keys-ruling.md`, standing rules in
+**Status: implemented 2026-10-05** — rulings in `docs/archive/batch-h-vocabulary-keys-ruling.md`, standing rules in
 `docs/vocabulary-conventions.md`. Opened by the fifth pi triage pass (`docs/upstream-pi-triage.md` §"Fifth pass",
 commit `2177386` of the range `f6bea1d..ca71fd3`, pi's v0.4.0, plus `b869be3` for the strings v0.3.0 left
 behind). Every claim here is either a pi path at a stated revision or a read-now command.
@@ -146,7 +146,7 @@ The five user-visible `"Project memory…"` literals to converge are in `src/pro
   different surfaces, so this is a wording question, not a mechanical rename.
 - **H-D6** — is a dsh-owned vocabulary conventions file wanted (the fifth pass's third row)? pi's
   `vocabulary-conventions.md` is the artifact that keeps a rename from landing half-done; our nearest
-  counterpart is `docs/batch-e-command-surface-ruling.md`, which records decisions but not the rules.
+  counterpart is `docs/archive/batch-e-command-surface-ruling.md`, which records decisions but not the rules.
 
 ## 7. Acceptance criteria
 

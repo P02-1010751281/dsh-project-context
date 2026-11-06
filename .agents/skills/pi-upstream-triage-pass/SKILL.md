@@ -36,7 +36,7 @@ Append a new dated section to `docs/upstream-pi-triage.md`; earlier passes are r
 If a row or revision turns out wrong after writing, correct it in place and keep the range explicit.
 
 ## 5. Split port work into batches and record the decisions
-If disposition (c) is non-empty, group it into coherent batches by mechanism (not by commit) and for each batch state the pi reference path, the dsh target module, the user-visible changes (command renames/removals, memory format), and the decisions that need the user's ruling. When a batch is large enough that a half-landed version is worse than none (it changes what MEMORY.md is, or how a reply is produced), write `docs/batch-<x>-port-brief.md` for a fresh session: everything load-bearing stated in the file or reachable from a command in it, with batch status marked not-started.
+If disposition (c) is non-empty, group it into coherent batches by mechanism (not by commit) and for each batch state the pi reference path, the dsh target module, the user-visible changes (command renames/removals, memory format), and the decisions that need the user's ruling. When a batch is large enough that a half-landed version is worse than none (it changes what MEMORY.md is, or how a reply is produced), write `docs/archive/batch-<x>-port-brief.md` for a fresh session: everything load-bearing stated in the file or reachable from a command in it, with batch status marked not-started.
 
 ## 6. Record, commit, verify
 - Add one line to `.agents/memory/MEMORY.md`: the conclusion (ported N / ported nothing), where the detail lives (`docs/upstream-pi-triage.md`), and the durable lesson (pi fixes commonly converge on dsh, so compare first; pi's `R3` and dsh's `R3` name different audits - do not cross-reference).
