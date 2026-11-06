@@ -132,7 +132,7 @@ const result = await build({
 			'export { createElement } from "react";',
 			'export { renderToStaticMarkup } from "react-dom/server";',
 			'export { ProjectContextSettingsCard, ProjectContextSettingsCardController } from "./client/settings-card.tsx";',
-			'export { ROWS } from "./client/card-fields.ts";',
+			'export { ROWS, rowVisible } from "./client/card-fields.ts";',
 		].join("\n"),
 		resolveDir: root,
 		loader: "tsx",
@@ -165,6 +165,7 @@ const {
 	ProjectContextSettingsCard,
 	ProjectContextSettingsCardController,
 	ROWS,
+	rowVisible,
 } = await import(pathToFileURL(bundlePath).href);
 
 /** A section value that carries every field of the table. */
@@ -194,8 +195,33 @@ const VALUE = {
 /** The table's shape, read from the source of truth rather than restated here. */
 const BOOLEAN_ROWS = ROWS.filter((row) => row.kind === "boolean");
 const UNION_ROWS = ROWS.filter((row) => row.kind === "union");
-const PLATFORM_ROWS = ROWS.filter((row) => row.kind === "number" || row.kind === "text");
+const PLATFORM_KINDS = new Set(["number", "text", "ratio"]);
 const PILL_TOTAL = UNION_ROWS.reduce((sum, row) => sum + (row.options?.length ?? 0), 0);
+
+/**
+ * The drafts the card holds for a section value it never staged anything over: each draft is the
+ * field's own format, which is what decides a mode-gated row.
+ * @param value - the section value the scope serves.
+ * @returns one field state per table row.
+ */
+const draftsOf = (value) => Object.fromEntries(ROWS.map((row) => [row.key, {
+	text: String(value[row.key]),
+	overridden: false,
+	invalid: false,
+}]));
+
+/**
+ * The rows a section value leaves on the page — the mode-gated pair swapped rather than counted twice.
+ * @param value - the section value the scope serves.
+ * @returns the table's rows the card must render.
+ */
+const VISIBLE = (value) => ROWS.filter((row) => rowVisible(row, draftsOf(value)));
+
+/** The rows the platform's own field draws, for one section value. */
+const PLATFORM_OF = (value) => VISIBLE(value).filter((row) => PLATFORM_KINDS.has(row.kind));
+
+/** `VALUE` keeps the adaptive threshold on, so its platform rows are the summary target. */
+const PLATFORM_ROWS = PLATFORM_OF(VALUE);
 
 /** Every clickable control a clean page is allowed: one switch per boolean, one pill per option, one save. */
 const CLEAN_BUTTONS = BOOLEAN_ROWS.length + PILL_TOTAL + 1;
@@ -282,13 +308,17 @@ test("the bundle resolves exactly one React, so the card's hooks cannot be split
 test("the card renders exactly one row per field of its table", () => {
 	const { rendered } = page();
 	assert.equal(rendered.cardRows, BOOLEAN_ROWS.length + UNION_ROWS.length, "the card wraps its own switch and pill rows");
-	assert.equal(rendered.fieldKeys.length, PLATFORM_ROWS.length, "the platform draws the number and text rows");
+	assert.equal(rendered.fieldKeys.length, PLATFORM_ROWS.length, "the platform draws the number, ratio and text rows");
 	assert.deepEqual(
 		[...rendered.fieldKeys].sort(),
 		PLATFORM_ROWS.map((row) => row.key).sort(),
-		"the platform-drawn rows must be exactly the table's number and text fields",
+		"the platform-drawn rows must be exactly the table's number, ratio and text fields",
 	);
-	assert.equal(rendered.cardRows + rendered.fieldKeys.length, ROWS.length, "every field of the table must reach the page once");
+	assert.equal(
+		rendered.cardRows + rendered.fieldKeys.length,
+		VISIBLE(VALUE).length,
+		"every field of the table the current mode keeps must reach the page once",
+	);
 });
 
 test("a boolean field is a switch and an enum field is one pill per option", () => {
@@ -320,10 +350,74 @@ test("an unserved namespace renders the notice instead of the form", () => {
 
 test("a read-only document still shows every row, with the save disabled", () => {
 	const { rendered } = page({ writable: false });
-	assert.equal(rendered.cardRows + rendered.fieldKeys.length, ROWS.length, "read-only hides nothing");
+	assert.equal(rendered.cardRows + rendered.fieldKeys.length, VISIBLE(VALUE).length, "read-only hides nothing the mode keeps");
 	assert.equal(rendered.buttons, CLEAN_BUTTONS, "the rows stay interactive-looking except the save");
 	assert.ok(rendered.html.includes("chrome.readOnly"), "the read-only notice must be shown");
 	assert.match(rendered.saveTag ?? "", /disabled/, "the save must refuse while the document is read-only");
+});
+
+test("the adaptive-only and fixed-only threshold rows swap with the mode", () => {
+	const adaptive = page();
+	assert.ok(adaptive.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"), "adaptive mode shows the summary target");
+	assert.equal(
+		adaptive.rendered.fieldKeys.includes("handoffThresholdRatio"),
+		false,
+		"the fixed ratio is not read while adaptive is on, so the card must not offer it",
+	);
+
+	const fixed = page({ value: { ...VALUE, handoffThresholdAuto: false } });
+	assert.ok(fixed.rendered.fieldKeys.includes("handoffThresholdRatio"), "fixed mode shows the ratio");
+	assert.equal(
+		fixed.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"),
+		false,
+		"the summary target is inert while fixed mode runs, so it must not render",
+	);
+	assert.equal(
+		fixed.rendered.fieldKeys.length,
+		PLATFORM_OF({ ...VALUE, handoffThresholdAuto: false }).length,
+		"exactly one of the two threshold rows replaces the other",
+	);
+});
+
+test("a mode-gated row stays on the page while it carries the user's own value", () => {
+	// Dropping it would hide an override — or a staged draft that blocks the save — behind a switch the
+	// user can neither see nor reset, so the card keeps any row the user's attention is on.
+	const { rendered } = page({ user: { handoffThresholdRatio: 0.5 } });
+	assert.ok(rendered.fieldKeys.includes("handoffThresholdRatio"), "an overridden gated row must stay visible");
+	assert.equal(rendered.fieldKeys.length, PLATFORM_ROWS.length + 1, "and it adds that one row only");
+});
+
+test("the ratio row folds 40 and 40% to the 0.4 the Host stores", async () => {
+	// The command has always accepted all three spellings; a card that passed `40` through to a schema
+	// holding 0.1–0.95 was the save that failed with no explanation. Each spelling must both parse and
+	// write the same number.
+	for (const typed of ["0.4", "40", "40%"]) {
+		const scope = makeScope({ value: { ...VALUE, handoffThresholdAuto: false } });
+		const { controller, face, props, store } = mount(scope);
+		face.edit("handoffThresholdRatio", typed);
+		await tick();
+		assert.equal(store.getSnapshot().invalid, false, `${typed} is a draft the card must accept`);
+		assert.doesNotMatch(render(props).saveTag ?? "", /disabled/, `${typed} must not block the save`);
+		face.save();
+		await tick();
+		assert.deepEqual(
+			scope.calls.map((call) => call.ops),
+			[[{ op: "set", path: ["handoffThresholdRatio"], value: 0.4 }]],
+			`${typed} must stage 0.4`,
+		);
+		controller.dispose();
+	}
+
+	// A draft the Host's pair refuses is refused here, rather than staged into a write the Host drops.
+	const refused = makeScope({ value: { ...VALUE, handoffThresholdAuto: false } });
+	const over = mount(refused);
+	over.face.edit("handoffThresholdRatio", "0.96");
+	await tick();
+	assert.equal(over.store.getSnapshot().invalid, true, "a ratio outside the accepted pair must block the save");
+	over.face.save();
+	await tick();
+	assert.equal(refused.calls.length, 0, "and it must never reach the Host");
+	over.controller.dispose();
 });
 
 test("an overridden field is badged and resettable, whichever control draws it", () => {

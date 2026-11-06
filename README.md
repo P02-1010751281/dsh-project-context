@@ -257,8 +257,8 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接（含交接子会话标题的事后改名），`/handoff` 仍可用 |
 | `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
-| `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值 |
-| `handoffBudgetSummaryTokens` | `64000` | 自适应模式：每次摘要移交的对话量（8000–200000）。这是**手动设定**的阈值请求，触发点由护栏决定；一旦被护栏压掉，`/handoff status` 点名被覆盖的值与压住它的那条护栏，不静默 |
+| `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值。卡片与 `/handoff threshold` 接受同样三种写法（`0.4`、`40`、`40%`），且只在固定模式下显示——自适应开启时这一项根本不被读取 |
+| `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标请求量（8000–200000）：`/handoff status` 用它判断并点名「目标没被完整采纳」，它不移动触发点，也不产生任何模型调用。触发点由护栏决定，被压掉时点名被覆盖的值与压住它的那条护栏，不静默。仅自适应模式显示 |
 | `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
 | `handoffThinking` | `off` | 摘要调用思考级别：`off` 或 `session` |
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |

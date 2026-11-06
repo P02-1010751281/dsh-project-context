@@ -7,6 +7,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../shared/limits.js";
+import { parseRatioInput } from "../shared/ratio.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { pendingSubagentWork } from "./guard.js";
@@ -17,16 +18,15 @@ import { type SessionControllerLike, type SettingsLike, type TokenMeterLike, mea
 import { handedOff, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
 import { resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "./threshold.js";
 
-/** Parse "0.4", "40%", or "40" into a ratio. Exported for tests. */
+/**
+ * Parse "0.4", "40%", or "40" into a ratio. Exported for tests.
+ *
+ * The folding rule itself lives in `shared/ratio.ts` because the settings card reads the same text:
+ * two copies of it is how the command accepts `40` while the card's number field passes `40` through
+ * to a schema that refuses it. The bounds are likewise the one pair in `limits.ts`.
+ */
 export function parseRatio(input: string): number | undefined {
-	const text = input.trim().toLowerCase().replace(/%$/, "");
-	const value = Number(text);
-	if (!Number.isFinite(value)) return undefined;
-	const ratio = value > 1 ? value / 100 : value;
-	// The same inclusive bounds the settings schema and the config validator read, from the one pair in
-	// `limits.ts`, so accepted input always persists. Two copies of this range had already drifted apart
-	// once: a parser that keeps its own literal accepts a value the validator then drops on the next load.
-	return ratio >= MIN_THRESHOLD_RATIO && ratio <= MAX_THRESHOLD_RATIO ? ratio : undefined;
+	return parseRatioInput(input);
 }
 
 /** Parse "12k", "12000", or "0" into a token count. Exported for tests. */

@@ -5,7 +5,13 @@
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-/** Parse "0.4", "40%", or "40" into a ratio. Exported for tests. */
+/**
+ * Parse "0.4", "40%", or "40" into a ratio. Exported for tests.
+ *
+ * The folding rule itself lives in `shared/ratio.ts` because the settings card reads the same text:
+ * two copies of it is how the command accepts `40` while the card's number field passes `40` through
+ * to a schema that refuses it. The bounds are likewise the one pair in `limits.ts`.
+ */
 export declare function parseRatio(input: string): number | undefined;
 /** Parse "12k", "12000", or "0" into a token count. Exported for tests. */
 export declare function parseTokenCount(input: string): number | undefined;

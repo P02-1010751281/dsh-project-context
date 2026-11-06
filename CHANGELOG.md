@@ -7,6 +7,18 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context 设置卡（阈值行按模式显示 / 比例三种写法 / 保存失败文案）**
+
+- 性质：三处**一致性修复**（不是等价重构）。三条各自有独立的成因与判据，互不依赖。
+- 修复 ①（名字与实际作用不符）：`handoffBudgetSummaryTokens` 的卡片标签是「触发点目标（token）」，但它**不移动触发点**。自适应分支的阈值只有两个来源 —— `qualityLimit` 的膝曲线/上游上限与 `capacityLimit` 的可用窗口（`capacityLimit` 里的 `keep` 读的是 `handoffBudgetRecentTokens`）——`handoffBudgetSummaryTokens` 只在 `threshold.ts` 一处出现：`const asked = room.overhead + room.keep + config.handoffBudgetSummaryTokens`，只用于「没被完整采纳」的回执；`handoffRoom()` 不读它，固定模式下一次都不读。标签改为「摘要目标（仅报告）」，hint 明说不移动触发点、不产生模型调用。同时新增卡片侧的**模式门**：`client/card-fields.ts` 的 `FieldRow.appliesWhen` + `rowVisible()`，让固定比例行只在 `handoffThresholdAuto` 关闭时渲染、摘要目标行只在开启时渲染 —— 两个控件不再并排出现在同一个模式下，读起来才不像两个竞争触发器。
+- 修复 ②（同一设置的两套输入规则）：固定比例在命令里接受 `0.4` / `40` / `40%`（`parseRatio` + 注释里的三个样例），卡片却只收小数 —— 平台的 `settingsNumberField.parse` 就是 `Number(text)`，于是 `40` 原样提交被 `z.number().min(0.1).max(0.95)` 拒绝（保存失败且无解释），`40%` 更早死在 `Number("40%") === NaN` 判 invalid、保存按钮直接置灰。折叠规则收进新文件 `src/shared/ratio.ts` 的 `parseRatioInput`，`src/project-handoff/command.ts` 的 `parseRatio` 与卡片新增的 `ratio` 行**共用同一份实现**；边界仍只来自 `limits.ts` 的那一对。这不是新增一种写法，而是把已存在的那一种接到卡片上，并顺手消灭第二份副本。
+- 修复 ③（错归因的文案）：`chrome.saveFailed` 原文「保存未生效，请重试」把两种互不相同的成因说成一种可重试的失败。平台的 `SettingsForm` 只有一个 `failed` 布尔，而 `SettingsFormModel.save()` 的两种失败都**不可重试**：值被 Host 拒绝（同一个草稿、同一套校验，必然再失败）与 revision 冲突（`this.baseline ??= scope.getSnapshot()` 只在首次编辑时取值，失败后不刷新，重试仍拿旧 revision）。改为「值可能被拒绝，或设置已被别处改动；修正后重存，或刷新页面再试」，给出真正能救场的两个动作（改值、刷新重建草稿），而不是一个无效的「重试」。
+- 门（唯一的语义判断，写在 `rowVisible` 里）：只有当「当前模式不读这一项」**且**「用户注意力不在它上面」时才隐藏。存储层已有覆盖、已暂存草稿、或草稿非法阻塞保存时一律保留该行 —— 否则那个值会变成看不见也重置不了，非法草稿更会挡住保存而页面上没有任何控件能修好它。
+- 判别器：新增 **8 条**用例（`test/card-render.test.mjs` 3 条：两行随模式互换、被覆盖的门行仍可见且只多一行、比例行把 `0.4`/`40`/`40%` 都 stage 成 `0.4` 并把 `0.96` 挡在 Host 之外；`test/settings-form.test.mjs` 5 条：`rowVisible` 五态表、门只能指向布尔行且不能自指、`ratioField` 的三种写法与越界拒绝、旧 `saveFailed` 文案不得回归、hint 承诺的百分比写法必须被卡片接受）。
+- 变异轮（5 个变异体，全部被杀；每个都先编译进 `lib/` 并确认标记在位）：M1 把摘要目标行的门改成永远不满足 → 3 条门用例红；M2 把 `ratioField` 的 parse 换回 `Number(text)` 直通 → 3 条比例用例红；M3 删掉 `src/shared/ratio.ts` 的 `> 1` 折算 → 卡片 3 条 **加** `test/logic.test.mjs` 的「parseRatio accepts only the range…」与 settingPatch 用例一并红（同一份实现同时被两个面钉住，正是本批要的证明）；M4 把 `chrome.saveFailed` 退回旧串 → 只有文案门红；M5 把 hint 里的 `40%` 换成解析不了的写法 → 只有 hint 门红。
+- 门禁（现跑，不引用历史数字）：`pnpm typecheck` 0；`pnpm test` **485 通过 / 0 失败**（本批前 477）；`pnpm build` 0（`lib/client.js` 30731 字节，本批前 28575 —— 增量来自文案与两处新逻辑，不是重复打包）。
+- 边界：`src/` 与 `client/` 都改了 ⇒ **需要一次宿主重启**才上线（用户操作；桌面重启脚本与 `/memory update` 属用户）。不改配置键、不加依赖，两个 profile 无需改动。README 的设置表已同步这两行的实际作用与三种写法。
+
 **project-handoff（`SH-1` 拆除：投影读取改用声明类型，删除手写结构化视图）**
 
 - 性质：**行为等价重构 + 一处依赖声明**，无「修复」项。`src/project-handoff/runtime.ts` 的 `SessionProjectionsLike` 删除，`projectionEnvelope` / `measuredContext` 改用 `SessionProjectionRegistry`，`gate.ts` / `command.ts` 的 `ctx.get("sessionProjections") as …` 断言一并去掉；运行时逻辑与回执文案一字未改（`projectionEnvelope` 仍对畸形值返回 `undefined`，仍不从两个计量器输出相减）。

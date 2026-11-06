@@ -63,7 +63,7 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 
 	for (const row of rows) {
-		assert.ok(["boolean", "number", "text", "union"].includes(row.kind), `${row.key} has an unknown kind`);
+		assert.ok(["boolean", "number", "text", "union", "ratio"].includes(row.kind), `${row.key} has an unknown kind`);
 		if (row.kind === "union") {
 			assert.ok(Array.isArray(row.options) && row.options.length > 0, `${row.key} is a union without options`);
 			// The row renders one control per option, so drift here loses a value the host still accepts:
@@ -96,6 +96,70 @@ test("the card's table covers the host schema exactly once, with copy for every 
 		[],
 		"a dictionary entry no row reads is copy that will never be shown",
 	);
+});
+
+test("a mode-gated row renders only in the mode that reads it, and never hides a draft", () => {
+	// The two threshold rows are the two modes: `handoffBudgetSummaryTokens` only reports an override in
+	// adaptive mode, and `handoffThresholdRatio` is only consulted when adaptive is off. Hiding the inert
+	// one is what keeps the pair from reading as two competing triggers.
+	const drafts = (auto, extra = {}) => Object.fromEntries(fields.ROWS.map((row) => [row.key, {
+		text: row.key === "handoffThresholdAuto" ? String(auto) : "0",
+		overridden: false,
+		invalid: false,
+		...extra[row.key],
+	}]));
+	const row = (key) => fields.ROWS.find((candidate) => candidate.key === key);
+	const visible = (key, state) => fields.rowVisible(row(key), state);
+
+	assert.equal(visible("handoffBudgetSummaryTokens", drafts(true)), true);
+	assert.equal(visible("handoffThresholdRatio", drafts(true)), false, "the fixed ratio is inert while adaptive is on");
+	assert.equal(visible("handoffThresholdRatio", drafts(false)), true);
+	assert.equal(visible("handoffBudgetSummaryTokens", drafts(false)), false, "the summary target is inert in fixed mode");
+
+	// The user's own value keeps the row: hiding an override would make it unreachable, and hiding an
+	// invalid draft would block the save with no control left to fix it.
+	assert.equal(
+		visible("handoffThresholdRatio", drafts(true, { handoffThresholdRatio: { overridden: true } })),
+		true,
+		"an overridden gated row must stay visible",
+	);
+	assert.equal(
+		visible("handoffThresholdRatio", drafts(true, { handoffThresholdRatio: { invalid: true } })),
+		true,
+		"an invalid gated draft must stay visible",
+	);
+
+	// A row with no gate is never hidden by a mode.
+	for (const auto of [true, false]) assert.equal(visible("handoffLang", drafts(auto)), true);
+});
+
+test("a gate names a boolean row, or it can never be satisfied", () => {
+	const kinds = new Map(fields.ROWS.map((row) => [row.key, row.kind]));
+	for (const row of fields.ROWS) {
+		if (row.appliesWhen === undefined) continue;
+		assert.equal(
+			kinds.get(row.appliesWhen.key),
+			"boolean",
+			`${row.key}'s gate reads ${row.appliesWhen.key}, which is not a boolean row`,
+		);
+		assert.ok(["true", "false"].includes(row.appliesWhen.text), `${row.key}'s gate must compare a boolean literal`);
+		// A row that gated itself would be unreachable: its own draft would decide whether it exists.
+		assert.notEqual(row.appliesWhen.key, row.key, `${row.key} must not gate itself`);
+	}
+});
+
+test("the ratio row takes the command's three spellings and refuses everything else", () => {
+	const spec = fields.ratioField("handoffThresholdRatio");
+	assert.equal(spec.format(0.4), "0.4");
+	assert.equal(spec.format(undefined), "", "an absent value renders empty rather than as a ratio nobody chose");
+	assert.deepEqual(spec.parse(""), { kind: "clear" });
+	// The command has always folded these three; a card that passed `40` through failed the save.
+	for (const typed of ["0.4", "40", "40%", " 40% "]) {
+		assert.deepEqual(spec.parse(typed), { kind: "set", value: 0.4 }, typed);
+	}
+	assert.deepEqual(spec.parse("0.95"), { kind: "set", value: 0.95 }, "the accepted bound must round-trip");
+	// Outside the pair the Host would drop the write, so the field refuses the draft and blocks the save.
+	for (const typed of ["0.09", "0.96", "nope"]) assert.equal(spec.parse(typed), undefined, typed);
 });
 
 test("the retired handoffThinking row and its copy are gone from the card", () => {
@@ -202,6 +266,36 @@ test("volatile settings are read through their live references, not snapshotted"
 	);
 	release?.();
 	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true, "releasing restores the caller's own config");
+});
+
+test("the save-failure copy does not promise a retry that cannot work", () => {
+	// The form reports one flag for two unrelated causes: a value the Host rejects (the same draft fails
+	// again) and a revision conflict (the baseline is taken once, on the first edit, and never reseeded,
+	// so retrying the same draft fails again too). Only a transport blip is retryable, so the copy may
+	// not present a bare retry as the remedy. This pins the string the card replaced; nothing else about
+	// the platform's single flag is knowable from here.
+	const retired = ["保存未生效，请重试", "Save did not land; try again"];
+	for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
+		assert.equal(retired.includes(dict["chrome.saveFailed"]), false, `${name} still promises the bare retry`);
+	}
+});
+
+test("every ratio spelling the hint promises is one the card accepts", async () => {
+	// The hint is where the card's extra spellings are discoverable, so it must not name one the parser
+	// then refuses: a hint that promises `40%` while the field rejects it is the same defect as the
+	// command/card split, moved into prose.
+	const { parseRatioInput } = await import("../lib/shared/ratio.js");
+	const spec = fields.ratioField("handoffThresholdRatio");
+	for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
+		const hint = dict["field.handoffThresholdRatioHint"];
+		const percents = [...hint.matchAll(/\d+(?:\.\d+)?%/g)].map((match) => match[0]);
+		assert.ok(percents.length > 0, `${name} hint must show the percent spelling the card accepts: ${hint}`);
+		for (const token of percents) {
+			const ratio = parseRatioInput(token);
+			assert.notEqual(ratio, undefined, `${name} hint names ${token}, which the parser refuses`);
+			assert.deepEqual(spec.parse(token), { kind: "set", value: ratio }, `${name}: the card must accept what the hint promises`);
+		}
+	}
 });
 
 test("the ratio hint states the range the host enforces, from the one exported pair", async () => {

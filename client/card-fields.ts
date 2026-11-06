@@ -7,12 +7,15 @@
  * React in).
  *
  * Number and text rows reuse the platform's own specs (`settingsNumberField` / `settingsTextField`,
- * called in `settings-card.tsx`); the two shapes the platform does not ship — a boolean and a closed
- * enum — are declared here in the same `SettingsFieldSpec` shape, so `SettingsFormModel` treats every
- * row alike and a draft it cannot parse blocks the save instead of writing something else.
+ * called in `settings-card.tsx`); the shapes the platform does not ship — a boolean, a closed enum and
+ * a ratio that accepts `40` / `40%` as well as `0.4` — are declared here in the same
+ * `SettingsFieldSpec` shape, so `SettingsFormModel` treats every row alike and a draft it cannot parse
+ * blocks the save instead of writing something the Host then refuses.
  */
 
 import type { SettingsFieldSpec } from "@deepseek-ai/dsh-client-ui-primitives";
+
+import { parseRatioInput } from "../src/shared/ratio.ts";
 import type { SettingsCardKey } from "./locales.ts";
 
 /** The `project-context` settings section shape (mirrors the host schema). */
@@ -39,14 +42,31 @@ export interface ProjectContextSettings {
 	handoffLang: "auto" | "zh" | "en";
 }
 
-/** How one row is edited. */
-export type FieldKind = "boolean" | "number" | "text" | "union";
+/** How one row is edited. `ratio` is a number row whose text folds `40` / `40%` into `0.4`. */
+export type FieldKind = "boolean" | "number" | "text" | "union" | "ratio";
+
+/**
+ * The one condition under which a row's setting is read at all: a boolean row's draft must equal
+ * `text`. Outside it the row is hidden, because a control that moves nothing is worse than no control
+ * — `handoffBudgetSummaryTokens` only reports an override, and `handoffThresholdRatio` is only
+ * consulted when the adaptive threshold is off. `rowVisible` carries the one exception (a row the
+ * user's own draft or override is on).
+ *
+ * `text` is the boolean literal, not `string`: a draft is only ever produced by `booleanField`, so a
+ * misspelled gate here would silently disable the row forever, and that class is better impossible
+ * than merely tested.
+ */
+export interface FieldGate {
+	readonly key: keyof ProjectContextSettings;
+	readonly text: "true" | "false";
+}
 
 /** One settings row: its key, its editor, and — for a union — its closed value set. */
 export interface FieldRow {
 	readonly key: keyof ProjectContextSettings;
 	readonly kind: FieldKind;
 	readonly options?: readonly string[];
+	readonly appliesWhen?: FieldGate;
 }
 
 /** One rendered group of rows. */
@@ -93,8 +113,11 @@ export const SECTIONS: readonly FieldSection[] = [
 		rows: [
 			{ key: "handoffEnabled", kind: "boolean" },
 			{ key: "handoffThresholdAuto", kind: "boolean" },
-			{ key: "handoffThresholdRatio", kind: "number" },
-			{ key: "handoffBudgetSummaryTokens", kind: "number" },
+			// The two threshold rows are the two modes, one each: the fixed ratio is only consulted when
+			// adaptive is off, and the summary target only reports an override in adaptive mode. The card
+			// hides whichever one the other mode has made inert, so the pair cannot read as two triggers.
+			{ key: "handoffThresholdRatio", kind: "ratio", appliesWhen: { key: "handoffThresholdAuto", text: "false" } },
+			{ key: "handoffBudgetSummaryTokens", kind: "number", appliesWhen: { key: "handoffThresholdAuto", text: "true" } },
 			{ key: "handoffBudgetRecentTokens", kind: "number" },
 			{ key: "handoffPendingQuestion", kind: "union", options: ["defer", "wait"] },
 			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
@@ -104,6 +127,35 @@ export const SECTIONS: readonly FieldSection[] = [
 
 /** Every row, flattened: what both the spec list and the projection walk. */
 export const ROWS: readonly FieldRow[] = SECTIONS.flatMap((section) => section.rows);
+
+/** What a gate reads off a row: the platform's field state, structurally (no runtime import). */
+export interface FieldDraftState {
+	readonly text: string;
+	readonly overridden: boolean;
+	readonly invalid: boolean;
+}
+
+/**
+ * Whether a row renders under the current drafts.
+ *
+ * A row whose setting is inert in the current mode is hidden — unless it carries the user's own
+ * attention: a stored override, a staged value, or a draft that blocks the save. Hiding one of those
+ * would put a value the user can neither see nor reset behind a switch, and an invisible invalid draft
+ * would block the save with no control to fix.
+ * @param row - the table row.
+ * @param fields - every row's current field state, as the card projects it.
+ * @returns whether the row belongs on the page.
+ */
+export function rowVisible(
+	row: FieldRow,
+	fields: Readonly<Record<keyof ProjectContextSettings, FieldDraftState>>,
+): boolean {
+	const gate = row.appliesWhen;
+	if (gate === undefined) return true;
+	const self = fields[row.key];
+	if (self?.overridden === true || self?.invalid === true) return true;
+	return fields[gate.key]?.text === gate.text;
+}
 
 /**
  * A row's visible label key. The convention is fixed by the dictionaries (`field.<key>`), and the
@@ -139,6 +191,25 @@ export function booleanField(field: string): SettingsFieldSpec {
 			if (trimmed === "true") return { kind: "set", value: true };
 			if (trimmed === "false") return { kind: "set", value: false };
 			return trimmed === "" ? { kind: "clear" } : undefined;
+		},
+	};
+}
+
+/**
+ * A ratio row: the same text the `/handoff threshold` command accepts, so the card cannot stage
+ * `40` for a schema that only stores `0.4`.
+ * @param field - field name inside the namespace section.
+ * @returns the field's conversion spec.
+ */
+export function ratioField(field: string): SettingsFieldSpec {
+	return {
+		field,
+		format: (value) => (typeof value === "number" ? String(value) : ""),
+		parse: (text) => {
+			const trimmed = text.trim();
+			if (trimmed === "") return { kind: "clear" };
+			const ratio = parseRatioInput(trimmed);
+			return ratio === undefined ? undefined : { kind: "set", value: ratio };
 		},
 	};
 }

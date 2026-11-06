@@ -17,7 +17,9 @@ import {
 	booleanField,
 	hintKey,
 	labelKey,
+	ratioField,
 	ROWS,
+	rowVisible,
 	SECTIONS,
 	unionField,
 	type FieldRow,
@@ -65,11 +67,13 @@ export interface ProjectContextSettingsCardFace extends SettingsFormActions {
 }
 
 /**
- * The platform's spec builders, keyed by row kind. Number and text reuse the platform's own
- * conversions; boolean and enum are this plugin's, declared in `card-fields.ts`.
+ * The platform's spec builders, keyed by row kind. Number, ratio and text reuse the platform's own
+ * conversions (the ratio through this plugin's folding rule); boolean and enum are this plugin's,
+ * declared in `card-fields.ts`.
  */
 const SPEC_BUILDERS: Record<FieldRow["kind"], (row: FieldRow) => SettingsFieldSpec> = {
 	number: (row) => settingsNumberField(row.key),
+	ratio: (row) => ratioField(row.key),
 	text: (row) => settingsTextField(row.key),
 	boolean: (row) => booleanField(row.key),
 	union: (row) => unionField(row.key, row.options ?? []),
@@ -226,7 +230,7 @@ function Row(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; o
 			overriddenLabel={copy.overriddenLabel}
 			resetLabel={copy.resetLabel}
 			invalidLabel={copy.invalidLabel}
-			{...(row.kind === "number" ? { numeric: true } : {})}
+			{...(row.kind === "number" || row.kind === "ratio" ? { numeric: true } : {})}
 			disabled={copy.disabled}
 			{...state}
 			onEdit={props.onEdit}
@@ -263,7 +267,9 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 				<section key={section.titleKey} className="dshPcSection">
 					<h3 className="dshPcSectionTitle">{t(section.titleKey)}</h3>
 					<p className="dshPcSectionDescription">{t(section.descriptionKey)}</p>
-					{section.rows.map((row) => (
+					{/* Mode-gated rows are dropped rather than disabled: the setting is not read at all in the
+					    other mode, so a control there would invite a write that moves nothing. */}
+					{section.rows.filter((row) => rowVisible(row, state.fields)).map((row) => (
 						<Row
 							key={row.key}
 							row={row}
