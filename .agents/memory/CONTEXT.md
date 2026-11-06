@@ -1,10 +1,10 @@
 # Project Context
 
-Last updated: 2026-11-04T14:36:33.350Z
+Last updated: 2026-11-06T02:03:39.547Z
 
 ## Summary
 
-本会话接手批次 W（交接自动触发的决策 seam）之后的收尾工作。先核对磁盘真态：批次 W 的代码、测试、规格与审计已于上一会话提交并推送（`e3459c6`），但插件在 21:32 自动整理写出的 `CONTEXT.md` 仍留在工作区未提交。用现成的 `roundtrip.mjs` 验证该文档是安全不动点（17 项、0 超 800 上限、字节相同）后原样提交为 `48be67c`。随后处理两处陈旧记忆：`MEMORY.md` 第 52 行称两个 profile 仍「align `handoffBudgetRecentTokens: 0`」，第 53 行称两个 profile 的注释仍描述那个旧世界 —— 现场核实两个 profile 实际都是 `20000`（batch U 已改），web 卡片注释也已重写，两处都按整行替换改成与现状一致的表述。`CONTEXT.md` 同步改三处：`Summary` 去掉会随 settings 重写漂移的 profile 行号、删掉已被本次整理满足的 pid 陈旧 bullet、把已完成的「修正陈旧记忆」换成持续性的 `maxMemoryChars` headroom 注意项。验证走插件自己的渲染器而不是 grep：`MEMORY.md` 解析→渲染字节相同、`sectionDropped 0 / itemTruncated 0`、114 条目无超限、`loadMemory` 报 `truncated=false / damaged=0 / poisoned=false`（净减 39 字符）；`CONTEXT.md` roundtrip 字节相同（17 项）。旧串全部 0 次、新串各 1 次、无重复残留。修正提交 `3770f06` 推送后 `main` 与 `origin/main` 齐平，工作区干净，技能目录无漂移。宿主侧仍跑批次 W 之前的代码（socket holder 启动早于本批提交），但本批是行为等价重构，没有功能缺口，是否重启留待用户决定。本轮还观察到一次自动交接的跳过：上下文越过阈值但走出 `skip(nothing-to-drop)` 分支，因为 recent 窗口已覆盖整个会话。接着回答「三个库」：本地只有 `dsh-project-context` 与 `pi-project-context` 两个 checkout，第三个 `codex-project-context` 此前只被克隆到 `/tmp` 做只读勘查、从未归位，记忆与 `docs/` 里也都没有它。已从 Forgejo 正式克隆到 `/mnt/Data/Projects/codex-project-context`，新克隆的树对象与 `/tmp` 两份既有克隆三者完全相同，并新建 `docs/sibling-repos.md` 记录三库的归属、形态与复核命令；`MEMORY.md` 的 Index 里那条只讲 pi 的记录改成并列两个同族仓库并指向该文档（+30 字符）。另外发现 22:36 那次整理其实也重写了 `MEMORY.md`（+571 字符、114 → 121 条目），整行替换式核对为安全不动点后单独落盘。夜间宿主被用户换版重启（`0.2.1-rc.5` → `0.2.2-rc.1`，启动 09:53:41、pid 250828、端口 32891），批次 W 因此真正生效：按 skill 的三段判据逐条验收——宿主启动晚于最后 `src/` 提交、`tsc` 重编译到临时目录后 `diff -rq` 只剩 `client.js`、线上探针四个插件行全 `active` 且 `RESULT: PASS`。随后以运行中 store 的 shipped 源码核对换版对我们六个 API 面的影响，结论落成 `.agents/evidence/2026-11-05-rc5-to-022rc1-compat-audit/README.md`；顺带关掉两条 open task（重启已由用户完成、`backgroundMode` 残留已被 settings 层重写掉）。本轮接着补上那份审计明确留下的唯一空缺——类型级对照：用 `run-probe.sh` 把六个 dsh 包映射到运行中 store 树的 `lib/types` 再跑 `tsc`，两半全绿且 `missing: (none)`；`--traceResolution` 证明 host 21/21、client 94/94 个模块确实解析自 store 树（0 个落 `node_modules`），再以「把 `dsh-session` 错指到 `dsh-llm` 类型上」的负控制打出 38 个 error，证明绿不是构造性的。同一探测打在上一版 `0.2.1-rc.5` 也全绿；peer 门禁改用宿主自己的 `evaluatePluginCompatibility` 真调用（另含伪造 runtime `0.1.0` 的负控制）。证据与复核命令落 `.agents/evidence/2026-11-05-dsh-022rc1-api-compat/`。另外 autolearn 在 10:00 自动产出了 `dsh-runtime-line-delta-audit` 技能，随本轮一起提交。接着把 `MEMORY.md` 从 39980/40000（余量 20）压回安全水位：按 skill 做两处整行替换，都是「`ls` 能重新生成的枚举」——每个目录的文件清单换成目录→职责映射，每批次探针清单只留三种常用探针、其余指向 `.agents/evidence/<date>-*/` 通配；随后又给 Index 补了 spec 指针并把该行压到 339 字符，使 Index 回到硬预算内。全程用 `loadMemory` + `isMemoryTruncated` 复验（不是 grep 标记），并用 `share-fit.mjs` 看分节占用与 round-trip。最后按用户要求整理三个 harness 的状态机与接口面：先是单个 `docs/harness-state-machines-spec.md`，随后按用户「不用都放到一个里面」的要求拆成 `docs/harness/` 下的 `dsh.md` / `pi.md` / `codex.md` 三份事实文档，加一份 `integration.md` 专放决定。每条事实都回到宿主自己的 API 包核对而不是从调用点推断——dsh 63 个事件、pi 41 个事件与 33 个方法、codex 7 个 hook——纠正了「pi 在 `session_before_compact` 写 `HANDOFF.md`」这一想当然（实际是返回 `{cancel:true}` 取消压缩），并记下三条结构性差异：codex 零模型调用、靠 `Stop` 的 `decision: block` 把整理交回宿主；dsh 根本没有压缩前钩子（只有 `compaction/summary-error`），所以 pi / codex 的压缩前逻辑无法平移。决定文档把 shim 从 9 条修正为 3 条：`SH-4`/`SH-5` 撤销 shim 身份（`interpolate` 是文档化选项、默认 `true`），pi / codex 自己的适配层移出本仓；`SH-1` 经查**不能拆**——投影包不在我们依赖里、只作为 `dsh-agent` 的 peer 落在 `.pnpm`，`contextBreakdown` 的类型增强来自同样不依赖的 `dsh-token-meter`，且锁定的 `0.1.7-rc.2` 与运行中的 `0.2.2-rc.1` 的 `snapshot` 签名不同（2026-11-05 预检改判为可拆；本会话已整批落地并拆除，见 Key points）。
+本会话接续「设置卡三处一致性修复」，两批已提交推送：`dfe4f34` 与 `30e0ba1`（文档 `1df17e4`）。第一批修三处：摘要目标行改名「摘要目标（仅报告）」并给卡片加模式门（固定比例行与摘要目标行按 `handoffThresholdAuto` 互斥渲染）；比例折叠收进 `src/shared/ratio.ts` 由命令与卡片共用；「保存未生效，请重试」改成点名真正能救场的两个动作。独立只读审查回来 15 条、无阻塞，其中一条是我引入的真 bug：门读格式化草稿，而 `Reset` 暂存 `format(undefined)`、写入却是 `unset` 并重新继承默认 `true`，按重置会让卡片显示与实际保存相反的模式，已改为读「待写入后的有效模式」。第二批接审查与用户四项要求：两个预算金额的边界收进 `limits.ts` 并在卡片本机校验，越界不再走一遍「保存未生效」；保存失败按成因分文案（比较首次编辑时的文档 revision）；README 删掉已退役的 `handoffThinking` 两行并改掉两处同类假声称。门禁本轮现跑全绿，8 个变异全杀。记忆侧仍未落地：`MEMORY.md` 39696/40000（99.2%），今天 09:36 与 09:47 两次自动整理都因「重写会丢 4 条整条目」拒写；是否压缩需用户拍板。宿主仍是 11-06 09:26:43 启动的 pid 41218，早于最后代码提交 `30e0ba1`（09:59:03），重启待用户执行。此前各轮（批次 W、SH-1 拆除、rc.5→0.2.2 相容性审计、`docs/harness/` 接口面登记）的细节见 Key points、`CHANGELOG.md` 与 `docs/harness/`。
 
 ## Key points
 
@@ -16,18 +16,17 @@ Last updated: 2026-11-04T14:36:33.350Z
 - `CONTEXT.md` 的 roundtrip 报告 17 项、0 超限、字节相同；三处编辑分别去掉漂移行号、删掉已满足条目、换成持久 headroom 注意项
 - 旧串（`align handoffBudgetRecentTokens: 0`、`comments still describe that world`、pid/端口、已完成的修正任务）全部 0 次，新串各 1 次，无重复句
 - 修正提交 `3770f06 docs(memory): correct the stale profile handoff-budget claim` 已推送，`main` 与 `origin/main` 齐平、工作区干净、技能目录无漂移
-- 宿主 socket holder 启动早于批次 W 提交，故新 `lib/` 未在跑；本批行为等价，没有功能缺口
 - 自动交接状态：本轮越阈值但走 `skip(nothing-to-drop)`，因为 `handoffBudgetRecentTokens: 20000` 的 recent 窗口覆盖了整个会话
 - 两个 profile 的 `handoffPendingQuestion: wait` 与 `handoffBudgetRecentTokens: 20000` 已现场重新核实；desktop 行号已漂到 1947，证明 settings 层会重写该文件
 - `codex-project-context` 是 Python 实现（`hooks/context_hook.py` 入口 + `scripts/contextctl.py` 单文件约 93 KB，七个 hook 事件），与 TypeScript 的本仓库形态完全不同，但产出同构的 `.agents/memory/{MEMORY,CONTEXT,HANDOFF}.md` 与 `session-logs/`
 - 它此前只存在于 `/tmp/codex-pc-probe` 与 `/tmp/codex-pc-verify`（重启即丢），且 `MEMORY.md`、`CONTEXT.md`、`docs/`、`CHANGELOG.md` 都没有它的记录，只有 10-31 的会话归档提到过；这是真实的记忆缺口
 - 归位后新克隆与 `/tmp` 两份克隆的 `HEAD^{tree}` 三者相同（`e0014d8`，HEAD `374c593`、16 个跟踪文件、无 tag），远端 `master` 也仍是 `374c593`，`/tmp` 副本可直接丢弃
 - `docs/sibling-repos.md` 是这类跨仓事实的新归宿：三库路径/远端/分支/语言/驱动方式/首次提交，外加「所有会漂的值现读、别引用快照」的复核命令
-- `MEMORY.md` 的 Index 记录已从只讲 pi 改成并列 `pi-project-context` 与 `codex-project-context` 并指向该文档；改后 39980 字符，仍是安全不动点，距 `maxMemoryChars` 只剩 20
-- 宿主 2026-11-05 09:53:41 换版重启：`0.2.1-rc.5`（pid 249231 / 端口 35837）→ `0.2.2-rc.1`（pid 250828 / 端口 32891）；桌面端口每次重启都变，探针不传 `--url` 会以 `fetch failed` 假失败
+- `MEMORY.md` 的 Index 记录已从只讲 pi 改成并列 `pi-project-context` 与 `codex-project-context` 并指向该文档；改后 Index 回到硬预算内，此后 `MEMORY.md` 稳定在 39696/40000（99.2%），仍是安全不动点
+- 宿主 2026-11-06 09:26:43 重启后为 pid 41218 / 端口 35209（`0.2.2-rc.1`）；桌面端口每次重启都变，探针不传 `--url` 会以 `fetch failed` 假失败
 - 批次 W 的三段验收全绿：宿主启动晚于最后 `src/` 提交 `e3459c6`；`tsc --outDir /tmp/libcheck` 后 `diff -rq` 只剩 `client.js`；线上探针四个插件行 `active`、store == wrapper、`RESULT: PASS`
 - 换版相容性（以 shipped 源码为准，本轮无 rc.5/0.2.2-rc.1 专页）：`snapshot(session, keys)` 只算选中单元与我们的显式 keys 一致；`SessionSummary.origin/cwd`、`LlmResolvedModelInfo.context` 形状未变；我们不给辅助调用传 `purpose`，故声明化变更不适用
-- desktop profile 的 `disabled: true` 行现在只剩 `- id: subagent-codex-tool` + `disabled: true`（`cordis.patch.yml:1114`），旧的 `backgroundMode: one-shot` 残留已被 settings 层重写掉
+- desktop profile 的 `disabled: true` 行只剩 `- id: subagent-codex-tool` + `disabled: true`，旧的 `backgroundMode: one-shot` 残留已被 settings 层重写掉（该文件行号会随 settings 重写漂移，grep 键别记行号）
 - 证据文档 `.agents/evidence/2026-11-05-rc5-to-022rc1-compat-audit/README.md` 记了判据、逐面核对表、可闭任务与范围（不是全量 delta）
 - 类型面缺口已补：`run-probe.sh` 把六个 dsh 包映射到 store 树后 `tsc` 两半全绿（host `exit=0 errors=0`、client 同），且 `missing: (none)`
 - 绿不是构造性的：`--traceResolution` 显示 host 21/21、client 94/94 个模块全部解析自 store 树、0 个落 `node_modules`；把 `@deepseek-ai/dsh-session` 错指到 `dsh-llm` 的类型上立刻 38 个 error 变红，映射是承重的
@@ -46,13 +45,27 @@ Last updated: 2026-11-04T14:36:33.350Z
 - 三边接口面完整数字（现读命令在 `docs/harness/README.md` §4）：dsh 63 个事件（我们注册 6）、pi 41 个事件 + 33 个方法（扩展注册 6）、codex 7 个 hook（全用）
 - 批次 U 的上线证据已补：`.agents/evidence/2026-11-05-batch-u-live-carry/`，扫 141 个交接种子 —— 130 个批次 U 前的种子**完全没有 carry 行**（阴性对照），11 个批次 U 后的种子全是 `trimmed` 且每条正文有 11–23 处 `[...truncated...]` 见证，其中 3 个由当前宿主产出（`09:59` / `10:30` / `10:58`，含本会话）；`carried` 与 `nothing` 无生产样本，`nothing` 在 `handoffBudgetRecentTokens: 20000` 下不可达
 - 判据陷阱：**展示层横幅不等于 store 原文** —— 交给模型的那份文本把 trimmed carry 行重排成「已原文带入…；过长的…裁剪」的合并句，而同一会话 store 里是干净的 `continuationTrimmed`；判断种子一律读 `session.v4.jsonl.zstd`，不读对话窗口文本
+- 本轮两批：`dfe4f34`（模式门 / 比例三种写法 / 保存失败文案）与 `30e0ba1`（预算金额本机边界 / 失败按成因分文案），文档 `1df17e4`；另 `a33f186` 落 autolearn 的 `dsh-declared-type-shim-removal` 技能、`19ff745` 订正 CHANGELOG 的变异描述。`HEAD == origin/main == 1df17e4`，工作区干净，技能目录 29/29 与索引一致
+- `client/card-fields.ts` 的 `FieldRow.appliesWhen` + `rowVisible()`：固定比例行只在 `handoffThresholdAuto` 关闭时渲染、摘要目标行只在开启时渲染；三道例外（存储层有覆盖值 / 有暂存草稿 / 非法草稿）保留该行——否则被隐藏的值无法重置，非法草稿还会挡住保存而没有控件可修
+- 门读「待写入后的有效模式」而非格式化草稿：有暂存 `set` 用草稿，否则用 Host 给的已解析值；`Reset` 暂存 `format(undefined)` → `"false"` 而写入是 `unset` 并重新继承默认 `true`，按草稿判定会让预览与保存相反（独立审查发现的真 bug，已修 + 回归用例）
+- 门不是永久的：某行保存过一次就带用户层覆盖值，此后两种模式下都显示（否则无法重置）；README / CHANGELOG / 注释的措辞已从「互斥」收紧为「除非该行带覆盖值或非法草稿」
+- `parseRatioInput`（`src/shared/ratio.ts`）是比例的唯一边界折叠实现，命令 `parseRatio` 与卡片 `ratio` 行共用；`0.4` / `40` / `40%` 等价，边界只来自 `limits.ts` 的 `MIN/MAX_THRESHOLD_RATIO`
+- 两个预算金额的边界收进 `limits.ts`（summary 8000–200000、recent 0–200000），`settings.ts` schema、`config.ts` 的 `bounded()`、`/handoff budget` 解析、卡片 `boundedNumberField` 四处共用；`0` 仍合法（只带摘要）
+- 保存失败按成因分文案：平台只给一个 `failed` 布尔，故用文档 revision 作可观测信号——记首次编辑时的 revision，失败后比较，没动 = 值被 Host 拒绝、动了 = 并发写入；两者都不可重试，文案分别给「改值重存」与「刷新页面重建草稿」，revision 不可观测时退回合并文案
+- 门禁本轮 10:02 现跑：`pnpm typecheck` 0、`pnpm test` 491 通过 / 0 失败、`pnpm build` 0（`lib/client.js` 35579 字节）、变异标记 0；`pnpm test` 现在也跑客户端 `tsc`
+- 变异轮共 8 个全杀（每次从哈希快照还原并逐字节复验）：M1 反向门→2 条模式用例红；M2 `Number(text)` 直通→3 条比例用例红；M3 删 `>1` 折算→卡片用例加 `logic.test.mjs` 的 `parseRatio`/`settingPatch` 一并红；M4 旧文案→只有文案门红；M5 hint 写法→只有 hint 门红；N1 去本机边界→2 条边界用例红；N2 成因塌回单布尔→只有成因用例红；N3 门改回读草稿→只有 `Reset` 预览用例红
+- 独立只读审查 15 条、无阻塞：两条 should-fix（措辞不持久、Reset 预览相反）已修；其余是声称不准与门禁缺口（`numeric` 行此前无测试、README 两处退役行、README 把「触发计算不读」写成「校验不读」）已一并改
+- 宿主判据（本轮 10:00 现读）：pid 41218 / 端口 35209，启动 2026-11-06 09:26:43，晚于 `4affcbe`（SH-1 拆除，11-05 23:30）但早于最后 `src`/`client` 提交 `30e0ba1`（11-06 09:59:03）→ 本批两批**未上线**；重启是用户动作，脚本在 dsh 会话内会 exit 3
 
 ## Open tasks
 
+- 宿主重启（用户执行）：`/etc/nixos/scripts/dsh-desktop-restart.sh`；验收 = 新 pid 启动时间晚于 `30e0ba1` 的 11-06 09:59:03、且 `git -C /mnt/Data/Projects/dsh-project-context diff --exit-code -- lib` 为空；界面验收：自动交接段默认只有「自适应阈值 + 摘要目标（仅报告）」，关掉自适应后两者互换（在「自适应阈值」上按重置不应触发互换），固定阈值填 `40` / `40%` 存成 `0.4`，预算金额填 `7999` 时保存按钮直接灰掉
+- `MEMORY.md` 已到 39696/40000（99.2%）：自动整理今天两次（本地 09:36 / 09:47）都因「重写会丢 4 条整条目、定向重试未救回」被 tier C 拒写，自 2026-10-05 起累计 24 次；要不要按整行替换压缩一轮由用户拍板（对象限于重复叙述、历史哈希链、已关批次细节），不替用户决定丢哪几条，`/memory update` 是用户操作
+- 比例行在触屏上打不出 `%`：平台只提供 `numeric` 布尔 → `inputMode="numeric"`，hint 里的 `40%` 在触屏不可达；要改只能动平台
+- 保存失败的两种成因只在 revision 可观测时才能分开；不可观测时仍退回合并文案（平台只给一个 `failed` 布尔）
 - `MEMORY.md` 的余量靠整行替换维护，不靠追加：增长型写入前先跑 `share-fit.mjs` 看分节占用（`Index` 最容易顶到硬预算），任何写入后用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记
 - 记忆里「dispose 插件要手工清 `dsh.profile.bundles`」是 loader 1.0 之前的整树回写行为：`0.2.2-rc.1` 的 Include 只把运行时改动写回父 patches，下次真正 dispose 插件时要先重新核实这条再照做
 - 上一轮那次瞬时 2 条测试失败仍判为并发写入撞上 `context-injection.test.mjs` 读仓库自身 memory 文档，未记成已修；代码此后未变、三连跑复绿
-- 本批（`SH-1` 拆除）**尚未上线**：改了 `src/` 需宿主重启；当前宿主 pid 5210 / 端口 45649 启动于 22:52:58，早于 `lib/` 重建，验收命令在 `.agents/evidence/2026-11-05-sh1-removal/README.md` §9
 - 全仓完整性审计已于 2026-11-05 做完（`.agents/evidence/2026-11-05-pnpm-store-integrity-audit/`）：73 个包逐文件哈希，修好 1 个代码文件（`dsh-package-manifest` 缺 `lib/index.js`，11 字节 `export {};`）与 25 个 LICENSE，复验 73/73 与上游一致；恢复只落在 `node_modules` 不入 git，下次 `install` 后若出现莫名 module-not-found，先重跑该目录的 `compare.mjs`，别先怀疑代码
 
-<!-- latest-session-title: 0.2.2-rc.1 换版重启：批次 W 上线验收与相容性核对 -->
+<!-- latest-session-title: 设置卡按模式分行、预算本机校验、保存失败归因；MEMORY.md 顶到上限 -->
