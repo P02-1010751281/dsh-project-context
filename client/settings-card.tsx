@@ -15,6 +15,7 @@
 
 import {
 	booleanField,
+	boundedNumberField,
 	hintKey,
 	labelKey,
 	ratioField,
@@ -45,7 +46,7 @@ import type { SnapshotStore } from "@deepseek-ai/dsh-client-store";
 // Type-only: pulls the `plugins.bundle.config` SlotMap merge (the Plugins page's bundle-config slot).
 import type {} from "@deepseek-ai/dsh-client-ui-plugin-manager/client";
 import type { InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
-import { formLabels } from "./locales.ts";
+import { formLabels, type SaveFailure } from "./locales.ts";
 import { injectStyles } from "./styles.ts";
 
 // The layout sheet must land during factory materialization so the module system owns its bookkeeping.
@@ -56,6 +57,10 @@ export type { ProjectContextSettings };
 /** State the card renders: the shared form shell plus one entry per table row. */
 export interface ProjectContextSettingsCardState extends SettingsFormShell {
 	readonly fields: Readonly<Record<keyof ProjectContextSettings, SettingsFieldState>>;
+	/** Each gated row's effective mode after the pending write; `rowVisible` reads it, never the draft. */
+	readonly modes: Readonly<Partial<Record<keyof ProjectContextSettings, "true" | "false">>>;
+	/** The last save's cause, so the frame's one `failed` flag can name the one that applies. */
+	readonly saveFailure?: SaveFailure;
 }
 
 /** The registration-side face the card's slot entry injects. */
@@ -67,12 +72,12 @@ export interface ProjectContextSettingsCardFace extends SettingsFormActions {
 }
 
 /**
- * The platform's spec builders, keyed by row kind. Number, ratio and text reuse the platform's own
- * conversions (the ratio through this plugin's folding rule); boolean and enum are this plugin's,
- * declared in `card-fields.ts`.
+ * The platform's spec builders, keyed by row kind. Text and number reuse the platform's own
+ * conversions; a number row that carries schema bounds, and every ratio, boolean and enum row, are
+ * this plugin's, declared in `card-fields.ts`.
  */
 const SPEC_BUILDERS: Record<FieldRow["kind"], (row: FieldRow) => SettingsFieldSpec> = {
-	number: (row) => settingsNumberField(row.key),
+	number: (row) => (row.bounds === undefined ? settingsNumberField(row.key) : boundedNumberField(row.key, row.bounds)),
 	ratio: (row) => ratioField(row.key),
 	text: (row) => settingsTextField(row.key),
 	boolean: (row) => booleanField(row.key),
@@ -81,11 +86,15 @@ const SPEC_BUILDERS: Record<FieldRow["kind"], (row: FieldRow) => SettingsFieldSp
 
 /** Bridges the `project-context` scope onto the platform's staged settings form. */
 export class ProjectContextSettingsCardController {
+	private readonly scope: SettingsFormScope<ProjectContextSettings>;
 	private readonly form: SettingsFormModel<ProjectContextSettings>;
 	private readonly store: SnapshotStore<ProjectContextSettingsCardState>;
+	/** Revision the document was at when the first edit of the current dirty session was staged. */
+	private revisionAtEdit: number | undefined;
 
 	/** @param scope - the bound configuration form for the `project-context` namespace. */
 	constructor(scope: SettingsFormScope<ProjectContextSettings>) {
+		this.scope = scope;
 		this.form = new SettingsFormModel(scope, ROWS.map((row) => SPEC_BUILDERS[row.kind](row)));
 		this.store = this.form.bind(() => this.projection());
 	}
@@ -95,12 +104,63 @@ export class ProjectContextSettingsCardController {
 	private projection(): ProjectContextSettingsCardState {
 		const fields = {} as Record<keyof ProjectContextSettings, SettingsFieldState>;
 		for (const row of ROWS) fields[row.key] = this.form.field(row.key);
-		return { ...this.form.shell(), fields };
+		const modes = {} as Partial<Record<keyof ProjectContextSettings, "true" | "false">>;
+		for (const row of ROWS) {
+			const gate = row.appliesWhen;
+			if (gate !== undefined) modes[gate.key] = this.effectiveMode(gate.key, fields[gate.key]);
+		}
+		const shell = this.form.shell();
+		return { ...shell, fields, modes, saveFailure: this.saveFailure(shell.failed) };
+	}
+
+	/**
+	 * The mode a gate is read in: a staged set is what the write will store, while a cleared or
+	 * unstaged switch means "whatever the Host serves".
+	 *
+	 * The distinction is load-bearing for Reset. It stages a draft built from the *composition* layer,
+	 * and our profiles carry no value for these keys there, so the draft of a reset reads `false` —
+	 * while the write is an `unset` that re-inherits the schema default (`true`). Gating on the draft
+	 * text would show the fixed-ratio row while saving would leave adaptive mode on.
+	 * @param key - the gate's boolean row.
+	 * @param state - that row's projected state.
+	 * @returns the mode the rows should be read in.
+	 */
+	private effectiveMode(key: keyof ProjectContextSettings, state: SettingsFieldState | undefined): "true" | "false" {
+		if (state?.overridden === true) return state.text === "true" ? "true" : "false";
+		const accepted = (this.scope.getSnapshot().value as Record<string, unknown> | undefined)?.[key];
+		return accepted === false ? "false" : "true";
+	}
+
+	/**
+	 * Read the cause of a failed save off the one thing the platform leaves observable.
+	 *
+	 * The frame reports a single `failed` flag for two unrelated causes, but the document's revision is
+	 * still readable: if it is where it was when this dirty session staged its first edit, the write was
+	 * refused on its value; if it moved, another writer won the race and the staged revision is stale —
+	 * which no retry of the same draft can fix.
+	 * @param failed - whether the frame reports a failed save.
+	 * @returns the cause, or `undefined` when nothing failed.
+	 */
+	private saveFailure(failed: boolean): SaveFailure | undefined {
+		if (!failed) return undefined;
+		const now = this.scope.getSnapshot().revision;
+		if (this.revisionAtEdit === undefined || now === undefined) return "unknown";
+		return now === this.revisionAtEdit ? "rejected" : "conflict";
 	}
 
 	/** Build the face the card's slot registration injects. */
 	inject(): ProjectContextSettingsCardFace {
-		return { hooks: { projectContextSettingsCard: this.store }, ...this.form.actions() };
+		const actions = this.form.actions();
+		return {
+			hooks: { projectContextSettingsCard: this.store },
+			...actions,
+			// The staged revision is invisible from outside, so record the one a dirty session started
+			// from here; `saveFailure` compares it with the document's revision after a failure.
+			edit: (field: string, text: string) => {
+				if (!this.form.shell().dirty) this.revisionAtEdit = this.scope.getSnapshot().revision;
+				actions.edit(field, text);
+			},
+		};
 	}
 
 	/** Release the form's scope subscription; the owning fiber calls this on unload. */
@@ -213,7 +273,7 @@ function UnionRow(props: { row: FieldRow; state: SettingsFieldState; copy: RowCo
 }
 
 /**
- * One table row, dispatched on its kind: the platform's field for text and number, this card's two
+ * One table row, dispatched on its kind: the platform's field for text, number and ratio, this card's two
  * rows for the shapes the platform has no field for.
  * @param props - the row, its state, the row copy, and the edit actions.
  * @returns the rendered row.
@@ -262,14 +322,14 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 	});
 
 	return (
-		<SettingsForm labels={formLabels(t)} state={state} onSave={props.save} onDiscard={props.discard}>
+		<SettingsForm labels={formLabels(t, state.saveFailure)} state={state} onSave={props.save} onDiscard={props.discard}>
 			{SECTIONS.map((section) => (
 				<section key={section.titleKey} className="dshPcSection">
 					<h3 className="dshPcSectionTitle">{t(section.titleKey)}</h3>
 					<p className="dshPcSectionDescription">{t(section.descriptionKey)}</p>
 					{/* Mode-gated rows are dropped rather than disabled: the setting is not read at all in the
 					    other mode, so a control there would invite a write that moves nothing. */}
-					{section.rows.filter((row) => rowVisible(row, state.fields)).map((row) => (
+					{section.rows.filter((row) => rowVisible(row, state.fields, state.modes)).map((row) => (
 						<Row
 							key={row.key}
 							row={row}

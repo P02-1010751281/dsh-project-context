@@ -15,6 +15,12 @@
 
 import type { SettingsFieldSpec } from "@deepseek-ai/dsh-client-ui-primitives";
 
+import {
+	MAX_HANDOFF_RECENT_TOKENS,
+	MAX_HANDOFF_SUMMARY_TOKENS,
+	MIN_HANDOFF_RECENT_TOKENS,
+	MIN_HANDOFF_SUMMARY_TOKENS,
+} from "../src/shared/limits.ts";
 import { parseRatioInput } from "../src/shared/ratio.ts";
 import type { SettingsCardKey } from "./locales.ts";
 
@@ -46,13 +52,15 @@ export interface ProjectContextSettings {
 export type FieldKind = "boolean" | "number" | "text" | "union" | "ratio";
 
 /**
- * The one condition under which a row's setting is read at all: a boolean row's draft must equal
- * `text`. Outside it the row is hidden, because a control that moves nothing is worse than no control
- * — `handoffBudgetSummaryTokens` only reports an override, and `handoffThresholdRatio` is only
- * consulted when the adaptive threshold is off. `rowVisible` carries the one exception (a row the
- * user's own draft or override is on).
+ * A condition under which a row's setting is *consulted*: the boolean row named by `key` must be
+ * `text`. Two threshold rows carry one each, because the trigger computation reads only one of them
+ * per mode — `handoffThresholdRatio` in fixed mode, `handoffBudgetSummaryTokens` in adaptive mode.
  *
- * `text` is the boolean literal, not `string`: a draft is only ever produced by `booleanField`, so a
+ * Not every inert row is hidden (with `handoffEnabled: false` every handoff row is inert and all of
+ * them still render), and the gate is not a promise about validation: the config validator still
+ * checks every key in every mode.
+ *
+ * `text` is the boolean literal, not `string`: the value is only ever produced by `booleanField`, so a
  * misspelled gate here would silently disable the row forever, and that class is better impossible
  * than merely tested.
  */
@@ -61,12 +69,19 @@ export interface FieldGate {
 	readonly text: "true" | "false";
 }
 
+/** The inclusive bounds a numeric row enforces locally, mirroring the Host schema's `min`/`max`. */
+export interface FieldBounds {
+	readonly min: number;
+	readonly max: number;
+}
+
 /** One settings row: its key, its editor, and — for a union — its closed value set. */
 export interface FieldRow {
 	readonly key: keyof ProjectContextSettings;
 	readonly kind: FieldKind;
 	readonly options?: readonly string[];
 	readonly appliesWhen?: FieldGate;
+	readonly bounds?: FieldBounds;
 }
 
 /** One rendered group of rows. */
@@ -117,8 +132,17 @@ export const SECTIONS: readonly FieldSection[] = [
 			// adaptive is off, and the summary target only reports an override in adaptive mode. The card
 			// hides whichever one the other mode has made inert, so the pair cannot read as two triggers.
 			{ key: "handoffThresholdRatio", kind: "ratio", appliesWhen: { key: "handoffThresholdAuto", text: "false" } },
-			{ key: "handoffBudgetSummaryTokens", kind: "number", appliesWhen: { key: "handoffThresholdAuto", text: "true" } },
-			{ key: "handoffBudgetRecentTokens", kind: "number" },
+			{
+				key: "handoffBudgetSummaryTokens",
+				kind: "number",
+				bounds: { min: MIN_HANDOFF_SUMMARY_TOKENS, max: MAX_HANDOFF_SUMMARY_TOKENS },
+				appliesWhen: { key: "handoffThresholdAuto", text: "true" },
+			},
+			{
+				key: "handoffBudgetRecentTokens",
+				kind: "number",
+				bounds: { min: MIN_HANDOFF_RECENT_TOKENS, max: MAX_HANDOFF_RECENT_TOKENS },
+			},
 			{ key: "handoffPendingQuestion", kind: "union", options: ["defer", "wait"] },
 			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
 		],
@@ -136,25 +160,30 @@ export interface FieldDraftState {
 }
 
 /**
- * Whether a row renders under the current drafts.
+ * Whether a row renders, given the effective mode and the row's own draft.
  *
  * A row whose setting is inert in the current mode is hidden — unless it carries the user's own
- * attention: a stored override, a staged value, or a draft that blocks the save. Hiding one of those
- * would put a value the user can neither see nor reset behind a switch, and an invisible invalid draft
- * would block the save with no control to fix.
+ * attention: a stored override (which would otherwise be unreachable and unresettable) or a draft that
+ * blocks the save (an invisible one would block it with no control to fix). A staged `unset` is the one
+ * case that is *not* kept: it is invisible but still lands, because the Host re-inherits the default
+ * and the row it belongs to is inert by construction in that mode.
  * @param row - the table row.
  * @param fields - every row's current field state, as the card projects it.
+ * @param modes - each gate key's effective mode after the pending write, not the formatted draft: a
+ *   reset stages a draft built from the (empty) composition layer, which for an absent field reads as
+ *   `false` while the write re-inherits the schema default `true`.
  * @returns whether the row belongs on the page.
  */
 export function rowVisible(
 	row: FieldRow,
 	fields: Readonly<Record<keyof ProjectContextSettings, FieldDraftState>>,
+	modes: Readonly<Partial<Record<keyof ProjectContextSettings, "true" | "false">>>,
 ): boolean {
 	const gate = row.appliesWhen;
 	if (gate === undefined) return true;
 	const self = fields[row.key];
 	if (self?.overridden === true || self?.invalid === true) return true;
-	return fields[gate.key]?.text === gate.text;
+	return modes[gate.key] === gate.text;
 }
 
 /**
@@ -191,6 +220,29 @@ export function booleanField(field: string): SettingsFieldSpec {
 			if (trimmed === "true") return { kind: "set", value: true };
 			if (trimmed === "false") return { kind: "set", value: false };
 			return trimmed === "" ? { kind: "clear" } : undefined;
+		},
+	};
+}
+
+/**
+ * A whole-number row with the Host schema's inclusive bounds: a draft outside them, or a non-integer,
+ * is refused here instead of being staged into a write the Host rejects. The bounds are the same pair
+ * the schema and the config validator read (`limits.ts`), never a second copy.
+ * @param field - field name inside the namespace section.
+ * @param bounds - the inclusive bounds the schema declares.
+ * @returns the field's conversion spec.
+ */
+export function boundedNumberField(field: string, bounds: FieldBounds): SettingsFieldSpec {
+	return {
+		field,
+		format: (value) => (typeof value === "number" ? String(value) : ""),
+		parse: (text) => {
+			const trimmed = text.trim();
+			if (trimmed === "") return { kind: "clear" };
+			const value = Number(trimmed);
+			// `z.natural()` is an integer, so `64000.5` would be rejected by the Host as well.
+			if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) return undefined;
+			return { kind: "set", value };
 		},
 	};
 }

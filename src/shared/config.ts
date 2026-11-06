@@ -12,7 +12,16 @@
  * reader on purpose — an alias nothing can retire is worse than a loud apply-time failure.
  */
 
-import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "./limits.js";
+import {
+	DEFAULT_HANDOFF_SUMMARY_TOKENS,
+	DEFAULT_THRESHOLD_RATIO,
+	MAX_HANDOFF_RECENT_TOKENS,
+	MAX_HANDOFF_SUMMARY_TOKENS,
+	MAX_THRESHOLD_RATIO,
+	MIN_HANDOFF_RECENT_TOKENS,
+	MIN_HANDOFF_SUMMARY_TOKENS,
+	MIN_THRESHOLD_RATIO,
+} from "./limits.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 
 export interface PluginConfig {
@@ -76,7 +85,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	handoffEnabled: true,
 	handoffThresholdAuto: true,
 	handoffThresholdRatio: DEFAULT_THRESHOLD_RATIO,
-	handoffBudgetSummaryTokens: 64_000,
+	handoffBudgetSummaryTokens: DEFAULT_HANDOFF_SUMMARY_TOKENS,
 	handoffBudgetRecentTokens: 20_000,
 	handoffPendingQuestion: "defer",
 	handoffLang: "auto",
@@ -191,8 +200,8 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		handoffEnabled: boolean("handoffEnabled", DEFAULT_CONFIG.handoffEnabled),
 		handoffThresholdAuto: boolean("handoffThresholdAuto", DEFAULT_CONFIG.handoffThresholdAuto),
 		handoffThresholdRatio: ratio("handoffThresholdRatio", DEFAULT_CONFIG.handoffThresholdRatio),
-		handoffBudgetSummaryTokens: bounded("handoffBudgetSummaryTokens", DEFAULT_CONFIG.handoffBudgetSummaryTokens, 8_000, 200_000),
-		handoffBudgetRecentTokens: bounded("handoffBudgetRecentTokens", DEFAULT_CONFIG.handoffBudgetRecentTokens, 0, 200_000),
+		handoffBudgetSummaryTokens: bounded("handoffBudgetSummaryTokens", DEFAULT_CONFIG.handoffBudgetSummaryTokens, MIN_HANDOFF_SUMMARY_TOKENS, MAX_HANDOFF_SUMMARY_TOKENS),
+		handoffBudgetRecentTokens: bounded("handoffBudgetRecentTokens", DEFAULT_CONFIG.handoffBudgetRecentTokens, MIN_HANDOFF_RECENT_TOKENS, MAX_HANDOFF_RECENT_TOKENS),
 		handoffPendingQuestion: pendingQuestion ?? DEFAULT_CONFIG.handoffPendingQuestion,
 		handoffLang: handoffLang ?? DEFAULT_CONFIG.handoffLang,
 	};

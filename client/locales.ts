@@ -2,7 +2,7 @@
 
 import type { SettingsFormLabels } from "@deepseek-ai/dsh-client-ui-primitives";
 
-import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../src/shared/limits.ts";
+import { DEFAULT_HANDOFF_SUMMARY_TOKENS, DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../src/shared/limits.ts";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../src/shared/setting-labels.ts";
 
 export const zh = {
@@ -11,6 +11,8 @@ export const zh = {
 	"chrome.save": "保存",
 	"chrome.saving": "保存中…",
 	"chrome.saveFailed": "保存未生效：值可能被拒绝，或设置已被别处改动；修正后重存，或刷新页面再试",
+	"chrome.saveFailedRejected": "保存未生效：这个值没有被接受（文档没有被别处改动）。改成合法值后再保存。",
+	"chrome.saveFailedConflict": "保存未生效：设置已被别处改动（另一个标签页、/handoff 命令，或宿主重启），当前草稿基于旧版本。刷新页面重新读取后再改并保存。",
 	"chrome.unavailable": "该插件当前未加载，暂时无法配置",
 	"chrome.invalidNumber": "请填有效数值；留空表示使用默认值",
 	"chrome.readOnly": "当前环境的设置为只读",
@@ -53,9 +55,9 @@ export const zh = {
 	"field.handoffThresholdAuto": "自适应阈值",
 	"field.handoffThresholdAutoHint": "开启时按上下文窗口与保留量自动推导；关闭时用下面的固定比例",
 	"field.handoffThresholdRatio": "固定阈值（上下文窗口占比）",
-	"field.handoffThresholdRatioHint": `仅固定模式（自适应关闭）读取；可写 0.4、40 或 40%（与 /handoff threshold 相同）；${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}，默认 ${DEFAULT_THRESHOLD_RATIO}，早于 dsh 内置压缩的 0.8`,
+	"field.handoffThresholdRatioHint": `仅固定模式（自适应关闭）读取；可写 0.4、40 或 40%（与 /handoff threshold 相同）；${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}，默认 ${DEFAULT_THRESHOLD_RATIO}；设到 0.8 及以上时 dsh 内置压缩会先触发`,
 	"field.handoffBudgetSummaryTokens": "摘要目标（仅报告）",
-	"field.handoffBudgetSummaryTokensHint": "仅自适应模式读取；只决定回执里「目标是否被完整采纳」的报告，不移动触发点，也不产生任何模型调用（默认 64000）",
+	"field.handoffBudgetSummaryTokensHint": `仅自适应模式读取；只决定回执里「目标是否被完整采纳」的报告，不移动触发点，也不产生任何模型调用（默认 ${DEFAULT_HANDOFF_SUMMARY_TOKENS}）`,
 	"field.handoffBudgetRecentTokens": HANDOFF_BUDGET_RECENT_LABEL.zh,
 	"field.handoffBudgetRecentTokensHint": "原样带入新会话的最近对话，0 表示不逐字带入对话尾料（默认 20000；用户最后一次输入不受该值影响，始终单独带入）",
 	"field.handoffPendingQuestion": "未答问题的处理",
@@ -72,6 +74,8 @@ export const en: Record<SettingsCardKey, string> = {
 	"chrome.save": "Save",
 	"chrome.saving": "Saving…",
 	"chrome.saveFailed": "Save did not land: the value may be rejected, or these settings changed elsewhere — correct it and save again, or reload the page",
+	"chrome.saveFailedRejected": "Save did not land: this value was not accepted (the document did not change elsewhere). Correct it and save again.",
+	"chrome.saveFailedConflict": "Save did not land: these settings changed elsewhere (another tab, a /handoff command, or a host restart), so the drafts are based on an older version. Reload the page, then edit and save again.",
 	"chrome.unavailable": "This plugin is not loaded, so it cannot be configured right now",
 	"chrome.invalidNumber": "Enter a valid value, or leave blank to use the default",
 	"chrome.readOnly": "Settings are read-only in this environment",
@@ -114,9 +118,9 @@ export const en: Record<SettingsCardKey, string> = {
 	"field.handoffThresholdAuto": "Adaptive threshold",
 	"field.handoffThresholdAutoHint": "Derive the trigger from the window and keep budget; off uses the fixed ratio below",
 	"field.handoffThresholdRatio": "Fixed threshold (share of window)",
-	"field.handoffThresholdRatioHint": `Read only when adaptive is off; accepts 0.4, 40 or 40% (same as /handoff threshold); ${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}, default ${DEFAULT_THRESHOLD_RATIO}, before dsh compaction's 0.8`,
+	"field.handoffThresholdRatioHint": `Read only when adaptive is off; accepts 0.4, 40 or 40% (same as /handoff threshold); ${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}, default ${DEFAULT_THRESHOLD_RATIO}; at 0.8 and above dsh's own compaction (0.8) fires first`,
 	"field.handoffBudgetSummaryTokens": "Summary target (report only)",
-	"field.handoffBudgetSummaryTokensHint": "Read in adaptive mode only; it decides whether the receipt reports this target as fully applied. It never moves the trigger and calls no model (default 64000)",
+	"field.handoffBudgetSummaryTokensHint": `Read in adaptive mode only; it decides whether the receipt reports this target as fully applied. It never moves the trigger and calls no model (default ${DEFAULT_HANDOFF_SUMMARY_TOKENS})`,
 	"field.handoffBudgetRecentTokens": HANDOFF_BUDGET_RECENT_LABEL.en,
 	"field.handoffBudgetRecentTokensHint": "Recent conversation carried into the new session verbatim; 0 = no verbatim tail (default 20000). The user's last input is carried separately and is not affected by this value.",
 	"field.handoffPendingQuestion": "Pending question handling",
@@ -126,19 +130,35 @@ export const en: Record<SettingsCardKey, string> = {
 };
 
 /**
+ * The cause a failed settings save can be attributed to.
+ *
+ * The frame exposes one `failed` flag, so the card derives the cause from the document's revision
+ * (see `ProjectContextSettingsCardController.saveFailure`); `unknown` is used when the revision is not
+ * observable at all.
+ */
+export type SaveFailure = "conflict" | "rejected" | "unknown";
+
+/**
  * The form frame's copy, read from this card's dictionary.
  *
  * The frame is the platform's `SettingsForm`, so its labels are the platform's five, not this
  * plugin's own chrome: a deployment that never composed the host half reads "not loaded" instead of
  * a form nothing would accept.
+ * The failure line is the one label that varies by cause: the frame keeps one `failed` flag, so the
+ * card hands it the sentence for the cause it could observe instead of a generic "try again".
  * @param t - the card's locale reader.
+ * @param failure - the cause of the last failed save, when there was one.
  * @returns the labels the shared settings form renders.
  */
-export function formLabels(t: (key: SettingsCardKey) => string): SettingsFormLabels {
+export function formLabels(t: (key: SettingsCardKey) => string, failure?: SaveFailure): SettingsFormLabels {
 	return {
 		unavailable: t("chrome.unavailable"),
 		readOnly: t("chrome.readOnly"),
-		saveFailed: t("chrome.saveFailed"),
+		saveFailed: t(
+			failure === "conflict" ? "chrome.saveFailedConflict"
+				: failure === "rejected" ? "chrome.saveFailedRejected"
+					: "chrome.saveFailed",
+		),
 		save: t("chrome.save"),
 		saving: t("chrome.saving"),
 	};

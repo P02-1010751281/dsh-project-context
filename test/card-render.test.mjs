@@ -159,6 +159,8 @@ const bundlePath = join(dir, "card.mjs");
 writeFileSync(bundlePath, output.text);
 process.on("exit", () => { rmSync(dir, { recursive: true, force: true }); });
 
+const { MAX_THRESHOLD_RATIO } = await import("../lib/shared/limits.js");
+
 const {
 	createElement,
 	renderToStaticMarkup,
@@ -199,26 +201,23 @@ const PLATFORM_KINDS = new Set(["number", "text", "ratio"]);
 const PILL_TOTAL = UNION_ROWS.reduce((sum, row) => sum + (row.options?.length ?? 0), 0);
 
 /**
- * The drafts the card holds for a section value it never staged anything over: each draft is the
- * field's own format, which is what decides a mode-gated row.
+ * The rows a section value leaves on the page, read off the card's own projection rather than a second
+ * mirror of it — the gated pair swapped, not counted twice.
  * @param value - the section value the scope serves.
- * @returns one field state per table row.
- */
-const draftsOf = (value) => Object.fromEntries(ROWS.map((row) => [row.key, {
-	text: String(value[row.key]),
-	overridden: false,
-	invalid: false,
-}]));
-
-/**
- * The rows a section value leaves on the page — the mode-gated pair swapped rather than counted twice.
- * @param value - the section value the scope serves.
+ * @param user - the stored user layer, when a row is overridden.
  * @returns the table's rows the card must render.
  */
-const VISIBLE = (value) => ROWS.filter((row) => rowVisible(row, draftsOf(value)));
+function VISIBLE(value, user = {}) {
+	const scope = makeScope({ value, user });
+	const { controller, store } = mount(scope);
+	const snapshot = store.getSnapshot();
+	const rows = ROWS.filter((row) => rowVisible(row, snapshot.fields, snapshot.modes));
+	controller.dispose();
+	return rows;
+}
 
 /** The rows the platform's own field draws, for one section value. */
-const PLATFORM_OF = (value) => VISIBLE(value).filter((row) => PLATFORM_KINDS.has(row.kind));
+const PLATFORM_OF = (value, user) => VISIBLE(value, user).filter((row) => PLATFORM_KINDS.has(row.kind));
 
 /** `VALUE` keeps the adaptive threshold on, so its platform rows are the summary target. */
 const PLATFORM_ROWS = PLATFORM_OF(VALUE);
@@ -232,6 +231,8 @@ const tick = () => new Promise((resolve) => { setImmediate(resolve); });
 /** @param options - scope overrides. */
 function makeScope(options = {}) {
 	const calls = [];
+	// A refused write that still moved the revision is what a concurrent writer looks like from here.
+	let revision = options.revision ?? 7;
 	return {
 		calls,
 		getSnapshot: () => ({
@@ -240,12 +241,15 @@ function makeScope(options = {}) {
 			base: {},
 			user: options.user ?? {},
 			writable: options.writable ?? true,
-			revision: 7,
+			revision,
 		}),
 		subscribe: () => () => {},
 		mutate: async (ops, expectedRevision) => {
 			calls.push({ ops, expectedRevision });
-			return options.accept ?? true;
+			const landed = options.accept ?? true;
+			if (options.revisionAfterLanded !== undefined && landed) revision = options.revisionAfterLanded;
+			if (options.revisionAfterRefused !== undefined && !landed) revision = options.revisionAfterRefused;
+			return landed;
 		},
 	};
 }
@@ -356,7 +360,7 @@ test("a read-only document still shows every row, with the save disabled", () =>
 	assert.match(rendered.saveTag ?? "", /disabled/, "the save must refuse while the document is read-only");
 });
 
-test("the adaptive-only and fixed-only threshold rows swap with the mode", () => {
+test("the adaptive-only and fixed-only threshold rows swap with the mode", async () => {
 	const adaptive = page();
 	assert.ok(adaptive.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"), "adaptive mode shows the summary target");
 	assert.equal(
@@ -377,6 +381,119 @@ test("the adaptive-only and fixed-only threshold rows swap with the mode", () =>
 		PLATFORM_OF({ ...VALUE, handoffThresholdAuto: false }).length,
 		"exactly one of the two threshold rows replaces the other",
 	);
+
+	// A switch flip is a staged set, so the pair swaps before the save rather than after it.
+	const scope = makeScope();
+	const { controller, face, props } = mount(scope);
+	face.edit("handoffThresholdAuto", "false");
+	await tick();
+	assert.ok(
+		render(props).html.includes('id="dsh-pc-handoffThresholdRatio"'),
+		"a staged switch flip must swap the pair immediately",
+	);
+	controller.dispose();
+});
+
+test("Reset on the mode switch previews the mode the save would leave", async () => {
+	// Reset stages a draft formatted from the (empty) composition layer, so it reads "false", while the
+	// write is an unset that re-inherits the schema default (`handoffThresholdAuto: true`). Gating on the
+	// draft text would show the fixed-ratio row for the whole edit — the opposite of what the save does.
+	const scope = makeScope({ user: { handoffThresholdAuto: true } });
+	const { controller, face, props } = mount(scope);
+	face.resetField("handoffThresholdAuto");
+	await tick();
+	const html = render(props).html;
+	assert.ok(html.includes('id="dsh-pc-handoffBudgetSummaryTokens"'), "the pending unset re-inherits adaptive mode");
+	assert.equal(html.includes('id="dsh-pc-handoffThresholdRatio"'), false, "so the fixed ratio must not appear yet");
+	controller.dispose();
+});
+
+test("a budget amount outside the Host's range is refused on the card instead of staged", async () => {
+	const tooLow = makeScope();
+	const low = mount(tooLow);
+	low.face.edit("handoffBudgetSummaryTokens", "7999");
+	await tick();
+	assert.equal(low.store.getSnapshot().invalid, true, "below the schema minimum must block the save");
+	assert.match(render(low.props).saveTag ?? "", /disabled/, "and must leave the save disabled");
+	low.face.save();
+	await tick();
+	assert.equal(tooLow.calls.length, 0, "and must never reach the Host");
+	low.controller.dispose();
+
+	const tooHigh = makeScope();
+	const high = mount(tooHigh);
+	high.face.edit("handoffBudgetRecentTokens", "200001");
+	await tick();
+	assert.equal(high.store.getSnapshot().invalid, true, "above the schema maximum must block the save");
+	high.face.save();
+	await tick();
+	assert.equal(tooHigh.calls.length, 0, "and must never reach the Host");
+	high.controller.dispose();
+
+	// The bounds are inclusive, and the low end of `recent` is a real value: carry no verbatim tail.
+	const ok = makeScope();
+	const legal = mount(ok);
+	legal.face.edit("handoffBudgetRecentTokens", "0");
+	await tick();
+	legal.face.save();
+	await tick();
+	assert.deepEqual(
+		ok.calls.map((call) => call.ops),
+		[[{ op: "set", path: ["handoffBudgetRecentTokens"], value: 0 }]],
+		"the schema's inclusive minimum must be accepted",
+	);
+	legal.controller.dispose();
+});
+
+test("a failed save names the cause the card can observe", async () => {
+	// The frame reports one `failed` flag for two causes; the document's revision is what separates them.
+	const refused = makeScope({ accept: false });
+	const rejected = mount(refused);
+	rejected.face.edit("consolidateTurns", "20");
+	await tick();
+	rejected.face.save();
+	await tick();
+	assert.equal(rejected.store.getSnapshot().saveFailure, "rejected", "an unchanged revision means the value was refused");
+	assert.ok(render(rejected.props).html.includes("chrome.saveFailedRejected"), "and the copy must say so");
+	rejected.controller.dispose();
+
+	const raced = makeScope({ accept: false, revisionAfterRefused: 9 });
+	const conflict = mount(raced);
+	conflict.face.edit("consolidateTurns", "20");
+	await tick();
+	conflict.face.save();
+	await tick();
+	assert.equal(conflict.store.getSnapshot().saveFailure, "conflict", "a moved revision means another writer won");
+	assert.ok(render(conflict.props).html.includes("chrome.saveFailedConflict"), "and the copy must say so");
+	conflict.controller.dispose();
+
+	// A save that lands reports no cause at all.
+	const ok = makeScope();
+	const landed = mount(ok);
+	landed.face.edit("consolidateTurns", "20");
+	await tick();
+	landed.face.save();
+	await tick();
+	assert.equal(landed.store.getSnapshot().saveFailure, undefined, "an accepted save has no cause");
+	assert.equal(render(landed.props).html.includes("chrome.saveFailed"), false, "and no failure copy");
+	landed.controller.dispose();
+});
+
+test("the ratio and bounded rows are drawn as numeric inputs", () => {
+	// `numeric` is what makes the platform's field numeric; dropping it leaves every behavioural test
+	// green, because this harness edits through the action rather than the input.
+	// Each row in the mode that renders it: the summary target is adaptive-only, the ratio fixed-only.
+	const modes = [
+		["handoffBudgetSummaryTokens", true],
+		["handoffBudgetRecentTokens", true],
+		["handoffThresholdRatio", false],
+	];
+	for (const [key, adaptive] of modes) {
+		const { rendered } = page(adaptive ? {} : { value: { ...VALUE, handoffThresholdAuto: false } });
+		const input = new RegExp(`<input[^>]*id="dsh-pc-${key}"[^>]*>`).exec(rendered.html)?.[0] ?? "";
+		assert.ok(input.length > 0, `${key} must render an input`);
+		assert.match(input, /inputmode="numeric"/i, `${key}'s input must be numeric: ${input}`);
+	}
 });
 
 test("a mode-gated row stays on the page while it carries the user's own value", () => {
@@ -389,8 +506,8 @@ test("a mode-gated row stays on the page while it carries the user's own value",
 
 test("the ratio row folds 40 and 40% to the 0.4 the Host stores", async () => {
 	// The command has always accepted all three spellings; a card that passed `40` through to a schema
-	// holding 0.1–0.95 was the save that failed with no explanation. Each spelling must both parse and
-	// write the same number.
+	// bounded by `limits.ts` was the save that failed with no explanation. Each spelling must both parse
+	// and write the same number.
 	for (const typed of ["0.4", "40", "40%"]) {
 		const scope = makeScope({ value: { ...VALUE, handoffThresholdAuto: false } });
 		const { controller, face, props, store } = mount(scope);
@@ -411,7 +528,7 @@ test("the ratio row folds 40 and 40% to the 0.4 the Host stores", async () => {
 	// A draft the Host's pair refuses is refused here, rather than staged into a write the Host drops.
 	const refused = makeScope({ value: { ...VALUE, handoffThresholdAuto: false } });
 	const over = mount(refused);
-	over.face.edit("handoffThresholdRatio", "0.96");
+	over.face.edit("handoffThresholdRatio", String(MAX_THRESHOLD_RATIO + 0.01));
 	await tick();
 	assert.equal(over.store.getSnapshot().invalid, true, "a ratio outside the accepted pair must block the save");
 	over.face.save();

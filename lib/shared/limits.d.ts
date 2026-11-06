@@ -26,4 +26,19 @@ export declare const MAX_LIST_ENTRIES = 50;
  */
 export declare const MIN_THRESHOLD_RATIO = 0.1;
 export declare const MAX_THRESHOLD_RATIO = 0.95;
+/**
+ * Accepted bounds for the two handoff budget amounts — the one source the settings schema, the config
+ * validator, the `/handoff budget` parser and the settings card all read, so a value the card accepts
+ * is a value the Host keeps. `summary` sizes the override report, `recent` sizes the verbatim tail.
+ */
+/**
+ * Default for `handoffBudgetSummaryTokens`. It lives here rather than only in `config.ts` because the
+ * card's hint states it: `config.ts` pulls `node:` modules, so the browser half cannot read
+ * `DEFAULT_CONFIG` — and a default restated in copy is the drift class this file exists to prevent.
+ */
+export declare const DEFAULT_HANDOFF_SUMMARY_TOKENS = 64000;
+export declare const MIN_HANDOFF_SUMMARY_TOKENS = 8000;
+export declare const MAX_HANDOFF_SUMMARY_TOKENS = 200000;
+export declare const MIN_HANDOFF_RECENT_TOKENS = 0;
+export declare const MAX_HANDOFF_RECENT_TOKENS = 200000;
 export declare const DEFAULT_THRESHOLD_RATIO = 0.4;

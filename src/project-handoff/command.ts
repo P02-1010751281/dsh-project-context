@@ -6,7 +6,15 @@
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../shared/limits.js";
+import {
+	DEFAULT_THRESHOLD_RATIO,
+	MAX_HANDOFF_RECENT_TOKENS,
+	MAX_HANDOFF_SUMMARY_TOKENS,
+	MAX_THRESHOLD_RATIO,
+	MIN_HANDOFF_RECENT_TOKENS,
+	MIN_HANDOFF_SUMMARY_TOKENS,
+	MIN_THRESHOLD_RATIO,
+} from "../shared/limits.js";
 import { parseRatioInput } from "../shared/ratio.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
@@ -64,10 +72,14 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	if (budget) {
 		const tokens = parseTokenCount(budget[2]);
 		if (budget[1] === "summary") {
-			if (tokens === undefined || tokens < 8_000 || tokens > 200_000) return { error: "budget summary needs 8000–200000 tokens (e.g. budget summary 64k)" };
+			if (tokens === undefined || tokens < MIN_HANDOFF_SUMMARY_TOKENS || tokens > MAX_HANDOFF_SUMMARY_TOKENS) {
+				return { error: `budget summary needs ${MIN_HANDOFF_SUMMARY_TOKENS}–${MAX_HANDOFF_SUMMARY_TOKENS} tokens (e.g. budget summary 64k)` };
+			}
 			return { patch: { handoffBudgetSummaryTokens: tokens } };
 		}
-		if (tokens === undefined || tokens > 200_000) return { error: "budget recent needs 0–200000 tokens (e.g. budget recent 20k, budget recent 0)" };
+		if (tokens === undefined || tokens < MIN_HANDOFF_RECENT_TOKENS || tokens > MAX_HANDOFF_RECENT_TOKENS) {
+			return { error: `budget recent needs ${MIN_HANDOFF_RECENT_TOKENS}–${MAX_HANDOFF_RECENT_TOKENS} tokens (e.g. budget recent 20k, budget recent 0)` };
+		}
 		return { patch: { handoffBudgetRecentTokens: tokens } };
 	}
 	// A verb used without its argument names its own sub-verbs rather than falling through to the whole
