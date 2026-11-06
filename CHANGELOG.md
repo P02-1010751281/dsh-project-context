@@ -14,7 +14,7 @@
 
 - 性质：纯文档重排，`src/`、`client/`、`lib/` 零改动，**不需要重启宿主**。用户 2026-11-06 在「要不要再往下做一层」里选了 **2 + 3**：归档批次档案、拆分 CHANGELOG。
 - 归档：18 个 `docs/batch-*.md` 用 `git mv` 移进 `docs/archive/`（`git status` 为 18 条 rename，内容改动只有路径）；`batch-w-decision-seam-spec.md` **留在 `docs/`**，因为 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用它，移走会让代码注释指向空路径。新增 `docs/README.md`：生效文档表、归档表（18 行）、写作与引用约定。
-- CHANGELOG：主文件 **1719 → 269 行**，只留「未发布」与 `## 版本目录`；8 个已发布版本各一份 `docs/changelog/v*.md`（标题 `###` 升 `#`，正文逐字搬移，各带一行索引回链）。搬移不是凭印象：以 `git show HEAD:CHANGELOG.md` 的原始分节为基准逐行比对，把 `docs/archive/` 前缀归一化后 **9 个分节（未发布 + 8 个版本）差异行全为 0**。
+- CHANGELOG：主文件 **1719 → 269 行**（拆分后、本条之外；含本条现为 278 行），只留「未发布」与 `## 版本目录`；8 个已发布版本各一份 `docs/changelog/v*.md`（标题 `###` 升 `#`，正文逐字搬移，各带一行索引回链）。搬移不是凭印象：以 `git show HEAD:CHANGELOG.md` 的原始分节为基准逐行比对，把 `docs/archive/` 前缀归一化后 **9 个分节（未发布 + 8 个版本）差异行全为 0**。
 - 引用：`docs/batch-*` → `docs/archive/batch-*` 共 **46 行**（README、CHANGELOG、`docs/upstream-pi-triage.md`、`docs/vocabulary-conventions.md`、归档文件互引、`pi-upstream-triage-pass` 技能、MEMORY/CONTEXT）；归档文件里 3 处指向 `docs/` 根的相对链接补 `../`，`docs/harness/integration.md` 的证据链补一层 `../`。`.agents/evidence/` **不回改**（冻结证据里的旧路径描述的是当时读到的树），规则写进 `docs/README.md`。
 - 发布流程变更：发版从「在 `CHANGELOG.md` 里新开版本小节」改为「未发布整段搬进 `docs/changelog/v<new>.md` + 目录加一行 + 重开空 `### 未发布`」；`dsh-project-context-release` 技能第 2/4 步与 MEMORY 的发布不变量同步更新。
 - 门禁（现跑）：117 个受跟踪 md 逐个解析相对链接，live 文档 **0 死链**（唯一命中是 `docs/behavior.md` 用代码块演示 `INDEX.md` 行格式时写的 `[id](id/session.md)`，不是真链接）；`pnpm test` **492 通过 / 0 失败**；`pnpm build` 后 `git diff --exit-code -- lib` **为空**（源码未动，产物确定性）；`share-fit.mjs` 与 `roundtrip.mjs` 均 `sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同。
