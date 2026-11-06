@@ -76,5 +76,15 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 所以会话长起来之后 pass 自己会撞窗。压 `maxOutputTokens` 不是解——ceiling 一压，
 `fitMemoryInput` 就改成头尾各剪一刀，是有损的。真正的杠杆是把两份文档压小。
 
+还有两点容易被当成硬限：
+
+- 这里的窗口是**声明值**（设置 → 模型 → 每行的「上下文窗口」，落盘在 `~/.dsh/settings.yaml` 的
+  `contextWindow`），不是请求侧的硬限。声明得比真实窗口小不会让请求变小，只会改变上面这两套决策：
+  真实窗口 1M 却声明 64K 时，请求照旧放得下，于是等于什么都没限住，只是把插件和压缩都按 64K 来算。
+- 声明窗口不只影响本插件：宿主的压缩插件默认 `headroomTokens: 65536`，压力预算 =
+  `W − 保留输出 − headroomTokens`，所以任何 ≤ 65536 的声明都会让这条预算算成非正数并抛
+  `TargetPressureConfigError`（提示「configure a larger adapter model contextWindow」或调小 headroom）。
+  真要在 64K 上跑，这个 headroom 得一起降。
+
 各尺寸的现账用 `node .agents/evidence/2026-11-06-small-window-presets/measure.mjs` 直接跑
 （那份目录的 README 里有一份 2026-11-06 的快照）。

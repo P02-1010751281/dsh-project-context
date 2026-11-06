@@ -96,3 +96,19 @@ cap 18000 时 116 条里 67 条不在注入集里。
 | 文档压到 18000 字符后 | `keep` 12000 可用；pass 的请求整段可放下 | — |
 
 改设置是用户动作，两个 profile 各自独立（`cordis.patch.yml` 在各自 profile 里）。
+
+## 六、窗口是「声明值」，而且宿主压缩插件有 64K 下限
+
+插件读的窗口来自宿主模型解析结果（`resolved.context.contextWindow`），也就是设置 → 模型里每行的
+「上下文窗口」，落盘在 `~/.dsh/settings.yaml` 的 `contextWindow`。**本插件自己没有窗口设置项**
+（`config.ts` / `settings.ts` / `card-fields.ts` 里没有这个键）。
+
+两个后果：
+
+- 声明得比真实窗口小**不会**让请求变小——真实窗口 1M 却声明 64K 时，请求照旧放得下，
+  于是「限住」的只有本插件的阈值和宿主的压缩判断，实际上下文该多长还是多长。
+- 宿主的压缩插件（`packages/compaction/compaction-basic`）默认 `headroomTokens = 65_536`，它的
+  压力预算是 `W − 保留输出 − headroomTokens`，一旦 `<= 0` 就抛 `TargetPressureConfigError`，
+  提示「reduce the effective request maxTokens or compaction headroomTokens, or configure a larger
+  adapter model contextWindow」。所以**任何 ≤ 65536 的声明都配不出压缩**，64K 想真跑必须把这个
+  headroom 一起降（并确认该 profile 确实启用了这个插件）。
