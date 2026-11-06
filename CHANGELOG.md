@@ -17,7 +17,7 @@
   - M1 把摘要目标的门加回去（即撤回本批修复）→ **3 条**红：`the report-only target keeps rendering…`、`handoffBudgetSummaryTokens must render an input`、「`appliesWhen` … must not be gated」。
   - M2 把门的比较反向（`===` → `!==`）→ **5 条**红：比例行在自适应下反而出现、`Reset` 预览用例、被覆盖的门行用例等 —— 证明剩下的那道门仍承重。
 - 门禁（现跑，不引用历史数字）：`pnpm typecheck` 0；`pnpm test` **491 通过 / 0 失败**；`pnpm build` 0（`lib/client.js` **35750** 字节，本批前 35579）；bundle 里 `appliesWhen` 由 4 处降到 3 处，`rowVisible` 仍是 2 处。
-- 边界：`src/` 未动 ⇒ 不需要为宿主代码重启；浏览器刷新一次应拿到新 bundle，若宿主在启动时缓存了客户端模块则仍需一次重启（判别：刷新后固定模式下这一行是否出现）。README 的设置表同步了这一行的可见性说明。
+- 边界：`src/` 未动 ⇒ 不需要为宿主代码重启。客户端 bundle 也已实测在派发、同样不需要重启（2026-11-06 18:24，宿主 pid 58434 于 10:51:53 启动）：宿主**确实**把 bundle 缓存在内存表里按请求派发（`packages/client/modules/src/index.ts` 的 `buildCombo` 用 `record.bundle`），但这份 host 的组合里挂着 `include:client-hmr @deepseek-ai/dsh-client-hmr`（由 `@deepseek-ai/dsh-web-app` 的 `cordis.patch.yml` 插入），它以 500 ms 统计轮询每个条目的 bundle 元数据、变化时调 `clientModules.rebuilt()` 重读磁盘并重新 compose，页面侧 `entries.reload()` → `replace()` 再失效模块缓存、拆旧 fiber、重新 `import` 并 `entry.refresh()`。决定性判别（不看 UI）：带签名 cookie 取 `/`，从 `window["__DSH_BOOT__"]` 读本插件的 combo URL（本次 `plugins/??dsh-project-context/client.js&rev=805a30a0ec8f`），取其字节与 `lib/client.js` 比对 —— 前 35750 字节逐字节相同，只多 76 字节的 `;\n//# sourceMappingURL=…` 尾。README 的设置表同步了这一行的可见性说明。
 
 **project-context 设置卡（预算金额本机校验 / 保存失败按成因说真话 / 模式下预览修正）**
 
