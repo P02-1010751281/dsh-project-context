@@ -2300,12 +2300,13 @@ test("tier C: a cached refusal names the cap it was measured under, not the curr
 });
 
 test("counts describe only what landed, and a receipt never claims an artifact that did not", async () => {
-	// The stored context is over the read cap, so characters of it really are hidden from the model;
-	// the reply's context shape is unusable, so CONTEXT.md is left unchanged. Reporting the hidden
-	// count anyway would attribute a loss to an artifact that never reached disk — and the receipt
-	// used to claim both artifacts were updated.
+	// The reply's context shape is unusable, so CONTEXT.md is left unchanged while the memory lands.
+	// Reporting a hidden count for that context anyway would attribute a loss to an artifact that never
+	// reached disk — and the receipt used to claim both artifacts were updated. (An over-cap *stored*
+	// context can no longer reach this branch: the read-cap gate refuses the pass before the model call,
+	// which the two read-cap cases below cover.)
 	const root = await memoryProject("dsh-memory-unlanded-loss-", "# Project Memory\n\n## Project\n- original\n");
-	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "x".repeat(60_000), "utf8");
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "# Project Context\n\n## Summary\n\nkept summary\n", "utf8");
 	const { ctx, agent } = await consolidationFixture({
 		root,
 		replies: [{
@@ -2406,7 +2407,7 @@ test("the context read cap is counted as characters the model was not shown", as
 	const root = await memoryProject("dsh-context-read-cap-", "# Project Memory\n\n## Project\n- original\n");
 	const storedContext = "x".repeat(60_000);
 	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), storedContext, "utf8");
-	const { ctx, agent } = await consolidationFixture({
+	const { calls, ctx, agent } = await consolidationFixture({
 		root,
 		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- rewritten\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
@@ -2414,16 +2415,18 @@ test("the context read cap is counted as characters the model was not shown", as
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.equal(report.contextWritten, true, JSON.stringify(report));
-	assert.ok(report.contextHiddenChars >= storedContext.length - MAX_CONTEXT_CHARS, `the read cap is counted (got ${report.contextHiddenChars})`);
-	assert.equal(report.status, "clipped", "a landed read-cap shortening is what `clipped` means, for the context side too");
-	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.contextHiddenChars} character\\(s\\) of the stored context`));
-	// The pass-level flag covers the read cap too, so the diagnostic line is not reserved for the
-	// output fit: a permanently over-cap stored context is worth a line on every pass.
-	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+	assert.equal(calls.length, 0, "the gate runs before the model call");
+	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
+	assert.equal(report.contextWritten, false, "a refusal publishes no context");
+	assert.equal(report.contextHiddenChars, 0, "a count that never landed is not reported as a landed loss");
+	assert.ok((report.readCappedRefused?.contextHiddenChars ?? 0) >= storedContext.length - MAX_CONTEXT_CHARS, `the read cap is counted (got ${report.readCappedRefused?.contextHiddenChars})`);
+	assert.equal(report.readCappedRefused?.memoryHiddenChars, 0, "the memory was not the side that was cut");
+	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.readCappedRefused.contextHiddenChars} character\\(s\\) of the stored context`));
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8"), storedContext, "CONTEXT.md stays byte-identical");
+	const gate = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
-		.filter((line) => line.includes("shortened version of the existing memory"));
-	assert.equal(shortened.length, 1, `the context read cap leaves its own line, got ${JSON.stringify(shortened)}`);
+		.filter((line) => line.includes("the consolidation pass was not run"));
+	assert.equal(gate.length, 1, `the gate leaves its own line, got ${JSON.stringify(gate)}`);
 });
 
 test("the memory read cap is counted as characters the model was not shown", async () => {
@@ -2442,21 +2445,22 @@ test("the memory read cap is counted as characters the model was not shown", asy
 	assert.equal(fitMemoryInput(loaded.text, "", 8192, {}, 32_768).clipped, false, "fixture: the input fit is not the cap here");
 
 	const reply = JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- a durable fact this pass rewrote, past the floor\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
-	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
+	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.equal(report.memoryWritten, true, JSON.stringify(report));
-	assert.equal(report.memoryHiddenChars, loaded.cappedDroppedChars, "the read cap's own cut, counted exactly once");
-	assert.equal(report.status, "clipped", "a landed shortening is what `clipped` means");
-	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.memoryHiddenChars} character\\(s\\) of the stored memory`));
-	// The pass-level flag reaches the loader's cut as well, so the diagnostic line is not reserved for
-	// the output fit.
-	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+	assert.equal(calls.length, 0, "the gate runs before the model call");
+	assert.equal(report.memoryWritten, false, "a refusal publishes no memory");
+	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
+	assert.equal(report.memoryHiddenChars, 0, "a count that never landed is not reported as a landed loss");
+	assert.equal(report.readCappedRefused?.memoryHiddenChars, loaded.cappedDroppedChars, "the read cap's own cut, counted exactly once");
+	assert.match(memoryUpdateReply(report).text, new RegExp(`${loaded.cappedDroppedChars} character\\(s\\) of the stored memory`));
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is byte-identical");
+	const gate = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
-		.filter((line) => line.includes("shortened version of the existing memory"));
-	assert.equal(shortened.length, 1, `the memory read cap leaves its own line, got ${JSON.stringify(shortened)}`);
+		.filter((line) => line.includes("the consolidation pass was not run"));
+	assert.equal(gate.length, 1, `the gate leaves its own line, got ${JSON.stringify(gate)}`);
 });
 
 test("the read cap and the input fit are counted separately, never substituted for each other", async () => {
@@ -2478,13 +2482,19 @@ test("the read cap and the input fit are counted separately, never substituted f
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.equal(calls.length, 1, "fixture: no retry, so the one call carries the fitted input");
-	const sentMemory = /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(calls[0].messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
-	const fitHidden = loaded.text.length - sentMemory.length;
-	assert.ok(fitHidden > 0, "fixture: the fit really hid characters of the capped text");
+	// Both caps still describe one pass, but the pass no longer runs on the shortened view: the read cap
+	// refuses it first, and the fit below is measured on the same text the gate would have sent. The
+	// arithmetic claim survives as a unit assertion — the two counts describe different cuts of the same
+	// document, and neither absorbs the other.
+	assert.equal(calls.length, 0, "the read-cap gate refuses before the model call");
+	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
+	assert.equal(report.readCappedRefused.memoryHiddenChars, loaded.cappedDroppedChars, "the pass reports the read cap's own count, not the fit's");
+	const fitted = fitMemoryInput(loaded.text, "", 8192, {}, 32_768);
+	assert.equal(fitted.clipped, true, "fixture: the fit cuts the already-capped text too");
+	assert.ok(fitted.memoryHiddenChars > 0, "fixture: the fit really hides characters of the capped text");
 	assert.equal(
-		report.memoryHiddenChars,
-		loaded.cappedDroppedChars + fitHidden,
+		loaded.cappedDroppedChars + fitted.memoryHiddenChars,
+		stored.trimEnd().length - fitted.text.length,
 		"the read cap and the input fit are two counts, and neither absorbs the other",
 	);
 });

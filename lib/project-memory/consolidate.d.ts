@@ -10,8 +10,11 @@ import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { type ConsolidationResult, type ContextUpdate } from "../shared/reply-json.js";
 import { type MemorySectionOverage } from "./sections.js";
-/** Which entry produced the memory this pass would write. */
-export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial";
+/**
+ * Which entry produced the memory this pass would write, or `"none"` when the pass was refused before
+ * any model call (the read-cap gate): there is no reply, so nothing produced the document.
+ */
+export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial" | "none";
 /**
  * Which half of batch Q2's merge could not be read: the stored document (nothing to merge into) or the
  * reply itself. The two are different causes with different levers, so the refusal names one of them
@@ -94,6 +97,18 @@ export type ConsolidationOutcome = {
     removedEntries?: {
         count: number;
         samples: string[];
+    };
+    /**
+     * Set when the pass refused before the model call because the read cap had shortened the stored
+     * document: the view was incomplete, so a reply built from it would have deleted everything the cap
+     * kept back, and tier C would have called that write clean — it measures a reply against a cap the
+     * reply does fit. The numbers are this pass's own, so a cached refusal re-reported under a raised
+     * `maxMemoryChars` cannot name the wrong cap.
+     */
+    readCappedRefused?: {
+        cap: number;
+        memoryHiddenChars: number;
+        contextHiddenChars: number;
     };
 };
 export interface ConsolidationOptions {

@@ -10,6 +10,21 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（读上限的截断视图不再被写回：`read-capped-refused`）**
+
+- 性质：一处**新增拒绝门**，改的是已有失败路径的分类而不是正常路径。用户在 22:20 问「我能直接填 64K 吗」，上一轮的答复里已经把 `maxMemoryChars` 说成「读写同一把尺」，但那条结论停在「先压文档再降 cap」的劝告上——本轮把它变成机器保证：**文档比 cap 长时，整理 pass 拒绝运行，而不是把截断视图写回**。
+- 缺陷（实测，非推断）：`maxMemoryChars` 同时是读上限（注入 `loadMemorySync`、整理 `loadMemory`）。cap 低于存储文档时，模型只看到头部，而回复的 memory 是**整篇替换**，于是「照抄所见」的正常回复把尾部删掉——`.agents/evidence/2026-11-06-read-cap-writeback/probe.mjs` 的读数：6482 字符的文档在 cap 4000 下，回复落地后 **3983 字符，Pitfalls 与 Index 两节整节消失**，状态报 `clipped`，tier C 放行（它拿回复和写上限比，回复装得下）。`CONTEXT.md` 同理（`MAX_CONTEXT_CHARS` 32000 这一刀）。
+- 门禁：`consolidateProjectState` 在**模型调用之前**判定 `existing.cappedDroppedChars + contextReadHiddenChars > 0`，命中即返回 `readCappedRefused` 的 outcome：状态 `read-capped-refused`、两个产物都不落盘（沿用批次 T2 的「拒绝只发布一个产物」规则）、`errors.log` 一条写明隐藏量与该侧的上限、回执照**被截断的那一侧**给杠杆（memory → 抬 `maxMemoryChars` 或压文档；context → 只能压 `CONTEXT.md`，那个 cap 是常量，给错杠杆就是死杠杆）。缓存按 cap 记，抬高 `maxMemoryChars` 的强制 pass 会重跑。
+- 新增 4 条用例（`test/memory-store.test.mjs`，总量 492 → **496**）：读上限拒绝（字节不变、0 次模型调用、回执含 `raise maxMemoryChars`、`errors.log` 只有门禁那一行、不把成因错记成「回复没带 context」）、**正控制**（文档在 cap 内时照常整理，证明门不是常开）、context 侧拒绝（杠杆写成 `shorten CONTEXT.md`，且不得出现 `raise maxMemoryChars`）、抬高 cap 后缓存拒绝重跑。
+- 变异轮（2 个变异体，全部被杀；判红后从 `/tmp/readcap-mut/` 的哈希快照逐字节还原并复验 sha256）：
+  - M1 把 `readCapHidden` 恒置 0（等于回到门禁前）→ 3 条新用例红（拒绝、context 侧、缓存重跑），**正控制仍绿**（说明红的是门而不是夹具）。
+  - M2 让拒绝仍然构造并写入 session 派生的占位 context（恢复成 `update = …fallbackUpdate(…)`）→ 红在「不得把缺失的 context 归因给一次不存在的回复」。
+- 既有用例改写 4 条（都是**读上限相关**，语义已由门禁接管）：3 条读上限计数用例从「落地后报 `clipped` + 隐藏量」改成「拒绝 + 隐藏量落在 `readCappedRefused`、落地计数为 0」；「两种上限相加不互相吸收」改用单元断言（`cappedDroppedChars + fit.memoryHiddenChars == stored − fitted.text`），因为 pass 已不再在截断视图上运行。另有 1 条 fit 夹具从 60k/60k 改成 30k/30k——两个文档都必须留在**读**上限内，否则门禁先于 fit 触发。
+- `docs/settings.md` 的 `maxMemoryChars` 行同步订正：原来写「下一轮 pass 写回的就是这个截断视图」，现在是「不会写回，pass 在模型调用前拒绝」。README 的速查表只写「超限按行截断并标记」，未涉及写回，未动。
+- 体积：`src/project-memory/consolidate.ts` 809 → **863** 行（RULES 3.3 要求说明）。不拆分：新增的是门禁与一条 outcome 字段，它读的 `loadMemory` / context 切片 / `nextVersion` / `throttle` / `lastOutcome` 都在这个函数的闭包里，搬走就要把这五个状态一起外置，属于该批明确不碰的高风险重构。
+- 门禁（现跑）：`pnpm typecheck` exit 0、`pnpm build` exit 0（`lib/client.js` 37270 不变）、`pnpm test` **496 通过 / 0 失败**、`git diff --exit-code -- lib` 在提交后为空。
+- **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据仍是「承载宿主的进程启动时刻晚于本提交」，重启由用户执行。
+
 **文档（批次档案归档 + CHANGELOG 按版本拆分）**
 
 - 性质：纯文档重排，`src/`、`client/`、`lib/` 零改动，**不需要重启宿主**。用户 2026-11-06 在「要不要再往下做一层」里选了 **2 + 3**：归档批次档案、拆分 CHANGELOG。

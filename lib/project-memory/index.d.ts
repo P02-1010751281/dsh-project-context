@@ -30,7 +30,7 @@ interface ConsolidateOptions {
     track?: ((work: Promise<unknown>) => void) | undefined;
 }
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused";
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
  *
@@ -107,6 +107,18 @@ export type ConsolidateReport = {
     removedEntries?: {
         count: number;
         samples: string[];
+    };
+    /**
+     * Set by the read-cap gate: the pass was refused before any model call because a stored artifact was
+     * longer than the cap that decides what the model is shown (`maxMemoryChars` for the memory,
+     * `MAX_CONTEXT_CHARS` for the context). The reply would have been built from the shortened view and
+     * would have replaced the stored file with it, deleting the hidden characters — a loss tier C cannot
+     * see, because it measures the reply against the write cap the reply fits.
+     */
+    readCappedRefused?: {
+        cap: number;
+        memoryHiddenChars: number;
+        contextHiddenChars: number;
     };
 };
 /** The no-loss half of a report: nothing landed and nothing was dropped. */

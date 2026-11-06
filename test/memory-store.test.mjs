@@ -34,8 +34,8 @@ import { memoryComparisonKey, memoryComparisonKeyWithDrop } from "../lib/project
 import { externalRenderWins, renderChangedUnderRead, renderIsNewerThanJournal } from "../lib/project-memory/load.js";
 import { adoptExternalEdit } from "../lib/project-memory/record.js";
 import { MEMORY_LOCK_STALE_MS, MEMORY_LOCK_WAIT_MS, staleLockAge, withMemoryLock } from "../lib/shared/lock.js";
-import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryDir, memoryFile } from "../lib/shared/project-state.js";
-import { consolidateProject } from "../lib/project-memory/index.js";
+import { MAX_CONTEXT_CHARS, MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS, ensureMemoryGitignore, legacyOmpDir, logError, memoryDir, memoryFile } from "../lib/shared/project-state.js";
+import { consolidateProject, memoryUpdateReply } from "../lib/project-memory/index.js";
 import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 
@@ -631,13 +631,14 @@ test("the console copy of a failure is redacted even when its source is not", as
 });
 
 test("the consolidation prompt sends the fitted, clipped artifacts", async () => {
-	// The budget only matters if it reaches the model call. The artifacts are already capped on
-	// read (32k memory / 32k context chars), so the trigger is *dense* content: CJK costs about a
-	// token per character and 56k characters cannot fit a 32,768-token reply.
+	// The budget only matters if it reaches the model call. Both documents stay inside the *read* caps
+	// (`maxMemoryChars` 40000 / `MAX_CONTEXT_CHARS` 32000) on purpose: a stored document over either one
+	// is refused before the model call by the read-cap gate, so the fit is exercised on content the pass
+	// was allowed to see — dense CJK, 60k characters together, far past a 32,768-token reply.
 	const root = await project();
-	const memory = `# Project Memory\n\n${"记".repeat(60_000)}\n`;
+	const memory = `# Project Memory\n\n${"记".repeat(30_000)}\n`;
 	await writeFile(memoryFile(root), memory, "utf8");
-	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), `# Project Context\n\n${"录".repeat(60_000)}\n`, "utf8");
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), `# Project Context\n\n${"录".repeat(30_000)}\n`, "utf8");
 
 	const calls = [];
 	const ctx = {
@@ -1092,4 +1093,130 @@ test("a second call over a complete ignore file leaves it byte-identical", async
 	for (const owned of ["*.memory-backup-*", "errors.log", "*.lock", "*.steal", "*.broken-*", "memory.jsonl", "memory-log-*.jsonl", "memory.jsonl.*.tmp", "autolearn-state.json"]) {
 		assert.ok(first.split(/\r?\n/).includes(owned), `the completed file lists ${owned}`);
 	}
+});
+
+/**
+ * A stored memory longer than `maxMemoryChars`, four sections deep, so that a read cap hides whole
+ * sections: the Pitfalls and Index tails are what a write-back would delete.
+ */
+function overCapMemory(count = 16) {
+	const section = (heading, tag) => [`## ${heading}`, ...Array.from({ length: count }, (_, i) => `- ${tag}${String(i).padStart(3, "0")} ${"字".repeat(90)}`)].join("\n");
+	return `# Project Memory\n\n${section("Project", "PROJ")}\n\n${section("Invariants", "INV")}\n\n${section("Pitfalls", "PIT")}\n\n${section("Index", "IDX")}\n`;
+}
+
+/**
+ * A pass fixture whose model re-emits exactly the view it was shown (the honest reply, not a hostile
+ * one): the four-section document the prompt asks for, built only from the lines the model could see.
+ */
+async function viewEchoFixture(root) {
+	const calls = [];
+	const ctx = {
+		logger: { info() {}, warn() {} },
+		llm: {
+			stream(options) {
+				calls.push(options);
+				const prompt = options.messages[0].content.map((block) => block.text ?? "").join("\n");
+				const shown = /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(prompt)[1];
+				return (async function* generate() {
+					const headings = ["Project", "Invariants", "Pitfalls", "Index"];
+					const body = shown.split("\n").filter((line) => !/^_\[memory truncated/.test(line)).join("\n").trimEnd();
+					const missing = headings.filter((heading) => !body.includes(`## ${heading}`));
+					const memory = missing.length === 0 ? body : `${body}\n\n${missing.map((heading) => `## ${heading}`).join("\n\n")}\n`;
+					yield { type: "text-delta", text: JSON.stringify({ memory_markdown: memory, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }) };
+				})();
+			},
+		},
+	};
+	const agent = {
+		options: { provider: "test-provider", model: "test-model" },
+		session: { id: "session-view-echo", header: { cwd: root, createdAt: Date.now() }, snapshotEvents: () => [], deriveMessages: () => [], requestHeader: () => undefined },
+	};
+	return { calls, ctx, agent };
+}
+
+test("a read-capped stored memory refuses the pass instead of writing the truncation back", async () => {
+	// The defect: `loadMemory` applies `maxMemoryChars` on read, so a stored document over the cap reaches
+	// the model as a shortened view, and a reply built from that view replaces the whole file — tier C
+	// cannot see it, because the reply fits the write cap. Measured before the gate existed: a
+	// 6482-character memory under a 4000-character cap landed as a 3983-character document with the
+	// Pitfalls and Index tails gone and the status reading `clipped`.
+	const root = await project();
+	const stored = overCapMemory();
+	await writeFile(memoryFile(root), stored, "utf8");
+	const loaded = await loadMemory(root, 4000);
+	assert.ok(loaded.cappedDroppedChars > 0, `fixture: the cap really hides part of the document (${stored.length} stored, ${loaded.text.length} shown)`);
+
+	const { calls, ctx, agent } = await viewEchoFixture(root);
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000 });
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 0, "the gate runs before the model call: a refusal must not spend one");
+	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
+	assert.equal(report.memoryWritten, false, "a refusal publishes no memory");
+	assert.equal(report.contextWritten, false, "and no context either");
+	assert.equal(await readFile(memoryFile(root), "utf8"), stored, "MEMORY.md stays byte-identical, tail included");
+	assert.equal(report.readCappedRefused?.memoryHiddenChars, loaded.cappedDroppedChars, "the refusal names this read's own cut");
+	assert.equal(report.readCappedRefused?.cap, 4000, "and the cap it was measured under");
+	// The lever has to be the one that applies: `maxMemoryChars` is what hides the memory.
+	assert.match(memoryUpdateReply(report).text, /raise maxMemoryChars/i, memoryUpdateReply(report).text);
+	const logged = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8");
+	assert.match(logged, /the consolidation pass was not run/, "a silent refusal is this repo's failure class");
+	// No reply existed, so no line may attribute the missing context to one: naming "the reply's context
+	// section" here would be the wrong cause for a pass that never called the model.
+	assert.doesNotMatch(logged, /context section/, `the gate is not a reply's refusal: ${logged}`);
+});
+
+test("the read-cap gate is not always on: a document inside the cap still consolidates", async () => {
+	// Control for the case above. Without it, a gate that refused every pass would pass the first test.
+	const root = await project();
+	const stored = overCapMemory();
+	await writeFile(memoryFile(root), stored, "utf8");
+	const { calls, ctx, agent } = await viewEchoFixture(root);
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "nothing is hidden, so the pass runs");
+	assert.equal(report.status, "updated", JSON.stringify(report));
+	assert.equal(report.memoryWritten, true);
+	assert.equal(report.readCappedRefused, undefined);
+});
+
+test("the context read cap refuses the same way, with its own lever", async () => {
+	// `MAX_CONTEXT_CHARS` slices the stored context before the model sees it, and a reply's context
+	// replaces the whole file — the same write-back, on an artifact whose cap is a constant, so the
+	// receipt must advise shortening CONTEXT.md rather than raising a setting that cannot move it.
+	const root = await project();
+	await writeFile(memoryFile(root), "# Project Memory\n\n## Project\n- kept\n", "utf8");
+	const contextDocument = `# Project Context\n\n## Summary\n\n${"录".repeat(MAX_CONTEXT_CHARS + 2000)}\n`;
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), contextDocument, "utf8");
+
+	const { calls, ctx, agent } = await viewEchoFixture(root);
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 0, "the gate runs before the model call");
+	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
+	assert.ok((report.readCappedRefused?.contextHiddenChars ?? 0) > 0, "the refusal names the context cut");
+	assert.equal(report.readCappedRefused?.memoryHiddenChars, 0, "the memory was not the side that was cut");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8"), contextDocument, "CONTEXT.md stays byte-identical");
+	const receipt = memoryUpdateReply(report).text;
+	assert.match(receipt, /shorten CONTEXT\.md/i, "the lever must fit the context side");
+	assert.doesNotMatch(receipt, /raise maxMemoryChars/i, "and must not offer a knob that cannot raise a constant cap");
+});
+
+test("raising maxMemoryChars re-runs a cached read-cap refusal", async () => {
+	// The refusal is cached like any other outcome; a cached decision is only reused while the cap it was
+	// decided under still applies, which is what makes "raise the cap" a live lever rather than advice.
+	const root = await project();
+	const stored = overCapMemory();
+	await writeFile(memoryFile(root), stored, "utf8");
+	const { calls, ctx, agent } = await viewEchoFixture(root);
+	const small = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000 });
+	const first = await consolidateProject(ctx, small, agent, { force: true, silent: true });
+	assert.equal(first.status, "read-capped-refused", JSON.stringify(first));
+
+	const roomy = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
+	const second = await consolidateProject(ctx, roomy, agent, { force: true, silent: true });
+	assert.equal(calls.length, 1, "the raised cap re-runs the pass instead of re-reporting the refusal");
+	assert.equal(second.status, "updated", JSON.stringify(second));
 });

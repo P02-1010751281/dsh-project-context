@@ -37,8 +37,11 @@ import {
 } from "./sections.js";
 import { normalizeMemoryWithDrop } from "./document.js";
 
-/** Which entry produced the memory this pass would write. */
-export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial";
+/**
+ * Which entry produced the memory this pass would write, or `"none"` when the pass was refused before
+ * any model call (the read-cap gate): there is no reply, so nothing produced the document.
+ */
+export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial" | "none";
 
 /** A reply read into the shape this pass writes: the sections when it had them, plus the context. */
 type ResolvedReply = {
@@ -132,6 +135,14 @@ export type ConsolidationOutcome = {
 	 * blocking: a compression pass is supposed to drop entries, and refusing that would be permanent.
 	 */
 	removedEntries?: { count: number; samples: string[] };
+	/**
+	 * Set when the pass refused before the model call because the read cap had shortened the stored
+	 * document: the view was incomplete, so a reply built from it would have deleted everything the cap
+	 * kept back, and tier C would have called that write clean — it measures a reply against a cap the
+	 * reply does fit. The numbers are this pass's own, so a cached refusal re-reported under a raised
+	 * `maxMemoryChars` cannot name the wrong cap.
+	 */
+	readCappedRefused?: { cap: number; memoryHiddenChars: number; contextHiddenChars: number };
 };
 
 export interface ConsolidationOptions {
@@ -566,6 +577,49 @@ export function consolidateProjectState(
 		// over-cap stored context loses this much on every pass, and only the fit's own count was ever
 		// reported, so the receipt understated what the model was not shown.
 		const contextReadHiddenChars = existingContextText.length - existingContext.length;
+		// A pass whose view of a stored artifact was cut by a read cap must not run at all. The reply is
+		// built from the shortened view, so writing it replaces the stored file with that view and deletes
+		// every character the cap kept back — measured, not inferred: with a 6482-character memory under a
+		// 4000-character cap, a reply that merely re-emitted what it was shown landed as a 3983-character
+		// document, status `clipped`, and both the Pitfalls and the Index tail were gone. Tier C cannot see
+		// it, because it measures the reply against the write cap and the reply fits; `cappedDroppedChars`
+		// and the context slice are the only counts that know content was hidden, which is why the gate is
+		// here and not at the write. One line per occurrence, and it names the lever that actually applies
+		// to the side that was cut.
+		const readCapHidden = existing.cappedDroppedChars + contextReadHiddenChars;
+		if (readCapHidden > 0) {
+			const parts: string[] = [];
+			if (existing.cappedDroppedChars > 0) parts.push(`${existing.cappedDroppedChars} character(s) of the stored memory (${config.maxMemoryChars}-character cap)`);
+			if (contextReadHiddenChars > 0) parts.push(`${contextReadHiddenChars} character(s) of the stored context (${MAX_CONTEXT_CHARS}-character read cap)`);
+			await logError(projectRoot, "memory", `the consolidation pass was not run: ${parts.join(" and ")} would have been hidden from the model, and a reply built from that shortened view would have replaced the stored file with it`);
+			const refusal: ConsolidationOutcome = {
+				// No reply exists, so the result carries no memory and no context: a refusal publishes
+				// neither artifact, which is what keeps the other half from landing behind its back.
+				result: { memory: "" },
+				version: (nextVersion += 1),
+				clipped: true,
+				memoryHiddenChars: existing.cappedDroppedChars,
+				contextHiddenChars: contextReadHiddenChars,
+				basisKey: existing.text,
+				kind: "none",
+				semanticEmpty: false,
+				sectionDropped: 0,
+				droppedItems: 0,
+				itemTruncated: 0,
+				memoryWriteCapDroppedChars: 0,
+				memoryLossyRefused: false,
+				maxMemoryChars: config.maxMemoryChars,
+				partialRefused: false,
+				mergedFromStore: [],
+				readCappedRefused: { cap: config.maxMemoryChars, memoryHiddenChars: existing.cappedDroppedChars, contextHiddenChars: contextReadHiddenChars },
+			};
+			// The throttle and the cache are set here because this return skips the pass's own tail: an
+			// automatic path must not retry the same refusal on every turn, and the cached outcome is keyed
+			// on the cap, so raising `maxMemoryChars` really re-runs.
+			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
+			lastOutcome.set(projectRoot, { version: refusal.version, at: Date.now(), cap: config.maxMemoryChars, outcome: refusal });
+			return refusal;
+		}
 		const target = resolveTarget(agent, config);
 		if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
 		// One resolve for both facts: the adapter's own output cap bounds the adaptive cap, and its

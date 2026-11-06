@@ -97,7 +97,7 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused";
 
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
@@ -174,6 +174,14 @@ export type ConsolidateReport = {
 	mergedFromStore?: string[];
 	/** Invariants/Pitfalls entries a written reply no longer carries (batch Q2's report layer). */
 	removedEntries?: { count: number; samples: string[] };
+	/**
+	 * Set by the read-cap gate: the pass was refused before any model call because a stored artifact was
+	 * longer than the cap that decides what the model is shown (`maxMemoryChars` for the memory,
+	 * `MAX_CONTEXT_CHARS` for the context). The reply would have been built from the shortened view and
+	 * would have replaced the stored file with it, deleting the hidden characters — a loss tier C cannot
+	 * see, because it measures the reply against the write cap the reply fits.
+	 */
+	readCappedRefused?: { cap: number; memoryHiddenChars: number; contextHiddenChars: number };
 };
 
 /** The no-loss half of a report: nothing landed and nothing was dropped. */
@@ -223,7 +231,12 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// deliberately did not store, and writing it would be the silent loss the refusal exists to
 			// prevent. The floor is the same constant the opaque gate reads, so "too small to be a
 			// memory" is one number, not two.
-			const memoryRefused = outcome.memoryLossyRefused || outcome.partialRefused;
+			// The read-cap gate is a refusal too, but of a different kind: no reply exists, so the reasons
+			// below (tier C's loss counts, batch Q2's merge) describe nothing. It still withholds both
+			// artifacts, for the same reason the other refusals do — a pass that decided nothing publishes
+			// nothing.
+			const readCapped = outcome.readCappedRefused;
+			const memoryRefused = outcome.memoryLossyRefused || outcome.partialRefused || readCapped !== undefined;
 			const memoryChanged = !memoryRefused && !outcome.semanticEmpty && memoryText.length >= OPAQUE_DOCUMENT_MIN_CHARS;
 			if (!memoryChanged && !memoryRefused && !outcome.semanticEmpty && memoryText.length > 0) {
 				// The length floor discards a short reply with no other trace at all: a tiny but real
@@ -335,7 +348,12 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// nothing either; the line below names which of the two was skipped.
 			const contextRefused = memoryRefused || memoryKeptStale;
 			const existing = await readOptional(contextFile(projectRoot));
-			const update = outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
+			// A read-cap refusal publishes nothing at all: no reply exists to carry a context section, its own
+			// log line above already named what was hidden, and the session-derived placeholder is not the
+			// reply's context — a refusal that writes one is exactly the silent half-write batch T2 removed.
+			const update = readCapped !== undefined
+				? undefined
+				: outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
 			let contextDroppedChars = 0;
 			if (update && contextRefused) {
 				// Silent no-ops are this repo's standing failure class: say what did not land, and do not
@@ -402,6 +420,11 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				if (!wroteMemory) written.delete(projectRoot);
 				// Two refusals share this release and nothing else: batch Q2's shape refusal has no loss
 				// to name, so it must not borrow tier C's "would have been stored lossily" wording.
+				if (readCapped !== undefined) {
+					// Its own status and its own wording: the lever is the read cap that hid the content, not
+					// the write cap tier C measures against, and not the reply's shape.
+					return { status: "read-capped-refused", ...loss, readCappedRefused: readCapped };
+				}
 				if (outcome.partialRefused) {
 					return { status: "partial-refused", ...loss, partialRefused: true, ...(outcome.partialRefusal === undefined ? {} : { partialRefusal: outcome.partialRefusal }) };
 				}
@@ -563,7 +586,7 @@ export function memoryStatusReply(
 	context: { projectRoot: string; journal: string; maxMemoryChars: number },
 ): { kind: "success" | "error"; text: string } {
 	const capped = isMemoryTruncated(memory.text) || memory.cappedDroppedChars > 0
-		? ` Warning: MEMORY.md is at the ${context.maxMemoryChars}-character cap, so it is cut and new memory is dropped on write; raise maxMemoryChars or consolidate to shorten it.`
+		? ` Warning: MEMORY.md is at the ${context.maxMemoryChars}-character cap — this read is cut, so a consolidation pass refuses to rewrite it (status read-capped-refused), and anything appended past the cap is dropped on write; raise maxMemoryChars or shorten the document.`
 		: "";
 	if (memory.unreadable) {
 		const hint = memory.source.endsWith("memory.jsonl")
@@ -688,6 +711,26 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 			? " Send the complete four-section document (## Project / ## Invariants / ## Pitfalls / ## Index) to replace the stored one."
 			: " Rewrite the reply so every line under a section is a `- ` entry at column 0, or send a subset of the four sections to merge the rest from the stored memory.";
 		return { kind: "success", text: `${base}${lever}` };
+	}
+	if (report.status === "read-capped-refused") {
+		// A refusal decided before the model call: the pass was shown only part of a stored artifact, and
+		// writing a reply built from that view would have deleted the rest. The advice must follow the
+		// side that was cut — `maxMemoryChars` cannot raise the context read cap (it is a constant), and
+		// shortening the memory cannot un-cut the context, so a single generic lever would be a dead one.
+		const refused = report.readCappedRefused;
+		const hidden: string[] = [];
+		const levers: string[] = [];
+		if (refused !== undefined && refused.memoryHiddenChars > 0) {
+			hidden.push(`${refused.memoryHiddenChars} character(s) of the stored memory (its ${refused.cap}-character cap)`);
+			levers.push("raise maxMemoryChars above the stored memory's length, or shorten that document");
+		}
+		if (refused !== undefined && refused.contextHiddenChars > 0) {
+			hidden.push(`${refused.contextHiddenChars} character(s) of the stored context (its ${MAX_CONTEXT_CHARS}-character read cap)`);
+			levers.push("shorten CONTEXT.md");
+		}
+		const what = hidden.length > 0 ? hidden.join(" and ") : "part of the stored memory";
+		const lever = levers.length > 0 ? levers.join("; ") : "raise maxMemoryChars";
+		return { kind: "success", text: `Memory: was kept unchanged — the pass did not run, because ${what} would have been hidden from the model, and a reply built from that shortened view would have replaced the stored file with it. To unblock: ${lever}, then run /memory update again.` };
 	}
 	if (report.status === "lossy-refused") {
 		// A refusal is neither a failure nor a write: the stored memory is byte-identical, and the reply
