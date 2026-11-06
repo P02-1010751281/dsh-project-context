@@ -1,10 +1,10 @@
 # Project Context
 
-Last updated: 2026-11-06T02:03:39.547Z
+Last updated: 2026-11-06T02:10:31.485Z
 
 ## Summary
 
-本会话接续「设置卡三处一致性修复」，两批已提交推送：`dfe4f34` 与 `30e0ba1`（文档 `1df17e4`）。第一批修三处：摘要目标行改名「摘要目标（仅报告）」并给卡片加模式门（固定比例行与摘要目标行按 `handoffThresholdAuto` 互斥渲染）；比例折叠收进 `src/shared/ratio.ts` 由命令与卡片共用；「保存未生效，请重试」改成点名真正能救场的两个动作。独立只读审查回来 15 条、无阻塞，其中一条是我引入的真 bug：门读格式化草稿，而 `Reset` 暂存 `format(undefined)`、写入却是 `unset` 并重新继承默认 `true`，按重置会让卡片显示与实际保存相反的模式，已改为读「待写入后的有效模式」。第二批接审查与用户四项要求：两个预算金额的边界收进 `limits.ts` 并在卡片本机校验，越界不再走一遍「保存未生效」；保存失败按成因分文案（比较首次编辑时的文档 revision）；README 删掉已退役的 `handoffThinking` 两行并改掉两处同类假声称。门禁本轮现跑全绿，8 个变异全杀。记忆侧仍未落地：`MEMORY.md` 39696/40000（99.2%），今天 09:36 与 09:47 两次自动整理都因「重写会丢 4 条整条目」拒写；是否压缩需用户拍板。宿主仍是 11-06 09:26:43 启动的 pid 41218，早于最后代码提交 `30e0ba1`（09:59:03），重启待用户执行。此前各轮（批次 W、SH-1 拆除、rc.5→0.2.2 相容性审计、`docs/harness/` 接口面登记）的细节见 Key points、`CHANGELOG.md` 与 `docs/harness/`。
+本会话接续「设置卡三处一致性修复」，两批已提交推送：`dfe4f34` 与 `30e0ba1`（文档 `1df17e4`）。第一批修三处：摘要目标行改名「摘要目标（仅报告）」并给卡片加模式门（固定比例行与摘要目标行按 `handoffThresholdAuto` 互斥渲染）；比例折叠收进 `src/shared/ratio.ts` 由命令与卡片共用；「保存未生效，请重试」改成点名真正能救场的两个动作。独立只读审查回来 15 条、无阻塞，其中一条是我引入的真 bug：门读格式化草稿，而 `Reset` 暂存 `format(undefined)`、写入却是 `unset` 并重新继承默认 `true`，按重置会让卡片显示与实际保存相反的模式，已改为读「待写入后的有效模式」。第二批接审查与用户四项要求：两个预算金额的边界收进 `limits.ts` 并在卡片本机校验，越界不再走一遍「保存未生效」；保存失败按成因分文案（比较首次编辑时的文档 revision）；README 删掉已退役的 `handoffThinking` 两行并改掉两处同类假声称。门禁本轮现跑全绿，8 个变异全杀。记忆侧：用户选择了压缩，`MEMORY.md` 已从 39696 压到 37780 字符（余量 2220），合并 8 组重复条目并删掉 3 条封闭批次细节，每条规则的实质都保留；写回走插件渲染器，复验 `itemTruncated 0`、round-trip 字节相同。宿主仍是 11-06 09:26:43 启动的 pid 41218，早于最后代码提交 `30e0ba1`（09:59:03），重启待用户执行。此前各轮（批次 W、SH-1 拆除、rc.5→0.2.2 相容性审计、`docs/harness/` 接口面登记）的细节见 Key points、`CHANGELOG.md` 与 `docs/harness/`。
 
 ## Key points
 
@@ -22,7 +22,7 @@ Last updated: 2026-11-06T02:03:39.547Z
 - 它此前只存在于 `/tmp/codex-pc-probe` 与 `/tmp/codex-pc-verify`（重启即丢），且 `MEMORY.md`、`CONTEXT.md`、`docs/`、`CHANGELOG.md` 都没有它的记录，只有 10-31 的会话归档提到过；这是真实的记忆缺口
 - 归位后新克隆与 `/tmp` 两份克隆的 `HEAD^{tree}` 三者相同（`e0014d8`，HEAD `374c593`、16 个跟踪文件、无 tag），远端 `master` 也仍是 `374c593`，`/tmp` 副本可直接丢弃
 - `docs/sibling-repos.md` 是这类跨仓事实的新归宿：三库路径/远端/分支/语言/驱动方式/首次提交，外加「所有会漂的值现读、别引用快照」的复核命令
-- `MEMORY.md` 的 Index 记录已从只讲 pi 改成并列 `pi-project-context` 与 `codex-project-context` 并指向该文档；改后 Index 回到硬预算内，此后 `MEMORY.md` 稳定在 39696/40000（99.2%），仍是安全不动点
+- `MEMORY.md` 的 Index 记录已从只讲 pi 改成并列 `pi-project-context` 与 `codex-project-context` 并指向该文档；改后 Index 回到硬预算内；2026-11-06 按用户决定压缩一轮，39696 → 37780 字符，四节全回硬预算内
 - 宿主 2026-11-06 09:26:43 重启后为 pid 41218 / 端口 35209（`0.2.2-rc.1`）；桌面端口每次重启都变，探针不传 `--url` 会以 `fetch failed` 假失败
 - 批次 W 的三段验收全绿：宿主启动晚于最后 `src/` 提交 `e3459c6`；`tsc --outDir /tmp/libcheck` 后 `diff -rq` 只剩 `client.js`；线上探针四个插件行 `active`、store == wrapper、`RESULT: PASS`
 - 换版相容性（以 shipped 源码为准，本轮无 rc.5/0.2.2-rc.1 专页）：`snapshot(session, keys)` 只算选中单元与我们的显式 keys 一致；`SessionSummary.origin/cwd`、`LlmResolvedModelInfo.context` 形状未变；我们不给辅助调用传 `purpose`，故声明化变更不适用
@@ -60,7 +60,7 @@ Last updated: 2026-11-06T02:03:39.547Z
 ## Open tasks
 
 - 宿主重启（用户执行）：`/etc/nixos/scripts/dsh-desktop-restart.sh`；验收 = 新 pid 启动时间晚于 `30e0ba1` 的 11-06 09:59:03、且 `git -C /mnt/Data/Projects/dsh-project-context diff --exit-code -- lib` 为空；界面验收：自动交接段默认只有「自适应阈值 + 摘要目标（仅报告）」，关掉自适应后两者互换（在「自适应阈值」上按重置不应触发互换），固定阈值填 `40` / `40%` 存成 `0.4`，预算金额填 `7999` 时保存按钮直接灰掉
-- `MEMORY.md` 已到 39696/40000（99.2%）：自动整理今天两次（本地 09:36 / 09:47）都因「重写会丢 4 条整条目、定向重试未救回」被 tier C 拒写，自 2026-10-05 起累计 24 次；要不要按整行替换压缩一轮由用户拍板（对象限于重复叙述、历史哈希链、已关批次细节），不替用户决定丢哪几条，`/memory update` 是用户操作
+- `MEMORY.md` 已压到 37780/40000（余量 2220），四节都在硬预算内、round-trip 是不动点；下一次自动整理应能落地——若仍被 tier C 拒绝，说明模型的重写比输入增长超出这 2220 字符，届时再压一轮或接受它持续拒绝
 - 比例行在触屏上打不出 `%`：平台只提供 `numeric` 布尔 → `inputMode="numeric"`，hint 里的 `40%` 在触屏不可达；要改只能动平台
 - 保存失败的两种成因只在 revision 可观测时才能分开；不可观测时仍退回合并文案（平台只给一个 `failed` 布尔）
 - `MEMORY.md` 的余量靠整行替换维护，不靠追加：增长型写入前先跑 `share-fit.mjs` 看分节占用（`Index` 最容易顶到硬预算），任何写入后用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记
