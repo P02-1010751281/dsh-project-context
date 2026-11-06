@@ -57,12 +57,12 @@ Last updated: 2026-11-06T02:10:31.485Z
 - 独立只读审查 15 条、无阻塞：两条 should-fix（措辞不持久、Reset 预览相反）已修；其余是声称不准与门禁缺口（`numeric` 行此前无测试、README 两处退役行、README 把「触发计算不读」写成「校验不读」）已一并改
 - 宿主已于 2026-11-06 10:51:25 重启为 pid 58434 / 端口 33647（`0.2.2-rc.1`），两批代码（`dfe4f34`、`30e0ba1`）**现已上线**：`node /etc/nixos/scripts/dsh-live-inventory-probe.mjs --url http://127.0.0.1:33647 --expect dsh-project-context,dsh-project-context/memory,dsh-project-context/autolearn,dsh-project-context/handoff` 报四个插件全 `active`、store == wrapper、`RESULT: PASS`；`tsc --outDir /tmp/libcheck2` 后 `diff -rq lib` 只差 `client.js`，且该 bundle 含 `appliesWhen`/`rowVisible`/`parseRatioInput`/`boundedNumberField`
 - 2026-11-06 离线判定（`.agents/evidence/2026-11-06-memory-compression-headroom/`）：压缩后 budget 半边确定清空（`sectionDropped 0 / droppedItems 0 / itemTruncated 0`、round-trip 字节相同），output 半边也确定（`needed` 29611 < 上限 32768，`clipped false`，模型目录的 `defaultMaxTokens` 328000 并不承重）；01:36 / 01:47 两次拒绝经 `errors.log` 归因为 budget 半边，不是输出被截断（按当前 CONTEXT 10314 字符重算 `needed` 为 29941，仍 < 32768）
-- 但压缩**没有**救回来：10:13:33 那次 pass 跑在压缩后的 37780 文档上（mtime 10:10:04 早于它），仍被拒 `3 whole entry(ies) … from 2 section(s)`，且该次重试自身失败于 `cannot get required service "llm" in inactive context`，故首稿的损失决定本次 pass；模型是被明确告知上限的（`memoryBudgetRule`：「must stay at or under 40000 characters… currently about 37780」），所以这是重写超调，不是提示缺失
+- 10:13:33 又拒了一次（`3 whole entry(ies) … from 2 section(s)`；重试自身失败于 `cannot get required service "llm" in inactive context`，故首稿损失生效），但**它读的是哪一版未能证明**：mtime 10:10:04 早于它只是必要条件，一次 pass 含至多两次模型调用可跨数分钟，可能读到压缩前的 39696；请求体不落盘、台账只有会话级聚合、宿主无 `[memory]` 日志，故此处只能标为未决（早期拒绝丢 4 条/3 节、这次 3 条/2 节，只算线索不算证据）。判别锚点：`MEMORY.md` 自 10:10:04 未再变动，故 10:51 重启后的任何一次拒绝都能无歧义归因 37780
 
 ## Open tasks
 
 - 宿主重启（用户执行）：`/etc/nixos/scripts/dsh-desktop-restart.sh`；验收 = 新 pid 启动时间晚于 `30e0ba1` 的 11-06 09:59:03、且 `git -C /mnt/Data/Projects/dsh-project-context diff --exit-code -- lib` 为空；界面验收：自动交接段默认只有「自适应阈值 + 摘要目标（仅报告）」，关掉自适应后两者互换（在「自适应阈值」上按重置不应触发互换），固定阈值填 `40` / `40%` 存成 `0.4`，预算金额填 `7999` 时保存按钮直接灰掉
-- `MEMORY.md` 停在 37780/40000，但 10:13 的 pass 仍被 tier C 拒绝（丢 3 条 / 跨 2 节），「压缩即够」已被证伪；三条出路待定：①再压到约 35000（要删事实，须用户点头）②`maxMemoryChars` 提到 ≤43000（实测 43000 时 `needed` 32732 < 32768 不裁剪，43500 起 `clipped true`；代价是每轮注入多约 2000 tokens）③接受持续拒绝、记忆不再增长
+- `MEMORY.md` 停在 37780/40000，压缩后是否够用**尚未判定**：10:13 那次拒绝的输入版本不可考，须等 10:51 重启后的下一次 pass（此后任何拒绝都无歧义对应 37780）；若确实再拒，三条出路按代价排序：①再压到约 35000（要删事实，须用户点头）②`maxMemoryChars` 提到 ≤43000（实测 43000 时 `needed` 32732 < 32768 不裁剪，43500 起 `clipped true`；代价是每轮注入多约 2000 tokens）③接受持续拒绝、记忆不再增长
 - 比例行在触屏上打不出 `%`：平台只提供 `numeric` 布尔 → `inputMode="numeric"`，hint 里的 `40%` 在触屏不可达；要改只能动平台
 - 保存失败的两种成因只在 revision 可观测时才能分开；不可观测时仍退回合并文案（平台只给一个 `failed` 布尔）
 - `MEMORY.md` 的余量靠整行替换维护，不靠追加：增长型写入前先跑 `share-fit.mjs` 看分节占用（`Index` 最容易顶到硬预算），任何写入后用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记

@@ -76,34 +76,41 @@ C. output half
   second; the last one is what that pass landed. Taking the first instead moves the mature maximum
   from +3475 to +2346 — both above the fold, but the tail matters, so the probe keeps the last.
 
-## Outcome: the tail did happen (2026-11-06 10:13:33)
+## The 10:13:33 refusal, and why it does not settle the question
 
-The pass fired on the compressed document (`MEMORY.md` mtime `10:10:04`, the refusal
-`10:13:33`, so the input it read was the 37780-character version) and **refused anyway**:
+A third refusal was logged at `2026-11-06T02:13:33Z` (local 10:13:33), this one dropping
+`3 whole entry(ies)` from `2 section(s)`, with the targeted retry dying on its own error
+(`cannot get required service "llm" in inactive context`), so the first reply's loss decided the pass:
 
 ```
-the targeted loss retry failed for its own reason, so the first reply's loss decides this pass:
-  cannot get required service "llm" in inactive context
-the consolidation reply would have been stored lossily (3 whole entry(ies) would have been dropped
-  from 2 section(s) because the memory document reached its character cap), and the one targeted
-  retry did not fix it; the stored memory was kept unchanged
+the targeted loss retry failed for its own reason, so the first reply's loss decides this pass
+the consolidation reply would have been stored lossily (3 whole entry(ies) ... from 2 section(s)
+  because the memory document reached its character cap) ...; the stored memory was kept unchanged
 ```
 
-So the model's rewrite grew the document by more than the 2220-char headroom, which is the
-`1 of 6` tail this probe already flagged. The retry never got a second chance to differ, because it
-died on its own error and the first reply's loss stayed in charge (tier C residual, as designed).
+**Which document that pass read is unresolved, and this record must not claim otherwise.**
+The argument for the compressed version is only that `MEMORY.md`'s mtime is `10:10:04`, earlier than
+the refusal. The argument against: a pass makes up to two model calls, each emitting roughly the whole
+document, so it can easily span several minutes and may have read the pre-compression document.
+No disk record settles it — the request body is not logged, the cost-meter ledger aggregates per
+session rather than per call, and the host writes no `[memory]` lines. A weak hint points at the
+smaller input (the earlier refusals at 39696 dropped `4` entries from `3` sections; this one dropped
+`3` from `2`), but reply sizes vary, so it is a hint and not evidence.
 
-Two things this rules out:
+The clean discriminator: `MEMORY.md` has not changed since `10:10:04`, so **any refusal logged after
+the 10:51:25 restart is unambiguously against 37780**. Until one appears, "the compression was not
+enough" is unproven, and so is its opposite.
 
-- **Not a prompt gap.** `memoryBudgetRule` does tell the model the hard cap and the current size
-  (`must stay at or under 40000 characters (the stored memory is currently about 37780)`), so the
-  overshoot is the model's, not a missing instruction.
-- **Not the output half.** `needed` at 37780 with the current 10314-char context is 29941, well
-  under the 32768 ceiling.
+Two things this event does rule out, independently of which document it read:
 
-The cap can rise a little without hitting the output half: at real token density, `maxMemoryChars`
-of 43000 gives `needed` 32732 (fits), 43500 gives `clipped true`. That is the whole remaining margin
-— about +5% of document, or the equivalent of deleting facts instead.
+- **Not a prompt gap.** `memoryBudgetRule` states the hard cap and the current size
+  (`must stay at or under 40000 characters (the stored memory is currently about N)`).
+- **Not the output half.** `needed` at 37780 with the current 10314-char context is 29941, under the
+  32768 ceiling.
+
+And the cap has very little room left to grow: at real token density `maxMemoryChars` 43000 gives
+`needed` 32732 (fits), 43500 gives `clipped true` — about +5% of document, or the equivalent of
+deleting facts instead.
 
 ## What this does not prove
 
