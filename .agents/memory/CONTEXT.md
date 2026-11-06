@@ -4,7 +4,7 @@ Last updated: 2026-11-06T02:58:25.992Z
 
 ## Summary
 
-本会话由 session-4ec44b0b 交接。此前两轮：① 记忆预算离线实测 —— 宿主 pid 41218 启动早于最后 `src/` 提交 `30e0ba1`，故走离线路径；budget 半边清空、output 半边 `needed` 29941 < 32768 不裁剪、上限临界 43000 不裁剪、43500 起 `clipped true`；重启后三条机器判据全过，`dfe4f34` 与 `30e0ba1` 生效。② 用户报「README 怎么有这么长段的文字」，README 446 → 141 行，机制搬进 `docs/{architecture,behavior,settings,development}.md`（`1e3f675`）。本轮按用户选定的「2 + 3」继续整理：18 个 `docs/batch-*.md` 用 `git mv` 进 `docs/archive/`，新增 `docs/README.md` 当唯一索引；`CHANGELOG.md` 1719 行按版本拆成 8 份 `docs/changelog/v*.md`（正文逐行相等，主文件只剩未发布 + `## 版本目录`）；46 行 `docs/batch-*` 引用改成 `docs/archive/batch-*`，`.agents/evidence/` 是冻结证据、旧路径有意不回改。`src/`/`client/`/`lib/` 零改动，不需要重启。
+本会话由 session-4ec44b0b 交接。此前两轮：① 记忆预算离线实测 —— 宿主 pid 41218 启动早于最后 `src/` 提交 `30e0ba1`，故走离线路径；budget 半边清空、output 半边 `needed` 29941 < 32768 不裁剪、上限临界 43000 不裁剪、43500 起 `clipped true`；重启后三条机器判据全过，`dfe4f34` 与 `30e0ba1` 生效。② 用户报「README 怎么有这么长段的文字」，README 446 → 141 行，机制搬进 `docs/{architecture,behavior,settings,development}.md`（`1e3f675`）。本轮按用户选定的「2 + 3」继续整理：18 个 `docs/batch-*.md` 用 `git mv` 进 `docs/archive/`，新增 `docs/README.md` 当唯一索引；`CHANGELOG.md` 1719 行按版本拆成 8 份 `docs/changelog/v*.md`（正文逐行相等，主文件只剩未发布 + `## 版本目录`）；46 行 `docs/batch-*` 引用改成 `docs/archive/batch-*`，`.agents/evidence/` 是冻结证据、旧路径有意不回改。`src/`/`client/`/`lib/` 零改动，不需要重启。本轮另按仓库技能 `repo-guidelines-doc` 交付两份治理文档：`AGENTS.md`（导览）与 `RULES.md`（准则），详见 Key points。
 
 ## Key points
 
@@ -34,6 +34,8 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 探针产物：`.agents/evidence/2026-11-06-memory-compression-headroom/README.md` + `probe.mjs`（`--self-test`，退出码 0 清空 / 1 丢数据 / 2 无法判定 / 3 自检未开火），README 已补实测结局与「输入版本未决」段
 - 宿主为 `0.2.2-rc.1`，GUI 端口每次重启都变（本轮 35209 → 33647），探针不传 `--url` 会以 `fetch failed` 假失败
 - 本批主提交 `31f19b5`（docs-only：18 个批次档案归档、CHANGELOG 拆成 8 个版本文件、46 行引用改写、两项技能同步），推送时 `ssh.github.com` 前三次报「无法读取远程仓库」、第四次成功（瞬时故障，非权限）
+- 21:15 起交付治理文档：`AGENTS.md` 115 行 8 节（概览 / 架构与数据流 / 关键目录 / 开发命令 / 代码约定 / 重要文件 / 运行时 / 测试与 QA，62 个 `path:line` 锚点全部可 resolve）、`RULES.md` 74 行 8 章（元规则→禁令，判据命令逐条实跑）；README 文档分工加了两份的指针。口径由用户确认：团队=**单人 + AI agent**（无人工 review、无 CI）；仓库**没有 CLAUDE.md**，RULES 的协作基线反推自 README/docs/MEMORY/skills。
+- AGENTS.md 由 4 个只读 scout 并行调查 + 我亲核 5 个承重文件后合成，已修正 scout 三处：会话归档目录 174→**172**、`void…catch` 的「42 处」未采用（实测 21 个 `void`、8 个带 catch）、`test/` 口径「33 个 node:test」→ 29 个 `*.test.mjs` + 1 helper + 3 fixture。RULES 的 `src`/`client` 单文件 ≤900 行是**新定天花板**（现存最大 809），不是历史规则；4.2 的 `shared → project-handoff/language` 是现存唯一反向依赖例外。
 
 ## Open tasks
 
