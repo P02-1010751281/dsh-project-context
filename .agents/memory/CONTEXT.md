@@ -48,7 +48,9 @@ Last updated: 2026-11-06T02:58:25.992Z
 - 本批（20:27）实现 `handoffRetireReplaced`：门加在 `performHandoff` 收尾的 `if (config.handoffRetireReplaced) scheduleRetirement(…)`，六个面（config / settings / card-fields / locales / README / 测试）全动；`pnpm typecheck` 0、`pnpm test` **492**、`pnpm build` 0（`lib/client.js` **37270**，键在 bundle 里 5 处）
 - 本批两个变异体均被杀并已从 `/tmp/retire-mut/` 哈希快照还原复验：M1 去掉门 → 红在「nothing is scheduled for this session's turn end」；M2 让 `resolvePluginConfig` 忽略输入 → 红在「the option reaches the resolved config」
 - README 两处会过期的数字已改掉（不写行数与控件数、点名 `settings-form.test.mjs` 的逐键相等断言）：实测今天 21 行 / 6 布尔 / 2 枚举，其中「5 布尔 / 3 枚举」在加本键之前就已经不对
+- 20:32:25 重启后本批已生效，四条机器判据（2026-11-06 20:42 实测）：①host pid 82102 启动晚于最后 `src/` 提交 `8dc97c5`（20:28:48）②`dsh-live-inventory-probe.mjs --url http://127.0.0.1:38961` 四行 active、enabled 非 active 0、store==wrapper、`RESULT: PASS`（条目 241）③派发的 `plugins/??dsh-project-context/client.js&rev=5e876189861f` 与磁盘 `lib/client.js` 前 37270 字节逐字节相同（只多 76 字节 sourceMappingURL 尾）④`cordis_inspect_query` host `Config` 对 `include:project-context` 的投影 schema 已含 `handoffRetireReplaced`（`default: true`、`volatile: true`）
+- 本轮 GUI 端口 33647 → **38961**（探针必须传 `--url`，否则 `fetch failed` 假失败）；`~/.dsh/.credentials.yaml` 的 `client-connection/browser-session` 离线签名 cookie 可直接读取派发页与 bundle（临时脚本 `/tmp/served-bundle-check.mjs`）
 - 已知噪声：`context-injection.test.mjs` 偶发 2 条失败，是并发写入撞上它读仓库自身 memory 文档，代码此后未变、三连跑复绿，未记成已修
-- `handoffRetireReplaced`（默认 `true`）已交付：关掉后交接**既不归档也不停活动**，代价是旧会话排在自己的续接会话上面；改了 `src/` ⇒ **要一次宿主重启**才生效，重启后卡片交接区末行是「交接后归档旧会话」，验证＝关掉它做一次 `/handoff now`，看旧会话是否仍在列表里（并在时点「全部对话（显示已归档）」里也确实没有它）
+- `handoffRetireReplaced` 已生效（默认 `true`，卡片交接区末行「交接后归档旧会话」）。要验证关掉后的效果：关掉→保存→`/handoff now`，旧会话应仍在列表里、且不在「全部对话（显示已归档）」里；开关只管以后的交接，`c35a7f0f` 与 `3a51f066` 仍在归档集里，要找回得手动「取消归档」
 
 <!-- latest-session-title: 离线实测记忆两半写路径、重启验收通过、订正 10:13 拒绝的因果断言 -->

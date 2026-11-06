@@ -18,6 +18,7 @@
   - M2 让 `resolvePluginConfig` 忽略输入、恒回默认 → 新用例红在「the option reaches the resolved config」。
 - 顺带修掉两处会过期的说明：README 里「21 行 = …」改成不写数字、点名 `test/settings-form.test.mjs` 的逐键相等断言；「21 行各出现一次、5 个布尔是开关、3 个枚举」改成按字段表核对——实测今天（加本键之后）是 **21 行 / 6 布尔 / 2 枚举**，后两项在加本键之前就已经不对了。
 - 门禁（现跑，不引用历史数字）：`pnpm typecheck` 0；`pnpm test` **492 通过 / 0 失败**；`pnpm build` 0（`lib/client.js` **37270** 字节；`handoffRetireReplaced` 在 bundle 里 **5** 处，`lib/shared/config.js` 与 `lib/project-handoff/perform.js` 各 **2** 处）。
+- 生效复核（2026-11-06 20:32:25 重启后实测，四条互不依赖）：①host pid 82102 启动晚于最后 `src/` 提交 `8dc97c5`（20:28:48）②`dsh-live-inventory-probe.mjs --url http://127.0.0.1:38961` 四行 `active`、enabled 非 active 0、store == wrapper、`RESULT: PASS`（条目 241）③宿主派发的 `plugins/??dsh-project-context/client.js&rev=5e876189861f` 与磁盘 `lib/client.js` **前 37270 字节逐字节相同**（只多 76 字节 sourceMappingURL 尾），且含 `handoffRetireReplaced` ④`cordis_inspect_query` 的 host `Config` 对 `include:project-context` 投影出的 schema 已声明该键（`default: true`、`volatile: true`）——即卡片那一行由宿主自己声明，不是客户端单方面画出来的。
 - 边界：改了 `src/` 与 `client/` ⇒ **需要一次宿主重启**。客户端 bundle 由 client-hmr 派发（刷新即可），但新键的解析在 host 半，所以重启之前把开关关掉不会有任何效果；重启后卡片上会出现「交接后归档旧会话」一行。
 
 **文档（区分两种「归档」：① 写存档 vs ④ 交接后旧会话被隐藏）**
