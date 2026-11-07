@@ -54,15 +54,37 @@ else
 	fail=1
 fi
 
-# 3. Informational: a memory write above 40000 is hard evidence the raised cap took effect.
+# 3. Informational only, and it cannot do more than this: the stored length is a property of
+#    the document, and it sits below both 40000 and 45000, so the two caps are
+#    indistinguishable from here. Do not read this number as proof the raised cap took effect —
+#    take the configured value from the profile's `maxMemoryChars` and confirm the behaviour
+#    with a `/memory update`.
 size=$(wc -m <"$repo/.agents/memory/MEMORY.md")
-echo "INFO memory: ${size} chars (cap is 45000; a value above 40000 means the raised cap took effect)"
+echo "INFO memory: ${size} chars stored (non-discriminating for the cap; see the comment in this script)"
 
-# 4. Informational: refusals logged after this pid started.
-# `$start` is an epoch while `ps lstart` is human text — never feed one to the other's parser.
+# 4. A cap-loss refusal logged AFTER this host instance started would mean the raised cap is
+#    not in effect. Entry timestamps are UTC (`2026-11-07T01:38:36.657Z`) while `ps lstart` is
+#    local human text — convert both to epochs and never compare the two texts.
+#    `$start` is an epoch; feeding it to `date -d` as text is the bug this guard replaces.
 start_epoch=$(date -d "$(LC_ALL=C ps -o lstart= -p "${pid:-0}" 2>/dev/null)" +%s 2>/dev/null)
-stamp=$(date -d "@${start_epoch:-0}" '+%F %T' 2>/dev/null)
-echo "INFO errors.log: $(grep -c 'would have been stored lossily' "$repo/.agents/memory/errors.log" 2>/dev/null || echo 0) line(s) total; confirm none are newer than ${stamp:-<unknown>}"
+log="$repo/.agents/memory/errors.log"
+count=$(grep -c 'would have been stored lossily' "$log" 2>/dev/null); count=${count:-0}
+last_ts=$(grep 'would have been stored lossily' "$log" 2>/dev/null | tail -1 | cut -d' ' -f1)
+last_epoch=""
+[ -n "$last_ts" ] && last_epoch=$(date -d "$last_ts" +%s 2>/dev/null)
+if [ "${count:-0}" -eq 0 ]; then
+	echo "PASS errors.log: no cap-loss refusal has ever been logged"
+elif [ -z "$last_epoch" ] || [ -z "$start_epoch" ]; then
+	# An unreadable timestamp is its own failure, never a pass: `[ -gt ]` on an empty operand
+	# prints 'integer expression expected' and exits non-zero without being a verdict.
+	echo "FAIL errors.log: cannot place ${count} cap-loss entr(ies) against the host start (last '${last_ts:-<none>}', start '${start_epoch:-<unknown>}')"
+	fail=1
+elif [ "$last_epoch" -gt "$start_epoch" ]; then
+	echo "FAIL errors.log: a cap-loss refusal was logged at $(date -d "@$last_epoch" '+%F %T') — after this host started ($(date -d "@$start_epoch" '+%F %T')); the raised cap may not be in effect"
+	fail=1
+else
+	echo "PASS errors.log: ${count} cap-loss entr(ies), latest $(date -d "@$last_epoch" '+%F %T') — none newer than this host ($(date -d "@$start_epoch" '+%F %T'))"
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then
