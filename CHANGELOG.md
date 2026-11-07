@@ -24,6 +24,7 @@
   - M3 让 `fitted.clipped` 恒不成立（拆掉输出预算门禁）→ 2 条 fit 用例红。
   - M4 把同一行日志加回**输出预算**拒绝分支 → 只有 fit 那条红（另一条 fit 用例保持绿），单独证明 fit 侧的 `doesNotMatch` 也会开火。
 - 门禁（现跑）：`pnpm typecheck` 0、`pnpm build` 0（`lib/client.js` 37270 不变）、`pnpm test` **497 通过 / 0 失败**；把 `tsc` 重新 emit 到临时目录与入库的 `lib/` 比对，只有 `lib/client.js` 一项差异（esbuild 产物，预期内）；`src/` 与 `lib/` 的变异标记计数均为 0。
+- 顺带修掉验收探针的一处缺陷（`.agents/evidence/2026-11-07-restart-acceptance/`）：它把判据**写死**成 `44b70d4 @ 09:27:32`，所以在 `49083b7` 之后再跑仍按旧判据衡量，对早于新提交的宿主报 `PASS`——正是它存在的意义所在。改成每次现算 `git log -1 -- src/`，并把「判据推不出来」做成独立失败项（拿空值参与 `[ "$start" -gt "$crit" ]` 只会得到 `integer expression expected`，那不是判定）。三支都实测开火：宿主早于判据 → `NOT LOADED` / exit 1；判据推不出来（`PATH` 上放一个失败的 `git` shim）→ `FAIL criterion` + `FAIL load` / exit 1；宿主晚于判据（临时副本钉到 `09:27:32`）→ `RESULT: PASS` / exit 0。
 - **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据是「承载宿主的进程启动时刻晚于本提交」。
 
 **project-memory（输出预算的截断视图也不再写回：`fit-capped-refused`；骨架回复不再发布 context 半边）**

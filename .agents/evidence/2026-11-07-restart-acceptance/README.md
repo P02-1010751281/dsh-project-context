@@ -36,6 +36,10 @@ It prints one line per check and ends with `RESULT: PASS` / `RESULT: FAIL`, exit
 failure. The socket holder is discovered by process name (`MainThread`) rather than by port,
 because the GUI port changes on every restart.
 
+The criterion is **re-derived on every run** (`git log -1 -- src/`), so the table above is that
+batch's snapshot rather than something the script replays. The first revision pinned it; see the
+revision note at the bottom for what that cost.
+
 ## What it checks, and what it deliberately cannot
 
 | check | meaning |
@@ -74,3 +78,22 @@ prints `<unknown>` rather than an empty field when the conversion fails.
 
 `LC_ALL=C` is applied to `ps -o lstart=` on purpose: the default locale here is Chinese, and its
 `lstart` text is not parseable by `date -d`.
+
+## Revision 2026-11-07 10:10: the pinned criterion
+
+Running this probe right after commit `49083b7` (the `clipped` cleanup) printed
+`criterion: 2026-11-07 09:27:32 (last src/ commit 44b70d4)` — the hardcoded pair from the first
+revision — while the live host (`pid 37757`, started `09:38:45`) predated that commit and therefore
+did **not** carry it. The probe said `RESULT: PASS`. That is the exact failure it exists to prevent:
+a pinned criterion keeps measuring the batch it was written for, so every later commit inherits a
+green light.
+
+The criterion and its hash are now derived per run, and an underivable criterion is its own failing
+check rather than an empty operand on `[ "$start" -gt "$crit" ]` (which is an
+`integer expression expected` error, not a verdict). All three branches were exercised afterwards:
+
+| branch | how | result |
+|---|---|---|
+| host predates the criterion | the real run at 10:11 | `NOT LOADED` → `RESULT: FAIL`, exit 1 |
+| criterion underivable | a `git` shim on `PATH` that exits 1 | `FAIL criterion` + `FAIL load`, exit 1, no arithmetic error |
+| host later than the criterion | a throwaway copy pinned to `09:27:32` | `PASS load` → `RESULT: PASS`, exit 0 |
