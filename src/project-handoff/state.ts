@@ -43,8 +43,10 @@ export const deferredLoggedAt = new Map<string, number>();
  * Sessions whose handoff succeeded while their own turn was still open.
  *
  * A handoff *forks*, so the session it replaced has to be retired (stopped and archived) or it stays
- * live above its own continuation. The manual path runs inside the command's turn, and archiving with
- * `stopActivity` there would stop the very turn rendering the reply, so the retirement waits for that
- * turn's `turn/end` instead. The automatic path is settled and retires immediately.
+ * live above its own continuation. Archiving with `stopActivity` would stop a turn that is still
+ * rendering the reply, so that case waits for its `turn/end` instead, and `turnOpenNow` decides it
+ * from the session's own log. Which path asked is *not* that question: a standalone `/handoff now`
+ * runs as a command with no turn open at all, and reading "manual" as "turn open" left the
+ * retirement waiting for an event that never came, silently (2026-11-07).
  */
 export const pendingRetire = new Set<string>();

@@ -35,6 +35,28 @@ export declare function ownEventsOf(session: Session): readonly unknown[];
  * @returns `true` when a later `turn/start` exists.
  */
 export declare function turnStartedAfter(session: Session, seq: number): boolean;
+/**
+ * Whether this session's own turn is still open, read from its event log.
+ *
+ * Retiring a handed-off session has to wait for `turn/end` when the archive would otherwise stop the
+ * very turn that is rendering the command's reply — but *which path asked* is not that condition. A
+ * standalone `/handoff now` runs as `command/run` → `command/done` with no turn at all: the
+ * 2026-11-07 session that was never archived ended exactly there, so treating "manual" as "turn
+ * open" left its retirement waiting for a `turn/end` that could never arrive, and nothing recorded
+ * the loss. This reads the last turn boundary in the log instead of the caller's identity.
+ *
+ * Deliberately log-based rather than `ctx.agents.turnBoundaryOf()`, whose `openTurnStartSeq` answers
+ * the same question off the same events. Two reasons, both about this predicate being the one that
+ * runs: the projection would make the *fallback* the path every retirement fixture exercises — the
+ * green-suite-covers-the-wrong-branch trap this repo has already been bitten by — and a host-side
+ * branch that is only reachable in production is exactly what a fallback-shaped predicate must not
+ * have. Reading `ownEventsOf` also adds no new deprecated call site: `session.ownEvents()` is called
+ * once, inside that helper, and this batch adds a consumer, not a call. `turnStartedAfter` reads the
+ * same two event types for the same reason.
+ * @param session - the session whose turn state is in question.
+ * @returns `true` when the newest turn boundary in its own log is a `turn/start`.
+ */
+export declare function turnOpenNow(session: Session): boolean;
 /** Defer the automatic handoff once its trigger's session has started another turn. */
 export declare function assertSessionSettled(session: Session, triggerSeq: number | undefined): void;
 /**

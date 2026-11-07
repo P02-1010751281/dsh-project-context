@@ -18,11 +18,11 @@ import { apply as applyHandoff } from "../lib/project-handoff/index.js";
 import { apply as applyContext } from "../lib/project-context/index.js";
 import { pendingRetire } from "../lib/project-handoff/state.js";
 import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
-import { createChildSession, seedChildSession } from "../lib/project-handoff/child.js";
+import { createChildSession, retireIfPending, seedChildSession } from "../lib/project-handoff/child.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "../lib/project-handoff/classify.js";
 import { USAGE, parseRatio, parseTokenCount, runManual, settingPatch, statusText } from "../lib/project-handoff/command.js";
 import { pendingQuestion, textAsksQuestion } from "../lib/project-handoff/conversation.js";
-import { turnStartedAfter } from "../lib/project-handoff/guard.js";
+import { turnOpenNow, turnStartedAfter } from "../lib/project-handoff/guard.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { MIN_DROP_TOKENS, qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runtime.js";
@@ -3835,6 +3835,137 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 	model.assertNone("the manual path");
 });
 
+test("a manual handoff retires the session it replaced, and only holds back while its own turn is open", async () => {
+	// The reported symptom (2026-11-07): `/handoff now` on an idle session left the handed-off session
+	// live above its own continuation, and nothing anywhere recorded it. The archive was scheduled with
+	// `reason === "manual"` standing in for "its own turn is still open", but a standalone command opens
+	// no turn at all, so the retirement waited for a `turn/end` that could never arrive. Both directions
+	// are pinned here: the closed log retires at once, and a genuinely open turn still holds the archive
+	// back — otherwise the "fix" would be `stopActivity` killing the turn that renders the reply.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-retire-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const fixture = (events) => {
+		const calls = [];
+		const model = noModelCalls();
+		const ctx = {
+			get: (name) => (name === "sessionController" ? {
+				create: async () => { calls.push("create"); return { sessionId: "child-1" }; },
+				rename: async () => undefined,
+			} : name === "agents" ? { get: () => ({ followup: () => { calls.push("seed"); } }) }
+				: name === "workspaceRegistry" ? {
+					resolveByPath: async () => undefined,
+					// The stop request is part of the record: it is what makes the archive apply to a
+					// session the host still reports as active, and it is what must not happen mid-turn.
+					archiveSession: async (id, options) => { calls.push(`archive:${id}:${options?.stopActivity === true}`); },
+				} : undefined),
+			llm: {
+				resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+				stream: model.stream,
+			},
+			logger: { info() {}, warn() {} },
+		};
+		const session = {
+			id: `session-retire-${Math.random().toString(16).slice(2, 10)}`,
+			header: { cwd: root, createdAt: Date.now() },
+			deriveMessages: () => conversation,
+			requestHeader: () => undefined,
+			ownEvents: () => events,
+			snapshotEvents: () => events,
+			deriveEventMessage: () => null,
+		};
+		return { calls, ctx, model, session };
+	};
+	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
+	const archivesOf = (outcome) => outcome.calls.filter((call) => call.startsWith("archive:"));
+
+	// Arm 1 — the log ends on `turn/end`, which is what the failing session looked like after
+	// `command/done`: the retirement must run inside the command, not wait for a later event.
+	const idle = fixture([{ type: "turn/start", seq: 1 }, { type: "turn/end", seq: 9 }]);
+	const idleReply = await runManual(idle.ctx, idle.session, entry, new AbortController().signal);
+	assert.equal(idleReply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(idleReply)}`);
+	assert.deepEqual(archivesOf(idle), [`archive:${idle.session.id}:true`], "an idle session is retired at once, with the stop the host needs");
+	assert.equal(pendingRetire.has(idle.session.id), false, "nothing is left waiting for a turn/end that will never come");
+	assert.equal(idle.model.count(), 0, "the retirement path calls no model");
+
+	// Arm 2 — its own turn is still open, so the archive would stop the very turn rendering the reply.
+	// This is the positive control the bare predicate cannot give: a fix that simply always retired
+	// would pass arm 1 and be wrong here.
+	const busy = fixture([{ type: "turn/start", seq: 1 }, { type: "turn/end", seq: 9 }, { type: "turn/start", seq: 12 }]);
+	const busyReply = await runManual(busy.ctx, busy.session, entry, new AbortController().signal);
+	assert.equal(busyReply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(busyReply)}`);
+	assert.deepEqual(archivesOf(busy), [], "an open turn holds the archive back");
+	assert.equal(pendingRetire.has(busy.session.id), true, "it waits for the turn/end that closes that turn");
+	// Consuming it is what the plugin's `turn/end` listener does; the deferred retirement must still run.
+	retireIfPending(busy.ctx, busy.session);
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	assert.deepEqual(archivesOf(busy), [`archive:${busy.session.id}:true`], "the deferred retirement still lands, unchanged");
+	assert.equal(pendingRetire.has(busy.session.id), false, "and it is consumed exactly once");
+	assert.equal(busy.model.count(), 0, "deferring and consuming call no model either");
+});
+
+test("a deferred retirement dropped by session disposal is recorded, not swallowed", async () => {
+	// The other silent half of the same defect: a retirement waiting for a `turn/end` that never comes.
+	// Disposal is when it becomes unperformable — the archive is a write into the workspace store, and a
+	// disposing session is the wrong moment to attempt it — so *dropping* it is intended; dropping it
+	// with no record is not. That is what made the 2026-11-07 loss invisible: no archive, no log, no
+	// trace anywhere, and only a hand audit of 81 handoffs could find it.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-dispose-"));
+	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const archived = [];
+	const handlers = {};
+	const commands = new Map();
+	const model = noModelCalls();
+	const openTurn = [{ type: "turn/start", seq: 3, time: Date.now() }];
+	const session = {
+		id: `session-dispose-${Math.random().toString(16).slice(2, 10)}`,
+		header: { cwd: root, createdAt: Date.now() },
+		deriveMessages: () => conversation,
+		requestHeader: () => undefined,
+		ownEvents: () => openTurn,
+		snapshotEvents: () => openTurn,
+		deriveEventMessage: () => null,
+	};
+	const ctx = {
+		on: (name, handler) => { (handlers[name] ??= []).push(handler); return () => undefined; },
+		effect: () => () => undefined,
+		inject: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		get: (name) => (name === "sessionController" ? {
+			create: async () => ({ sessionId: "child-1" }),
+			rename: async () => undefined,
+		} : name === "agents" ? { get: () => ({ followup: () => undefined }) } : name === "workspaceRegistry" ? {
+			resolveByPath: async () => undefined,
+			archiveSession: async (id, options) => { archived.push([id, options?.stopActivity === true]); },
+		} : undefined),
+		llm: {
+			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
+			stream: model.stream,
+		},
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
+	const reply = await commands.get("handoff").handler({ agent: { session }, rawInput: "now", signal: new AbortController().signal });
+	assert.equal(reply.kind, "success", `expected the manual handoff to run: ${JSON.stringify(reply)}`);
+	assert.deepEqual(archived, [], "the open turn still holds the archive back");
+	assert.ok(pendingRetire.has(String(session.id)), "the retirement is waiting for that turn's end");
+
+	// The session goes away before that turn ever closes. Control first: nothing is on disk yet, so the
+	// line below is this event's own record and not a leftover from some earlier path.
+	const logFile = path.join(root, ".agents", "memory", "errors.log");
+	assert.equal(existsSync(logFile), false, "no diagnostic has been written yet");
+
+	handlers["session/disposed"].at(-1)(session);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.ok(!pendingRetire.has(String(session.id)), "the pending retirement is consumed by the disposal");
+	// The deliberate residual: a disposal is not where a store write belongs, so the session stays live
+	// above its own continuation. What changed is that it can no longer do so silently.
+	assert.deepEqual(archived, [], "the archive is not attempted at disposal");
+	const logged = await readFile(logFile, "utf8");
+	assert.match(logged, /was disposed before its open turn ended/, "the drop is recorded in errors.log");
+	assert.ok(logged.includes(String(session.id)), "and it names the session that stayed live");
+	model.assertNone("the disposal path");
+});
+
 test("a manual handoff refuses while a background subagent is still running", async () => {
 	// The manual path used to skip the subagent guard entirely, and a successful handoff now retires
 	// the session it replaced — which cancels every running subagent descendant of it. A teammate
@@ -4173,7 +4304,12 @@ test("the automatic handoff yields to a session that is already on its next turn
 	assert.deepEqual(broken.cancels, ["child-1"], "a rejected prompt may still have admitted the seed");
 
 	// Control: a settled session still hands off, so the guard cannot pass by disabling the feature.
-	const settled = await run({ events: [turnEnd, { type: "turn/start", seq: 4, time: Date.now() }] });
+	// Its newest turn boundary is the trigger's own `turn/end`, which is exactly what makes the
+	// retirement immediate. (This fixture used to append a `turn/start` with seq 4 after a `turn/end`
+	// with seq 10 — a log no real append can produce, since seq grows with append order; a predicate
+	// that reads the log correctly sees an open turn there, and `turnStartedAfter`'s own seq-4 pin
+	// below is where that guard question actually lives.)
+	const settled = await run({ events: [turnEnd] });
 	assert.equal(settled.error, undefined);
 	assert.deepEqual(settled.calls, ["create", "seed"]);
 	assert.equal(settled.renames.length, 1, "a successful handoff publishes the switch marker");
@@ -4199,6 +4335,41 @@ test("the automatic handoff yields to a session that is already on its next turn
 	// cannot read as this session's own later turn).
 	assert.equal(turnStartedAfter({ snapshotEvents: () => [{ type: "turn/start", seq: 11 }] }, 10), true);
 	assert.equal(turnStartedAfter({ snapshotEvents: () => [{ type: "turn/start", seq: 4 }] }, 10), false);
+});
+
+test("turnOpenNow reads the last turn boundary in the session's own log", () => {
+	// The retirement predicate: retiring archives with `stopActivity`, which would stop a turn that is
+	// still rendering the command's reply — so it waits for `turn/end` only while a turn is genuinely
+	// open. The whole point is that this is the session's *state*, not its caller's identity: reading
+	// "manual" as "turn open" is what left the 2026-11-07 session unretired, because a standalone
+	// `/handoff now` runs as `command/run` → `command/done` with no turn at all.
+	const own = (events) => ({ ownEvents: () => events, snapshotEvents: () => [] });
+
+	// No turn boundary at all: a session that never ran a turn has nothing to protect.
+	assert.equal(turnOpenNow(own([])), false);
+	// A reply being produced right now.
+	assert.equal(turnOpenNow(own([{ type: "turn/start", seq: 1 }])), true);
+	// The turn closed: this is the shape the failing session's log had after `command/done`.
+	assert.equal(turnOpenNow(own([{ type: "turn/start", seq: 1 }, { type: "turn/end", seq: 9 }])), false);
+	// Only the newest boundary counts, not whether a turn ever opened.
+	assert.equal(turnOpenNow(own([
+		{ type: "turn/start", seq: 1 }, { type: "turn/end", seq: 9 }, { type: "turn/start", seq: 12 },
+	])), true);
+	// Neither `step/*` nor any other event between the boundaries may decide it.
+	assert.equal(turnOpenNow(own([
+		{ type: "turn/start", seq: 1 }, { type: "step/start", seq: 2 }, { type: "assistant/message", seq: 3 },
+		{ type: "turn/end", seq: 4 }, { type: "step/start", seq: 5 },
+	])), false);
+	// A fork inherits its parent's log, and an inherited open turn is not this session's work: the
+	// snapshot carries the parent's `turn/start`, `ownEvents()` does not. Reading the snapshot here
+	// would defer the retirement forever on every continuation that forked mid-turn.
+	assert.equal(turnOpenNow({
+		ownEvents: () => [],
+		snapshotEvents: () => [{ type: "turn/start", seq: 1 }],
+	}), false, "the inherited prefix is not this session's open turn");
+	// A runtime without `ownEvents` falls back to the snapshot, as `turnStartedAfter` does.
+	assert.equal(turnOpenNow({ snapshotEvents: () => [{ type: "turn/start", seq: 1 }] }), true);
+	assert.equal(turnOpenNow({ snapshotEvents: () => [{ type: "turn/end", seq: 1 }] }), false);
 });
 
 test("the auto-handoff listener passes the trigger offset through to the settle guard", async () => {
@@ -5730,13 +5901,19 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 	const handlers = {};
 	const commands = new Map();
 	const model = noModelCalls();
+	// The command runs *inside its own open turn* — the case this test is about — and the log has to
+	// say so: a lone `turn/start` with no closing `turn/end`. An empty log is what a standalone command
+	// looks like, and that is the other case, where the retirement must not wait at all (the idle path
+	// is pinned by the sibling test). The old fixture asserted a premise its own log contradicted,
+	// which read as harmless only because the predicate ignored the log.
+	const openTurn = [{ type: "turn/start", seq: 3, time: Date.now() }];
 	const session = {
 		id: `session-retire-${Math.random().toString(16).slice(2, 10)}`,
 		header: { cwd: root, createdAt: Date.now() },
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
-		ownEvents: () => [],
-		snapshotEvents: () => [],
+		ownEvents: () => openTurn,
+		snapshotEvents: () => openTurn,
 		// These fixtures' logs carry control records only (turn ends, catalog rows,
 		// settled markers); projecting them to messages is not modelled here, so the
 		// append-origin read finds nothing and falls back to the surface, exactly as before.

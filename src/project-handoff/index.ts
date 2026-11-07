@@ -75,7 +75,7 @@ import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig, resolvePluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel } from "../shared/lifecycle.js";
-import { getProjectRoot, logError } from "../shared/project-state.js";
+import { getProjectRoot, getProjectRootSync, logError } from "../shared/project-state.js";
 import { REPLAY_MARKER, isHandoffContinuationText } from "./language.js";
 import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { clearHandoffPressure, handoffPressureIsOver, handoffPressureText, recordHandoffGate } from "./display.js";
@@ -237,7 +237,19 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		skippedSince.delete(key);
 		deferredLoggedAt.delete(key);
 		pendingTriggerSeq.delete(key);
-		pendingRetire.delete(key);
+		// A retirement still waiting for a `turn/end` never runs once the session is disposed: the
+		// archive is a write into the workspace store, and a disposing session is the wrong moment to
+		// attempt it. Dropping it silently is what made the 2026-11-07 loss invisible — the session
+		// stayed above its own continuation with nothing recorded anywhere — so the drop is logged.
+		// The line states only what this handler knows: that the retirement is gone. Whether the
+		// session is still listed is the client's state, so the advice is conditional.
+		if (pendingRetire.delete(key)) {
+			try {
+				void logError(getProjectRootSync(session.header.cwd ?? process.cwd()), "handoff", `the handed-off session ${key} was disposed before its open turn ended, so its retirement was dropped; archive it from the client if it is still listed`);
+			} catch {
+				// Diagnostics must never throw.
+			}
+		}
 	});
 
 	ctx.commands.register({
