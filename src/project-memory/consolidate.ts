@@ -69,8 +69,9 @@ export type ConsolidationOutcome = {
 	// A pass-level "the model was shown a shortened view" flag and the two hidden-character counts it
 	// summarized used to live here. Both input gates now refuse before the model call
 	// (`readCappedRefused` / `fitCappedRefused`), so no outcome that ever reached a model call could
-	// carry them: a shortening is reported only through one of those two refusal fields, each of
-	// which carries its own counts.
+	// carry them. Of the shortenings that remain, only the gate refusals produce an outcome, and each
+	// carries its own counts. The truncation retry's fit never becomes an outcome at all: it is either
+	// not sent (logged with its own hidden count) or sent with `clipped === false`.
 	/**
 	 * The memory this pass's prompt was built from, byte for byte. The write path refuses a reply
 	 * whose baseline no longer matches what is stored: publishing it would overwrite a newer edit.

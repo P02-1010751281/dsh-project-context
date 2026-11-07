@@ -2427,9 +2427,10 @@ test("the context read cap is counted as characters the model was not shown", as
 	const gate = errors.split("\n").filter((line) => line.includes("the consolidation pass was not run"));
 	assert.equal(gate.length, 1, `the gate leaves its own line, got ${JSON.stringify(gate)}`);
 	// One cause, one line. A generic "was given a shortened version of the existing memory or context"
-	// trace used to fire on every refusal as well, folding the read cap and the output budget into one
-	// sentence without saying which one refused. It was reachable only through the `clipped` status this
-	// batch removed, so it is gone; a re-add would hand the operator two knobs when one applies.
+	// trace also fired here, folding the read cap and the output budget into one sentence without saying
+	// which one refused. It was gated on the outcome's `clipped` field, which past the two input gates
+	// was set by exactly these refusals — so this assertion was red before `49083b7` deleted the branch
+	// (a live wrong cause, not dead code), and a re-add would hand the operator two knobs when one applies.
 	assert.doesNotMatch(errors, /was given a shortened version/);
 });
 
@@ -2464,9 +2465,10 @@ test("the memory read cap is counted as characters the model was not shown", asy
 	const gate = errors.split("\n").filter((line) => line.includes("the consolidation pass was not run"));
 	assert.equal(gate.length, 1, `the gate leaves its own line, got ${JSON.stringify(gate)}`);
 	// One cause, one line. A generic "was given a shortened version of the existing memory or context"
-	// trace used to fire on every refusal as well, folding the read cap and the output budget into one
-	// sentence without saying which one refused. It was reachable only through the `clipped` status this
-	// batch removed, so it is gone; a re-add would hand the operator two knobs when one applies.
+	// trace also fired here, folding the read cap and the output budget into one sentence without saying
+	// which one refused. It was gated on the outcome's `clipped` field, which past the two input gates
+	// was set by exactly these refusals — so this assertion was red before `49083b7` deleted the branch
+	// (a live wrong cause, not dead code), and a re-add would hand the operator two knobs when one applies.
 	assert.doesNotMatch(errors, /was given a shortened version/);
 });
 
