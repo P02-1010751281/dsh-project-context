@@ -24,7 +24,7 @@ node .agents/evidence/2026-11-06-read-cap-writeback/probe.mjs .   # 仓库根
 | 门禁后 | **0** | `read-capped-refused` | 逐字节不变 | 仍在 |
 
 门禁前那次是真正测出来的，不是推的：回复本身就是它看到的视图，状态报 `clipped`
-（=`memoryHiddenChars 2510`），落盘 3983 字符，Pitfalls 与 Index 整节消失。
+（=`memoryHiddenChars 2510`；当时 `ConsolidationOutcome` 上确有此字段，该字段连同 `status: "clipped"` 已在 2026-11-07 的 `49083b7` 中删除——探针现在改读 `readCappedRefused` 上的计数，见 `CHANGELOG.md`），落盘 3983 字符，Pitfalls 与 Index 整节消失。
 tier C 看不见这一类：它拿回复和**写上限**比，而回复是装得下的。
 
 ## 门禁本身

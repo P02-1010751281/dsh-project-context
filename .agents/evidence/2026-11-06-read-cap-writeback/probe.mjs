@@ -94,7 +94,12 @@ if (hidden === 0) {
 }
 
 const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
-console.log(`calls ${shownViews.length}; outcome.clipped ${outcome.clipped}; memoryHiddenChars ${outcome.memoryHiddenChars}; memoryLossyRefused ${outcome.memoryLossyRefused}`);
+// `outcome.clipped` and the two pass-level hidden counts were removed once both input gates started
+// refusing before the model call: past them they could only ever be zero/false (2026-11-07,
+// commit 49083b7). The refusal payload carries the counts instead, so read them from there.
+const readCapped = outcome.readCappedRefused;
+const hiddenTotal = readCapped === undefined ? 0 : readCapped.memoryHiddenChars + readCapped.contextHiddenChars;
+console.log(`calls ${shownViews.length}; refusal ${readCapped === undefined ? "none" : `read-capped at cap ${readCapped.cap}`}; hidden ${hiddenTotal}; memoryLossyRefused ${outcome.memoryLossyRefused}`);
 if (shownViews.length === 0) console.log("no model call: the pass refused before spending one");
 if (shownViews.length > 0) {
 	const sent = shownViews[0];
