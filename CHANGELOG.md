@@ -10,6 +10,20 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（修复：手动 `/handoff now` 交接后旧会话不归档，且不留任何记录）**
+
+- 症状与证据：本项目 81 次交接逐个对账（把 `.agents/memory/session-logs/*/session.jsonl` 里种子横幅的「上一会话 id」与 `~/.dsh/storages/workspace.json` 的 `global.archivedSessionIds` 对照），**自动路径 80/80 归档了父会话**，唯一失败的是手动 `/handoff now`：`session-88ada514` 至今仍排在它自己的续接会话之上。它的日志给出判别式：`turn/end#384` → `command/run#385` → `command/done#386`（末事件），即**命令跑在没有任何 turn 的位置**。
+- 根因（错误成因类）：`perform.ts` 用 `reason === "manual"` 冒充「这个会话自己的 turn 是否开着」，而 `scheduleRetirement` 的第三参数问的正是后者。手动路径因此被无条件延后到 `turn/end`，可那个 turn 根本不存在，于是一条只由 `turn/end` 消费的 `pendingRetire` 条目永远不会被消费——而且全程**一行日志都没有**（`retireSession` 只在真正被调用后才可能报错）。
+- 修法：`guard.ts` 新增 `turnOpenNow(session)`，读会话自己的事件日志（`ownEventsOf`，优先 `ownEvents()`），从末尾找第一个 `turn/start`/`turn/end`，只有前者算「turn 开着」；fork 继承的父前缀不算本会话的 turn。`perform.ts` 改用它。**没有**改用 `ctx.agents.turnBoundaryOf()`（`openTurnStartSeq` 是非空即开着，语义等价）：那会把**回退分支**变成唯一被测试的路径，而生产上跑的投影分支无人覆盖——本仓已被这个坑咬过一次。
+- 第二处静默改响：`session/disposed` 原先 `pendingRetire.delete(key)` 直接丢弃。丢弃本身是有意为之（归档是往 workspace store 写，处置中的会话不是做这件事的时机），所以保留 drop，但真的丢到条目时写一行 `errors.log`。文案只声明本处理器知道的事（退休没了 + 若仍列在客户端就手动归档），**不**再断言未核实的「它仍排在续接会话之上」。
+- 行为变化（两处，都朝更安全的方向）：①闲置会话上的 `/handoff now` 现在立即归档，不再等一个不会来的事件；②自动路径在「最后一次 settle 检查 → 归档派发」之间的 ms 级窗口里若新开了 turn，会改为等该 turn 的 `turn/end`，而不是用 `stopActivity` 把刚起步的 turn 掐掉。
+- 残差（登记，不修）：手动交接若发生在 turn **真的**开着时仍延后到 `turn/end`；若会话在那之前被 dispose，只在 `errors.log` 留一行而不归档。
+- 用例（+3，总数 497 → **500**）：`turnOpenNow` 判据矩阵（含「无边界」「只认末个边界」「`step/*` 不参与」「fork 继承前缀不算」）；经真实 `runManual` 的两个方向（闲置→立即归档且带 `stopActivity`；turn 真开着→延后，消费后仍落地）；处置丢弃必须留下 `errors.log` 记录。另修两处既有 fixture 的自相矛盾——一个声称「命令跑在自己的 turn 内」却给了**空日志**，另一个在 `turn/end(seq 10)` 之后追加 `turn/start(seq 4)`（`seq` 即日志下标，真实日志不可能）。这两处此前不显形，正因为旧判据根本不读日志。
+- 变异轮（3 个变异体，全部被杀；均过有效性三连：`tsc` 0 错、标记进了 `lib/`、行为确实改变；判红后逐字节还原并 `sha256sum -c` 复验）：M1 调用点退回 `reason === "manual"` → 只有新端到端用例红；M2 `turnOpenNow` 恒 false → 4 条红（判据矩阵、端到端正控制、处置用例、既有 never-mid-turn）；M3 丢弃改回静默 → 只有处置用例红。
+- 独立只读复核：未能证伪主结论，但抓到本批 2 处判断错误并已修（「自动路径放行后必为 false」过强；拒绝 `turnBoundaryOf` 的理由写错），另其「本批新增第二个弃用调用点」的前提不成立（`session.ownEvents()` 全仓仅 `guard.ts` 的 `ownEventsOf` 一处，且不在本批 diff 内）。据其复核还修掉一行会断言未核实状态的日志文案。
+- 门禁（现跑）：`pnpm typecheck` 0、`pnpm build` 0（`lib/client.js` 37270 不变）、`pnpm test` **500 通过 / 0 失败**；`tsc` 重新 emit 到临时目录与入库 `lib/` 比对 0 差异（`client.js` 除外）；`src/` 与 `lib/` 变异标记均 0。
+- **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据是「承载宿主的进程启动时刻晚于本提交」。被误留的 `session-88ada514` 需在客户端手动归档。
+
 **project-memory（收口：移除结构性不可达的 `clipped` 状态与落地隐藏计数）**
 
 - 性质：**纯删除**，收口上一批登记的已知残差。没有新增门禁、没有改动任何可达路径的行为。唯一可观察的变化是一行 `errors.log` 消失，而那行本来就在说谎（见下）。
