@@ -10,6 +10,19 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**shared + project-memory + project-autolearn（修复：辅助模型调用不点名 `reasoningEffort`，被 SCNet 网关以 400 拒绝）**
+
+- 症状与证据：`/memory update` 连续两次失败，`.agents/memory/errors.log` 里该文案累计 **14 次**（2026-11-03 08:24Z → 2026-11-07 08:18Z，全部是 `[memory]` 行）：`400 SCNet: thinking.type=disabled cannot be translated: configure model_info.thinking_disable_mode only after verifying the upstream contract`。**两份文档未被改写**（`MEMORY.md` mtime 仍是 11-06 20:57、`CONTEXT.md` 是当轮 11:28 那次、`git status` 干净）——拒绝发生在写入之前，无损。链路是 插件 → `ctx.llm.stream` → 本机 magpie（`127.0.0.1:3425`）→ `api.scnet.cn`；`~/.config/magpie/providers.json` 里 scnet 三个端点中有一个 `anthropic`（`https://api.scnet.cn/api/llm/anthropic`），这正是 `thinking.type` 这套词汇的来源。
+- 根因（错误成因类，非本插件逻辑错）：两条辅助调用（`consolidate.ts` 的记忆整理、`autolearn/pass.ts` 的技能决策）都**没有**传 `reasoningEffort`。dsh 的 pi-ai 适配器在调用方不点名时省略 `reasoning`，pi-ai 的 anthropic 翻译路径于是写出 `thinking: { type: "disabled" }`（`llm-pi-ai` / pi-ai 的 `anthropic-messages`），而 SCNet 网关拒绝这种拼写，直到它**自己的** `model_info.thinking_disable_mode` 说明怎么翻译——那是服务端配置，本插件够不到。**`off` 不是逃生口**：`llm-pi-ai/src/adapter.ts` 的 `profileOptions` 把 `reasoning === 'off'` 重写成 `undefined` 再交给 pi-ai，所以「点名 off」与「什么都不点名」产生**逐字节相同**的请求，都会写出 disabled。这也是为什么不照抄 dsh 自家辅助插件的 `efforts[0].id`——对这条路由，`efforts[0]` 恰好就是 `off`。
+- 修法：`src/shared/model-call.ts` 新增 `auxiliaryReasoningEffort(info)`，返回**第一个非 `off` 的启用档**（无 `reasoning`、或只声明了 `off` 时返回 `undefined`，保持原请求不变）；两处调用点各自在已有的那一次 `resolveModelMetadata` 上顺手取出它（**不新增 RPC**），并在 `PluginCallOptions` 里带上 `reasoningEffort`。
+- 行为变化（登记）：在**声明了 disabled 档**的路由上，辅助调用现在以最低启用档思考，而不是不思考。这不只覆盖出问题的 scnet 路由，也覆盖此前从未坏过的路由（如 `deepseek/deepseek-flash`，其辅助调用 09:00 那一批是 200）。代价落在既有的思考预算函数里（`reasoningReserveTokens`、`adaptiveOutputTokens`、tier C 的重试头寸本来就把隐藏思考算进同一个输出 cap），不是新引入的未预算开销。
+- 残差（登记，本批不修）：①**用户自己在 UI 选 Off 仍会 400**——因为 `off` 被适配器丢掉，本插件只能管住自己的两条辅助调用；根治要在网关/上游配 `model_info.thinking_disable_mode`。②`~/.config/magpie/routing/<date>.jsonl` 的 `effort` 字段是 **magpie 自己解析后**的值，不能用来证明客户端「有没有点名」；本批的机制结论来自 pi-ai 源码链，不是从该字段反推。
+- 用例（+2，总数 500 → **502**）：`test/memory-store.test.mjs` 一条（整理路径：声明 `off/low/high/max` 时线上带 `low`，**负控制**为只声明 `off` 的路由不带该字段，且两半都先断 `calls.length`，不会空转）、`test/autolearn.test.mjs` 一条（技能决策路径，同样两半）。另在既有的「tools 被拒后重试一次」用例里 **+2 条断言**，钉住重试**不会静默丢掉** effort——这一条是对未来重构的钉子（两次调用共享同一个捕获值，今天没有变异体能区分它），如实记为钉子而非覆盖。
+- 变异轮（3 个变异体，全部被杀；均过有效性三连：`tsc` 0 错、标记进了 `lib/`、行为确实改变；判红后从 `/tmp/mut-src/` 的哈希快照还原并 `sha256sum -c` 复验 70 个文件全部匹配，`lib/` 标记归 0）：M1 把筛选条件从 `!== off` 翻转成 `=== off` → 两条新用例**同时**红；M2 `consolidate` 侧改成 `auxiliaryReasoningEffort(undefined)` → **只有**整理那条红、autolearn 保持绿；M3 `autolearn` 侧同样处理 → **只有** autolearn 那条红、整理保持绿。M2 的第一版是「把调用点的实参删掉」，`tsc` 报 `TS6133`（局部变量不再被读）——按有效性三连这属于**无效变异体**，改形状后重跑，没有把编译失败当成证据。
+- 独立只读复核（对抗式，未能推翻主结论，但确证了三件事并纠正了我的一处证据误读）：①`adapter.ts` 确实在 pi-ai 之前丢掉 `off`，因此「跳过 off」不只是「更便宜」，而是**唯一可行**；②`getSupportedThinkingLevels` 的顺序使 `off` 排在最前，配置文件与它一致；③我把 magpie 日志的 `effort` 字段当成了「客户端点名了什么」——**错了**，它是 magpie 解析后的值（09:00:40 那批带 `tools:[record_memory]`、`effort:"none"`、200 的记录，在当时的代码下不可能由客户端点名）。据其复核重写了两条注释：删掉会随本会话调用量增长的固定计数（528→608/591 都只是某一刻的快照）、并把「辅助调用不能不带 effort」这句过强的断言改成按路由与协议限定，同时补记了上面那条「路由选择 off 仍会 400」的残差与「从未坏过的路由也会开始思考」的代价。
+- 门禁（现跑）：`pnpm typecheck` 0、`pnpm build` 0（`lib/client.js` 37270 不变）、`pnpm test` **502 通过 / 0 失败**；`tsc` 重新 emit 到临时目录与入库 `lib/` 比对只有 `lib/client.js` 一项差异（esbuild 产物，预期内）；`src/` 与 `lib/` 变异标记均 0。
+- **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据是「承载宿主的进程启动时刻晚于本提交」。加载后仍需一次 `/memory update`（用户侧）做行为验证——本批只能证明「辅助调用现在点名了启用档」，不能证明 SCNet 网关一定接受（`low` 在该路由上尚未被实测到，`high/max` 是实测通的）。
+
 **project-handoff（修复：手动 `/handoff now` 交接后旧会话不归档，且不留任何记录）**
 
 - 症状与证据：本项目 81 次交接逐个对账（把 `.agents/memory/session-logs/*/session.jsonl` 里种子横幅的「上一会话 id」与 `~/.dsh/storages/workspace.json` 的 `global.archivedSessionIds` 对照），**自动路径 80/80 归档了父会话**，唯一失败的是手动 `/handoff now`：`session-88ada514` 至今仍排在它自己的续接会话之上。它的日志给出判别式：`turn/end#384` → `command/run#385` → `command/done#386`（末事件），即**命令跑在没有任何 turn 的位置**。

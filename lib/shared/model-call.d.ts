@@ -118,6 +118,34 @@ export declare function modelOutputLimit(ctx: Context, target: {
     model: string;
 }, signal: AbortSignal | undefined): Promise<number | undefined>;
 /**
+ * The reasoning effort an auxiliary call names, or `undefined` when the route offers no enabled level.
+ *
+ * Why an auxiliary call must name one: dsh routes a reasoning-capable model through pi-ai's
+ * Anthropic-shaped translation, which always writes a `thinking` field and writes
+ * `{ type: "disabled" }` whenever the request carries no enabled effort. A gateway is free to refuse
+ * that spelling, and SCNet's does — `400 thinking.type=disabled cannot be translated: configure
+ * model_info.thinking_disable_mode …` — until its own model_info says how to express it, which is
+ * server-side and out of reach here. `scnet/DeepSeek-V4.1-Flash-1017` is the measured case
+ * (2026-11-07): every auxiliary call of that shape was refused, while calls naming an enabled level
+ * answered 200 on the same route. It is route-local, not universal — a plain OpenAI-shaped request
+ * without any reasoning field, and the same aux calls against other providers, answer 200 — so the
+ * defect is this translation path, not the absence of a parameter.
+ *
+ * Why not `efforts[0]`, which is what dsh's own auxiliary plugins take ("the route's least supported
+ * reasoning effort")? Because the least level a reasoning route declares is the disabled one, and the
+ * adapter collapses that to silence (see {@link DISABLED_REASONING_EFFORT}) — the one choice that
+ * reproduces the failure. The first *enabled* level is taken instead.
+ *
+ * Cost, stated because it is a real change on routes that were never broken: on a route that declares
+ * a disabled level, an auxiliary call now thinks at its cheapest enabled level instead of not
+ * thinking. The pass budgets already reserve output room for hidden reasoning
+ * (`reasoningReserveTokens`, `adaptiveOutputTokens`, tier C's retry headroom), so this spends budget
+ * the code already accounts for rather than surprising it.
+ * @param info - the resolved route metadata, as returned by {@link resolveModelMetadata}.
+ * @returns the cheapest enabled effort id, or `undefined` when the route declares none.
+ */
+export declare function auxiliaryReasoningEffort(info: LlmResolvedModelInfo | undefined): string | undefined;
+/**
  * One auxiliary plugin-authored model call, returning its visible text.
  *
  * Carries the loop's own session identity, which every route is entitled to require; see

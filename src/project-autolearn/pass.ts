@@ -9,7 +9,7 @@ import { type Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, type ToolsFallbackState, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
+import { type CompletionOutcome, type ToolsFallbackState, auxiliaryReasoningEffort, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { parseToolArguments } from "../shared/reply-json.js";
 import { REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, reasoningReserveTokens } from "../shared/output-budget.js";
 import { MAX_CONTEXT_CHARS, MAX_SKILL_BODY_CHARS, cachedProjectRoot, contextFile, fileMtimeMs, getProjectRoot, getProjectRootSync, logError, logsDir, memoryFile, readOptional, safeSessionId } from "../shared/project-state.js";
@@ -155,6 +155,10 @@ export function autolearnProjectSkills(
 			// The ceiling stays a *growth* boundary (`Math.max` inside `adaptiveOutputTokens`), not a
 			// hard cap: the configured maxTokens remains the base budget.
 			const info = await resolveModelMetadata(ctx, target, options.signal);
+			// Same resolve, second fact: the route's cheapest *enabled* effort. Naming none, or naming the
+			// disabled level, makes dsh emit disabled thinking, which a gateway may refuse outright
+			// (`auxiliaryReasoningEffort` carries the mechanism and the measured case).
+			const reasoningEffort = auxiliaryReasoningEffort(info);
 			const maxTokens = adaptiveOutputTokens(
 				config.maxTokens,
 				MAX_SKILL_BODY_CHARS + REPLY_OUTPUT_MARGIN_TOKENS + reasoningReserveTokens(MAX_SKILL_BODY_CHARS, { reasoning: info?.reasoning !== undefined }),
@@ -198,6 +202,10 @@ export function autolearnProjectSkills(
 						// The live session this pass was triggered for: the route may require it (opencode
 						// maps it to `x-opencode-session` and answers 400 without it).
 						sessionId: agent.session.id,
+						// Sent whenever the route declares an enabled level: naming none (or `off`, which the
+						// adapter collapses into none) makes dsh write `thinking: { type: "disabled" }`, a
+						// spelling a gateway may refuse. See `auxiliaryReasoningEffort`.
+						...(reasoningEffort === undefined ? {} : { reasoningEffort }),
 						...(useTools ? { tools: [RECORD_SKILL_TOOL] } : {}),
 					}),
 				);

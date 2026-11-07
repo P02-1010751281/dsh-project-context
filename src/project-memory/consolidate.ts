@@ -13,7 +13,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
 import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
-import { type CompletionOutcome, type PluginTool, type ToolsFallbackState, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
+import { type CompletionOutcome, type PluginTool, type ToolsFallbackState, auxiliaryReasoningEffort, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { RETRY_OUTPUT_HEADROOM_TOKENS } from "../shared/output-budget.js";
 import { type ConsolidationResult, type ContextUpdate, parseConsolidation, parseContextMember, parseToolArguments } from "../shared/reply-json.js";
 import { MAX_CONSOLE_REPLY_CHARS, replyHead } from "../shared/text.js";
@@ -358,6 +358,7 @@ async function requestConsolidationText(
 	prompt: string,
 	signal: AbortSignal | undefined,
 	maxTokens: number,
+	reasoningEffort: string | undefined,
 	tools: readonly PluginTool[] | undefined,
 ): Promise<CompletionOutcome> {
 	const target = resolveTarget(agent, config);
@@ -367,6 +368,10 @@ async function requestConsolidationText(
 		// `x-opencode-session` and answers 400 without it), and naming it is what makes the
 		// checkpoint-policy half of `SessionWorkTracker`'s contract load-bearing for this pass.
 		sessionId: agent.session.id,
+		// Sent whenever the route declares an enabled level: naming none (or `off`, which the adapter
+		// collapses into none) makes dsh write `thinking: { type: "disabled" }`, a spelling a gateway may
+		// refuse. `auxiliaryReasoningEffort` carries the mechanism and the measured case.
+		...(reasoningEffort === undefined ? {} : { reasoningEffort }),
 		...(tools === undefined ? {} : { tools }),
 	});
 }
@@ -621,6 +626,10 @@ export function consolidateProjectState(
 		// reasoning metadata decides whether hidden thinking must be reserved out of the same budget.
 		const info = await resolveModelMetadata(ctx, target, options.signal);
 		const auxModel = { maxTokens: info?.defaultMaxTokens, reasoning: info?.reasoning !== undefined };
+		// Same resolve, third fact: the route's cheapest *enabled* effort. Naming none, or naming the
+		// disabled level, makes dsh emit disabled thinking, which a gateway may refuse outright
+		// (`auxiliaryReasoningEffort` carries the mechanism and the measured case).
+		const reasoningEffort = auxiliaryReasoningEffort(info);
 		// The reply must re-emit both artifacts, so the output cap is matched to them (raised up to
 		// the model's own limit and the configured ceiling) and the input is shortened head-and-tail
 		// when even that cannot hold both. An over-long memory is what used to truncate the reply and
@@ -704,7 +713,7 @@ export function consolidateProjectState(
 				// that class and nothing else. The throttle line below runs once for the pair, so a
 				// refused parameter cannot burn two failure slots.
 				return await callWithToolsFallback(toolsState, tools !== undefined && tools.length > 0, (withTools) =>
-					requestConsolidationText(ctx, agent, config, promptFor(input, extra), options.signal, input.maxTokens, withTools ? tools : undefined),
+					requestConsolidationText(ctx, agent, config, promptFor(input, extra), options.signal, input.maxTokens, reasoningEffort, withTools ? tools : undefined),
 				);
 			} catch (error: unknown) {
 				throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });

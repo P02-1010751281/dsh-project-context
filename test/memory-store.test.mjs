@@ -1117,11 +1117,18 @@ function overCapMemory(count = 16) {
  * A pass fixture whose model re-emits exactly the view it was shown (the honest reply, not a hostile
  * one): the four-section document the prompt asks for, built only from the lines the model could see.
  */
-async function viewEchoFixture(root) {
+async function viewEchoFixture(root, { efforts } = {}) {
 	const calls = [];
 	const ctx = {
 		logger: { info() {}, warn() {} },
 		llm: {
+			// Opt-in, so every pre-existing caller keeps a context whose `resolveModelInfo` is missing —
+			// the shape a route with no catalog answers, which is what the effort gate must tolerate.
+			...(efforts === undefined ? {} : {
+				async resolveModelInfo() {
+					return { provider: "test-provider", id: "test-model", name: "test-model", reasoning: { efforts: efforts.map((id) => ({ id, name: id })) } };
+				},
+			}),
 			stream(options) {
 				calls.push(options);
 				const prompt = options.messages[0].content.map((block) => block.text ?? "").join("\n");
@@ -1228,4 +1235,30 @@ test("raising maxMemoryChars re-runs a cached read-cap refusal", async () => {
 	const second = await consolidateProject(ctx, roomy, agent, { force: true, silent: true });
 	assert.equal(calls.length, 1, "the raised cap re-runs the pass instead of re-reporting the refusal");
 	assert.equal(second.status, "updated", JSON.stringify(second));
+});
+
+test("an auxiliary call names the route's cheapest enabled reasoning effort", async () => {
+	// The defect: a call that names no effort is sent as thinking-disabled, and a gateway may refuse that
+	// outright. Measured on 2026-11-07 against `scnet/DeepSeek-V4.1-Flash-1017` (levels off/low/high/max):
+	// 528 dsh requests that named an effort answered 200 and 31 that named none answered 400 `SCNet:
+	// thinking.type=disabled cannot be translated`. The route's *lowest* level is `off`, so "the least
+	// supported effort" is precisely the value that must not travel.
+	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
+
+	const root = await project();
+	await writeFile(memoryFile(root), overCapMemory(), "utf8");
+	const enabled = await viewEchoFixture(root, { efforts: ["off", "low", "high", "max"] });
+	const report = await consolidateProject(enabled.ctx, config, enabled.agent, { force: true, silent: true });
+	assert.equal(report.status, "updated", JSON.stringify(report));
+	assert.equal(enabled.calls.length, 1, "one model call");
+	assert.equal(enabled.calls[0].reasoningEffort, "low", "the disabled level is skipped, not sent as the cheapest");
+
+	// Control: a route that declares no enabled level must send no effort field at all, rather than `off`.
+	const offOnlyRoot = await project();
+	await writeFile(memoryFile(offOnlyRoot), overCapMemory(), "utf8");
+	const offOnly = await viewEchoFixture(offOnlyRoot, { efforts: ["off"] });
+	const offOnlyReport = await consolidateProject(offOnly.ctx, config, offOnly.agent, { force: true, silent: true });
+	assert.equal(offOnlyReport.status, "updated", JSON.stringify(offOnlyReport));
+	assert.equal(offOnly.calls.length, 1, "one model call");
+	assert.equal("reasoningEffort" in offOnly.calls[0], false, "a route with no enabled level carries no effort field");
 });

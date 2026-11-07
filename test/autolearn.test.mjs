@@ -108,15 +108,21 @@ function fakeAgent(cwd, { id = "session-current", turns = 2, events: explicit } 
 }
 
 /** A minimal Context stand-in that records every model call and replays canned replies. */
-function fakeContext(replies, { modelLimit } = {}) {
+function fakeContext(replies, { modelLimit, efforts } = {}) {
 	const calls = [];
 	return {
 		calls,
 		logger: { info() {}, warn() {} },
 		llm: {
 			async resolveModelInfo() {
-				if (modelLimit === undefined) throw new Error("no model catalog");
-				return { provider: "test-provider", id: "test-model", name: "test-model", defaultMaxTokens: modelLimit };
+				if (modelLimit === undefined && efforts === undefined) throw new Error("no model catalog");
+				return {
+					provider: "test-provider",
+					id: "test-model",
+					name: "test-model",
+					...(modelLimit === undefined ? {} : { defaultMaxTokens: modelLimit }),
+					...(efforts === undefined ? {} : { reasoning: { efforts: efforts.map((id) => ({ id, name: id })) } }),
+				};
 			},
 			stream(options) {
 				const reply = replies[calls.length];
@@ -1148,13 +1154,15 @@ test("a route that refuses the tools parameter is retried once without it", asyn
 	const ctx = fakeContext([
 		(options) => (options.tools === undefined ? '{"skill": null}' : refusal),
 		'{"skill": null}',
-	]);
+	], { efforts: ["off", "low", "high"] });
 
 	const outcome = await autolearnProjectSkills(ctx, agent, config, { force: true });
 
 	assert.equal(ctx.calls.length, 2, "the refused call is retried once");
 	assert.deepEqual(ctx.calls[0].tools?.map((tool) => tool.name), ["record_skill"], "the first call offered the tool");
 	assert.equal(ctx.calls[1].tools, undefined, "the retry drops the tool");
+	assert.equal(ctx.calls[0].reasoningEffort, "low", "the refused call names the route's cheapest enabled effort");
+	assert.equal(ctx.calls[1].reasoningEffort, "low", "and the tools-free retry keeps it instead of silently dropping it");
 	assert.equal(promptOf(ctx.calls[1]), promptOf(ctx.calls[0]), "the retry re-sends the same prompt, only without the tool");
 	assert.deepEqual(outcome, { skill: null, backtracked: [], candidate: false }, "the tools-free answer decides the pass");
 });
@@ -1230,4 +1238,24 @@ test("the learn-state write takes the cross-process lock", async () => {
 	await updateLearnState(root, { autolearnAt: 4_242 });
 	assert.equal((await readLearnState(root)).autolearnAt, 4_242, "the write still lands");
 	assert.equal(await readOptional(`${file}.lock`), "", "the writer consumed the stale lock");
+});
+
+test("the decision call names the route's cheapest enabled reasoning effort", async () => {
+	// Same defect as the consolidation pass, on the other auxiliary call site: a request naming no effort
+	// is sent as thinking-disabled and a gateway may refuse it (2026-11-07: 528 named-effort requests
+	// answered 200, 31 unnamed ones answered 400). The route's lowest level is `off`, so it is skipped.
+	const config = resolvePluginConfig({ autolearnTurns: 1, autolearnIntervalMs: 60 * 60 * 1000 });
+
+	const root = await project({ sessions: ["session-a"] });
+	const enabled = fakeContext(['{"skill": null}'], { efforts: ["off", "low", "high"] });
+	await autolearnProjectSkills(enabled, fakeAgent(root, { turns: 3 }), config);
+	assert.equal(enabled.calls.length, 1, "one model call");
+	assert.equal(enabled.calls[0].reasoningEffort, "low", "the disabled level is skipped, not sent as the cheapest");
+
+	// Control: a route that declares no enabled level sends no effort field at all, rather than `off`.
+	const offOnlyRoot = await project({ sessions: ["session-a"] });
+	const offOnly = fakeContext(['{"skill": null}'], { efforts: ["off"] });
+	await autolearnProjectSkills(offOnly, fakeAgent(offOnlyRoot, { turns: 3 }), config);
+	assert.equal(offOnly.calls.length, 1, "one model call");
+	assert.equal("reasoningEffort" in offOnly.calls[0], false, "a route with no enabled level carries no effort field");
 });
