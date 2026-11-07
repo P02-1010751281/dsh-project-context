@@ -1497,7 +1497,7 @@ one handoff race is a design question; nothing is ported by this pass.**
 | `78bad89` | refusal-only suppression / recovered wording | PI-ONLY | pi's recovery branch |
 | `fe00482` | fail closed on a non-string memory field | ALREADY IN DSH | `parseConsolidation` returns undefined unless `memory_markdown` is a string (`shared/reply-json.ts:99`), and a JSON-shaped reply then fails rather than being coerced |
 | `921ff8f` | every no-write diagnostic pass-scoped | ALREADY IN DSH | dsh logs each occurrence, not once per project (`index.ts:238` comment) |
-| `c352bcf` | describe a clipped prompt, not a rewrite | ALREADY IN DSH | the `clipped` receipt says the pass was given a shortened version (`index.ts:657-660`) |
+| `c352bcf` | describe a clipped prompt, not a rewrite | ALREADY IN DSH, branch since removed | the `clipped` receipt said the pass was given a shortened version (`index.ts:657-660`); `49083b7` deleted that status and its receipt branch as structurally unreachable, so a re-triage must not score this as a live match |
 
 The remaining 15 `test` commits (`e466134`, `d5a2af9`, `70b45c7`, `fd7fb32`, `5304b2f`, `dddd0c6`,
 `fe6ca60`, `4dd688e`, `7c64497`, `76c09af`, `0226d43`, `97c71cc`, `d4ff8a3`, `60e11ec`, `7fce639`) pin
