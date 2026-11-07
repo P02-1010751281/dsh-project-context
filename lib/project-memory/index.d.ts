@@ -30,7 +30,7 @@ interface ConsolidateOptions {
     track?: ((work: Promise<unknown>) => void) | undefined;
 }
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
+export type ConsolidateStatus = "updated" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
  *
@@ -49,15 +49,19 @@ export type RefusedLoss = {
 /**
  * What one consolidation attempt did, plus the loss it caused.
  *
- * A consolidation pass loses content in two places that the stored document cannot show afterwards,
- * because both happen before the write: the input fit hides characters of the stored artifacts from
- * the model (`memoryHiddenChars` / `contextHiddenChars`), and the section render drops whole entries
- * once the document reaches its cap (`sectionDropped` / `droppedItems`), with `itemTruncated` counting
- * entries cut to the per-item cap. Carrying them here is what lets the receipt name the mechanism and
- * the count: without it a pass that dropped twelve entries read exactly like a clean one.
+ * A consolidation pass loses content before the write, in places the stored document cannot show
+ * afterwards: the section render drops whole entries once the document reaches its cap
+ * (`sectionDropped` / `droppedItems`), with `itemTruncated` counting entries cut to the per-item cap,
+ * and a write cap clips the reply or the context document on the way out. Carrying them here is what
+ * lets the receipt name the mechanism and the count: without it a pass that dropped twelve entries
+ * read exactly like a clean one.
  *
  * A count is 0 unless the artifact it describes actually landed. A memory render whose write was
  * refused dropped nothing from the stored file, so its counts must not be reported as a loss.
+ *
+ * The input side is deliberately absent: a pass whose view of a stored artifact was shortened is
+ * refused before the model call (`readCappedRefused` / `fitCappedRefused`), so no landed count can
+ * describe a character the model was not shown.
  */
 export type ConsolidateReport = {
     status: ConsolidateStatus;
@@ -65,14 +69,6 @@ export type ConsolidateReport = {
     memoryWritten: boolean;
     /** True when this pass's context landed. */
     contextWritten: boolean;
-    /**
-     * Characters of the stored memory the model was not shown (the read cap plus the input fit),
-     * reported only when this pass's memory landed. The document the count describes is the *stored*
-     * one the pass read, not the one it wrote.
-     */
-    memoryHiddenChars: number;
-    /** Characters of the stored context the model was not shown (the read cap plus the input fit), reported only when the context landed. */
-    contextHiddenChars: number;
     /** Characters the landed CONTEXT.md render dropped to fit its section budgets. */
     contextDroppedChars: number;
     /**

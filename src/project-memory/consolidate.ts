@@ -66,23 +66,11 @@ export type PartialRefusalReason = "store-not-sections" | "reply-not-sections";
 export type ConsolidationOutcome = {
 	result: ConsolidationResult;
 	version: number;
-	/**
-	 * True when the pass's view of a stored artifact was shortened — by the read cap that produced
-	 * `existing`, or by the output fit that produced `usedInput`. Both are pass-level facts, so this
-	 * is what the two diagnostic lines report; the receipt's own status is derived from the landed
-	 * counts instead, because a shortening can belong to an artifact that never landed.
-	 */
-	clipped: boolean;
-	/**
-	 * Characters of the stored memory the model was not shown: what the read cap kept back plus what
-	 * the input fit clipped. 0 only when the stored memory reached the model whole.
-	 */
-	memoryHiddenChars: number;
-	/**
-	 * Characters of the stored context the model was not shown: what the read cap kept back plus what
-	 * the input fit clipped. 0 only when the stored context reached the model whole.
-	 */
-	contextHiddenChars: number;
+	// A pass-level "the model was shown a shortened view" flag and the two hidden-character counts it
+	// summarized used to live here. Both input gates now refuse before the model call
+	// (`readCappedRefused` / `fitCappedRefused`), so no outcome that ever reached a model call could
+	// carry them: a shortening is reported only through one of those two refusal fields, each of
+	// which carries its own counts.
 	/**
 	 * The memory this pass's prompt was built from, byte for byte. The write path refuses a reply
 	 * whose baseline no longer matches what is stored: publishing it would overwrite a newer edit.
@@ -606,9 +594,6 @@ export function consolidateProjectState(
 				// neither artifact, which is what keeps the other half from landing behind its back.
 				result: { memory: "" },
 				version: (nextVersion += 1),
-				clipped: true,
-				memoryHiddenChars: existing.cappedDroppedChars,
-				contextHiddenChars: contextReadHiddenChars,
 				basisKey: existing.text,
 				kind: "none",
 				semanticEmpty: false,
@@ -658,9 +643,6 @@ export function consolidateProjectState(
 			const refusal: ConsolidationOutcome = {
 				result: { memory: "" },
 				version: (nextVersion += 1),
-				clipped: true,
-				memoryHiddenChars: fitted.memoryHiddenChars,
-				contextHiddenChars: fitted.contextHiddenChars,
 				basisKey: existing.text,
 				kind: "none",
 				semanticEmpty: false,
@@ -912,12 +894,6 @@ export function consolidateProjectState(
 		const outcome: ConsolidationOutcome = {
 			result,
 			version,
-			// A stored document over the cap is hidden by the read cap before the fit ever runs: the
-			// loader reports its own cut, so the pass can count what the model was not shown instead of
-			// reporting a clean read of a file it was only shown part of.
-			clipped: usedInput.clipped || existing.cappedDroppedChars > 0 || contextReadHiddenChars > 0,
-			memoryHiddenChars: usedInput.memoryHiddenChars + existing.cappedDroppedChars,
-			contextHiddenChars: usedInput.contextHiddenChars + contextReadHiddenChars,
 			basisKey: existing.text,
 			kind: resolved.kind,
 			semanticEmpty,

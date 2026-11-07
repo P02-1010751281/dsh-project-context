@@ -10,6 +10,22 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（收口：移除结构性不可达的 `clipped` 状态与落地隐藏计数）**
+
+- 性质：**纯删除**，收口上一批登记的已知残差。没有新增门禁、没有改动任何可达路径的行为。唯一可观察的变化是一行 `errors.log` 消失，而那行本来就在说谎（见下）。
+- 前提复核（本批现读源码重新证明，不采信上一批的登记）：`consolidateProjectState` 的两条输入门禁都在**模型调用之前**返回——`readCapHidden > 0` → `read-capped-refused`；`fitted.clipped` → `fit-capped-refused`。过了门禁必然 `existing.cappedDroppedChars === 0`、`contextReadHiddenChars === 0`、`fitted.clipped === false`；而 `usedInput` 只在 `retryFitted.clipped === false` 时才被赋成 `retryFitted`，所以 `usedInput.clipped === false`。于是旧的派生式 `clipped: usedInput.clipped || existing.cappedDroppedChars > 0 || contextReadHiddenChars > 0` 恒为 false，`clippedLanded` 恒为 false，`status: "clipped"` 不可达。
+- 删掉的面（`src/project-memory/`）：`ConsolidateStatus` 的 `"clipped"`；`ConsolidationOutcome` 的 `clipped` / `memoryHiddenChars` / `contextHiddenChars`；`ConsolidateReport` 与 `ConsolidateLoss` 上的两个隐藏计数（`NO_LOSS` 同步）；`memoryUpdateReply` 的 `clipped` 回执分支；`memoryLossDetail` 的「the model was not shown …」一段；`clippedLanded` 派生与 `status: clippedLanded ? "clipped" : "updated"`。
+- **顺带修掉一处真实的错误成因**（本批唯一的行为变化）：`write()` 里 `if (outcome.clipped)` 那条日志——「consolidation was given a shortened version of the existing memory or context (the read cap or the output budget)」——在门禁落地之后**只在两条拒绝路径上触发**，而那两条路径**根本没跑模型**，所以这句话对每一次触发都是假的；更要紧的是它把读上限与输出预算两个不同杠杆含糊成一句，正是本仓库登记的头号缺陷类（把不同失败归并成一个错误成因）。拒绝路径已各自写了点名的那一行，故直接删除。同理删掉 info 行末尾的 `" (the pass ran on a shortened view of the existing content)"` 后缀。
+- 保留（仍是活的）：`MemoryInput` 的 `clipped` 与两个计数（`fitMemoryInput` 的产物，两条门禁就是读它）；`readCappedRefused` / `fitCappedRefused` 两个拒绝载荷各自携带的计数——那是回执给出杠杆的依据。
+- 用例：删除 11 行断言与 2 段注释。测试**总数不变（497）**，因为这些是既有用例内部的断言，不是独立用例——上一批 CHANGELOG 写的「约 10 条单测」在数量上不准确，本批按实况记。另**新增 3 条 `doesNotMatch` 断言**（两条读上限拒绝 + 一条输出预算拒绝），钉住「一次拒绝只留一行、且不出现那句含糊成因」；这三条在本批之前**必然是红的**（当时 `outcome.clipped` 在两条拒绝路径上均为 true，那句话会被写出）。
+- 变异轮（4 个变异体，全部被杀；每个都过有效性三连：`tsc` 0 错、标记进了 `lib/`、行为确实改变；判红后逐字节还原并 `sha256sum -c` 复验）：
+  - M1 把删掉的那行日志加回**读上限**拒绝分支 → 两条读上限用例红，输出预算那条保持绿（说明红的是日志断言，不是连带）。
+  - M2 让 `readCapHidden > 0` 恒不成立（等于拆掉读上限门禁）→ 6 条红（两条计数用例、双 cap 用例、三条 read-capped 用例），证明门禁仍被测试覆盖。
+  - M3 让 `fitted.clipped` 恒不成立（拆掉输出预算门禁）→ 2 条 fit 用例红。
+  - M4 把同一行日志加回**输出预算**拒绝分支 → 只有 fit 那条红（另一条 fit 用例保持绿），单独证明 fit 侧的 `doesNotMatch` 也会开火。
+- 门禁（现跑）：`pnpm typecheck` 0、`pnpm build` 0（`lib/client.js` 37270 不变）、`pnpm test` **497 通过 / 0 失败**；把 `tsc` 重新 emit 到临时目录与入库的 `lib/` 比对，只有 `lib/client.js` 一项差异（esbuild 产物，预期内）；`src/` 与 `lib/` 的变异标记计数均为 0。
+- **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据是「承载宿主的进程启动时刻晚于本提交」。
+
 **project-memory（输出预算的截断视图也不再写回：`fit-capped-refused`；骨架回复不再发布 context 半边）**
 
 - 性质：同一类缺陷的另一半收口。上一批（`read-capped-refused`，`5efaef8`）堵住了**读上限**造成的截断视图写回，但 `fitMemoryInput` 因**输出预算装不下两份文档**而做的头尾裁剪仍是「报告、不拒绝」，而回复是整篇替换——被剪掉的字符照样消失。本轮把它变成拒绝，并顺手堵住读代码时发现的一处半写。
@@ -26,7 +42,7 @@
   - M2 把「重试 fit 裁剪」的判定换成永不成立的比较（重试照发）→ A2 那条红，**batch R 的「重试仍会运行」保持绿**（它的夹具已改为不裁剪，两条各自钉各自的行为）。
   - M3 删掉 `contextRefused` 的第三个条件臂（保留变量引用以免触发 TS6133）→ 骨架回复那条红。
   - 第一版 M2/M3 收窄成 `if (true)` / `false && …`，`tsc` 报 TS18048 等错——按有效性三连这属于无效变异体，改形状后重跑，**没有把编译失败当证据**。
-- **已知残差（本批未收口，明确记录）**：写入路径上现在**只能**产出 `updated`。`status: "clipped"` 与 `ConsolidateReport` 的落地隐藏计数（`memoryHiddenChars`/`contextHiddenChars`）已**结构性不可达**——任何会让模型看到不完整内容的路径都在模型调用前拒绝。移除它们要连带删掉 `memoryUpdateReply` 的 `clipped` 分支、`memoryLossDetail` 的一段文案，以及约 10 条用手搓 report 测回执的单测，属独立清理批次；本批保留并在此登记，避免它被当成「今天还会发生」。
+- **已知残差（本批未收口，明确记录）**：写入路径上现在**只能**产出 `updated`。`status: "clipped"` 与 `ConsolidateReport` 的落地隐藏计数（`memoryHiddenChars`/`contextHiddenChars`）已**结构性不可达**——任何会让模型看到不完整内容的路径都在模型调用前拒绝。移除它们要连带删掉 `memoryUpdateReply` 的 `clipped` 分支、`memoryLossDetail` 的一段文案，以及约 10 条用手搓 report 测回执的单测，属独立清理批次；本批保留并在此登记，避免它被当成「今天还会发生」。（**已在后续清理批次收口**：移除 `clipped` 状态、两个落地隐藏计数、回执分支与相应断言，并顺带删掉那条把两个杠杆含糊成一句的拒绝日志，见本节上方条目。）
 - 门禁（现跑）：`pnpm typecheck` 0、`pnpm build` 0（`lib/client.js` 37270 不变）、`pnpm test` **497 通过 / 0 失败**、`lib/` 里三个变异标记计数均为 0。
 - **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据是「承载宿主的进程启动时刻晚于本提交」。
 

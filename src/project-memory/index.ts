@@ -97,7 +97,7 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
+export type ConsolidateStatus = "updated" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
 
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
@@ -118,15 +118,19 @@ export type RefusedLoss = {
 /**
  * What one consolidation attempt did, plus the loss it caused.
  *
- * A consolidation pass loses content in two places that the stored document cannot show afterwards,
- * because both happen before the write: the input fit hides characters of the stored artifacts from
- * the model (`memoryHiddenChars` / `contextHiddenChars`), and the section render drops whole entries
- * once the document reaches its cap (`sectionDropped` / `droppedItems`), with `itemTruncated` counting
- * entries cut to the per-item cap. Carrying them here is what lets the receipt name the mechanism and
- * the count: without it a pass that dropped twelve entries read exactly like a clean one.
+ * A consolidation pass loses content before the write, in places the stored document cannot show
+ * afterwards: the section render drops whole entries once the document reaches its cap
+ * (`sectionDropped` / `droppedItems`), with `itemTruncated` counting entries cut to the per-item cap,
+ * and a write cap clips the reply or the context document on the way out. Carrying them here is what
+ * lets the receipt name the mechanism and the count: without it a pass that dropped twelve entries
+ * read exactly like a clean one.
  *
  * A count is 0 unless the artifact it describes actually landed. A memory render whose write was
  * refused dropped nothing from the stored file, so its counts must not be reported as a loss.
+ *
+ * The input side is deliberately absent: a pass whose view of a stored artifact was shortened is
+ * refused before the model call (`readCappedRefused` / `fitCappedRefused`), so no landed count can
+ * describe a character the model was not shown.
  */
 export type ConsolidateReport = {
 	status: ConsolidateStatus;
@@ -134,14 +138,6 @@ export type ConsolidateReport = {
 	memoryWritten: boolean;
 	/** True when this pass's context landed. */
 	contextWritten: boolean;
-	/**
-	 * Characters of the stored memory the model was not shown (the read cap plus the input fit),
-	 * reported only when this pass's memory landed. The document the count describes is the *stored*
-	 * one the pass read, not the one it wrote.
-	 */
-	memoryHiddenChars: number;
-	/** Characters of the stored context the model was not shown (the read cap plus the input fit), reported only when the context landed. */
-	contextHiddenChars: number;
 	/** Characters the landed CONTEXT.md render dropped to fit its section budgets. */
 	contextDroppedChars: number;
 	/**
@@ -198,8 +194,6 @@ export type ConsolidateLoss = Omit<ConsolidateReport, "status">;
 const NO_LOSS: ConsolidateLoss = {
 	memoryWritten: false,
 	contextWritten: false,
-	memoryHiddenChars: 0,
-	contextHiddenChars: 0,
 	contextDroppedChars: 0,
 	memoryWriteDroppedChars: 0,
 	sectionDropped: 0,
@@ -340,7 +334,6 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// after this point must not turn that decision into a plain failure.
 				...(refusedLoss === undefined ? {} : { refusedLoss }),
 				memoryWritten: wroteMemory,
-				memoryHiddenChars: wroteMemory ? outcome.memoryHiddenChars : 0,
 				memoryWriteDroppedChars: wroteMemory ? memoryWriteDroppedChars : 0,
 				sectionDropped: wroteMemory ? outcome.sectionDropped : 0,
 				droppedItems: wroteMemory ? outcome.droppedItems : 0,
@@ -407,29 +400,16 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			}
 
 			const wrote = wroteMemory || wroteContext;
-			// Not gated on `wrote`: this line is the trace for the pass-level shortening the receipt's
-			// status deliberately does not carry, and a pass that landed nothing (a below-floor memory,
-			// an unusable context) hid those characters just the same. Gating it on a write would make
-			// "the log line carries the non-landing case" true only sometimes.
-			if (outcome.clipped) {
-				// Always leave a trace: the info line below is hidden by `silent`, and a shortened
-				// rewrite is the symptom that used to precede a truncated, unparseable memory. The
-				// wording names the read cap and the output budget because the hidden count folds both:
-				// naming only the output budget would be a wrong cause for an over-cap stored document.
-				await logError(projectRoot, "memory", "consolidation was given a shortened version of the existing memory or context (the read cap or the output budget)");
-			}
 			if (!options.silent && wrote) {
-				const note = outcome.clipped ? " (the pass ran on a shortened view of the existing content)" : "";
 				// Name what actually landed: a kept memory must not be reported as written.
 				const target = wroteMemory && wroteContext ? "project memory and context" : wroteMemory ? "project memory" : "project context";
-				ctx.logger.info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}${note}`);
+				ctx.logger.info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}`);
 			}
 			// The counts still describe only what landed: a refused memory write dropped nothing from
 			// the stored file, and a context that was never written kept all of its characters.
 			loss = {
 				...loss,
 				contextWritten: wroteContext,
-				contextHiddenChars: wroteContext ? outcome.contextHiddenChars : 0,
 				contextDroppedChars: wroteContext ? contextDroppedChars : 0,
 			};
 			if (memoryKeptStale) return { status: "stale", ...loss };
@@ -456,13 +436,9 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				}
 				return { status: "lossy-refused", ...loss, refusedLoss };
 			}
-			// Only a shortening that landed may be reported as `clipped`. The pass-level `outcome.clipped`
-			// is true whenever the model's view was shortened, but the shortened artifact may be the one
-			// that did not land — then no count describes it and a status claiming a shortening would
-			// name a loss the stored files never suffered. Deriving the status from the landed counts
-			// makes the status and the receipt's numbers agree by construction.
-			const clippedLanded = loss.memoryHiddenChars > 0 || loss.contextHiddenChars > 0;
-			return wrote ? { status: clippedLanded ? "clipped" : "updated", ...loss } : cleanReport("unchanged");
+			// A pass that wrote here was shown both stored documents whole: either input gate would have
+			// refused it before the model call, so its counts describe only the render's own drops.
+			return wrote ? { status: "updated", ...loss } : cleanReport("unchanged");
 		};
 		try {
 			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
@@ -635,19 +611,15 @@ export function memoryStatusReply(
 /**
  * Name what a pass gave up, mechanism by mechanism, so a lossy receipt cannot read as a clean one.
  *
- * The mechanisms are worded separately because they fail differently: a hidden character count is the
- * input side shielding the model from part of a stored artifact, the write-cap count is the memory the
- * cap dropped from the reply itself, and the drop counts are a renderer refusing to write an entry
- * whole. An empty string means the report carries no loss at all.
+ * The mechanisms are worded separately because they fail differently: the write-cap count is the
+ * memory the cap dropped from the reply itself, and the drop counts are a renderer refusing to write
+ * an entry whole. An empty string means the report carries no loss at all. The input side is not
+ * here: a pass shown a shortened view is refused before the model call, so it lands nothing.
  * @param report - the pass result, whose counts are already filtered to what landed.
  * @returns the loss clause, or `""` when the pass was clean.
  */
 function memoryLossDetail(report: ConsolidateReport): string {
-	const hidden: string[] = [];
-	if (report.memoryHiddenChars > 0) hidden.push(`${report.memoryHiddenChars} character(s) of the stored memory`);
-	if (report.contextHiddenChars > 0) hidden.push(`${report.contextHiddenChars} character(s) of the stored context`);
 	const parts: string[] = [];
-	if (hidden.length > 0) parts.push(`the model was not shown ${hidden.join(" and ")}`);
 	if (report.memoryWriteDroppedChars > 0) parts.push(`${report.memoryWriteDroppedChars} character(s) of the reply exceeded the memory cap and were dropped on write`);
 	if (report.sectionDropped > 0) parts.push(`${report.droppedItems} whole entry(ies) were dropped from ${report.sectionDropped} section(s) because the memory document reached its character cap`);
 	if (report.itemTruncated > 0) parts.push(`${report.itemTruncated} entry(ies) exceeded their section's per-item cap and were truncated`);
@@ -714,13 +686,6 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	if (report.status === "deduped") return { kind: "success", text: "Memory: already up to date (deduped recently); nothing was rewritten." };
 	if (report.status === "unchanged") return { kind: "success", text: "Consolidation ran but produced no new memory or context." };
 	const target = writtenTarget(report);
-	if (report.status === "clipped") {
-		// Mechanism-neutral on purpose: the landed hidden count covers the read cap (`maxMemoryChars`,
-		// `MAX_CONTEXT_CHARS`) as well as the output fit, so naming the output budget alone would be a
-		// wrong cause for an over-cap stored document.
-		const base = `Memory: updated ${target}, but the pass was given a shortened version of the existing content`;
-		return { kind: "success", text: detail === "" ? `${base}.` : `${base}: ${detail}.` };
-	}
 	// A refused reply is not a write: the memory changed while the reply was being built, so the newer
 	// bytes stay effective, and neither artifact was published. The wording may not claim either one.
 	if (report.status === "stale") return { kind: "success", text: "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };

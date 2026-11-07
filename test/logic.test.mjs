@@ -1494,15 +1494,13 @@ test("the bare /session-log reads, `write` writes, and `now` is retired", async 
 
 /**
  * A consolidation report for a status, with every loss count zero unless a case overrides it.
- * The written flags default to what that status means: a clean `updated`/`clipped` pass wrote both
- * artifacts, a `stale` pass wrote neither (batch T2), and the no-op statuses wrote nothing.
+ * The written flags default to what that status means: a clean `updated` pass wrote both artifacts,
+ * a `stale` pass wrote neither (batch T2), and the no-op statuses wrote nothing.
  */
 const plainReport = (status, loss = {}) => ({
 	status,
-	memoryWritten: status === "updated" || status === "clipped",
-	contextWritten: status === "updated" || status === "clipped",
-	memoryHiddenChars: 0,
-	contextHiddenChars: 0,
+	memoryWritten: status === "updated",
+	contextWritten: status === "updated",
 	contextDroppedChars: 0,
 	memoryWriteDroppedChars: 0,
 	sectionDropped: 0,
@@ -1519,7 +1517,6 @@ test("the /memory update reply reflects what the consolidation pass did", () => 
 	assert.match(memoryUpdateReply(plainReport("updated")).text, /updated/);
 	assert.match(memoryUpdateReply(plainReport("deduped")).text, /already up to date/);
 	assert.match(memoryUpdateReply(plainReport("unchanged")).text, /no new memory/);
-	assert.match(memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 12 })).text, /shortened version of the existing content/);
 	assert.notEqual(memoryUpdateReply(plainReport("deduped")).text, memoryUpdateReply(plainReport("updated")).text, "a deduped no-op must not read as a successful rewrite");
 });
 
@@ -1531,24 +1528,6 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	const clean = memoryUpdateReply(plainReport("updated")).text;
 	assert.equal(clean, "Memory: updated MEMORY.md and CONTEXT.md.", "a clean pass keeps its exact wording");
 
-	// A `clipped` report always carries a landed hidden count, because the pass derives the status
-	// from the counts — a shortening that belonged to an artifact which did not land leaves every
-	// count at 0, and the pass reports `updated` instead (pinned end to end by "a shortening that did
-	// not land is never receipted as clipped"). What is pinned here is the sentence a zero-count
-	// report would get, so a reworded base is caught rather than silently accepted.
-	assert.equal(
-		memoryUpdateReply(plainReport("clipped")).text,
-		"Memory: updated MEMORY.md and CONTEXT.md, but the pass was given a shortened version of the existing content.",
-		"the clipped sentence names a shortened input, not the output budget it may not have been",
-	);
-
-	const clipped = memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 1234, contextHiddenChars: 567 })).text;
-	assert.match(clipped, /1234 character\(s\) of the stored memory/);
-	assert.match(clipped, /567 character\(s\) of the stored context/);
-	assert.match(clipped, /the model was not shown 1234 character\(s\) of the stored memory and 567 character\(s\) of the stored context/);
-	assert.match(clipped, /shortened version of the existing content/, "the detail extends the existing sentence rather than replacing it");
-	assert.notEqual(clipped, memoryUpdateReply(plainReport("clipped")).text, "a lossy clipped pass must not read as a lossless one");
-
 	const dropped = memoryUpdateReply(plainReport("updated", { sectionDropped: 1, droppedItems: 12 })).text;
 	assert.match(dropped, /12 whole entry\(ies\) were dropped from 1 section\(s\) because the memory document reached its character cap/);
 	assert.notEqual(dropped, clean, "an entry-dropping pass must not read as a clean one");
@@ -1559,8 +1538,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	assert.notEqual(cut, clean);
 
 	// Both mechanisms in one pass are named separately, not collapsed into one number.
-	const both = memoryUpdateReply(plainReport("clipped", { memoryHiddenChars: 9, sectionDropped: 1, droppedItems: 3, itemTruncated: 1 })).text;
-	assert.match(both, /9 character\(s\) of the stored memory/);
+	const both = memoryUpdateReply(plainReport("updated", { sectionDropped: 1, droppedItems: 3, itemTruncated: 1 })).text;
 	assert.match(both, /3 whole entry\(ies\) were dropped from 1 section\(s\) because the memory document reached its character cap/);
 	assert.match(both, /1 entry\(ies\) exceeded their section's per-item cap/);
 	assert.match(both, /; /, "the two mechanisms are separate clauses");
@@ -1570,7 +1548,7 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// added the context to the refusal: the reply is not published at all, so neither artifact may
 	// be named, and the one wording a stale pass has says exactly that much.
 	assert.equal(memoryUpdateReply(plainReport("stale")).text, "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it.");
-	assert.doesNotMatch(memoryUpdateReply(plainReport("stale", { contextHiddenChars: 40 })).text, /context/, "a stale report carries no context count, because no context landed");
+	assert.doesNotMatch(memoryUpdateReply(plainReport("stale")).text, /context/, "a stale report names neither artifact, because neither landed");
 
 	// The other two loss sites the same receipt has to name: the reply's own write cap (an opaque or
 	// oversized reply never reaches the section renderer) and the context render's own budgets.
@@ -1582,13 +1560,9 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	assert.notEqual(contextClipped, clean);
 
 	// A pass that wrote only one artifact must say so: the old wording claimed both were updated even
-	// when the context was left unchanged. A `clipped` report always has a landed hidden count, so the
-	// reachable single-artifact clipped shape is the one below (the memory landed, and the account of
-	// what was shortened is in the detail); the zero-count variant is pinned above as a pure-function
-	// boundary and is never produced by a pass.
+	// when the context was left unchanged.
 	assert.equal(memoryUpdateReply(plainReport("updated", { contextWritten: false })).text, "Memory: updated MEMORY.md.");
 	assert.equal(memoryUpdateReply(plainReport("updated", { memoryWritten: false })).text, "Memory: updated CONTEXT.md.");
-	assert.equal(memoryUpdateReply(plainReport("clipped", { contextWritten: false, memoryHiddenChars: 5 })).text, "Memory: updated MEMORY.md, but the pass was given a shortened version of the existing content: the model was not shown 5 character(s) of the stored memory.");
 	// Tier C added a status but reworded no other one: a clean pass that wrote both artifacts is still
 	// one clause with no loss account.
 	assert.equal(memoryUpdateReply(plainReport("updated")).text, "Memory: updated MEMORY.md and CONTEXT.md.");
@@ -2330,7 +2304,6 @@ test("counts describe only what landed, and a receipt never claims an artifact t
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	assert.equal(report.memoryWritten, true, "the memory landed");
 	assert.equal(report.contextWritten, false, "an unusable context leaves CONTEXT.md unchanged");
-	assert.equal(report.contextHiddenChars, 0, "a context that never landed reports no hidden characters");
 	assert.equal(report.contextDroppedChars, 0);
 	assert.equal(memoryUpdateReply(report).text, "Memory: updated MEMORY.md.", "the receipt must not claim the context was updated");
 	const unusable = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("context whose shape is unusable"));
@@ -2380,10 +2353,11 @@ test("an input the output budget cannot hold whole refuses the pass before the m
 	assert.match(receipt.text, /maxOutputTokens/, receipt.text);
 	assert.doesNotMatch(receipt.text, /maxMemoryChars/, receipt.text);
 
-	const lines = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
-		.split("\n")
-		.filter((line) => line.includes("output budget cannot hold both stored documents"));
+	const errors = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8");
+	const lines = errors.split("\n").filter((line) => line.includes("output budget cannot hold both stored documents"));
 	assert.equal(lines.length, 1, `one line per occurrence, got ${JSON.stringify(lines)}`);
+	// The same one-cause-one-line rule as the read-cap gate: the generic shortened-view trace is gone.
+	assert.doesNotMatch(errors, /was given a shortened version/);
 	assert.equal((report.fitCappedRefused?.contextHiddenChars ?? 0), 0, "the context fits: only the memory was cut");
 
 	// Positive control: the same reply under a budget that holds both documents runs the pass, so the gate
@@ -2445,15 +2419,18 @@ test("the context read cap is counted as characters the model was not shown", as
 	assert.equal(calls.length, 0, "the gate runs before the model call");
 	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
 	assert.equal(report.contextWritten, false, "a refusal publishes no context");
-	assert.equal(report.contextHiddenChars, 0, "a count that never landed is not reported as a landed loss");
 	assert.ok((report.readCappedRefused?.contextHiddenChars ?? 0) >= storedContext.length - MAX_CONTEXT_CHARS, `the read cap is counted (got ${report.readCappedRefused?.contextHiddenChars})`);
 	assert.equal(report.readCappedRefused?.memoryHiddenChars, 0, "the memory was not the side that was cut");
 	assert.match(memoryUpdateReply(report).text, new RegExp(`${report.readCappedRefused.contextHiddenChars} character\\(s\\) of the stored context`));
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8"), storedContext, "CONTEXT.md stays byte-identical");
-	const gate = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
-		.split("\n")
-		.filter((line) => line.includes("the consolidation pass was not run"));
+	const errors = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8");
+	const gate = errors.split("\n").filter((line) => line.includes("the consolidation pass was not run"));
 	assert.equal(gate.length, 1, `the gate leaves its own line, got ${JSON.stringify(gate)}`);
+	// One cause, one line. A generic "was given a shortened version of the existing memory or context"
+	// trace used to fire on every refusal as well, folding the read cap and the output budget into one
+	// sentence without saying which one refused. It was reachable only through the `clipped` status this
+	// batch removed, so it is gone; a re-add would hand the operator two knobs when one applies.
+	assert.doesNotMatch(errors, /was given a shortened version/);
 });
 
 test("the memory read cap is counted as characters the model was not shown", async () => {
@@ -2480,14 +2457,17 @@ test("the memory read cap is counted as characters the model was not shown", asy
 	assert.equal(calls.length, 0, "the gate runs before the model call");
 	assert.equal(report.memoryWritten, false, "a refusal publishes no memory");
 	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
-	assert.equal(report.memoryHiddenChars, 0, "a count that never landed is not reported as a landed loss");
 	assert.equal(report.readCappedRefused?.memoryHiddenChars, loaded.cappedDroppedChars, "the read cap's own cut, counted exactly once");
 	assert.match(memoryUpdateReply(report).text, new RegExp(`${loaded.cappedDroppedChars} character\\(s\\) of the stored memory`));
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is byte-identical");
-	const gate = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
-		.split("\n")
-		.filter((line) => line.includes("the consolidation pass was not run"));
+	const errors = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8");
+	const gate = errors.split("\n").filter((line) => line.includes("the consolidation pass was not run"));
 	assert.equal(gate.length, 1, `the gate leaves its own line, got ${JSON.stringify(gate)}`);
+	// One cause, one line. A generic "was given a shortened version of the existing memory or context"
+	// trace used to fire on every refusal as well, folding the read cap and the output budget into one
+	// sentence without saying which one refused. It was reachable only through the `clipped` status this
+	// batch removed, so it is gone; a re-add would hand the operator two knobs when one applies.
+	assert.doesNotMatch(errors, /was given a shortened version/);
 });
 
 test("the read cap and the input fit are counted separately, never substituted for each other", async () => {

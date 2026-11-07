@@ -673,11 +673,10 @@ test("the consolidation prompt sends the fitted artifacts inside the configured 
 	};
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	await consolidateProjectState(ctx, agent, config, { force: true });
 
 	assert.equal(calls.length, 1, "one model call");
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
-	assert.equal(outcome.clipped, false, "nothing was hidden from the model, so nothing is reported as clipped");
 	const sent = /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(prompt)[1];
 	assert.equal(sent.length, memory.trimEnd().length, "the prompt carries the whole memory, not a shortened view");
 	assert.ok(calls[0].maxTokens > config.maxTokens, "the adaptive cap was raised to fit the reply");

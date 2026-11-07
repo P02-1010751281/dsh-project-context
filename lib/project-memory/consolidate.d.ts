@@ -27,23 +27,6 @@ export type ConsolidationOutcome = {
     result: ConsolidationResult;
     version: number;
     /**
-     * True when the pass's view of a stored artifact was shortened — by the read cap that produced
-     * `existing`, or by the output fit that produced `usedInput`. Both are pass-level facts, so this
-     * is what the two diagnostic lines report; the receipt's own status is derived from the landed
-     * counts instead, because a shortening can belong to an artifact that never landed.
-     */
-    clipped: boolean;
-    /**
-     * Characters of the stored memory the model was not shown: what the read cap kept back plus what
-     * the input fit clipped. 0 only when the stored memory reached the model whole.
-     */
-    memoryHiddenChars: number;
-    /**
-     * Characters of the stored context the model was not shown: what the read cap kept back plus what
-     * the input fit clipped. 0 only when the stored context reached the model whole.
-     */
-    contextHiddenChars: number;
-    /**
      * The memory this pass's prompt was built from, byte for byte. The write path refuses a reply
      * whose baseline no longer matches what is stored: publishing it would overwrite a newer edit.
      */
