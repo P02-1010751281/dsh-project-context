@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-11-07T02:09:11.442Z
+Last updated: 2026-11-07T02:16:24.032Z
 
 ## Summary
 
@@ -8,7 +8,7 @@ Last updated: 2026-11-07T02:09:11.442Z
 
 ## Key points
 
-- 判据（10:08 现读）：最后一个 src/ 提交是 49083b7 @ 2026-11-07T10:08:08+08:00（本批 clipped 清理）。宿主 pid 37757 启动于 2026-11-07 09:38:45，早于它 → 本批尚未加载，需再重启一次。上一批的验收仍然成立：37757 晚于 44b70d4 @ 09:27:32，所以 5efaef8 与 44b70d4 两个行为提交已生效。
+- 判据（10:16 现读）：最后一个 src/ 提交是 296652c @ 2026-11-07T10:15:56+08:00，但它**只改注释**——重建后 lib/ 逐字节未变，故行为与 49083b7 完全一致。宿主 pid 37757 启动于 09:38:45，早于两者，所以一次重启把它与后续全部 docs 提交一起带进来即可。上一批验收仍成立：37757 晚于 44b70d4 @ 09:27:32。
 - 推送阻塞的真实原因（09:29 实测，取代上一轮的「整机出网故障」）：国内直连正常（baidu 200 / tuna 200），经代理一律 000（google / api.open-meteo），mihomo 对 ✈️Final、GitHub、Google 三个组的 dial 全部 context deadline exceeded，EasyTier overlay 健康（中继 10.126.126.1 3ms、0% 丢包、p2p），dae 反复报 pure SYN refused rewrite of a live flow's routing metadata（outbound=0，目标即代理节点本身 112.36.236.164:3533）→ dae 数据面拒绝重写发往节点的流，所以 mihomo 的出站 SYN 在本地就死了。结论：故障在代理栈，不是网络本身；mihomo 9097 API 需 secret（401）、配置在 root 凭据路径读不到，故节点健康与订阅有效期无法直接查证。
 - maxMemoryChars 现为 45000（desktop + web 同日对齐，2026-11-07 09:00；回退 .bak-20261107-0900-maxmemory45000）；配置与 5efaef8 都要重启才生效。
 - 23:14 / 23:21 两次拒绝签名相同（11 whole entry(ies) from 3 section(s)）；重建回复 43016 字符：cap 40000 丢 11 条 / 3 节（与日志逐字对上），cap 45000 丢 0，breakeven 43500，43000 仍差 500。
@@ -16,6 +16,7 @@ Last updated: 2026-11-07T02:09:11.442Z
 - 截断重试的 fit 若会隐藏内容则不发送，失败文案改成真实成因；重试只能靠抬高请求 cap 腾地方，不能靠少发内容。实测默认 maxOutputTokens 32768 下即可命中（memory 42199+ctx 16048 隐藏 4232，45247+8164 隐藏 3218，均在读上限内）。
 - 骨架回复半写已堵：memoryChanged 排除 semanticEmpty 使 memoryKeptStale 恒 false，导致 contextRefused 看不到该拒绝；现增加 memoryKeptUnderSkeleton（用 basisKey 判据，空库不拦，新项目仍能拿到第一份 CONTEXT.md）。22:28 的现场是 CONTEXT.md 11439 → 3160 且无一行记录。
 - 残差已收口（本批 49083b7，纯删除）：status "clipped" 与落地隐藏计数已删除——ConsolidateReport 的 memoryHiddenChars/contextHiddenChars、ConsolidationOutcome 的 clipped 全没了。前提是现读源码重新证明的：readCapHidden > 0 与 fitted.clipped 两条门禁都在模型调用前返回，过了门禁必然 cappedDroppedChars = 0、contextReadHiddenChars = 0、fitted.clipped = false，而 usedInput 只在 retryFitted.clipped = false 时才被赋值，故旧的派生式恒为 false。顺带修掉一处真实的错误成因：write() 的 if (outcome.clipped) 日志在门禁落地后只在两条拒绝路径上触发，而那两条根本没跑模型，句子每次都是假的，还把读上限与输出预算两个杠杆含糊成一句——拒绝路径各自已写点名的一行，故删除。
+- 独立对抗式复核（2026-11-07 10:20 回）**未能证伪主结论**：7 条逐条给了证据（两条门禁在模型调用前返回、缓存与节流路径不会把拒绝当成非拒绝、src/ 无残留读取、8 个可达 status 都有分支、剩余用例不空转）。**无代码缺陷**；它抓到 4 处文档/注释不准确，都已复现后修掉：两条注释（296652c）与技能 + pi triage（f488b6d）。其中技能里引用的那条 fit 日志是 2026-10-04 的 2b1edc8 就删掉的，属一个月前的既有失真，不是本批引入。
 - 门禁（10:08 现跑）：pnpm typecheck 0、pnpm build 0（lib/client.js 37270 不变）、pnpm test 497 通过 / 0 失败；用例总数不变（497），因为删的是既有用例内部的 11 行断言与 2 段注释，不是独立用例——上一批 CHANGELOG 写的「约 10 条单测」在数量上不准确。tsc 重新 emit 到临时目录与入库的 lib/ 比对只差 lib/client.js（esbuild 产物）；src/ 与 lib/ 变异标记均 0。本批变异轮 4 个变异体全被杀：拆读上限门禁 → 6 条红；拆输出预算门禁 → 2 条红；把删掉的那条日志复活到读上限分支 → 2 条红（fit 那条保持绿）；复活到 fit 分支 → 1 条红。
 - 拒绝的日志措辞可分流：whole entry/ies 或 section 超预算 → budget 半边；cut off by the model output limit → output 半边；fit-capped-refused → 输出预算装不下两份文档（降 maxMemoryChars 无用）。
 - 重启后 errors.log 的两处读数都已归因，别当成新缺陷：①第 42 条 would have been stored lossily 在 09:38:36，早于重启 7 秒，是旧代码在 cap 40000 下写的；②4 条 cannot get required service "llm" in inactive context 在 09:38:43，是旧实例销毁期整理尝试，同类行自 2026-10-20 起共 31 条、每次关停成簇出现，属既存噪声。另：MEMORY.md 第 29 行不变量正文引用了截断标记格式，所以 grep 标记会假阳，必须用 isMemoryTruncated + 长度比对判定。
@@ -26,7 +27,7 @@ Last updated: 2026-11-07T02:09:11.442Z
 ## Open tasks
 
 - 重启已完成（2026-11-07 09:38:43 旧实例退出，09:39:01 新 host 就绪，GUI 44937），验收探针 PASS。
-- 本批 49083b7 改了 src/，需重启宿主加载：判据是承载宿主的进程启动时刻晚于 2026-11-07T10:08:08+08:00；重启后跑 .agents/evidence/2026-11-07-restart-acceptance/acceptance.sh（它自己重算判据）应报 PASS。
+- 本批改了 src/（49083b7 是行为改动，296652c 只改注释且 lib 未变），需重启宿主加载：判据是承载宿主的进程启动时刻晚于 2026-11-07T10:15:56+08:00；重启后跑 .agents/evidence/2026-11-07-restart-acceptance/acceptance.sh（它自己现算判据）应报 PASS。
 - cap 45000 已由配置与启动次序证明：两个 profile 的 cordis.patch.yml 都是 maxMemoryChars: 45000，desktop 与 09:00 备份的差异只有 40000→45000 一处（09:39 的重写保住了值）。行为层硬证据仍需一次 /memory update（用户侧），看是否不再出现 40000 cap 的 lossy 拒绝。
 - 推送待办：origin/main 停在 874ca18，本地有未推提交（现读 git log --oneline origin/main..HEAD 取数，不再写死清单）。阻塞在代理栈而非出网，修法在用户侧（如 sudo systemctl restart dae，可能连带 mihomo）；我未改动代理配置。恢复后 git push，再核对 origin/main。
 - 验证 handoffRetireReplaced 关掉后的效果（用户侧：关闭→保存→/handoff now）；已归档的 c35a7f0f / 3a51f066 需手动取消归档。
