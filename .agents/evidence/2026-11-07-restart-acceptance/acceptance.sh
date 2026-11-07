@@ -86,6 +86,29 @@ else
 	echo "PASS errors.log: ${count} cap-loss entr(ies), latest $(date -d "@$last_epoch" '+%F %T') — none newer than this host ($(date -d "@$start_epoch" '+%F %T'))"
 fi
 
+# 5. The reasoning-effort signature (`SCNet: thinking.type=disabled cannot be translated …`). It can
+#    only be produced by a request that carried no reasoning effort: dsh's pi-ai adapter omits
+#    `reasoning` when none is named, and pi-ai's anthropic translator then writes
+#    `thinking: {type: "disabled"}`. Naming `off` does not escape it either (the adapter maps `off`
+#    to `undefined`), so one of these logged AFTER this host started means either d8ee04f is not
+#    loaded or a call site still omits the effort. Judged exactly like (4): entry times are UTC,
+#    host start is local text, so both go to epochs and the texts are never compared.
+eff_count=$(grep -c 'cannot be translated' "$log" 2>/dev/null); eff_count=${eff_count:-0}
+eff_ts=$(grep 'cannot be translated' "$log" 2>/dev/null | tail -1 | cut -d' ' -f1)
+eff_epoch=""
+[ -n "$eff_ts" ] && eff_epoch=$(date -d "$eff_ts" +%s 2>/dev/null)
+if [ "${eff_count:-0}" -eq 0 ]; then
+	echo "PASS errors.log: the reasoning-effort signature has never been logged"
+elif [ -z "$eff_epoch" ] || [ -z "$start_epoch" ]; then
+	echo "FAIL errors.log: cannot place ${eff_count} reasoning-effort entr(ies) against the host start (last '${eff_ts:-<none>}', start '${start_epoch:-<unknown>}')"
+	fail=1
+elif [ "$eff_epoch" -gt "$start_epoch" ]; then
+	echo "FAIL errors.log: 'thinking.type=disabled cannot be translated' logged at $(date -d "@$eff_epoch" '+%F %T') — after this host started ($(date -d "@$start_epoch" '+%F %T')); the effort fix is not in effect on this instance"
+	fail=1
+else
+	echo "PASS errors.log: ${eff_count} reasoning-effort entr(ies), latest $(date -d "@$eff_epoch" '+%F %T') — none newer than this host ($(date -d "@$start_epoch" '+%F %T'))"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
 	echo "RESULT: PASS — every commit up to ${crit_hash:-<unknown>} is loaded"
