@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-11-07T09:04:11.000Z
+Last updated: 2026-11-07T12:07:11.000Z
 
 ## Summary
 
@@ -8,11 +8,12 @@ Last updated: 2026-11-07T09:04:11.000Z
 
 ## Key points
 
-- 判据（17:04 现读）：最后一个 src/ 提交是 **d8ee04f @ 2026-11-07T16:57:23+08:00**；宿主 pid 95705 启动于 15:44:07，**早于判据 ⇒ 本批未加载**。待加载的是两个 src/ 提交：73f6184 @ 11:29:20（手动交接归档）与 d8ee04f（辅助调用点名 effort）。上一次成功重启是 10:26:59（pid 47653，验收 PASS）。探针每跑现算判据，不钉死。
+- 判据（20:04 现读）：最后一个 src/ 提交仍是 **d8ee04f @ 2026-11-07T16:57:23+08:00**；宿主 pid **164161 启动于 20:01:05**，晚于判据 ⇒ **本批已加载**，验收探针 `RESULT: PASS` / exit 0（GUI 端口 33987）。两个 src/ 提交都已生效：`73f6184`（手动交接归档）与 `d8ee04f`（辅助调用点名 effort）。判据未变是因为之后的提交都是 docs（含 `570624d`）。探针每跑现算，不钉死。
 - 辅助调用点名 effort 的判别式：`errors.log` 的 `thinking.type=disabled cannot be translated` 只可能由「请求没带 effort」产生——dsh 的 pi-ai 适配器在没点名时省略 `reasoning`，pi-ai 的 anthropic 翻译路径于是写出 `thinking:{type:"disabled"}`。**命名 `off` 不是逃生口**：`adapter.ts` 有 `reasoning === 'off' ? undefined : reasoning`，把它重写成 undefined，与不点名逐字节相同，所以只能点名一个启用档。
 - 证据口径（复核纠正了我一处推理）：magpie routing 日志里的 `effort` 是它**自己解析后**的值，不能证明客户端有没有点名；09:00 那批 `effort:"none"` 却 200 的辅助调用就是反证。机制结论改由 pi-ai 源码链 + 裸客户端探针支撑（`agent:node` 不带思考字段可 200）。据此删掉了注释里会过期的固定计数。
 - 本批代价（复核指出我原先「无回归」写得太强）：对「声明了 off 且另有启用档」的路由，辅助调用现在会以最低启用档思考，而不只是出问题的 scnet 路由；费用落在既有思考预算函数里（`reasoningReserveTokens` / `adaptiveOutputTokens` / tier C 重试头寸）。
 - 验收探针已加本批检查（`acceptance.sh` 第 5 项）：重启后若 `cannot be translated` 的时刻晚于宿主启动即 FAIL。三支对照实测开火：无签名 PASS / 未来时刻 FAIL / 不可解析 FAIL。
+- 重启后唯一的新错误是**另一个缺陷、且已自愈**：`20:03:46 [handoff] LlmError: pi-ai provider "magpie-anthropic" has no configured model "scnet/DeepSeek-V4.1-Flash-1017"`。成因是用户在我这轮中途把模型从 `magpie-anthropic/scnet/…` 切到 `magpie/auto/deepseek-v4.1-flash`，而 `resolveTarget`（`runtime.ts:128`，配置无 provider/model 键）取的是**会话请求头**，那一刻头里还是旧配对，`gate.ts:55` 的 `resolveModelInfo` 无保护地抛错，被 `index.ts:120` 捕获 → 写 `errors.log` + 置 5 分钟失败退避。判据：当前会话日志 seq 371–410 的请求头已全是 `provider: magpie` + `model: auto/deepseek-v4.1-flash`，所以下一次门禁解析会成功。**不是我这批引入的**（改的是辅助调用路径，handoff 走自己的 gate），也**不需要改代码**：错误已正确点名了具体的 provider/model 对，符合「响亮失败优于静默」。残留：若用户把路由钉死在一个已失效的模型上，自动交接会持续被退避，而唯一痕迹是 `errors.log`（无用户可见面）。
 - 推送阻塞的真实原因（09:29 实测，取代上一轮的「整机出网故障」）：国内直连正常（baidu 200 / tuna 200），经代理一律 000（google / api.open-meteo），mihomo 对 ✈️Final、GitHub、Google 三个组的 dial 全部 context deadline exceeded，EasyTier overlay 健康（中继 10.126.126.1 3ms、0% 丢包、p2p），dae 反复报 pure SYN refused rewrite of a live flow's routing metadata（outbound=0，目标即代理节点本身 112.36.236.164:3533）→ dae 数据面拒绝重写发往节点的流，所以 mihomo 的出站 SYN 在本地就死了。结论：故障在代理栈，不是网络本身；mihomo 9097 API 需 secret（401）、配置在 root 凭据路径读不到，故节点健康与订阅有效期无法直接查证。 10:28 再试推送仍是 `Connection closed by 198.18.0.179 port 443`（rc=128）——198.18.0.0/15 正是 mihomo 的 fake-ip 段，说明请求被代理接管后在本地就被断开，与上面那批 dial 超时是同一处故障，不是出网问题。
 - maxMemoryChars 现为 45000（desktop + web 同日对齐，2026-11-07 09:00；回退 .bak-20261107-0900-maxmemory45000）；配置与 5efaef8 都要重启才生效。
 - 23:14 / 23:21 两次拒绝签名相同（11 whole entry(ies) from 3 section(s)）；重建回复 43016 字符：cap 40000 丢 11 条 / 3 节（与日志逐字对上），cap 45000 丢 0，breakeven 43500，43000 仍差 500。
@@ -37,7 +38,7 @@ Last updated: 2026-11-07T09:04:11.000Z
 - cap 45000 已由配置与启动次序证明：两个 profile 的 cordis.patch.yml 都是 maxMemoryChars: 45000，desktop 与 09:00 备份的差异只有 40000→45000 一处（09:39 的重写保住了值）。行为层硬证据仍需一次 /memory update（用户侧），看是否不再出现 40000 cap 的 lossy 拒绝。
 - 推送已恢复（17:00 实测）：`git push` 经主机密钥校验过的隧道成功（`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`，先比对指纹再用），`origin/main` = `d8ee04f` = HEAD，`ls-remote` 复核一致，未推 0 条。此前 10:28 那次被 198.18.0.179:443（mihomo fake-ip 段）断开属代理栈故障；dae/mihomo 配置我始终未改动。
 - 验证 handoffRetireReplaced 关掉后的效果（用户侧：关闭→保存→/handoff now）；已归档的 c35a7f0f / 3a51f066 需手动取消归档。
-- **重启加载（用户侧，本会话唯一阻塞项）**：两个 src/ 提交都等在这一次重启——`73f6184`（手动 `/handoff now` 后归档父会话）与 `d8ee04f`（辅助调用点名 effort）。顺序：先跑 `.agents/evidence/2026-11-07-restart-acceptance/acceptance.sh`（判据现算，第 5 项盯本批签名），再做两次行为验证——① 闲置会话上 `/handoff now` 应**立即**归档父会话（进 `~/.dsh/storages/workspace.json` 的 `global.archivedSessionIds`），被交接会话不再排在续接会话之上；② `/memory update` 应不再 400。残差（有意保留）：手动交接若发生在 turn 真开着时仍延后到 `turn/end`；若会话在那之前被 dispose，只在 `errors.log` 留一行而不退休；用户在 UI 里手动选 Off 仍会 400——那是网关 `model_info.thinking_disable_mode` 的事，插件够不到。被误留的旧会话 session-88ada514 需在客户端手动归档。
+- **重启已完成（20:01:05，pid 164161），探针 `RESULT: PASS` / exit 0 —— 但行为验证仍未做**：重启后 magpie 路由日志里只有 2 次 dsh 调用（20:04，`group/auto-deepseek-v4-1-flash`，主会话轮次，`tools: []`），**一次辅助调用都没有**，所以「辅助调用会点名最低启用档」仍未在真实网关上被观测到。待用户跑一次 `/memory update`：成功即证明整条链（点名 → 网关接受 `low` → 写入落地）；若仍 400，则说明该路由不接受 `low`，需要换成更高的启用档。另一条待验证：闲置会话上 `/handoff now` 应**立即**归档父会话（进 `~/.dsh/storages/workspace.json` 的 `global.archivedSessionIds`），被交接会话不再排在续接会话之上。残差（有意保留）：手动交接若发生在 turn 真开着时仍延后到 `turn/end`；若会话在那之前被 dispose，只在 `errors.log` 留一行而不退休；用户在 UI 里手动选 Off 仍会 400——那是网关 `model_info.thinking_disable_mode` 的事，插件够不到。被误留的旧会话 session-88ada514 需在客户端手动归档。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
 - 若真要在 64K 窗口运行，需同时调小 handoffBudgetRecentTokens（如 4000）、调小宿主 compaction headroomTokens、并压小两份文档，缺一不可。
 
