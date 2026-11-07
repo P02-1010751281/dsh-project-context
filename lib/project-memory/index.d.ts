@@ -30,7 +30,7 @@ interface ConsolidateOptions {
     track?: ((work: Promise<unknown>) => void) | undefined;
 }
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused";
+export type ConsolidateStatus = "updated" | "clipped" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
  *
@@ -117,6 +117,18 @@ export type ConsolidateReport = {
      */
     readCappedRefused?: {
         cap: number;
+        memoryHiddenChars: number;
+        contextHiddenChars: number;
+    };
+    /**
+     * Set by the output-budget gate: the pass was refused before any model call because `fitMemoryInput`
+     * could not hold both stored documents inside the output budget, so the model would have been shown a
+     * shortened view and its whole-document reply would have replaced the stored file with it. The same
+     * loss as `readCappedRefused`, cut on a different budget, so the levers differ: this one is
+     * `maxOutputTokens` (or a shorter document), never `maxMemoryChars`.
+     */
+    fitCappedRefused?: {
+        maxOutputTokens: number;
         memoryHiddenChars: number;
         contextHiddenChars: number;
     };

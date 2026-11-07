@@ -110,6 +110,19 @@ export type ConsolidationOutcome = {
         memoryHiddenChars: number;
         contextHiddenChars: number;
     };
+    /**
+     * Set when the pass refused before the model call because the output budget could not hold both
+     * documents whole: `fitMemoryInput` shortened them head-and-tail, and a reply built from that view
+     * replaces the stored file with it — the same deletion `readCappedRefused` exists to prevent, one
+     * budget further out. Separate from it because the levers differ: the read cap is `maxMemoryChars`
+     * (or the stored document), while this one is `maxOutputTokens` (or both documents), and a receipt
+     * that named the wrong knob would be a dead lever.
+     */
+    fitCappedRefused?: {
+        maxOutputTokens: number;
+        memoryHiddenChars: number;
+        contextHiddenChars: number;
+    };
 };
 export interface ConsolidationOptions {
     force?: boolean;

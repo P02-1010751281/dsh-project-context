@@ -1921,8 +1921,13 @@ test("tier C: a reply carrying no entries is the empty-skeleton gate's case, not
 	assert.equal(calls.length, 1, "a body-less reply is not worth a retry");
 	assert.equal(report.refusedLoss, undefined, "the cap is not named as what stopped the write");
 	assert.equal(report.memoryWritten, false);
-	assert.equal(report.status, "updated", "the context still landed");
-	assert.match(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"), /was not a writable memory document/);
+	// Batch X: a skeleton reply publishes neither artifact. The context half used to land here — the pass
+	// skipped the memory write through `memoryChanged`, which never set `memoryKeptStale`, so the
+	// `contextRefused` test saw a clean pass and replaced CONTEXT.md with a section whose memory half was
+	// judged unwritable (measured 2026-11-06 22:28:58: 11439 -> 3160 characters, unreported).
+	assert.equal(report.status, "unchanged", "nothing landed: the reply is not a memory, so its context is not published either");
+	assert.equal(report.contextWritten, false, "the context half is withheld with the memory half");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8").then((text) => text.includes("was not a writable memory document")), true);
 });
 
 test("a conversational reply cannot replace a stored memory", async () => {
@@ -1945,7 +1950,8 @@ test("a conversational reply cannot replace a stored memory", async () => {
 		const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
 		assert.equal(calls.length, 1, `${label}: a refused reply is not worth a retry`);
-		assert.equal(report.status, "updated", `${label}: the context still landed`);
+		assert.equal(report.status, "unchanged", `${label}: a conversational reply publishes neither artifact`);
+		assert.equal(report.contextWritten, false, `${label}: its context is withheld with its memory`);
 		assert.equal(report.memoryWritten, false, label);
 		assert.equal(report.refusedLoss, undefined, `${label}: the cap is not named as what stopped the write`);
 		assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, `${label}: the stored memory is byte-identical`);
@@ -1997,7 +2003,7 @@ test("a conversational reply cannot replace a stored memory", async () => {
 	const matureReport = await consolidateProject(mature.ctx, tight, mature.agent, { force: true, silent: true });
 
 	assert.equal(mature.calls.length, 1, "the shape gate closes it before tier C, so the over-cap reply gets no retry");
-	assert.equal(matureReport.status, "updated", JSON.stringify(matureReport));
+	assert.equal(matureReport.status, "unchanged", `the shape gate publishes neither artifact, so nothing landed: ${JSON.stringify(matureReport)}`);
 	assert.equal(matureReport.refusedLoss, undefined, "the cap is not named as what stopped the write");
 	assert.equal(await readFile(path.join(matureRoot, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the mature store is byte-identical");
 });
@@ -2335,21 +2341,21 @@ test("counts describe only what landed, and a receipt never claims an artifact t
 	assert.equal(repeated.length, 2, `a third once-per-project gate would leave only one line, got ${JSON.stringify(repeated)}`);
 });
 
-test("a shortening that did not land is never receipted as clipped", async () => {
-	// R1: the pass derives `clipped` from the landed hidden counts, so a shortening that belonged to an
-	// artifact which did not land cannot read as a loss. Here the input fit hid characters of the
-	// MEMORY, the reply's memory was below the length floor so no memory landed, and the (fully shown)
-	// context did: the receipt must report a plain context update, leave the memory file untouched, and
-	// still record the pass-level shortening in errors.log.
-	const root = await memoryProject("dsh-unlanded-clip-", undefined);
+test("an input the output budget cannot hold whole refuses the pass before the model call", async () => {
+	// Batch X. `fitMemoryInput` shortens head-and-tail when the output budget cannot hold both stored
+	// documents; the reply is a whole-document replacement, so letting it land deletes every hidden
+	// character while the status says `clipped` and tier C stays silent (it measures the reply against the
+	// write cap, and the reply fits). Measured on the built `lib/` 2026-11-07: 39000 dense CJK characters
+	// under a 40000-character read cap hide 26k characters from the first fit alone.
+	// Both documents stay inside the READ caps on purpose, so the read-cap gate cannot be what refuses.
+	const root = await memoryProject("dsh-fit-cap-", undefined);
 	const stored = `# Project Memory\n\n${"字".repeat(39_000)}\n`;
 	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
-	// Guard the fixture: this test proves nothing unless the fit really hides memory characters and
-	// the context is shown whole.
-	const fitted = fitMemoryInput(stored, "", 8192, {}, 32_768);
-	assert.ok(fitted.memoryHiddenChars > 0 && fitted.contextHiddenChars === 0, `fixture: the memory is the clipped artifact (${JSON.stringify(fitted)})`);
+	// Guard the fixture: the fit must really hide content, and the read cap must not be the one refusing.
+	assert.ok(fitMemoryInput(stored, "", 8192, {}, 32_768).memoryHiddenChars > 0, "fixture: the input fit hides memory characters");
+	assert.ok(stored.length <= 40_000, "fixture: the stored memory is inside the read cap");
 
-	const { ctx, agent } = await consolidationFixture({
+	const { calls, ctx, agent } = await consolidationFixture({
 		root,
 		replies: [{ text: JSON.stringify({ memory_markdown: "x", context: { title: "t", summary: "s", key_points: ["k"], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
@@ -2357,47 +2363,68 @@ test("a shortening that did not land is never receipted as clipped", async () =>
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.equal(report.status, "updated", `a shortening that never landed must not be reported as clipped (got ${JSON.stringify(report)})`);
-	assert.equal(report.memoryWritten, false, "the below-floor reply wrote no memory");
-	assert.equal(report.contextWritten, true, "the context landed");
-	assert.equal(report.memoryHiddenChars, 0, "no landed artifact lost characters");
-	assert.equal(report.contextHiddenChars, 0, "the context the model was shown whole");
-	assert.equal(memoryUpdateReply(report).text, "Memory: updated CONTEXT.md.", "the receipt must not claim a shortening");
-	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
-	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+	assert.equal(calls.length, 0, "the gate runs before the model call: a pass that cannot see its own input spends none");
+	assert.equal(report.status, "fit-capped-refused", `got ${JSON.stringify(report)}`);
+	assert.equal(report.memoryWritten, false);
+	assert.equal(report.contextWritten, false, "a refusal publishes neither artifact");
+	assert.equal(report.fitCappedRefused?.maxOutputTokens, 32_768, "the refusal carries the budget it was decided under");
+	assert.ok((report.fitCappedRefused?.memoryHiddenChars ?? 0) > 0, "and the amount it hid");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is byte-identical");
+	assert.equal(existsSync(path.join(root, ".agents", "memory", "CONTEXT.md")), false, "no context was written either");
+
+	// The lever must be the knob that can actually fix it. `maxMemoryChars` cannot buy the output budget a
+	// single token, so naming it here would be the dead lever this repo refuses to ship.
+	const receipt = memoryUpdateReply(report);
+	assert.equal(receipt.kind, "success");
+	assert.match(receipt.text, /output budget/, receipt.text);
+	assert.match(receipt.text, /maxOutputTokens/, receipt.text);
+	assert.doesNotMatch(receipt.text, /maxMemoryChars/, receipt.text);
+
+	const lines = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
-		.filter((line) => line.includes("shortened version of the existing memory"));
-	assert.equal(shortened.length, 1, `the pass-level shortening still leaves its own line, got ${JSON.stringify(shortened)}`);
+		.filter((line) => line.includes("output budget cannot hold both stored documents"));
+	assert.equal(lines.length, 1, `one line per occurrence, got ${JSON.stringify(lines)}`);
+	assert.equal((report.fitCappedRefused?.contextHiddenChars ?? 0), 0, "the context fits: only the memory was cut");
+
+	// Positive control: the same reply under a budget that holds both documents runs the pass, so the gate
+	// is not simply always on.
+	const roomy = await memoryProject("dsh-fit-cap-control-", stored);
+	const control = await consolidationFixture({
+		root: roomy,
+		// A complete four-section document: the control has to be the *budget* removing the refusal, not
+		// batch Q2 replacing it with a shape refusal over the fixture's opaque store.
+		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- rewritten\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const wide = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 200_000, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+	const controlReport = await consolidateProject(control.ctx, wide, control.agent, { force: true, silent: true });
+	assert.equal(control.calls.length, 1, "with room in the budget the pass runs");
+	assert.equal(controlReport.status, "updated", `the control must land, got ${JSON.stringify(controlReport)}`);
 });
 
-test("a clipped pass that landed nothing still leaves its own line", async () => {
-	// The line is the trace for the shortening the status no longer carries, so it must not depend on
-	// a write: with a below-floor memory and an unusable context nothing lands at all, the pass reports
-	// `unchanged`, and the hidden characters would otherwise vanish from every surface.
-	const root = await memoryProject("dsh-nothing-landed-clip-", undefined);
+test("the fit refusal leaves an existing CONTEXT.md byte-identical", async () => {
+	// The refusal publishes neither artifact, and "neither" has to include the one that was *not* the
+	// reason: an existing CONTEXT.md must survive a pass refused over the memory's size, or the gate would
+	// trade one silent replacement for another.
+	const root = await memoryProject("dsh-fit-cap-context-", undefined);
 	const stored = `# Project Memory\n\n${"字".repeat(39_000)}\n`;
 	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
-	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "# Project Context\n\n## Summary\n\nold summary\n", "utf8");
-	// Guard the fixture: the fit hides memory characters, and the non-empty context keeps the fallback
-	// from writing one.
+	const context = "# Project Context\n\n## Summary\n\nold summary\n";
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), context, "utf8");
 	assert.ok(fitMemoryInput(stored, "", 8192, {}, 32_768).memoryHiddenChars > 0, "fixture: the input fit hides memory characters");
 
 	const { ctx, agent } = await consolidationFixture({
 		root,
-		replies: [{ text: JSON.stringify({ memory_markdown: "x", context: { title: "t", summary: 42, key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- rewritten\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
 
-	assert.equal(report.status, "unchanged", `fixture: nothing landed (got ${JSON.stringify(report)})`);
-	assert.equal(report.memoryWritten, false);
+	assert.equal(report.status, "fit-capped-refused", `got ${JSON.stringify(report)}`);
 	assert.equal(report.contextWritten, false);
-	assert.equal(memoryUpdateReply(report).text, "Consolidation ran but produced no new memory or context.");
-	const shortened = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
-		.split("\n")
-		.filter((line) => line.includes("shortened version of the existing memory"));
-	assert.equal(shortened.length, 1, `a pass that landed nothing still leaves the line, got ${JSON.stringify(shortened)}`);
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8"), context, "the stored context is byte-identical");
+	assert.equal(report.memoryWritten, false);
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored);
 });
 
 test("the context read cap is counted as characters the model was not shown", async () => {
@@ -5085,11 +5112,13 @@ const CUT_REPLY = '{"memory_markdown":"# Project Memory\\n\\nwas cut off here';
 test("a reply cut off by the output limit is retried once with more headroom", async () => {
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-retry-"));
 	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
-	// Dense content, sized to fit the read cap, so the first fit really is budget-bound and the
-	// retry (which reserves RETRY_OUTPUT_HEADROOM_TOKENS more) is distinguishable from it.
-	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${"记".repeat(30_000)}\n`, "utf8");
+	// Sized so the retry can reserve its headroom *without* hiding stored content: at 30k dense CJK
+	// characters the retry's fit clipped (batch X closed that path), so the fixture now sits well inside
+	// the budget and the retry raises the requested cap instead. The guard below pins that half.
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${"记".repeat(8_000)}\n`, "utf8");
 	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
 	assert.equal((await loadMemory(root, 40_000)).text.length, stored.trimEnd().length, "the fixture memory survives the read cap");
+	assert.equal(fitMemoryInput(stored, "", 8192, {}, 32_768, RETRY_OUTPUT_HEADROOM_TOKENS).clipped, false, "fixture: the retry fit must not hide content, or this test measures batch X's gate instead of batch R's handle");
 
 	const { calls, warnings, ctx, agent } = await consolidationFixture({
 		root,
@@ -5116,8 +5145,15 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 	// cap, which shows up as a larger requested cap or as less stored content sent — never more.
 	const sentMemory = (call) => /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(call.messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
 	assert.ok(
-		calls[1].maxTokens > calls[0].maxTokens || sentMemory(calls[1]).length < sentMemory(calls[0]).length,
-		`the retry must reserve more room: caps ${calls[0].maxTokens} -> ${calls[1].maxTokens}, memory ${sentMemory(calls[0]).length} -> ${sentMemory(calls[1]).length}`,
+		calls[1].maxTokens > calls[0].maxTokens,
+		`the retry must reserve more room in the requested cap: ${calls[0].maxTokens} -> ${calls[1].maxTokens}`,
+	);
+	// And it must take that room out of the cap alone: a retry that also sends less stored content is the
+	// write-back batch X refuses, so "less content" is no longer an acceptable way to make room.
+	assert.equal(
+		sentMemory(calls[1]).length,
+		sentMemory(calls[0]).length,
+		`the retry must send the same stored content, not less: ${sentMemory(calls[0]).length} -> ${sentMemory(calls[1]).length}`,
 	);
 	const retryPrompt = calls[1].messages[0].content.map((block) => block.text ?? "").join("\n");
 	assert.match(retryPrompt, /cut off by the model output limit/i, "the retry says why it is being asked again");
@@ -5241,17 +5277,21 @@ test("a complete JSON reply is accepted even when the model stopped on max-token
 	assert.deepEqual(warnings, []);
 });
 
-test("clipped follows the input that was actually sent last", async () => {
-	// The retry fits with extra headroom, so it may send *less* stored content than the first
-	// attempt. The reported `clipped` must describe that last call, not the first fit — and the
-	// input size here is chosen so the two differ: the first fit sends everything, the retry clips.
-	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-clipped-"));
+test("a truncation retry whose extra headroom would hide stored content is not sent", async () => {
+	// Reserving headroom comes out of the same output cap, so a retry can be shown *less* stored content
+	// than the first attempt — and a reply built from it is a whole-document replacement, which deletes
+	// what the model never saw. Measured on the built `lib/` (2026-11-07): this fixture's first fit is
+	// clean and the retry hides 2361 characters. The retry exists to rescue a reply that was cut off, not
+	// to trade the stored document for a longer one, so it is skipped and the pass fails naming this cause.
+	// Before batch X the opposite was pinned here: "clipped mirrors the last input sent" — that status is
+	// now unreachable on a writing pass, because every path that shortens the model's view refuses first.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-truncation-retry-fit-"));
 	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
-	const content = "字".repeat(27_673);
-	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), `# Project Memory\n\n${content}\n`, "utf8");
+	const content = "字".repeat(30_000);
+	const stored = `# Project Memory\n\n${content}\n`;
+	await writeFile(path.join(root, ".agents", "memory", "MEMORY.md"), stored, "utf8");
 
 	// Guard the fixture itself: this test only proves anything while the two fits disagree.
-	const stored = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
 	assert.equal(fitMemoryInput(stored, "", 8192, {}, 32_768).clipped, false, "the first fit must not clip");
 	assert.equal(fitMemoryInput(stored, "", 8192, {}, 32_768, RETRY_OUTPUT_HEADROOM_TOKENS).clipped, true, "the retry fit must clip");
 
@@ -5264,12 +5304,18 @@ test("clipped follows the input that was actually sent last", async () => {
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true }).catch((error) => error);
+	const failure = await consolidateProjectState(ctx, agent, config, { force: true }).then(() => undefined, (error) => error);
 
-	assert.equal(calls.length, 2, `the retry must run (got: ${outcome?.message ?? "a success"})`);
-	const sentMemory = (call) => /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(call.messages[0].content.map((block) => block.text ?? "").join("\n"))[1];
-	assert.ok(sentMemory(calls[1]).length < sentMemory(calls[0]).length, "the retry really did send less");
-	assert.equal(outcome.clipped, true, "clipped mirrors the last input sent, not the first fit");
+	assert.equal(calls.length, 1, `the retry must not be sent (got ${calls.length} call(s))`);
+	assert.ok(failure !== undefined, "the pass fails instead of writing a reply built from a shortened view");
+	assert.match(failure.message, /the retry was not sent/, `the failure names what was skipped, not that the retry failed: ${failure?.message}`);
+	assert.match(failure.message, /maxOutputTokens/, "the lever is the output budget, not the memory cap");
+	assert.doesNotMatch(failure.message, /maxMemoryChars/, "raising the memory cap cannot buy the retry a token");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is byte-identical");
+	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
+		.split("\n")
+		.filter((line) => line.includes("the consolidation retry was not sent"));
+	assert.equal(logged.length, 1, `the skipped retry leaves exactly one line, got ${JSON.stringify(logged)}`);
 });
 
 /** The four-section shape a `record_memory` call carries, as the adapter would stream it. */
@@ -5415,6 +5461,55 @@ test("a headings-only record_memory call never replaces a stored memory either",
 
 	await consolidateProject(ctx, config, agent, { force: true, silent: true });
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
+});
+
+test("a skeleton reply never replaces an existing CONTEXT.md", async () => {
+	// Batch X's second half. `memoryChanged` excludes `semanticEmpty`, so the write block is skipped and
+	// `memoryKeptStale` (set only inside it) stays false: `contextRefused = memoryRefused || memoryKeptStale`
+	// therefore saw a clean pass, and the reply's context replaced the stored one. Measured 2026-11-06
+	// 22:28:58, a pass whose memory was judged "not a writable memory document" took a 11439-character
+	// CONTEXT.md down to 3160 characters with no line reporting the difference.
+	const stored = "# Project Memory\n\n## Project\n- a durable fact worth keeping\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n";
+	const context = "# Project Context\n\n## Summary\n\nA curated summary that must survive.\n\n## Key points\n\n- k\n\n## Open tasks\n\n- o\n";
+	const root = await memoryProject("dsh-skeleton-context-", stored);
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), context, "utf8");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{
+			// A body-less memory (over the length floor, no entries) with a perfectly usable context: the
+			// shape of reply that used to publish its context half behind a refused memory half.
+			text: JSON.stringify({ memory_markdown: `# Project Memory\n${"#".repeat(4_200)}`, context: { title: "t", summary: "s", key_points: ["k"], open_tasks: ["o"] } }),
+			reason: { kind: "stop" },
+		}],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1);
+	assert.equal(report.memoryWritten, false);
+	assert.equal(report.contextWritten, false, "the context half is withheld with the memory half");
+	assert.equal(report.status, "unchanged", `nothing landed, got ${JSON.stringify(report)}`);
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8"), context, "the stored context is byte-identical");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "and so is the stored memory");
+	// Both halves leave a line: the refusal of the reply, and the context that did not follow it.
+	const log = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8");
+	assert.match(log, /was not a writable memory document/);
+	assert.match(log, /the refused reply's context section was not published; the previous CONTEXT\.md stays effective/);
+
+	// Positive control: with no stored memory to keep, the skeleton reply's context still lands — the rule
+	// withholds a *replacement*, not a first write, so a fresh project is not frozen out of its context.
+	const fresh = await memoryProject("dsh-skeleton-fresh-", undefined);
+	const control = await consolidationFixture({
+		root: fresh,
+		replies: [{
+			text: JSON.stringify({ memory_markdown: `# Project Memory\n${"#".repeat(4_200)}`, context: { title: "t", summary: "s", key_points: ["k"], open_tasks: ["o"] } }),
+			reason: { kind: "stop" },
+		}],
+	});
+	const controlReport = await consolidateProject(control.ctx, config, control.agent, { force: true, silent: true });
+	assert.equal(controlReport.memoryWritten, false, "the skeleton is still not a memory");
+	assert.equal(controlReport.contextWritten, true, "but the first context write has nothing to overwrite, so it lands");
 });
 
 test("a tool call cut off with no finish reason at all is refused too", async () => {

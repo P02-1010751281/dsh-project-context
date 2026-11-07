@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（输出预算的截断视图也不再写回：`fit-capped-refused`；骨架回复不再发布 context 半边）**
+
+- 性质：同一类缺陷的另一半收口。上一批（`read-capped-refused`，`5efaef8`）堵住了**读上限**造成的截断视图写回，但 `fitMemoryInput` 因**输出预算装不下两份文档**而做的头尾裁剪仍是「报告、不拒绝」，而回复是整篇替换——被剪掉的字符照样消失。本轮把它变成拒绝，并顺手堵住读代码时发现的一处半写。
+- 缺陷 1（实测，非推断）：`.agents/evidence/2026-11-07-fit-clip-writeback/probe.mjs` 在宿主加载的 `lib/` 上跑网格，**默认 `maxOutputTokens` 32768 下就能命中**——memory 42199 + CONTEXT 16048（两者都在 45000 cap 与 32000 读上限内）时第一次 fit 干净，**截断重试的 fit 隐藏 4232 字符**；memory 45247 + CONTEXT 8164 隐藏 3218。原因写死在 `fitMemoryInput` 里：重试头寸（`max(4096, 真实思考量)`）是**从同一个 cap 里留走**的，所以「多要头寸」必然「少发内容」。这条路径此前被一个用例正面钉着（原名 `clipped follows the input that was actually sent last`，断言重试确实发了更少的内容）。
+- 门禁 1（`src/project-memory/consolidate.ts`）：
+  - **首次 fit** 命中裁剪 → 在模型调用之前返回 `fitCappedRefused`：状态 `fit-capped-refused`、两个产物都不落盘、`errors.log` 一条写明隐藏量与预算、回执的杠杆是 **`maxOutputTokens`（或压小文档）**，且**明确不出现 `maxMemoryChars`**——抬记忆上限买不到输出预算一个 token，给错杠杆就是死杠杆。
+  - **截断重试的 fit** 会隐藏内容时**不发送该重试**：重试只为救回一个被截断的回复，不该拿存储文档换一个更长的回复。同时把失败原因改写成真实成因（`the retry was not sent because its extra headroom would have hidden …` + 杠杆），而不是沿用「被输出上限截断」那句——那句会把操作者指向门禁刚刚拒绝的同一个旋钮。
+  - 缓存：该拒绝**只设节流、不进 `lastOutcome`**。那个缓存按 `maxMemoryChars` 记，而这个拒绝的杠杆是 `maxOutputTokens`，缓存它会让操作者抬了回执点名的旋钮之后仍拿到按旧预算作出的拒绝。
+- 缺陷 2（实测）：`memoryChanged` 排除了 `semanticEmpty`，于是写入块整段跳过、`memoryKeptStale`（只在该块内赋值）永远是 `false`，而 `contextRefused = memoryRefused || memoryKeptStale` 因此看不到这次拒绝——**骨架回复的 context 半边照常发布**。2026-11-06 22:28:58 的现场：memory 被判「不是可写的记忆文档」原样保住，`CONTEXT.md` 却从 11439 字符被换成 3160，且没有任何一行记录这次差异。
+- 门禁 2（`src/project-memory/index.ts`）：`contextRefused` 增加第三个条件臂 `memoryKeptUnderSkeleton = outcome.semanticEmpty && outcome.basisKey.trim().length > 0`。用 `basisKey`（存储在盘的 memory）而不是「有没有 context」作判据，与同处那条诊断的触发条件逐字一致；**空库时不拦**，所以新项目照样能拿到第一份 CONTEXT.md，不会被冻住。
+- 用例（`test/logic.test.mjs` + `test/memory-store.test.mjs`，总量 496 → **497**）：新增 3 条（fit 拒绝含正控制、fit 拒绝不动既有 `CONTEXT.md`、骨架回复不换 `CONTEXT.md` 含空库正控制）；**6 条旧用例按新契约改写/退役**（读上限那批同样改写了 4 条）：`clipped follows the input…` → 改写成「重试会隐藏内容时不发送」；`a shortening that did not land…` 与 `a clipped pass that landed nothing…` → 改写成 fit 拒绝的两条；`the consolidation prompt sends the fitted, clipped artifacts` → 改成在**干净 fit** 下钉自适应 cap（夹具 60k CJK 现在根本到不了模型）；tier C 空骨架与 prose 回复两条的断言从「context 仍然落地」翻成「两个产物都不落」。截断重试用例的夹具从 30k CJK 降到 8k，并新增一条断言：重试**只能靠抬高请求 cap 腾地方，不能靠少发内容**。
+- 变异轮（3 个变异体，全部被杀；每个都过有效性三连：`tsc` 0 错、标记进了 `lib/`、行为确实改变；判红后从 `/tmp/mutx-20261107/` 的哈希快照还原并 `sha256sum -c` 复验）：
+  - M1 把门禁的 `return refusal` 改成 `void refusal`（判定还在、拒绝没了）→ fit 拒绝两条红。
+  - M2 把「重试 fit 裁剪」的判定换成永不成立的比较（重试照发）→ A2 那条红，**batch R 的「重试仍会运行」保持绿**（它的夹具已改为不裁剪，两条各自钉各自的行为）。
+  - M3 删掉 `contextRefused` 的第三个条件臂（保留变量引用以免触发 TS6133）→ 骨架回复那条红。
+  - 第一版 M2/M3 收窄成 `if (true)` / `false && …`，`tsc` 报 TS18048 等错——按有效性三连这属于无效变异体，改形状后重跑，**没有把编译失败当证据**。
+- **已知残差（本批未收口，明确记录）**：写入路径上现在**只能**产出 `updated`。`status: "clipped"` 与 `ConsolidateReport` 的落地隐藏计数（`memoryHiddenChars`/`contextHiddenChars`）已**结构性不可达**——任何会让模型看到不完整内容的路径都在模型调用前拒绝。移除它们要连带删掉 `memoryUpdateReply` 的 `clipped` 分支、`memoryLossDetail` 的一段文案，以及约 10 条用手搓 report 测回执的单测，属独立清理批次；本批保留并在此登记，避免它被当成「今天还会发生」。
+- 门禁（现跑）：`pnpm typecheck` 0、`pnpm build` 0（`lib/client.js` 37270 不变）、`pnpm test` **497 通过 / 0 失败**、`lib/` 里三个变异标记计数均为 0。
+- **需要重启宿主**：`src/` 改了，`lib/` 随提交入库；判据是「承载宿主的进程启动时刻晚于本提交」。
+
 **project-memory（读上限的截断视图不再被写回：`read-capped-refused`）**
 
 - 性质：一处**新增拒绝门**，改的是已有失败路径的分类而不是正常路径。用户在 22:20 问「我能直接填 64K 吗」，上一轮的答复里已经把 `maxMemoryChars` 说成「读写同一把尺」，但那条结论停在「先压文档再降 cap」的劝告上——本轮把它变成机器保证：**文档比 cap 长时，整理 pass 拒绝运行，而不是把截断视图写回**。

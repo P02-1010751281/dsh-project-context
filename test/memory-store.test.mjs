@@ -38,6 +38,7 @@ import { MAX_CONTEXT_CHARS, MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY
 import { consolidateProject, memoryUpdateReply } from "../lib/project-memory/index.js";
 import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
+import { fitMemoryInput } from "../lib/shared/conversation.js";
 
 /** A project root with the memory directory present. */
 async function project() {
@@ -630,15 +631,23 @@ test("the console copy of a failure is redacted even when its source is not", as
 	assert.match(warnings[0], /\[redacted-key\]/);
 });
 
-test("the consolidation prompt sends the fitted, clipped artifacts", async () => {
-	// The budget only matters if it reaches the model call. Both documents stay inside the *read* caps
-	// (`maxMemoryChars` 40000 / `MAX_CONTEXT_CHARS` 32000) on purpose: a stored document over either one
-	// is refused before the model call by the read-cap gate, so the fit is exercised on content the pass
-	// was allowed to see — dense CJK, 60k characters together, far past a 32,768-token reply.
+test("the consolidation prompt sends the fitted artifacts inside the configured ceiling", async () => {
+	// The budget only matters if it reaches the model call, so this pins the adaptive cap: the request
+	// asks for more than `maxTokens`, and never more than `maxOutputTokens`.
+	// Batch X narrowed the fixture: 60k dense CJK characters no longer reach the model at all — the fit
+	// hides them and the pass refuses before the call — so the case that exercises *this* wiring is the one
+	// where the documents fit and the reply still needs room. 12000 + 12000 CJK asks for 25040 tokens and
+	// hides nothing, which is the only shape that can still reach a prompt.
 	const root = await project();
-	const memory = `# Project Memory\n\n${"记".repeat(30_000)}\n`;
+	const memory = `# Project Memory\n\n${"记".repeat(12_000)}\n`;
+	const context = `# Project Context\n\n${"录".repeat(12_000)}\n`;
 	await writeFile(memoryFile(root), memory, "utf8");
-	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), `# Project Context\n\n${"录".repeat(30_000)}\n`, "utf8");
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), context, "utf8");
+
+	// Guard the fixture: this test proves nothing if the fit itself hides content.
+	const fitted = fitMemoryInput(memory, context, 8192, {}, 32_768);
+	assert.equal(fitted.clipped, false, `fixture: the fit must show both documents whole (${JSON.stringify(fitted)})`);
+	assert.ok(fitted.maxTokens > 8192, "fixture: the adaptive cap must be raised by the documents");
 
 	const calls = [];
 	const ctx = {
@@ -668,10 +677,11 @@ test("the consolidation prompt sends the fitted, clipped artifacts", async () =>
 
 	assert.equal(calls.length, 1, "one model call");
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
-	assert.equal(outcome.clipped, true, "the oversized input is reported as clipped");
+	assert.equal(outcome.clipped, false, "nothing was hidden from the model, so nothing is reported as clipped");
 	const sent = /<existing-memory>\n([\s\S]*?)\n<\/existing-memory>/.exec(prompt)[1];
-	assert.ok(sent.length < MAX_MEMORY_CHARS, `the prompt carries ${sent.length} of the ${MAX_MEMORY_CHARS}-char memory budget`);
+	assert.equal(sent.length, memory.trimEnd().length, "the prompt carries the whole memory, not a shortened view");
 	assert.ok(calls[0].maxTokens > config.maxTokens, "the adaptive cap was raised to fit the reply");
+	assert.equal(calls[0].maxTokens, fitted.maxTokens, "and it is the fit's own number, not a second estimate");
 	assert.ok(calls[0].maxTokens <= config.maxOutputTokens, "and stayed inside the configured ceiling");
 });
 
