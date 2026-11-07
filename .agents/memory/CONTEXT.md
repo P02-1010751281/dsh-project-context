@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-11-07T01:37:51.605Z
+Last updated: 2026-11-07T01:42:39.439Z
 
 ## Summary
 
@@ -8,7 +8,7 @@ Last updated: 2026-11-07T01:37:51.605Z
 
 ## Key points
 
-- 判据（09:29 现读）：最后一个 src/ 提交 44b70d4 @ 2026-11-07T09:27:32+08:00；宿主 pid 5455 启动于 2026-11-06 23:02:04，早于全部待生效提交。需要加载的只有 2 个行为提交：5efaef8 23:11（读上限门禁）、44b70d4 09:27（两个写入修复）；另两个是 docs（874ca18 changelog、324dcb7 记录），不需要进程加载；外加 09:00 的 maxMemoryChars 45000 配置改动。验收看新 pid 启动时刻晚于 2026-11-07T09:27:32+08:00。
+- 判据（09:29 现读）：最后一个 src/ 提交 44b70d4 @ 2026-11-07T09:27:32+08:00；宿主 pid 5455 启动于 2026-11-06 23:02:04，早于全部待生效提交。需要加载的只有 2 个行为提交：5efaef8 23:11（读上限门禁）、44b70d4 09:27（两个写入修复）；另两个是 docs（874ca18 changelog、324dcb7 记录），不需要进程加载；外加 09:00 的 maxMemoryChars 45000 配置改动。已重启验收 PASS：新 host pid 37757 启动于 2026-11-07 09:38:45，晚于判据；git diff -- lib 干净。
 - 推送阻塞的真实原因（09:29 实测，取代上一轮的「整机出网故障」）：国内直连正常（baidu 200 / tuna 200），经代理一律 000（google / api.open-meteo），mihomo 对 ✈️Final、GitHub、Google 三个组的 dial 全部 context deadline exceeded，EasyTier overlay 健康（中继 10.126.126.1 3ms、0% 丢包、p2p），dae 反复报 pure SYN refused rewrite of a live flow's routing metadata（outbound=0，目标即代理节点本身 112.36.236.164:3533）→ dae 数据面拒绝重写发往节点的流，所以 mihomo 的出站 SYN 在本地就死了。结论：故障在代理栈，不是网络本身；mihomo 9097 API 需 secret（401）、配置在 root 凭据路径读不到，故节点健康与订阅有效期无法直接查证。
 - maxMemoryChars 现为 45000（desktop + web 同日对齐，2026-11-07 09:00；回退 .bak-20261107-0900-maxmemory45000）；配置与 5efaef8 都要重启才生效。
 - 23:14 / 23:21 两次拒绝签名相同（11 whole entry(ies) from 3 section(s)）；重建回复 43016 字符：cap 40000 丢 11 条 / 3 节（与日志逐字对上），cap 45000 丢 0，breakeven 43500，43000 仍差 500。
@@ -18,16 +18,17 @@ Last updated: 2026-11-07T01:37:51.605Z
 - 残差（已登记，未收口）：写入路径现在只产出 updated，status 记成 clipped 与落地隐藏计数结构性不可达；移除要连带删回执分支与约 10 条手搓 report 单测，属独立清理批次（用户已选：重启验证后再做）。
 - 门禁（09:29 重跑）：pnpm test 497 通过 / 0 失败；lib/ 在 test 自带的 tsc 重新 emit 之后仍与 HEAD 一致（干净），lib/client.js 37270 未变；上一轮的变异轮 3 个变异体全部被杀，lib 内变异标记 0。
 - 拒绝的日志措辞可分流：whole entry/ies 或 section 超预算 → budget 半边；cut off by the model output limit → output 半边；fit-capped-refused → 输出预算装不下两份文档（降 maxMemoryChars 无用）。
+- 重启后 errors.log 的两处读数都已归因，别当成新缺陷：①第 42 条 would have been stored lossily 在 09:38:36，早于重启 7 秒，是旧代码在 cap 40000 下写的；②4 条 cannot get required service "llm" in inactive context 在 09:38:43，是旧实例销毁期整理尝试，同类行自 2026-10-20 起共 31 条、每次关停成簇出现，属既存噪声。另：MEMORY.md 第 29 行不变量正文引用了截断标记格式，所以 grep 标记会假阳，必须用 isMemoryTruncated + 长度比对判定。
 - maxMemoryChars 是读写同一把尺：注入侧与整理读入同用这个 cap，顺序只能是先写小文档再降 cap。
 - 小窗口结论：窗口是声明值不是硬限；本插件没有窗口设置项，读宿主解析的 contextWindow；≤64K 时交接余量与宿主 compaction 的 headroomTokens 65536 都不够。
 - 已知噪声：context-injection.test.mjs 偶发失败，是并发写入读仓库自身 memory 文档所致，复跑即绿，未记成已修。
 
 ## Open tasks
 
-- 重启（仅用户可执行）：/etc/nixos/scripts/dsh-desktop-restart.sh；重启前不要在设置卡片里保存记忆 cap，卡片若仍显示 40000，一点保存就写回 40000。
-- 重启后验收（只看新 pid 启动时刻之后的行）：新 pid 启动时刻晚于 2026-11-07T09:27:32+08:00；git diff --exit-code -- lib 为空；MEMORY.md 出现新 mtime（超过 40000 是 cap 生效的硬证据）；errors.log 在重启后没有新的 would have been stored lossily 行。现成探针：bash .agents/evidence/2026-11-07-restart-acceptance/acceptance.sh（已在重启前跑出阴性对照 PASS/FAIL 均为真实分支）。
+- 重启已完成（2026-11-07 09:38:43 旧实例退出，09:39:01 新 host 就绪，GUI 44937），验收探针 PASS。
+- cap 45000 已由配置与启动次序证明：两个 profile 的 cordis.patch.yml 都是 maxMemoryChars: 45000，desktop 与 09:00 备份的差异只有 40000→45000 一处（09:39 的重写保住了值）。行为层硬证据仍需一次 /memory update（用户侧），看是否不再出现 40000 cap 的 lossy 拒绝。
 - 推送待办：origin/main 停在 874ca18，本地有未推提交（含 324dcb7、44b70d4 与本轮 docs/evidence 提交），现读 git log --oneline origin/main..HEAD 取数。阻塞在代理栈而非出网，修法在用户侧（如 sudo systemctl restart dae，可能连带 mihomo）；我未改动代理配置。恢复后 git push，再核对 origin/main。
-- 重启验证通过后做 clipped 清理批次（用户 09:30 选择）：移除结构性不可达的 clipped 状态与落地隐藏计数，连带回执分支与约 10 条用手搓 report 测回执的单测。
+- 下一步（重启验证已通过，用户 09:30 已选）：做 clipped 清理批次——移除结构性不可达的 clipped 状态与落地隐藏计数，连带回执分支与约 10 条用手搓 report 测回执的单测。
 - 验证 handoffRetireReplaced 关掉后的效果（用户侧：关闭→保存→/handoff now）；已归档的 c35a7f0f / 3a51f066 需手动取消归档。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
 - 若真要在 64K 窗口运行，需同时调小 handoffBudgetRecentTokens（如 4000）、调小宿主 compaction headroomTokens、并压小两份文档，缺一不可。
