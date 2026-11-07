@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-11-07T01:35:34.991Z
+Last updated: 2026-11-07T01:37:51.605Z
 
 ## Summary
 
@@ -8,7 +8,7 @@ Last updated: 2026-11-07T01:35:34.991Z
 
 ## Key points
 
-- 判据（09:29 现读）：最后一个 src/ 提交 44b70d4 @ 2026-11-07T09:27:32+08:00；宿主 pid 5455 启动于 2026-11-06 23:02:04，早于全部待生效提交。待生效 4 个：5efaef8 23:11（读上限门禁）、874ca18 23:20（changelog）、324dcb7 09:06（docs）、44b70d4 09:27（两个写入修复）；外加 09:00 的 maxMemoryChars 45000 配置改动。验收看新 pid 启动时刻晚于 2026-11-07T09:27:32+08:00。
+- 判据（09:29 现读）：最后一个 src/ 提交 44b70d4 @ 2026-11-07T09:27:32+08:00；宿主 pid 5455 启动于 2026-11-06 23:02:04，早于全部待生效提交。需要加载的只有 2 个行为提交：5efaef8 23:11（读上限门禁）、44b70d4 09:27（两个写入修复）；另两个是 docs（874ca18 changelog、324dcb7 记录），不需要进程加载；外加 09:00 的 maxMemoryChars 45000 配置改动。验收看新 pid 启动时刻晚于 2026-11-07T09:27:32+08:00。
 - 推送阻塞的真实原因（09:29 实测，取代上一轮的「整机出网故障」）：国内直连正常（baidu 200 / tuna 200），经代理一律 000（google / api.open-meteo），mihomo 对 ✈️Final、GitHub、Google 三个组的 dial 全部 context deadline exceeded，EasyTier overlay 健康（中继 10.126.126.1 3ms、0% 丢包、p2p），dae 反复报 pure SYN refused rewrite of a live flow's routing metadata（outbound=0，目标即代理节点本身 112.36.236.164:3533）→ dae 数据面拒绝重写发往节点的流，所以 mihomo 的出站 SYN 在本地就死了。结论：故障在代理栈，不是网络本身；mihomo 9097 API 需 secret（401）、配置在 root 凭据路径读不到，故节点健康与订阅有效期无法直接查证。
 - maxMemoryChars 现为 45000（desktop + web 同日对齐，2026-11-07 09:00；回退 .bak-20261107-0900-maxmemory45000）；配置与 5efaef8 都要重启才生效。
 - 23:14 / 23:21 两次拒绝签名相同（11 whole entry(ies) from 3 section(s)）；重建回复 43016 字符：cap 40000 丢 11 条 / 3 节（与日志逐字对上），cap 45000 丢 0，breakeven 43500，43000 仍差 500。
@@ -25,8 +25,8 @@ Last updated: 2026-11-07T01:35:34.991Z
 ## Open tasks
 
 - 重启（仅用户可执行）：/etc/nixos/scripts/dsh-desktop-restart.sh；重启前不要在设置卡片里保存记忆 cap，卡片若仍显示 40000，一点保存就写回 40000。
-- 重启后验收（只看新 pid 启动时刻之后的行）：新 pid 启动时刻晚于 2026-11-07T09:27:32+08:00；git diff --exit-code -- lib 为空；MEMORY.md 出现新 mtime（超过 40000 是 cap 生效的硬证据）；errors.log 在重启后没有新的 would have been stored lossily 行。
-- 推送待办：2 个本地提交未推（324dcb7 docs、44b70d4 行为修复）。阻塞在代理栈而非出网，修法在用户侧（如 sudo systemctl restart dae，可能连带 mihomo）；我未改动代理配置。恢复后 git push，再核对 origin/main。
+- 重启后验收（只看新 pid 启动时刻之后的行）：新 pid 启动时刻晚于 2026-11-07T09:27:32+08:00；git diff --exit-code -- lib 为空；MEMORY.md 出现新 mtime（超过 40000 是 cap 生效的硬证据）；errors.log 在重启后没有新的 would have been stored lossily 行。现成探针：bash .agents/evidence/2026-11-07-restart-acceptance/acceptance.sh（已在重启前跑出阴性对照 PASS/FAIL 均为真实分支）。
+- 推送待办：origin/main 停在 874ca18，本地有未推提交（含 324dcb7、44b70d4 与本轮 docs/evidence 提交），现读 git log --oneline origin/main..HEAD 取数。阻塞在代理栈而非出网，修法在用户侧（如 sudo systemctl restart dae，可能连带 mihomo）；我未改动代理配置。恢复后 git push，再核对 origin/main。
 - 重启验证通过后做 clipped 清理批次（用户 09:30 选择）：移除结构性不可达的 clipped 状态与落地隐藏计数，连带回执分支与约 10 条用手搓 report 测回执的单测。
 - 验证 handoffRetireReplaced 关掉后的效果（用户侧：关闭→保存→/handoff now）；已归档的 c35a7f0f / 3a51f066 需手动取消归档。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
