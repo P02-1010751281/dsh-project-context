@@ -202,54 +202,62 @@ test("renderContextDocument preserves short lists verbatim", () => {
 test("a legacy session-index.md is adopted once and its links are normalized", async () => {
 	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-legacy-"));
 	const memory = path.join(project, ".agents", "memory");
-	await mkdir(memory, { recursive: true });
+	const logs = path.join(memory, "session-logs");
+	const legacyId = "11111111-2222-3333-4444-555555555555";
+	await mkdir(path.join(logs, legacyId), { recursive: true });
 	await writeFile(
 		path.join(memory, "session-index.md"),
-		"# Session Index\n\n- [11111111-2222-3333-4444-555555555555](session-logs/11111111-2222-3333-4444-555555555555/session.md) — 2026-09-12 — old session\n",
+		`# Session Index\n\n- [${legacyId}](session-logs/${legacyId}/session.md) — 2026-09-12 — old session\n`,
 		"utf8",
 	);
 
 	await queueIndexLine(project, "session-new", "- [session-new](session-new/session.md) — 2026-09-14 — new session");
 
-	const index = await readFile(path.join(memory, "session-logs", "INDEX.md"), "utf8");
-	assert.match(index, /\]\(11111111-2222-3333-4444-555555555555\/session\.md\)/, "the pre-move link is converted");
-	assert.doesNotMatch(index, /session-logs\/11111111/);
-	assert.match(index, /- \[session-new\]\(session-new\/session\.md\) — 2026-09-14 — new session/);
+	const index = await readFile(path.join(logs, "INDEX.md"), "utf8");
+	assert.match(index, new RegExp(`\\[${legacyId}\\]\\(${legacyId}\\/session\\.jsonl\\)`), "the link points at the canonical archive");
+	assert.doesNotMatch(index, /session-logs\/11111111/, "the pre-move link is converted");
+	assert.match(index, /- \[session-new\]\(session-new\/session\.jsonl\) — 2026-09-14 — new session/);
+	// The adopted line can only survive as metadata: the generated index reads `meta.json`, never the
+	// old file, so adoption has to write it.
+	const meta = JSON.parse(await readFile(path.join(logs, legacyId, "meta.json"), "utf8"));
+	assert.equal(meta.date, "2026-09-12");
+	assert.equal(meta.title, "old session");
 	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the adopted legacy file is removed");
 });
 
 test("adoption never removes the legacy index before the new one exists", async () => {
 	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-adopt-"));
 	const memory = path.join(project, ".agents", "memory");
-	await mkdir(memory, { recursive: true });
-	// Already in the current form: re-queueing the same line produces a byte-identical document,
-	// so a "write only when it changed" rule would leave nothing behind after the legacy file goes.
-	const canonical = "# Session Index\n\n- [abc](abc/session.md) — 2026-09-12 — t\n";
-	await writeFile(path.join(memory, "session-index.md"), canonical, "utf8");
+	const logs = path.join(memory, "session-logs");
+	await mkdir(path.join(logs, "abc"), { recursive: true });
+	// Already carrying the row: the write must still land, because the new index does not exist yet.
+	await writeFile(path.join(memory, "session-index.md"), "# Session Index\n\n- [abc](abc/session.md) — 2026-09-12 — t\n", "utf8");
 
 	await queueIndexLine(project, "abc", "- [abc](abc/session.md) — 2026-09-12 — t");
 
-	const index = path.join(memory, "session-logs", "INDEX.md");
-	assert.ok(existsSync(index), "the new index exists even when the legacy bytes already match");
-	assert.equal(await readFile(index, "utf8"), canonical);
+	const index = path.join(logs, "INDEX.md");
+	assert.ok(existsSync(index), "the new index exists even when the legacy file already carried the row");
+	assert.match(await readFile(index, "utf8"), /- \[abc\]\(abc\/session\.jsonl\) — 2026-09-12 — t/);
 	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the source is removed only after the write");
 });
 
 test("a legacy index that appears after the new one exists is still adopted", async () => {
-	// Two hosts can straddle the `<memory>/` → `<memory>/session-logs/` move: an updated build
+	// Two hosts can straddle the `<memory>/` -> `<memory>/session-logs/` move: an updated build
 	// writes the new index while an older one keeps appending to the legacy file. Adoption ran only
 	// while the new index was still empty, so those entries were stranded — archived on disk,
 	// missing from the one list autolearn navigates by.
 	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-late-legacy-"));
 	const memory = path.join(project, ".agents", "memory");
 	const logs = path.join(memory, "session-logs");
-	await mkdir(logs, { recursive: true });
+	const shared = "11111111-2222-3333-4444-555555555555";
+	const late = "99999999-8888-7777-6666-555555555555";
+	for (const name of [shared, late, "session-keep"]) await mkdir(path.join(logs, name), { recursive: true });
 	await writeFile(
 		path.join(logs, "INDEX.md"),
 		[
 			"# Session Index",
 			"",
-			"- [11111111-2222-3333-4444-555555555555](11111111-2222-3333-4444-555555555555/session.md) — 2026-09-12 — current title",
+			`- [${shared}](${shared}/session.md) — 2026-09-12 — current title`,
 			"- [session-keep](session-keep/session.md) — 2026-09-14 — kept",
 			"",
 		].join("\n"),
@@ -260,8 +268,8 @@ test("a legacy index that appears after the new one exists is still adopted", as
 		[
 			"# Session Index",
 			"",
-			"- [11111111-2222-3333-4444-555555555555](session-logs/11111111-2222-3333-4444-555555555555/session.md) — 2026-09-12 — stale title",
-			"- [99999999-8888-7777-6666-555555555555](session-logs/99999999-8888-7777-6666-555555555555/session.md) — 2026-09-13 — late arrival",
+			`- [${shared}](session-logs/${shared}/session.md) — 2026-09-12 — stale title`,
+			`- [${late}](session-logs/${late}/session.md) — 2026-09-13 — late arrival`,
 			"",
 		].join("\n"),
 		"utf8",
@@ -272,14 +280,10 @@ test("a legacy index that appears after the new one exists is still adopted", as
 	const index = await readFile(path.join(logs, "INDEX.md"), "utf8");
 	assert.match(
 		index,
-		/- \[99999999-8888-7777-6666-555555555555\]\(99999999-8888-7777-6666-555555555555\/session\.md\) — 2026-09-13 — late arrival/,
+		new RegExp(`- \\[${late}\\]\\(${late}\\/session\\.jsonl\\) — 2026-09-13 — late arrival`),
 		"the late legacy entry is adopted and its link normalized",
 	);
-	assert.equal(
-		index.split("\n").filter((current) => current.includes("11111111-2222-3333-4444-555555555555")).length,
-		1,
-		"a session the new index already lists is not duplicated",
-	);
+	assert.equal(index.split("\n").filter((current) => current.includes(shared)).length, 1, "a session the new index already lists is not duplicated");
 	assert.match(index, /— current title/, "the current index's line wins over the stale legacy one");
 	assert.doesNotMatch(index, /stale title/);
 	assert.doesNotMatch(index, /session-logs\/99999999/);
@@ -288,21 +292,15 @@ test("a legacy index that appears after the new one exists is still adopted", as
 
 test("an adopted legacy entry newer than the current lines lands at the newest end", async () => {
 	// A straddling legacy file holds what an older host archived after the move, so its lines can be
-	// the NEWEST ones. Ordering the merge by source instead of by date would put them at the head,
-	// where a reader taking the newest lines — autolearn, via `slice(-MAX_INDEX_ENTRIES)` — never looks.
+	// the NEWEST ones. Ordering by source instead of by date would put them at the head, where a
+	// reader taking the newest lines — autolearn — never looks.
 	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-late-newest-"));
 	const memory = path.join(project, ".agents", "memory");
 	const logs = path.join(memory, "session-logs");
-	await mkdir(logs, { recursive: true });
+	for (const name of ["session-a", "session-b", "session-z"]) await mkdir(path.join(logs, name), { recursive: true });
 	await writeFile(
 		path.join(logs, "INDEX.md"),
-		[
-			"# Session Index",
-			"",
-			"- [session-a](session-a/session.md) — 2026-09-01 — a",
-			"- [session-b](session-b/session.md) — 2026-09-02 — b",
-			"",
-		].join("\n"),
+		["# Session Index", "", "- [session-a](session-a/session.md) — 2026-09-01 — a", "- [session-b](session-b/session.md) — 2026-09-02 — b", ""].join("\n"),
 		"utf8",
 	);
 	await writeFile(path.join(memory, "session-index.md"), "# Session Index\n\n- [session-z](session-logs/session-z/session.md) — 2026-09-18 — z\n", "utf8");
@@ -317,49 +315,45 @@ test("an adopted legacy entry newer than the current lines lands at the newest e
 	assert.equal(existsSync(path.join(memory, "session-index.md")), false, "the adopted legacy file is removed");
 });
 
-test("the cap never deletes a legacy entry it could not keep", async () => {
-	// MAX_INDEX_LINES drops the oldest lines. A legacy entry too old to survive that cap has no other
-	// copy, so the file must stay on disk; once an entry does survive, its source is released. Deleting
-	// the file in the first case would destroy the line outright.
-	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-cap-"));
-	const memory = path.join(project, ".agents", "memory");
-	const logs = path.join(memory, "session-logs");
-	const legacy = path.join(memory, "session-index.md");
-	await mkdir(logs, { recursive: true });
-	const current = Array.from({ length: 200 }, (_, index) => `- [session-${index}](session-${index}/session.md) — 2026-09-20 — t${index}`);
-	await writeFile(path.join(logs, "INDEX.md"), ["# Session Index", "", ...current, ""].join("\n"), "utf8");
+test("a row exists exactly when its directory does", async () => {
+	// The generated index keeps one row per session directory and nothing else, so the two states that
+	// used to be repairable bugs — a directory with no row, a row with no directory — cannot be
+	// written at all. This is the contract that replaced the 200-line cap.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-projection-"));
+	const logs = path.join(project, ".agents", "memory", "session-logs");
+	await mkdir(path.join(logs, "session-present"), { recursive: true });
+	await writeFile(
+		path.join(logs, "INDEX.md"),
+		[
+			"# Session Index",
+			"",
+			"- [session-present](session-present/session.md) — 2026-09-01 — present",
+			"- [session-gone](session-gone/session.md) — 2026-09-02 — archive pruned",
+			"",
+		].join("\n"),
+		"utf8",
+	);
 
-	// Older than every current line: 201 entries against a 200-line cap, so this one drops off.
-	await writeFile(legacy, "# Session Index\n\n- [session-old](session-logs/session-old/session.md) — 2026-09-01 — ancient\n", "utf8");
-	await queueIndexLine(project, "session-199", current[199]);
-	let index = await readFile(path.join(logs, "INDEX.md"), "utf8");
-	assert.ok(!index.includes("[session-old]"), "the oldest line is the one the cap drops");
-	assert.equal(index.split("\n").filter((line) => line.startsWith("- [")).length, 200);
-	assert.ok(existsSync(legacy), "the only copy of a dropped legacy entry is not deleted");
+	await queueIndexLine(project, "session-new", "- [session-new](session-new/session.md) — 2026-09-03 — new");
 
-	// Newer than every current line: it survives the cap, so the adopted source can go.
-	await writeFile(legacy, "# Session Index\n\n- [session-new](session-logs/session-new/session.md) — 2026-09-21 — brand new\n", "utf8");
-	await queueIndexLine(project, "session-199", current[199]);
-	index = await readFile(path.join(logs, "INDEX.md"), "utf8");
-	assert.ok(index.includes("[session-new]"), "the newest line is kept");
-	assert.equal(index.split("\n").filter((line) => line.startsWith("- [")).length, 200);
-	assert.equal(existsSync(legacy), false, "an entry that survived the cap releases its source");
+	const index = await readFile(path.join(logs, "INDEX.md"), "utf8");
+	assert.match(index, /\[session-present\]/, "a row whose directory exists is kept and migrated");
+	assert.doesNotMatch(index, /session-gone/, "a row whose directory is gone is not written");
+	assert.match(index, /\[session-new\]/, "the session that just wrote is there");
+	assert.doesNotMatch(index, /<!--/, "no dropped-line marker: nothing is dropped by a cap any more");
 });
 
 test("a legacy index that changed while it was being adopted is not deleted", async () => {
 	// Removing the adopted source is a check-then-act: the path can change between the read and the
-	// rm, and the file that was adopted must then be left alone rather than deleted. That window is a
-	// couple of milliseconds wide, so a test cannot enter it by timing; the legacy path is instead
-	// made to resolve to the file the write itself replaces, which reaches the same decision —
-	// "the path no longer holds what was adopted" — deterministically. What an append does to that
-	// decision (same inode, new size/mtime) is pinned separately below, because this aliased case
-	// changes the inode as well and so passes an identity-based check too.
+	// rm, and the file that was adopted must then be left alone rather than deleted. The legacy path
+	// is made to resolve to the file the write itself replaces, which reaches the same decision —
+	// "the path no longer holds what was adopted" — deterministically.
 	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-changed-"));
 	const memory = path.join(project, ".agents", "memory");
 	const logs = path.join(memory, "session-logs");
 	const legacy = path.join(memory, "session-index.md");
 	const index = path.join(logs, "INDEX.md");
-	await mkdir(logs, { recursive: true });
+	await mkdir(path.join(logs, "session-a"), { recursive: true });
 	await writeFile(index, "# Session Index\n\n- [session-a](session-a/session.md) — 2026-09-01 — a\n", "utf8");
 	await symlink(index, legacy);
 
@@ -548,6 +542,49 @@ test("queueSessionIndexEntry upserts one line per session and refreshes the titl
 	assert.equal(entries.length, 2);
 	assert.equal(entries.find((entry) => entry.id === "session-abcdef").title, "renamed");
 	assert.ok(text.startsWith("# Session Index"));
+});
+
+
+test("a delegated child's archive never reaches the index", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-index-subagent-"));
+	try {
+		// The archive path refuses to index a delegated child; the generated index has to agree, or the
+		// two disagree silently and the child reappears as soon as anything regenerates.
+		await queueSessionIndexEntry(root, { id: "session-child", header: { createdAt: Date.UTC(2026, 8, 12), origin: "subagent" }, snapshotEvents: () => [] });
+		const meta = JSON.parse(await readFile(path.join(root, ".agents", "memory", "session-logs", "session-child", "meta.json"), "utf8"));
+		assert.equal(meta.kind, "subagent", "the metadata records what the session header said");
+		const text = await readFile(path.join(root, ".agents", "memory", "session-logs", "INDEX.md"), "utf8");
+		assert.equal(parseSessionIndex(text).length, 0, "the child has no row");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("a directory without meta.json is indexed from its old row or its archive header", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-index-backfill-"));
+	const logs = path.join(root, ".agents", "memory", "session-logs");
+	try {
+		// Archived before `meta.json` existed: the rendered index is the only record of the title.
+		await mkdir(path.join(logs, "session-old"), { recursive: true });
+		await writeFile(path.join(logs, "session-old", "session.jsonl"), `${JSON.stringify({ type: "session", id: "session-old", createdAt: Date.UTC(2026, 8, 1) })}\n`, "utf8");
+		await writeFile(path.join(logs, "INDEX.md"), "# Session Index\n\n- [session-old](session-old/session.jsonl) — 2026-09-01 — migrated title\n", "utf8");
+
+		// A directory no index row ever saw: the archive header still gives it a date.
+		await mkdir(path.join(logs, "session-bare"), { recursive: true });
+		await writeFile(path.join(logs, "session-bare", "session.jsonl"), `${JSON.stringify({ type: "session", id: "session-bare", createdAt: Date.UTC(2026, 8, 5) })}\n`, "utf8");
+
+		await queueIndexLine(root, "session-new", "- [session-new](session-new/session.md) — 2026-09-09 — new");
+
+		const entries = parseSessionIndex(await readFile(path.join(logs, "INDEX.md"), "utf8"));
+		assert.deepEqual(entries.map((entry) => entry.id), ["session-old", "session-bare", "session-new"]);
+		assert.equal(entries[0].title, "migrated title", "the old row supplies the title");
+		assert.equal(entries[1].date, "2026-09-05", "the archive header supplies the date");
+		// The migration writes the metadata back, so the next generation does not open the archive again.
+		const meta = JSON.parse(await readFile(path.join(logs, "session-old", "meta.json"), "utf8"));
+		assert.equal(meta.title, "migrated title");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test("parseConsolidation reads memory and context and never a skill", () => {
@@ -795,7 +832,7 @@ test("candidates list, approve and reject", async () => {
 	}
 });
 
-test("the session index dedupes by id and keeps the newest 200", async () => {
+test("the session index dedupes by id and keeps every directory", async () => {
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-index-"));
 	try {
 		for (let index = 0; index < 205; index += 1) {
@@ -803,9 +840,9 @@ test("the session index dedupes by id and keeps the newest 200", async () => {
 		}
 		const file = path.join(root, ".agents/memory/session-logs/INDEX.md");
 		const text = await readFile(file, "utf8");
-		assert.equal(text.split("\n").filter((line) => line.startsWith("- [")).length, 200);
-		assert.ok(!text.includes("[session-0]"), "oldest line drops off");
-		assert.ok(text.includes("[session-204]"), "newest line stays");
+		assert.equal(text.split("\n").filter((line) => line.startsWith("- [")).length, 205, "no line is dropped by a cap");
+		assert.ok(text.includes("[session-0]"), "the oldest directory keeps its row");
+		assert.ok(text.includes("[session-204]"), "the newest directory keeps its row");
 
 		// Refreshing an id replaces its line instead of appending a duplicate.
 		await queueIndexLine(root, "session-100", "- [session-100](session-100/session.md) — 2026-09-02 — updated");
@@ -813,7 +850,8 @@ test("the session index dedupes by id and keeps the newest 200", async () => {
 		assert.equal(refreshed.length, 1);
 		assert.match(refreshed[0], /updated/);
 
-		// A duplicate id left behind by a backfill collapses on the next write too.
+		// A duplicate row left in the document by a backfill collapses on the next write: the directory
+		// listing, not the old document, decides what a row is.
 		await writeFile(file, `${await readFile(file, "utf8")}- [session-100](session-100/session.md) — 2026-09-03 — duplicate\n`);
 		await queueIndexLine(root, "session-50", "- [session-50](session-50/session.md) — 2026-09-04 — fifty");
 		assert.equal((await readFile(file, "utf8")).split("\n").filter((line) => line.startsWith("- [session-100]")).length, 1);
@@ -6021,32 +6059,30 @@ test("handoffRetireReplaced off keeps the replaced session: nothing archived, no
 	model.assertNone("the no-retirement path");
 });
 
-test("the session index names the lines its cap drops", async () => {
-	// The index is capped at 200 lines. The dropped archives stay on disk, but the index is the only
-	// navigation autolearn and the handoff pointers have, so a silent drop reads as "that session never
-	// existed" — the document has to say so, in a form the parser cannot mistake for an entry.
-	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-cap-"));
-	const total = 205;
-	for (let index = 0; index < total; index += 1) {
-		const id = `capped-${String(index).padStart(3, "0")}`;
-		const day = String((index % 27) + 1).padStart(2, "0");
-		await queueIndexLine(project, id, `- [${id}](session-logs/${id}/session.md) — 2026-08-${day} — Capped ${index}`);
-	}
-	const document = await readFile(sessionIndexFile(project), "utf8");
-	const entries = parseSessionIndex(document);
-	assert.equal(entries.length, 200, `the cap keeps 200 entries, got ${entries.length}`);
-	assert.match(document, /<!-- 5 older sessions dropped from this index by the 200-line cap; their archives remain in session-logs\/ -->/);
-	// The marker is a comment, not an entry: the parser must not see it as a session.
-	assert.ok(!entries.some((entry) => String(entry.id ?? "").includes("older sessions")), "the comment is not parsed as an entry");
-	// And the newest session survived the cap.
-	assert.ok(entries.some((entry) => String(entry.id ?? "").includes("capped-204")), "the newest entry is kept");
+test("the generated index follows the directory listing, not a cap", async () => {
+	// The 200-line cap is gone: a row is written exactly when its directory is, so the index can be as
+	// long as the archive and there is no "dropped" state left to annotate.
+	const project = await mkdtemp(path.join(tmpdir(), "dsh-index-generated-"));
+	try {
+		const total = 30;
+		for (let index = 0; index < total; index += 1) {
+			const id = `capped-${String(index).padStart(3, "0")}`;
+			const day = String((index % 27) + 1).padStart(2, "0");
+			await queueIndexLine(project, id, `- [${id}](${id}/session.md) — 2026-08-${day} — Capped ${index}`);
+		}
+		const document = await readFile(sessionIndexFile(project), "utf8");
+		assert.equal(parseSessionIndex(document).length, total, "every directory has a row");
+		assert.doesNotMatch(document, /<!--/, "nothing is annotated as dropped");
+		assert.ok(parseSessionIndex(document).some((entry) => entry.id === "capped-000"), "the oldest row is kept too");
 
-	// The count is cumulative, not "one per write": every write re-reads an already-capped document, so
-	// without carrying the previous number forward the marker would always claim a single drop.
-	await queueIndexLine(project, "capped-205", "- [capped-205](session-logs/capped-205/session.md) — 2026-08-28 — Capped 205");
-	await queueIndexLine(project, "capped-206", "- [capped-206](session-logs/capped-206/session.md) — 2026-08-29 — Capped 206");
-	const carried = await readFile(sessionIndexFile(project), "utf8");
-	assert.match(carried, /<!-- 7 older sessions dropped/, "the dropped count is carried forward");
-	assert.equal((carried.match(/older session/g) ?? []).length, 1, "the marker is replaced, not accumulated");
-	assert.equal(parseSessionIndex(carried).length, 200, "the marker never becomes an entry");
+		// A directory that goes away takes its row with it on the next generation.
+		await rm(path.join(project, ".agents", "memory", "session-logs", "capped-005"), { recursive: true, force: true });
+		await queueIndexLine(project, "capped-999", "- [capped-999](capped-999/session.md) — 2026-08-31 — Capped 999");
+		const regenerated = await readFile(sessionIndexFile(project), "utf8");
+		assert.doesNotMatch(regenerated, /capped-005/, "a row whose archive was purged is not rewritten");
+		assert.equal(parseSessionIndex(regenerated).length, total, "one went, one came");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
 });
+

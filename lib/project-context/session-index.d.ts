@@ -7,6 +7,7 @@
  * handoff pointers) read the index to navigate the raw archive.
  */
 import type { Session } from "@deepseek-ai/dsh-session";
+import type { SessionMeta } from "./session-meta.js";
 export interface SessionIndexEntry {
     id: string;
     date: string;
@@ -64,10 +65,15 @@ export declare function untouchedSince(file: string, adopted: {
 }): Promise<boolean>;
 /** Read the index with absolute paths so later passes can open the archives directly. */
 export declare function readSessionIndex(projectRoot: string): Promise<SessionIndexEntry[]>;
-/**
- * Insert or refresh this session's index line. Idempotent: a session keeps its place in the date
- * order, and the title is refreshed if dsh assigned a better one later.
- */
+/** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
+export declare function sessionIndexLineFor(meta: SessionMeta): string;
+/** Record this session in the index. Idempotent: the directory is the key and the title is refreshed. */
 export declare function queueSessionIndexEntry(projectRoot: string, session: Session): Promise<void>;
-/** Insert or refresh one index line (used by the live writer and the archive backfill). */
+/**
+ * Record one index line (import and backfill callers that have a rendered line rather than a session).
+ *
+ * The line is parsed back into metadata rather than kept as text: the index is a projection, so a
+ * line that never reached `meta.json` would vanish on the next generation. A line the pattern cannot
+ * parse keeps its own text as the title and today's date.
+ */
 export declare function queueIndexLine(projectRoot: string, id: string, line: string): Promise<void>;

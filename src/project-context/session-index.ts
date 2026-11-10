@@ -7,7 +7,7 @@
  * handoff pointers) read the index to navigate the raw archive.
  */
 
-import { rm, stat } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "@deepseek-ai/dsh-session";
 import { legacySessionIndexFile, logsDir, memoryDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
@@ -15,6 +15,8 @@ import { withMemoryLock } from "../shared/lock.js";
 import { clipTitle } from "../shared/text.js";
 import { isHandoffContinuationText } from "../project-handoff/language.js";
 import { piTextOf } from "./archive.js";
+import { isDirectory, readSessionMeta, writeSessionMeta } from "./session-meta.js";
+import type { SessionMeta } from "./session-meta.js";
 import type { PiBlock } from "./archive.js";
 
 export interface SessionIndexEntry {
@@ -31,8 +33,6 @@ type SessionEntry = ReturnType<Session["snapshotEvents"]>[number];
 
 const HEADING = "# Session Index";
 const MAX_TITLE_CHARS = 160;
-/** Newest sessions kept when the index is rewritten; older lines drop off the top. */
-const MAX_INDEX_LINES = 200;
 /** `- [id](<id>/session.jsonl) — YYYY-MM-DD — title` (the link target is ignored on parse). */
 const LINE_PATTERN = /^- \[([^\]]+)\]\(([^)]+)\) — (\d{4}-\d{2}-\d{2}) — (.*)$/;
 
@@ -154,9 +154,7 @@ export function sessionTitle(session: Session): string {
  * forms read identically.
  */
 export function sessionIndexLineFrom(id: string, createdAt: number, title: string): string {
-	const safe = safeSessionId(id);
-	const date = new Date(createdAt).toISOString().slice(0, 10);
-	return `- [${safe}](${safe}/session.jsonl) — ${date} — ${clipTitle(title, MAX_TITLE_CHARS)}`;
+	return sessionIndexLineFor({ id, date: new Date(createdAt).toISOString().slice(0, 10), title });
 }
 
 /** One Markdown index line. Links are relative to `session-logs/`. */
@@ -190,49 +188,12 @@ function indexLineId(line: string): string {
 	return /^- \[([^\]]+)\]/.exec(line)?.[1] ?? line;
 }
 
-/**
- * One line per session id: the incoming line replaces any line with the same id, and duplicates
- * left behind by an import collapse to one. The cap is applied by the caller after
- * `orderIndexLines`, so what drops off is the oldest session and not the first line written.
- */
-function dedupeIndexLines(lines: readonly string[], line: string, replaceId: string): string[] {
-	const seen = new Set<string>();
-	const result: string[] = [];
-	for (let index = lines.length - 1; index >= 0; index -= 1) {
-		const current = lines[index]!;
-		const id = indexLineId(current);
-		if (id === replaceId || seen.has(id)) continue;
-		seen.add(id);
-		result.unshift(current);
-	}
-	result.push(line);
-	return result;
-}
 
 /** The `- [id](…)` lines of an index body; a heading, prose or a blank line is not an entry. */
 function entryLines(document: string): string[] {
 	return document.split("\n").map((current) => current.trim()).filter((current) => current.startsWith("- ["));
 }
 
-/**
- * Oldest first, by the date in each line. The index is a date-ordered list whose cap drops its
- * head, so this order decides which sessions survive the cap — and which ones a reader taking the
- * newest lines, as autolearn does, ever sees. Stable for equal dates; a line without a parsable
- * date is kept at the newest end rather than dropped first.
- */
-function orderIndexLines(lines: readonly string[]): string[] {
-	return lines
-		.map((current, position) => ({ current, position, date: LINE_PATTERN.exec(current)?.[3] ?? "" }))
-		.sort((left, right) => {
-			if (left.date !== right.date) {
-				if (left.date === "") return 1;
-				if (right.date === "") return -1;
-				return left.date < right.date ? -1 : 1;
-			}
-			return left.position - right.position;
-		})
-		.map((entry) => entry.current);
-}
 
 /**
  * The pre-move index at `<memory>/session-index.md`, ready for adoption, or `undefined` when there
@@ -277,9 +238,6 @@ export async function readSessionIndex(projectRoot: string): Promise<SessionInde
 	}));
 }
 
-/** One write chain per project so concurrent sessions cannot lose index lines. */
-const queues = new Map<string, Promise<void>>();
-
 /**
  * Cross-process lock target for one project's index, so the lock file is
  * `<memory>/session-index.lock`. It lives in the memory directory because that
@@ -290,66 +248,138 @@ function sessionIndexLockTarget(projectRoot: string): string {
 	return path.join(memoryDir(projectRoot), "session-index");
 }
 
-/**
- * Insert or refresh this session's index line. Idempotent: a session keeps its place in the date
- * order, and the title is refreshed if dsh assigned a better one later.
- */
-export function queueSessionIndexEntry(projectRoot: string, session: Session): Promise<void> {
-	return queueIndexLine(projectRoot, safeSessionId(String(session.id)), sessionIndexLine(session));
+/** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
+export function sessionIndexLineFor(meta: SessionMeta): string {
+	const safe = safeSessionId(meta.id);
+	return `- [${safe}](${safe}/session.jsonl) — ${meta.date} — ${clipTitle(meta.title, MAX_TITLE_CHARS)}`;
 }
 
-/** Insert or refresh one index line (used by the live writer and the archive backfill). */
-export function queueIndexLine(projectRoot: string, id: string, line: string): Promise<void> {
+/** The metadata a live session contributes: its own id, creation date and title. */
+function sessionMetaOf(session: Session): SessionMeta {
+	return {
+		id: safeSessionId(String(session.id)),
+		date: new Date(session.header.createdAt).toISOString().slice(0, 10),
+		title: sessionTitle(session),
+		...(session.header.origin === "subagent" ? { kind: "subagent" as const } : {}),
+	};
+}
+
+interface ArchiveHeaderHint {
+	date: string;
+	origin?: "subagent";
+}
+
+/**
+ * The parts of a `session.jsonl` header the index needs, for a directory that has no `meta.json`.
+ *
+ * This is the migration read: it runs once per session on the first generation after an upgrade and
+ * writes the metadata, so the next write does not open the archive again. The header is the first
+ * line (dsh writes `createdAt` as a number, pi a `timestamp` string), so a file that does not parse
+ * as JSON simply contributes nothing instead of failing the index write.
+ */
+async function readArchiveHeader(file: string): Promise<ArchiveHeaderHint | undefined> {
+	const raw = await readOptional(file);
+	const newline = raw.indexOf("\n");
+	const firstLine = (newline === -1 ? raw : raw.slice(0, newline)).trim();
+	if (!firstLine.startsWith("{")) return undefined;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(firstLine);
+	} catch {
+		return undefined;
+	}
+	if (typeof parsed !== "object" || parsed === null) return undefined;
+	const header = parsed as { createdAt?: unknown; timestamp?: unknown; origin?: unknown };
+	const stamp = typeof header.createdAt === "number" ? header.createdAt : typeof header.timestamp === "string" ? Date.parse(header.timestamp) : Number.NaN;
+	if (!Number.isFinite(stamp)) return undefined;
+	return { date: new Date(stamp).toISOString().slice(0, 10), ...(header.origin === "subagent" ? { origin: "subagent" as const } : {}) };
+}
+
+/** A directory name that could be a session id; `INDEX.md`, `.gitignore` and zips fall out later. */
+const SESSION_DIRECTORY = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Rewrite `INDEX.md` from what is on disk: one row per session directory, nothing else.
+ *
+ * This is the whole point of the generated index. Appending made two states possible that the design
+ * could not fix, only repair: a directory with no row (a wholesale migration, an install whose
+ * archive path never ran) and a row with no directory (a purged archive). Generating makes both
+ * unwritable — a row exists exactly when the directory does. Duplicates are likewise impossible,
+ * because the directory name is the key.
+ *
+ * Directories without `meta.json` are the migration case: their title comes from the old index (the
+ * only record of what a session was called) or, failing that, the archive header, and the metadata
+ * is written back so the next generation does not repeat the read.
+ */
+async function regenerateSessionIndex(projectRoot: string): Promise<void> {
+	const indexFile = sessionIndexFile(projectRoot);
+	const existing = await readOptional(indexFile);
+	// Date and title for a session that predates `meta.json`: the rendered index is the only cheap
+	// record, and reading every archive instead would open megabytes on every write.
+	const hints = new Map(parseSessionIndex(normalizeLegacyIndex(existing)).map((entry) => [entry.id, entry]));
+	const legacyFile = legacySessionIndexFile(projectRoot);
+	// Read the pre-move file through the adoption reader, which stats before it reads: a FIFO or a
+	// directory at that path must not block the index write (reading a FIFO with no writer never
+	// returns, and every later write would queue behind this one).
+	const adopted = await readLegacyIndexForAdoption(legacyFile);
+	for (const entry of parseSessionIndex(adopted?.body ?? "")) {
+		if (!hints.has(entry.id)) hints.set(entry.id, entry);
+	}
+
+	const logs = logsDir(projectRoot);
+	const names = await readdir(logs).catch(() => [] as string[]);
+	const rows: SessionMeta[] = [];
+	for (const name of names.sort()) {
+		if (!SESSION_DIRECTORY.test(name)) continue;
+		const dir = path.join(logs, name);
+		if (!(await isDirectory(dir))) continue;
+		let meta = await readSessionMeta(dir);
+		if (meta === undefined) {
+			const id = safeSessionId(name);
+			const hint = hints.get(id);
+			const header = hint === undefined ? await readArchiveHeader(path.join(dir, "session.jsonl")) : undefined;
+			// Neither an index row nor a readable archive header: not a session directory.
+			if (hint === undefined && header === undefined) continue;
+			meta = {
+				id,
+				date: hint?.date ?? header!.date,
+				title: hint?.title ?? "Untitled session",
+				...(header?.origin === "subagent" ? { kind: "subagent" as const } : {}),
+			};
+			await writeSessionMeta(dir, meta);
+		}
+		// A delegated child's archive is written for forensics, not for navigation: the archive path
+		// refuses to index it, and the generated index has to agree or the two disagree silently.
+		if (meta.kind === "subagent") continue;
+		rows.push(meta);
+	}
+	rows.sort((left, right) => (left.date === right.date ? (left.id < right.id ? -1 : left.id > right.id ? 1 : 0) : left.date < right.date ? -1 : 1));
+	const document = [HEADING, "", ...rows.map((row) => sessionIndexLineFor(row)), ""].join("\n");
+	if (document !== existing) await writeAtomic(indexFile, document);
+
+	// Adopt a pre-move `<memory>/session-index.md`: every line it holds is now either a directory (and
+	// therefore a row) or has no archive at all. Its source is released only once each of its ids
+	// appears — a line whose directory is gone is the only copy left, so it stays on disk rather than
+	// being deleted with the file. Re-stat first, because an older host can still append to that path.
+	if (adopted !== undefined && adopted.ids.every((entryId) => document.includes(`[${safeSessionId(entryId)}](`)) && (await untouchedSince(legacyFile, adopted))) {
+		await rm(legacyFile, { force: true }).catch(() => undefined);
+	}
+}
+
+/** One write chain per project so concurrent sessions cannot interleave index writes. */
+const queues = new Map<string, Promise<void>>();
+
+/** Record a session's metadata, then regenerate the index from the directory listing. */
+function queueIndexWrite(projectRoot: string, meta: SessionMeta): Promise<void> {
 	const key = projectRoot;
 	const previous = queues.get(key) ?? Promise.resolve();
 	const next = previous.catch(() => undefined).then(async () => {
-		// `queues` orders writers inside this process only, and the index write is a read-modify-write:
-		// two hosts doing it at once lose most lines (measured: 58-59 of 120). The same cross-process
-		// lock the memory journal uses (30 s stale / 35 s wait) therefore guards the whole
-		// read → merge → write → remove sequence, not just the final write.
+		// `queues` orders writers inside this process only, and generation is a read-modify-write over
+		// the whole directory listing: two hosts doing it at once interleave. The same cross-process
+		// lock the memory journal uses covers metadata write plus regeneration.
 		await withMemoryLock(sessionIndexLockTarget(projectRoot), async () => {
-			const file = sessionIndexFile(projectRoot);
-			const existing = await readOptional(file);
-			const candidate = legacySessionIndexFile(projectRoot);
-			const adopted = await readLegacyIndexForAdoption(candidate);
-			// Adopt a pre-move `<memory>/session-index.md`, converting its links, so an existing index
-			// survives the layout change into `session-logs/`. It is merged with the current index rather
-			// than adopted only while that index is still empty: two hosts can straddle the move, and a
-			// legacy file written after the new index appeared would otherwise strand its entries —
-			// archived on disk, missing from the list autolearn navigates by, forever. Legacy lines come
-			// first only so that a shared id keeps the current index's line; the document is ordered by
-			// date, because a straddling legacy file can hold the newest sessions, not the oldest.
-			const entries = [...entryLines(adopted?.body ?? ""), ...entryLines(existing)];
-			const ordered = orderIndexLines(dedupeIndexLines(entries, line, safeSessionId(id)));
-			// The cap drops the oldest lines. Their archives stay on disk, but this index is the only
-			// navigation autolearn and the handoff pointers have, so a silent drop reads as "that session
-			// never existed". Name the loss in the document itself, as an HTML comment so
-			// `parseSessionIndex` cannot mistake it for an entry.
-			//
-			// The count has to be carried forward: every write re-reads an already-capped document, so
-			// this write can only see the line it pushes out. Left uncarried the marker would always
-			// claim "1 dropped", which is as false as saying nothing.
-			const carried = Number(/<!-- (\d+) older session/.exec(existing)?.[1] ?? 0);
-			const dropped = (Number.isFinite(carried) ? carried : 0) + Math.max(0, ordered.length - MAX_INDEX_LINES);
-			const document = [
-				HEADING,
-				"",
-				...ordered.slice(-MAX_INDEX_LINES),
-				...(dropped > 0 ? ["", `<!-- ${dropped} older session${dropped === 1 ? "" : "s"} dropped from this index by the ${MAX_INDEX_LINES}-line cap; their archives remain in session-logs/ -->`] : []),
-				"",
-			].join("\n");
-			// Write before removing the adopted source, and write even when the bytes are unchanged: an
-			// adoption whose content was already canonical must still create the new file. A crash
-			// between the two leaves both files, never neither.
-			if (document !== existing || adopted !== undefined) await writeAtomic(file, document);
-			// Remove the source only once every line it held is in the document. The cap drops the oldest
-			// lines, so a legacy entry too old to survive it would otherwise have its only copy deleted;
-			// the file is left in place instead and adopted again on the next write. Re-stat first: an
-			// older host can still append to that path, and a line appended into the read→remove window
-			// must not be deleted with the file, unadopted.
-			if (adopted !== undefined && adopted.ids.every((entryId) => document.includes(`[${entryId}](`)) && (await untouchedSince(candidate, adopted))) {
-				await rm(candidate, { force: true }).catch(() => undefined);
-			}
+			await writeSessionMeta(path.join(logsDir(projectRoot), meta.id), meta);
+			await regenerateSessionIndex(projectRoot);
 		});
 	});
 	queues.set(key, next);
@@ -357,4 +387,25 @@ export function queueIndexLine(projectRoot: string, id: string, line: string): P
 		if (queues.get(key) === next) queues.delete(key);
 	});
 	return next;
+}
+
+/** Record this session in the index. Idempotent: the directory is the key and the title is refreshed. */
+export function queueSessionIndexEntry(projectRoot: string, session: Session): Promise<void> {
+	return queueIndexWrite(projectRoot, sessionMetaOf(session));
+}
+
+/**
+ * Record one index line (import and backfill callers that have a rendered line rather than a session).
+ *
+ * The line is parsed back into metadata rather than kept as text: the index is a projection, so a
+ * line that never reached `meta.json` would vanish on the next generation. A line the pattern cannot
+ * parse keeps its own text as the title and today's date.
+ */
+export function queueIndexLine(projectRoot: string, id: string, line: string): Promise<void> {
+	const match = LINE_PATTERN.exec(line.trim());
+	return queueIndexWrite(projectRoot, {
+		id: safeSessionId(id),
+		date: match?.[3] ?? new Date().toISOString().slice(0, 10),
+		title: match?.[4]?.trim() ?? line.trim(),
+	});
 }

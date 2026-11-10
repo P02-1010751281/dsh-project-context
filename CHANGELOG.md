@@ -10,6 +10,17 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context（批次 Z1：会话索引改为 `meta.json` 的生成物，删除 200 行上限）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.1（用户 2026-11-10 裁定「生成式」，并接受 `date`/`title` 因此进入 `meta.json`）。
+- 改动：新增 `src/project-context/session-meta.ts`（`SessionMeta`、`readSessionMeta`、`writeSessionMeta`、`isDirectory`；写盘前 `mkdir -p`，因此索引可以先于归档字节落地）。`session-index.ts` 的写入路径从「读旧文档 → 合并 → 按日期排序 → 截断到 200 行」换成「写本会话的 `meta.json` → 扫 `session-logs/*/` → 读各 `meta.json` → 整份重写」。`MAX_INDEX_LINES`、`dedupeIndexLines`、`orderIndexLines` 与那段 `N older sessions dropped` 注释一并删除。
+- 结构收益：漏写（目录在、行不在）与悬空（行在、目录不在）不再是「要修的 bug」，而是写不出来的状态——行的存在性与目录的存在性同源；重复也不可能，因为目录名就是键。
+- 迁移（一次性、幂等）：目录没有 `meta.json` 时，日期与标题先取旧 `INDEX.md` 的行（再退到 pre-move 的 `session-index.md`），仍没有则读 `session.jsonl` 首行头的 `createdAt`/`timestamp` 取日期、标题留 `Untitled session`；随后把 meta 写回，下次生成不再打开归档。`subagent` 会话（会话头的 `origin`）写 meta 但不入索引，与归档路径的 `isTopLevel` 闸一致。
+- 本批自己引入又当场修掉的一个回归：新的生成路径最初直接 `readOptional(session-index.md)`，而该路径可能是 FIFO——读一个没有写者的 FIFO 会永久阻塞，既有的「FIFO 不能拖住索引写入」用例以 15 s 超时抓住了它；改为走已有的 `readLegacyIndexForAdoption`（先 `stat`，非普通文件直接放弃）。
+- 用例：改 6 条（旧的上限与 adoption 语义），把 2 条上限用例换成「行随目录存在/消失」，新增 2 条（子代理不入索引；无 meta 时从旧行或归档头回填）。子代理那条做了定向变异：删掉 `meta.kind === "subagent"` 分支后该用例转红，还原并重建后转绿。
+- 门禁（现跑）：`pnpm typecheck` 0；`pnpm build` 0（`lib/client.js` 37270 不变）；`pnpm test` **504 通过 / 0 失败**。
+- **需要重启宿主**（`src/` 改了，`lib/` 随提交入库）；判据是「承载宿主的进程启动时刻晚于本提交」。重启后可核对：`session-logs/*/meta.json` 出现、`INDEX.md` 行数等于目录数、且文档里没有任何 `<!-- N older sessions dropped -->`。
+
 **shared + project-memory + project-autolearn（修复：辅助模型调用不点名 `reasoningEffort`，被 SCNet 网关以 400 拒绝）**
 
 - 症状与证据：`/memory update` 连续两次失败，`.agents/memory/errors.log` 里该文案累计 **14 次**（2026-11-03 08:24Z → 2026-11-07 08:18Z，全部是 `[memory]` 行）：`400 SCNet: thinking.type=disabled cannot be translated: configure model_info.thinking_disable_mode only after verifying the upstream contract`。**两份文档未被改写**（`MEMORY.md` mtime 仍是 11-06 20:57、`CONTEXT.md` 是当轮 11:28 那次、`git status` 干净）——拒绝发生在写入之前，无损。链路是 插件 → `ctx.llm.stream` → 本机 magpie（`127.0.0.1:3425`）→ `api.scnet.cn`；`~/.config/magpie/providers.json` 里 scnet 三个端点中有一个 `anthropic`（`https://api.scnet.cn/api/llm/anthropic`），这正是 `thinking.type` 这套词汇的来源。
