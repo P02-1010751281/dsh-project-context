@@ -20,6 +20,9 @@
 - 用例：改 6 条（旧的上限与 adoption 语义），把 2 条上限用例换成「行随目录存在/消失」，新增 2 条（子代理不入索引；无 meta 时从旧行或归档头回填）。子代理那条做了定向变异：删掉 `meta.kind === "subagent"` 分支后该用例转红，还原并重建后转绿。
 - 门禁（现跑）：`pnpm typecheck` 0；`pnpm build` 0（`lib/client.js` 37270 不变）；`pnpm test` **504 通过 / 0 失败**。
 - **需要重启宿主**（`src/` 改了，`lib/` 随提交入库）；判据是「承载宿主的进程启动时刻晚于本提交」。重启后可核对：`session-logs/*/meta.json` 出现、`INDEX.md` 行数等于目录数、且文档里没有任何 `<!-- N older sessions dropped -->`。
+- 启动对账（用户 2026-11-10 裁定「宿主启动时扫一次」）：新增 `reconcileSessionIndexOnce(projectRoot)`，接在 `agent/created` 上，每项目每进程一次，遵守 `archiveEnabled`；失败写本项目 `errors.log` 并清掉「已跑」标记，让下一次触发能重试。它不修任何东西——每次写入本来就整份重生成——存在的意义是让「目录在、行不在」这种**没有任何会话写入过**的状态不必等到下一次无关写入。
+- Z1 验收（真机镜像，不是构造用例）：把本仓库 187 个会话目录与现有 `INDEX.md` 结构镜像到 `/tmp`，跑一次生成 → **187/187 行全保留、0 缺失、0 多余、0 重复、无 dropped 注释、整份重生成 61 ms**。首次重生成会重排行序（旧文档是历史追加序）：157/187 行换位，日期序列仍非降，25 个同日日期改由 id 定序——这正是 autolearn 取最新 50 行所依赖的性质。
+
 
 **shared + project-memory + project-autolearn（修复：辅助模型调用不点名 `reasoningEffort`，被 SCNet 网关以 400 拒绝）**
 

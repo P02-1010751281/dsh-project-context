@@ -40,7 +40,7 @@ import { parseAutolearnReply, parseAutolearnToolCall } from "../lib/project-auto
 import { HANDOFF_TITLE_PREFIX, handoffSwitchDeferred, planHandoffWatch } from "../lib/project-handoff/marker.js";
 import { watchHandoffSwitch } from "../lib/project-handoff/watch.js";
 import { archivedConversationText, readArchivedConversation } from "../lib/project-context/archive.js";
-import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, sessionIndexLine, untouchedSince } from "../lib/project-context/session-index.js";
+import { parseSessionIndex, queueIndexLine, queueSessionIndexEntry, reconcileSessionIndexOnce, sessionIndexLine, untouchedSince } from "../lib/project-context/session-index.js";
 import {
 	diagnosticMessage,
 	invalidateTextCache,
@@ -582,6 +582,64 @@ test("a directory without meta.json is indexed from its old row or its archive h
 		// The migration writes the metadata back, so the next generation does not open the archive again.
 		const meta = JSON.parse(await readFile(path.join(logs, "session-old", "meta.json"), "utf8"));
 		assert.equal(meta.title, "migrated title");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+
+test("the startup reconcile indexes a corpus that no session write touched", async () => {
+	// The migration case: the directories are on disk and the rows are in the old document, but nothing
+	// has written since the upgrade. Without the reconcile that state waits for an unrelated session.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-index-reconcile-"));
+	const logs = path.join(root, ".agents", "memory", "session-logs");
+	try {
+		await mkdir(path.join(logs, "session-one"), { recursive: true });
+		await mkdir(path.join(logs, "session-two"), { recursive: true });
+		await writeFile(
+			path.join(logs, "INDEX.md"),
+			["# Session Index", "", "- [session-one](session-one/session.md) — 2026-09-01 — first", "- [session-two](session-two/session.md) — 2026-09-02 — second", ""].join("\n"),
+			"utf8",
+		);
+
+		await reconcileSessionIndexOnce(root);
+
+		const entries = parseSessionIndex(await readFile(path.join(logs, "INDEX.md"), "utf8"));
+		assert.deepEqual(entries.map((entry) => entry.id), ["session-one", "session-two"]);
+		assert.equal(entries[0].title, "first", "the old row supplied the title");
+		assert.ok(existsSync(path.join(logs, "session-one", "meta.json")), "the metadata was written back");
+
+		// Once per project per process: a directory added afterwards is not picked up by a second call.
+		// That is the "once" contract, not a claim that the index ignores the directory — the next real
+		// write still regenerates from the listing.
+		await mkdir(path.join(logs, "session-three"), { recursive: true });
+		await reconcileSessionIndexOnce(root);
+		assert.equal(parseSessionIndex(await readFile(path.join(logs, "INDEX.md"), "utf8")).length, 2, "the second call is a no-op");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("regenerating the same corpus twice is byte-identical", async () => {
+	// The acceptance criterion for the generated index: after the one-time backfill, a second
+	// generation changes nothing. Anything that drifts (ordering, a rewritten title, a stray blank
+	// line) would show up as a diff on every unrelated write.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-index-idempotent-"));
+	const logs = path.join(root, ".agents", "memory", "session-logs");
+	try {
+		for (const id of ["session-a", "session-b", "session-c"]) await mkdir(path.join(logs, id), { recursive: true });
+		await writeFile(
+			path.join(logs, "INDEX.md"),
+			["# Session Index", "", "- [session-a](session-a/session.md) — 2026-09-01 — a", "- [session-b](session-b/session.md) — 2026-09-02 — b", ""].join("\n"),
+			"utf8",
+		);
+		await reconcileSessionIndexOnce(root);
+		const first = await readFile(path.join(logs, "INDEX.md"), "utf8");
+
+		// A write of an existing id regenerates the whole document from the same metadata.
+		await queueIndexLine(root, "session-a", "- [session-a](session-a/session.md) — 2026-09-01 — a");
+		const second = await readFile(path.join(logs, "INDEX.md"), "utf8");
+		assert.equal(second, first, "the backfilled metadata reproduces the document byte for byte");
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

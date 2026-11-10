@@ -67,6 +67,17 @@ export declare function untouchedSince(file: string, adopted: {
 export declare function readSessionIndex(projectRoot: string): Promise<SessionIndexEntry[]>;
 /** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
 export declare function sessionIndexLineFor(meta: SessionMeta): string;
+/**
+ * Regenerate the index once per project per process, at startup.
+ *
+ * Every index write already reconciles, so this is not a repair path: it is what makes a directory
+ * that appeared without any session write (a wholesale migration, an install whose archive path
+ * never ran) show up without waiting for the next unrelated write. Idempotent by construction —
+ * generation reads the directory listing, not the document — so a repeat costs one scan and no
+ * change. A failed pass drops the marker so a later trigger can retry; a silent failure would leave
+ * the index wrong until some session happened to write.
+ */
+export declare function reconcileSessionIndexOnce(projectRoot: string): Promise<void>;
 /** Record this session in the index. Idempotent: the directory is the key and the title is refreshed. */
 export declare function queueSessionIndexEntry(projectRoot: string, session: Session): Promise<void>;
 /**

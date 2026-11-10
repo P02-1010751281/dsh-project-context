@@ -19,6 +19,8 @@ import { projectCwd, isTopLevel, SessionWorkTracker } from "../shared/lifecycle.
 import { contextFile, getProjectRoot, logsDir, sessionIndexFile } from "../shared/project-state.js";
 import { importArchiveFiles } from "./import.js";
 import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./session-log.js";
+import { reconcileSessionIndexOnce } from "./session-index.js";
+import { logError } from "../shared/error-log.js";
 
 /**
  * Expand `/session-log import` arguments: directories contribute their
@@ -64,10 +66,24 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	const pending = new SessionWorkTracker();
 
 	ctx.on("agent/created", ({ agent }) => {
-		// Deliberately ungated because it produces no artifact: it only fills an in-process root cache
-		// (plus one `git rev-parse`) for a cwd the parent already warmed. The four points below are the
-		// ones that write.
-		void getProjectRoot(projectCwd(agent.session)).catch(() => undefined);
+		// The cache warm has no artifact of its own (one `git rev-parse`), but the reconcile that rides
+		// on the same root resolve does: it rewrites `INDEX.md`, so it honours the same `archiveEnabled`
+		// switch as the four write points below. This is the startup half of the index contract — a
+		// directory that appeared with no session write (a wholesale migration, an install whose archive
+		// path never ran) is otherwise only picked up by some unrelated session's next write.
+		void getProjectRoot(projectCwd(agent.session))
+			.then(async (projectRoot) => {
+				if (!effectivePluginConfig(entry).archiveEnabled) return;
+				try {
+					await reconcileSessionIndexOnce(projectRoot);
+				} catch (error) {
+					// The root is known here, so the line lands in this project's errors.log; the outer
+					// catch stays silent because a failed root resolve is already reported by the paths
+					// that need it and this one produces nothing.
+					await logError(projectRoot, "session-index", error);
+				}
+			})
+			.catch(() => undefined);
 		return undefined;
 	});
 
