@@ -5,10 +5,24 @@
 import path from "node:path";
 import { readOptional, writeAtomic } from "./files.js";
 
-/** Header and entry list for the memory directory's local-artifact ignore file. */
+/**
+ * Header and entry list for the memory directory's local-artifact ignore file.
+ *
+ * `entries.json` (batch Z2) is here rather than tracked because it is a clock, not a fact: it records
+ * when each entry id was first seen, so a fresh clone simply has no ages and nothing is ever called
+ * unconfirmed until the project has been used for the horizon. Committing it would buy that horizon at
+ * the price of a merge conflict between two hosts every time they both learn an id.
+ */
 const MEMORY_GITIGNORE_HEADER = "# project-context: local artifacts, do not commit";
 
-const MEMORY_GITIGNORE_LINES = ["*.memory-backup-*", "errors.log", "*.lock", "*.steal", "*.broken-*", "memory.jsonl", "memory-log-*.jsonl", "memory.jsonl.*.tmp", "autolearn-state.json"];
+/**
+ * The artifacts this plugin creates locally and the project's `.gitignore` keeps out of git.
+ *
+ * Exported because batch Z2's anchor-drift check has to know that a missing file here is not drift: a
+ * fresh clone has no `errors.log` and no journal, and an entry pointing at one is describing the
+ * plugin's own outputs, not a path somebody deleted.
+ */
+export const MEMORY_GITIGNORE_LINES = ["*.memory-backup-*", "errors.log", "*.lock", "*.steal", "*.broken-*", "memory.jsonl", "memory-log-*.jsonl", "memory.jsonl.*.tmp", "autolearn-state.json", "entries.json"];
 
 const gitignoreEnsured = new Set<string>();
 

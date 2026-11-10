@@ -440,6 +440,14 @@ Z1–Z7 取代 §10.9 的表。
 
 **压缩**：墓碑文件超过 200 行时，把最旧的一半搬到 `retired-archive.md`（移动，不删除）。
 
+**落地（2026-11-10，`retired.ts` + `retirement.ts`）——三处按实测修正**
+
+1. **标记只带 id，日期进侧车文件**。上文的 `（tid:4f2a · 2026-11-10）` 实测不可行：本机 134 条、文档 43720/45000 字符时，给它加 23 字符的标记是 **+3082 字符**，`renderMemoryDocument` 直接丢掉 **7 条整条目**；21 字符版丢 6 条，17 字符版丢 5 条。改成只写 `（4f2a）`（6 字符，+804）后 **0 丢弃**，渲染后 44524/45000。日期改由插件自有侧车 `.agents/memory/entries.json`（`tid → 首次见到日期`）记录：它是**本机时钟**而非事实，故按 `autolearn-state.json` 的先例列入记忆目录 `.gitignore`；干净 clone 没有它，于是没有任何条目能进入 180 天判定——保守方向，符合「宁可漏判」。
+2. **锚点规则要窄到零误判**。第一节表格里「本机真漂移 1 条」无法在定稿规则下复现，按不可判定处理。校准过程：把「含斜杠即路径」当判据时 134 条里 30 条报漂移，全是散文（`turn/start`、`origin/main`、`provider/model`、`W/450000`）；加上「末段必须带源码/文档扩展名」剩 7 条，又全是缩写路径与外部 checkout（`.agents/evidence/…` 的简写、`packages/subagent/…`、`/etc/nixos` 下的 `scripts/dsh-plugin-patches/…`）。定稿再加两条：**父目录必须存在**才可判定（父目录不在时当作别处路径，跳过），以及**插件自己的本地生成物不算漂移**（`errors.log`、`memory.jsonl`、`*.lock`、`*.memory-backup-*` 直接从 `MEMORY_GITIGNORE_LINES` 派生——干净 clone 里它们本来就不存在）。定稿规则在真机文档上：**35 条可检验、全部通过、0 漂移、0 误退**，耗时 10 ms。代价：整目录被删时看不出来，这是刻意接受的盲区。
+3. **墓碑只在写入落地后写**。墓碑断言「该条目已离开文档」，而 tier C 拒绝、Q2 拒绝、`basisKey` 竞态、空骨架闸都可能让这一次什么都没写；那时写墓碑就是在说一个还躺着的事实已经死了。因此 `ConsolidationOutcome.retirement` 只在**可存储**的回复上携带，真正的追加发生在 `index.ts` 里 `snapshot.written` 为真之后，失败只记 `errors.log`（写入已经落地，不能把一个已落地的写报成命令失败）。
+
+**落地后的验收（真机文档只读测量）**：`stamped=true retired=0 added=134`；渲染 44524/45000、`sectionDropped 0`、`droppedItems 0`、`itemTruncated 0`；无条目超过 800 字符的单条上限；渲染→解析→渲染逐字节一致。
+
 ### 11.4 任务维度
 
 **裁定**：`tasks/<slug>.md` 多文件；会话归属靠显式声明；模型只能在既有 slug 里挑；造新 slug 需确认；任务自身有生命周期（三态）。

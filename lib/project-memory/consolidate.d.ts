@@ -10,6 +10,7 @@ import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { type ConsolidationResult, type ContextUpdate } from "../shared/reply-json.js";
 import { type MemorySectionOverage } from "./sections.js";
+import { type Tombstone } from "./retired.js";
 /**
  * Which entry produced the memory this pass would write, or `"none"` when the pass was refused before
  * any model call (the read-cap gate): there is no reply, so nothing produced the document.
@@ -106,6 +107,19 @@ export type ConsolidationOutcome = {
         memoryHiddenChars: number;
         contextHiddenChars: number;
     };
+    /**
+     * Batch Z2's retirement pass, present only when this reply would actually be stored.
+     *
+     * The tombstones describe a deletion that has not been written yet: a pass refused by tier C or by
+     * the basis-key race deletes nothing, so recording them would claim a fact was retired while it is
+     * still in `MEMORY.md`. `added` carries the first-seen date of every id this pass minted, and `ids`
+     * is the id set of the landed document, which prunes the sidecar.
+     */
+    retirement?: {
+        tombstones: Tombstone[];
+        added: [string, string][];
+        ids?: string[];
+    };
 };
 export interface ConsolidationOptions {
     force?: boolean;
@@ -143,6 +157,16 @@ export declare const CONSOLIDATION_PROMPT_RULES: readonly string[];
  * Compression is now the default and a deletion has to name a reason; one constant, so the two
  * layers cannot drift apart.
  */
+/**
+ * The entry-id convention, stated where the model writes entries (batch Z2).
+ *
+ * The id has to be copied verbatim: it is what a `supersedes:` declaration points at and what a
+ * tombstone names, and an id the model invents would either collide with a live entry or name nothing.
+ * The replacement instruction is one sentence because the mechanical half — retiring the named entry —
+ * is the pass's job, not the model's: asking the model to also delete the old entry is the behaviour
+ * that failed before this existed.
+ */
+export declare const MEMORY_ENTRY_ID_RULE = "Every entry ends with its id in a full-width parenthetical, e.g. `\u2026 durable fact\uFF084f2a\uFF09`. When you keep an entry, keep its id exactly as given. Do not invent an id for a new entry and do not add one to an entry that has none. To replace an entry, write the replacement and end it with `supersedes:<old id>`; the old entry is retired automatically, so do not repeat it.";
 export declare const MEMORY_KEEP_RULE = "Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections, then condense the wording. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one.";
 /**
  * The same rule at the block whose text the reply rewrites (pi's second layer): the material arrives

@@ -8,6 +8,7 @@ memory.jsonl
 memory-log-*.jsonl
 memory.jsonl.*.tmp
 autolearn-state.json
+entries.json
 
 # 会话原文只留本地。这一条刻意写在**这个被跟踪的**文件里，而不是只靠
 # session-logs/.gitignore —— 后者内容为 `*`、会把自己也忽略掉，无法正常提交，

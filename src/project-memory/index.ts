@@ -37,6 +37,8 @@ import {
 } from "../shared/project-state.js";
 import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
 import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
+import { appendTombstones } from "./retired.js";
+import { recordEntryDates } from "./retirement.js";
 import { withMemoryLock } from "../shared/lock.js";
 
 export const name = "project-memory";
@@ -324,6 +326,23 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 					if (outcome.sectionDropped > 0) parts.push(`${outcome.droppedItems} whole entry(ies) were dropped from ${outcome.sectionDropped} section(s) because the memory document reached its character cap`);
 					if (outcome.itemTruncated > 0) parts.push(`${outcome.itemTruncated} entry(ies) exceeded their section's per-item cap and were truncated`);
 					await logError(projectRoot, "memory", `MEMORY.md was rendered lossily: ${parts.join("; ")}`);
+				}
+				// Batch Z2's record half, at the write site and nowhere earlier: a tombstone claims an entry
+				// left the document, so it may only be written for a document that actually landed. The
+				// memory write is already durable at this point, which is why a failure here is reported
+				// rather than rethrown — losing the record must not turn a landed write into a failed
+				// command, but it must be visible, because an unrecorded retirement is a fact that returns.
+				if (snapshot.written && outcome.retirement !== undefined) {
+					try {
+						await appendTombstones(projectRoot, outcome.retirement.tombstones);
+						await recordEntryDates(
+							projectRoot,
+							new Map(outcome.retirement.added),
+							outcome.retirement.ids === undefined ? undefined : new Set(outcome.retirement.ids),
+						);
+					} catch (error: unknown) {
+						await logError(projectRoot, "memory", `the retired-fact record could not be written after MEMORY.md landed: ${diagnosticMessage(error)}`);
+					}
 				}
 			}
 

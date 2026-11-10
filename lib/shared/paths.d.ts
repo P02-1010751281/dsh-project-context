@@ -26,6 +26,26 @@ export declare function logsDir(projectRoot: string): string;
 export declare function sessionIndexFile(projectRoot: string): string;
 /** Pre-move index location (`<memory>/session-index.md`), merged into the new index whenever it holds one. */
 export declare function legacySessionIndexFile(projectRoot: string): string;
+/**
+ * Tombstones for retired memory entries: one line per fact that left `MEMORY.md`.
+ *
+ * Deliberately a sibling document rather than a section of `MEMORY.md`: a tombstone is injected into
+ * the consolidation prompt as a one-line "do not write this back" hint, and `sectionsFromMarkdown`
+ * accepts only the four policy sections — a fifth one would turn the whole memory opaque.
+ */
+export declare function retiredFile(projectRoot: string): string;
+/** Older half of the tombstone file once it passes its line budget (moved, never deleted). */
+export declare function retiredArchiveFile(projectRoot: string): string;
+/**
+ * Plugin-owned dates for the entry ids in `MEMORY.md`: when each id was first seen.
+ *
+ * The id itself rides inside the bullet (six characters per entry), because the model has to copy it
+ * for a `supersedes:` reference to mean anything. The *date* is what the 180-day expiry needs, and it
+ * costs eleven characters per entry on a document that has no room for it — measured 2026-11-10:
+ * stamping `（tid:4f2a · 2026-11-10）` on this project's 134 entries added 3082 characters and made
+ * the renderer drop 7 whole entries, while the bare id costs 804 and drops none.
+ */
+export declare function entryDatesFile(projectRoot: string): string;
 export declare function legacyPiDir(projectRoot: string): string;
 export declare function legacyOmpDir(projectRoot: string): string;
 export declare function safeSessionId(sessionId: string): string;

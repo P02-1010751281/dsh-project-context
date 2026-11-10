@@ -1,10 +1,10 @@
 # Project Context
 
-Last updated: 2026-11-10T12:30:22.974Z
+Last updated: 2026-11-10T13:38:40.875Z
 
 ## Summary
 
-本会话从 session-8cb9feac 交接而来，前半段做源码级复核并纠正了上一轮一条只依据 README 的结论：dsh 技能解析是「最近层直接胜出，rank 只在同层内去重」，层内 rank 小者胜（project .dsh 100 → project .agents 200 → runtime 250 → custom 300 → ~/.dsh 400 → ~/.agents 500 → bundled 600），因此插件注入的 runtime 技能会静默压掉自定义目录与用户两份技能库，却压不掉项目 .agents/skills，且没有查询 API 能看出遮蔽。还从源码补了两条：ctx.skills.register 要求 {name, description, source, content} 四字段但只校验 name/description（绕过类型会得到空正文），todo 投影在首次写入前是 null 而不是 []。期间我自己写坏了 CONTEXT.md 的一条 bullet（846 字符 > MAX_LIST_ITEM_CHARS 800），被 roundtrip.mjs 抓住（over the 800-char cap: 1、byte-identical false），已拆条修好并清掉一条变假的记忆；提交 eabd273 已推送。后半段按用户要求改用 grilling 方式提问（白话 + 示例 + 推荐答案），分三轮收敛了批次 Z 的设计。已裁定：索引删掉 200 行上限（甲）；每会话一份 meta.json（乙），且索引改为生成式投影（乙）——含义是日期与标题必须进 meta.json；任务维度拆 tasks/<slug>.md 多文件，任务归属靠显式命令 + 模型只能在既有 slug 里挑、新建需确认；退休 = 立刻从 MEMORY.md 删除 + retired.md 墓碑（不注入），墓碑标题行在整理时注入以防复活；清理自动跑且先 tar，墓碑超 200 行压缩归档；对账在宿主启动时扫一次、只收顶层会话、双向（补漏 + 删悬空行）；todo 只收当前会话并接在 turn/end 变化时写入 CONTEXT.md 的机械部分；autolearn 的 50 行窗口不动；项目记忆维护 skill 做成短的路由型入口（不复制专项内容，避开 autolearn 生成的名字）。澄清了用户的一个错误前提：插件从不读 todo（src/ 里 todo 0 命中），交接种子也从不带 todo，所以「上一个会话未完成的 todo 会自动继承」在机制上不成立。也纠正了一个测量错误：用 session-* 通配数目录会少算，按链接目标逐条解析后本机是 186 目录 / 186 行 / 悬空 0 / 漏写 0。当前停在第四轮四问上（task 生命周期状态、CONTEXT 机械/散文分离更新、skill 形态、清理留痕放哪），用户尚未回答；答完即写 §11 实现规格，然后按 Z1… 动 src/。全程未改 src/，因此不需要重启宿主。
+本会话从 session-10a5ddff 交接，按 §11.8 连续落地批次 Z1 与 Z2。Z1（cf6a790 + 67021ed）：会话索引不再 append，改为每会话 meta.json 的生成物，每次写入扫 session-logs/ 整份重生成，删掉 200 行上限与 dropped 注释；漏写与悬空在结构上不再可能；另加宿主启动时扫一次的 reconcile，补上「目录在、行不在且无人写入过」的缺口。真机镜像验收 187 目录 / 187 行全保留、0 缺失 0 多余 0 重复、整份重生成 61 ms。Z2（本轮）：新增 retired.ts / retirement.ts，实现三条机械触发（锚点漂移 / supersedes:<id> / 180 天未被归档会话提到）、retired.md 墓碑（超 200 行折半进 retired-archive.md）、提示词墓碑摘要（日期与标题、最多 20 条），墓碑只在内存真的落地后追加。两处按实测改规格：条目标记只写 `（4f2a）`、日期进被 gitignore 的 entries.json（带日期的 23 字符标记会让渲染丢 7 条整条目），锚点判据收紧到「扩展名白名单 + 父目录必须存在 + 排除插件本地生成物」，把 30 条散文假阳性降到真机 0 误退。门禁 523 通过 / 0 失败，6 个变异各只红对应用例。两批都要重启宿主才生效。
 
 ## Key points
 
@@ -22,17 +22,19 @@ Last updated: 2026-11-10T12:30:22.974Z
 - 索引变化的连带后果：目录被清理后对应行消失，索引保持「每行都能在磁盘上验证」；曾经存在的会话靠 purge 日志审计。
 - autolearn 读索引最新 50 行是素材新鲜度取舍，与索引长度解耦，删上限后不动。
 - 仓库已有 30+ 技能，记忆相关至少 4 个（cap-guard、recovery、loss-repair、four-section-migration），新 skill 做成短路由型入口，专项细节留在已有技能里避免第二份真相。
+- Z2 退休通道（`retired.ts` + `retirement.ts`）：锚点漂移 / `supersedes:<id>` / 180 天未被归档会话提到三条机械触发；墓碑只在内存真的落地后追加；条目标记只写 `（4f2a）`，日期进被 gitignore 的 `entries.json`——带日期的 23 字符标记在本机文档上会让渲染丢 7 条整条目。
 
 ## Open tasks
 
 - 四轮裁定已全部落定并写进规格 §11（docs/batch-z-six-problems-spec.md）：① task 三态 active / dormant（30 天无活动自动）/ archived（显式或 dormant 满 90 天自动）；② CONTEXT 拆机械部分（turn/end 变化即写、不调模型）与散文部分（仍只在整理 pass）；③ 维护 skill 做成短路由型入口、渐进式披露，专项留给既有技能；④ 清理记录写 purge.log，索引不留不可验证注释。§11 另定：索引生成式重写、meta.json 带 date/title/kind/parentId/task、Z1–Z6 批次且 Z1 先行。
 - Z1 已实现并推送（cf6a790 生成式 + 67021ed 启动对账）：索引成为 `session-logs/*/meta.json` 的生成物，`MAX_INDEX_LINES` 与 dropped 注释已删；`entryLines` / `LINE_PATTERN` 只剩 adoption 读旧文件用。待宿主重启才生效（判据：宿主进程启动时刻晚于 67021ed），重启后核对 `meta.json` 出现、INDEX 行数 = 目录数、文档内无 `<!-- N older sessions dropped -->`。
-- 启动对账已实现并推送（67021ed）：`reconcileSessionIndexOnce` 接在 `agent/created` 上，每项目每进程一次、遵守 `archiveEnabled`、失败进 `errors.log` 并可重试。真机镜像验收：187 目录 / 187 行全保留、0 缺失 0 多余 0 重复、整份重生成 61 ms；首次重生成重排了行序（157/187 换位，日期仍非降）。剩余批次：Z2 清洗通道依赖墓碑约定，Z3 任务维度是 Z5 按任务切片种子的前置。
-- 行为验证（用户侧，阻塞）：跑一次 /memory update，确认点名 effort → 网关接受 → 写入落地整链，同时观察 cap 45000 下是否仍出现 lossy 拒绝。
+- 启动对账已实现并推送（67021ed）：`reconcileSessionIndexOnce` 接在 `agent/created` 上，每项目每进程一次、遵守 `archiveEnabled`、失败进 `errors.log` 并可重试。真机镜像验收：187 目录 / 187 行全保留、0 缺失 0 多余 0 重复、整份重生成 61 ms；首次重生成重排了行序（157/187 换位，日期仍非降）。剩余批次：Z3 任务维度是 Z5 按任务切片种子的前置；Z2 已落地（见下一条）。
+- 行为验证（用户侧，阻塞）：跑一次 /memory update，确认点名 effort → 网关接受 → 写入落地整链；重启后这一次同时验证 Z2（`MEMORY.md` 每条尾部出现 `（xxxx）`、`entries.json` 生成且被 gitignore 覆盖、`retired.md` 只在真的退条时出现），并观察 cap 45000 下是否仍出现 lossy 拒绝。
 - 行为验证（用户侧）：闲置会话上执行 /handoff now，应立即可归档父会话（进 workspace.json 的 global.archivedSessionIds）。
 - 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档；另可验证 handoffRetireReplaced 关掉后的效果。
 - 设计选择待用户裁定：路由长期钉在失效模型上时自动交接会持续 5 分钟退避、唯一痕迹是 errors.log 且无用户可见面；是否变成可见告警，不擅自改。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
 - 若真要在 64K 窗口运行，需同时调小 handoffBudgetRecentTokens（如 4000）、调小宿主 compaction headroomTokens、并压小两份文档，缺一不可。
+- Z2 已实现并推送：三条触发 + `retired.md` 墓碑（超 200 行折半进 `retired-archive.md`）+ 提示词墓碑摘要（日期与标题、最多 20 条）+ 条目 id（内容派生的四字符 hex，盖在正文尾部）。真机只读测量 0 误退 / 134 条装下 / 44524 字符 0 丢条；待重启后一次 `/memory update` 同时验证 Z1 与 Z2。
 
 <!-- latest-session-title: 批次 Z 设计评审：索引投影、任务生命周期、维护 skill -->
