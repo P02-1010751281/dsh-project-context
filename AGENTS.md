@@ -35,8 +35,8 @@
 ### 对照：交接（④）
 
 - 触发面更窄：只有 `turn/end` 评估交接（`src/project-handoff/index.ts:211-223`），`step/start` 只重算压力线（`:216`）。
-- **不调模型、不写 journal**：尾料与文件索引来自 `handoffSplit`（`src/project-handoff/conversation.ts:527`），产物由 `handoffArtifacts` 组装（`src/project-handoff/perform.ts:32`）。
-- 写序是反的：先创建并播种新会话（`src/project-handoff/perform.ts:149`，走 `followup(pluginUserMessage(...))` 而不是 `controller.prompt`，`src/project-handoff/perform.ts:171-173`），最后才写 `HANDOFF.md`（`src/project-handoff/perform.ts:180`）；中途失败用 `abandonChild` 撤销（`src/project-handoff/perform.ts:182`）。
+- **不调模型、不写 journal**：尾料与文件索引来自 `handoffSplit`（`src/project-handoff/conversation.ts:527`），产物由 `handoffArtifacts` 组装（`src/project-handoff/perform.ts:34`）。
+- 写序是反的：先记录子会话的 `parentId`/`task`（`src/project-handoff/perform.ts:163`）再创建并播种新会话（`src/project-handoff/perform.ts:151`，走 `followup(pluginUserMessage(...))` 而不是 `controller.prompt`，`src/project-handoff/perform.ts:189`），最后才写 `HANDOFF.md`（`src/project-handoff/perform.ts:196`）；中途失败先取回绑定、再用 `abandonChild` 撤销（`src/project-handoff/perform.ts:201`）。
 - 触发状态全在进程内存（`src/project-handoff/state.ts:13-50`），不落盘；宿主重启后重新计数。
 
 ## 关键目录
@@ -50,7 +50,7 @@
 | `src/shared/` | 四个插件共用：配置、设置 schema、项目根/路径、跨进程锁、原子写、生命周期 helper |
 | `client/` | 浏览器半边 5 个文件；`client/card-fields.ts` 是设置卡字段表的唯一来源，`client/styles.ts` 是纯几何样式 |
 | `lib/` | **入库的构建产物**（153 个受跟踪文件）：tsc 的 `*.js`/`*.d.ts` 加 esbuild 的 `client.js` |
-| `test/` | 38 个文件：34 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
+| `test/` | 39 个文件：35 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
 | `docs/` | 索引是 `docs/README.md`；机制文档 4 篇；`docs/changelog/`（8 个版本）；`docs/archive/`（18 个收口批次档案） |
 | `scripts/` | `build-client.mjs`（唯一产出 `lib/client.js` 的地方）、`import-archives.mjs`（回填历史会话） |
 | `.agents/` | `memory/`（MEMORY.md、CONTEXT.md、`tasks/<slug>.md`、`purge.log`、`trash/` 与本地状态）、`skills/`（33 个程序性技能，含手写的入口技能）、`evidence/`（冻结证据） |
@@ -79,7 +79,7 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 - **命令处理器不抛**：返回 `{kind: "success" | "error", text}`（`src/project-context/index.ts:125-131`）。
 - **fire-and-forget**：`void … .catch(() => undefined)`，但吞掉的异常必须进 `errors.log`，且写日志的函数自己永不抛（`src/shared/error-log.ts:57`）。
 - **状态归属**：持久状态只在文件里，布局写在 `src/shared/project-state.ts:3-12` 的注释块；其余都在进程内存（每会话 tracker、每项目根 map、交接触发状态），宿主重启即失效。
-- **读上游服务**：`inject` 声明过的用 `ctx.x`；未声明的用 `ctx.get("x")`，它返回 `undefined` 而不是抛——handoff 缺 `llm` 时是响亮失败（`src/project-handoff/perform.ts:125-126`），只有可选能力才静默降级。
+- **读上游服务**：`inject` 声明过的用 `ctx.x`；未声明的用 `ctx.get("x")`，它返回 `undefined` 而不是抛——handoff 在 `inject` 里声明 `llm`（`src/project-handoff/index.ts:93`），自动路径失败写一行 `warn`（`:130`），只有可选能力才静默降级。
 - **对称的失败处理**：枚举分支用 `assertNever` 收尾（`src/project-handoff/auto.ts:141`、`:153`）；抛出的错误保留 harness 的 `code`（`src/shared/model-call.ts:240`）。
 - **注释规则**：JSDoc 与行内注释用英文，写「为什么」和被否决的替代方案；中文只出现在面向用户的文案里（`src/project-handoff/language.ts:158`、`src/shared/setting-labels.ts`）。模型提示词一律英文。
 
@@ -103,7 +103,7 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 
 ## 测试与 QA
 
-- 规模：`test/` 38 个文件 17,235 行，其中 34 个 `*.test.mjs` 注册 **583** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
+- 规模：`test/` 39 个文件 17,445 行，其中 35 个 `*.test.mjs` 注册 **587** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
 - 运行器是内置 `node:test`：`import test from "node:test"`，没有 `describe`/`it`/`vitest`。包脚本的 glob 是单引号包起来的 `'test/**/*.test.mjs'`（`package.json:56`），只选测试文件——裸 `node --test` 会把 fixture 也算成一个永远绿的幽灵用例。
 - **测试跑的是编译后的 `lib/`，不是 `src/`**（`test/logic.test.mjs:17-40` 从 `../lib/…` 导入）：`pnpm test` 先 `tsc`，所以类型错误会在任何用例报告之前终止整轮；忘了构建就测到旧产物。
 - 单文件跑 `node --test test/handoff-relabel.test.mjs` 会绕过 `tsc` 前缀，改过 `src/` 时先 `pnpm build`。

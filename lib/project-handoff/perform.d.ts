@@ -1,8 +1,9 @@
 /**
- * One handoff transaction, in order: persist `HANDOFF.md`, seed the child, publish the switch
- * marker. Nothing is generated: the child gets the carried tail, the file index and a pointer to
- * the session log the dropped prefix stays in. The seed happens before the marker, and the document
- * is written last, so an abandoned attempt leaves nothing behind in the project.
+ * One handoff transaction, in order: record the child's parent link and task binding, seed the
+ * child, persist `HANDOFF.md`, publish the switch marker. Nothing is generated: the child gets the
+ * carried tail, the file index and a pointer to the session log the dropped prefix stays in. The
+ * binding and the seed happen before the marker, and the document is written last, so an abandoned
+ * attempt leaves nothing behind in the project (the binding is taken back, see `binding.ts`).
  */
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";

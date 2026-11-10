@@ -10,6 +10,18 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（批次 Z7：交接种子按任务切片——子会话继承父会话的任务绑定）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.8 Z7（§6 问题 6 第 2 条「种子只能带全量上下文」）。依赖 Z3（任务维度）与 Z5（todo 接线）。
+- 新模块 `src/project-handoff/binding.ts`：交接时把子会话的 `session-logs/<childId>/meta.json` 写成 `{id, date, title, kind:"handoff", parentId, task}`，`task` 从父会话自己的 meta 读（`readSessionTaskSync`）。**这是种子切片唯一需要写的东西**：注入侧按会话 id 解析上下文文档（`boundTaskSync`），所以绑定一落地，子会话注入的就是 `tasks/<slug>.md`，而不是含全部跨任务 Open tasks 的项目级 `CONTEXT.md`。
+- **写在种子落地之前**：子会话的第一个请求在 admission 时读同一个 `meta.json`，晚写会让第一轮看到项目级文档。用例在种子投递点同步读盘钉这个顺序；写失败只丢继承（回到旧行为）并写一行 `warn`，不让整个交接失败。
+- **放弃的交接要把元数据取回**：`discardHandoffBinding` 删掉本次写的 `meta.json`——有 meta 没有归档会在下一次生成里变成一条指向不存在文件的索引行（Z1 消掉的状态）。守卫是子会话自己的 `session.jsonl`：一旦归档写了它，目录就不再属于这次尝试，元数据必须留；两个方向都有用例。
+- **todo 半边不需要新通道**：Z5 的机械 `- [todo] …` 行写在会话自己的文档里（绑定的是 `tasks/<slug>.md`，未绑定的是 `CONTEXT.md`），子会话读的正是同一份，所以「种子带当前 todo」由共享文档自动成立——没有第二份拷贝，也没有新的种子字段。
+- `kind`/`parentId` 同时把 §11.2 的会话树变成数据（归档写的 `preserveForeign` 会继承它们）；`/session-log tree` 命令本身仍未实现，属残留。
+- **未做**：§10.9 Z7 的后半「陈旧 provider/model 配对失败改为用户可见提示」仍等用户裁定（本包没有宿主侧通知通道），不擅自改。
+- 新用例 4 条（`test/handoff-binding.test.mjs`，真跑 `performHandoff` + 真临时项目 + 假控制器/假 Agent 注册表）：绑定继承与注入解析、绑定先于种子、未绑定负控、放弃清理与归档守卫；5 个变异各只红自己的目标（不写 task、绑定挪到种子之后、放弃不清理、清理忽略归档声明、从子会话而不是父会话读 task）。
+- 本批动了 `src/`，**需要重启宿主才生效**。
+
 **docs/skills（批次 Z6：路由型技能——四块维护任务一张表，`MEMORY.md` 一行指针）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.7（用户 2026-11-10 裁定：一个短的入口技能、渐进式披露；并明确**否决** `ctx.skills.register` 注入——要的是磁盘上可 review 的技能）。
