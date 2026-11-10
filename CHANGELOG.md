@@ -10,6 +10,16 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**docs/skills（批次 Z6：路由型技能——四块维护任务一张表，`MEMORY.md` 一行指针）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.7（用户 2026-11-10 裁定：一个短的入口技能、渐进式披露；并明确**否决** `ctx.skills.register` 注入——要的是磁盘上可 review 的技能）。
+- 新文件 `.agents/skills/dsh-project-context-maintenance/SKILL.md`（`.agents/skills` 现有 33 个技能，这一批新增入口技能）。正文只有一张四列表——`插件 | 任务 | 第一步 | 专项技能`，15 行覆盖记忆维护、索引与归档、交接、技能沉淀四块；专项细节**不复制**，全部指向既有技能（cap-guard、loss-repair、recovery、four-section-migration、index-adoption、store-maintenance、archive-repair、handoff 两个 forensics、corpus-consolidation）。表里给的是**第一动作**（跑哪条命令 / 读哪个文件），因为那才是判断分支的依据。
+- **模型可调用而不是只在手边**：`description` 常驻并前置触发分支（记忆编辑与 cap 压力、归档索引缺口、交接是否触发、autolearn 沉淀），因为 Z6 要解决的是「模型不知道该用哪个专项技能」，人手记的方式解决不了它。代价是一行常驻上下文，所以正文压到 3000 字符以内并禁止代码块。
+- **项目层技能是 watcher 热加载的**：落盘后同一会话里 `skill` 工具即可载入（本次实测，宿主没重启），所以这一批**不欠重启**。
+- `MEMORY.md` 的 `## Index` 加一行指针（走插件的 `loadMemory` → `renderMemoryDocument` → `recordMemoryDocument` 路径，不手工编辑），保证它被看见；顺带把两处会被读-now 命令再生的枚举（test/ 套件名、`.agents/evidence` 的日期目录）压成一句话，净增 133 字符，落盘 **44688/45000**、无整条目丢弃、渲染→解析→渲染逐字节一致。
+- 新用例 5 条（`test/routing-skill.test.mjs`）：frontmatter 名 = 目录名、全语料无重名（重名会被 provider 静默遮蔽）、每个 `dsh-*` 指向的技能在 `.agents/skills/` 存在（用户层的 `agents-memory-recovery` / `dsh-session-archive-repair` 显式白名单声明）、每个 `/命令` 都在 `src/*/index.ts` 真注册、正文 < 3000 字符且四块各有行；9 个变异各只红自己的目标（名字与目录不一致、第二个技能抢占同名、指向不存在的技能、指向未注册的命令、某块丢掉整行、正文长出过程、表头改成散文、行尾改成散文、指向未声明的用户层技能）。
+- 文档：`AGENTS.md` 的「29 个程序性技能」是过期快照，改成读-now 命令；README 的目录树注明 `.agents/skills/` 里既有沉淀产物也有人写的入口技能。
+
 **project-memory（批次 Z5：todo 接线——未完成项按 `[todo]` 行写进 Open tasks）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.6（用户 2026-11-10 两裁决：只收当前会话、写入时机用 `turn/end`）。

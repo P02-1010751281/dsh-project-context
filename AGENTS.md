@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-> 事实快照：2026-11-06。带计数的条目都是当天的快照，引用前现读（`git ls-files lib | wc -l`、`ls .agents/skills | wc -l`、`ls docs/changelog/*.md | wc -l`、`ls docs/archive/*.md | wc -l`、`pnpm test` 的 `ℹ tests` 行）。
+> 事实快照：2026-11-10。带计数的条目都是当天的快照，引用前现读（`git ls-files lib | wc -l`、`ls .agents/skills | wc -l`、`ls docs/changelog/*.md | wc -l`、`ls docs/archive/*.md | wc -l`、`pnpm test` 的 `ℹ tests` 行）。
 
 ## 项目概览
 
@@ -49,11 +49,11 @@
 | `src/project-handoff/` | ④ 上下文越线时交接进新会话；入口 `src/project-handoff/index.ts:101`（本包最大的一支） |
 | `src/shared/` | 四个插件共用：配置、设置 schema、项目根/路径、跨进程锁、原子写、生命周期 helper |
 | `client/` | 浏览器半边 5 个文件；`client/card-fields.ts` 是设置卡字段表的唯一来源，`client/styles.ts` 是纯几何样式 |
-| `lib/` | **入库的构建产物**（141 个受跟踪文件）：tsc 的 `*.js`/`*.d.ts` 加 esbuild 的 `client.js` |
-| `test/` | 33 个文件：29 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
+| `lib/` | **入库的构建产物**（153 个受跟踪文件）：tsc 的 `*.js`/`*.d.ts` 加 esbuild 的 `client.js` |
+| `test/` | 38 个文件：34 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
 | `docs/` | 索引是 `docs/README.md`；机制文档 4 篇；`docs/changelog/`（8 个版本）；`docs/archive/`（18 个收口批次档案） |
 | `scripts/` | `build-client.mjs`（唯一产出 `lib/client.js` 的地方）、`import-archives.mjs`（回填历史会话） |
-| `.agents/` | `memory/`（MEMORY.md、CONTEXT.md、`tasks/<slug>.md`、`purge.log`、`trash/` 与本地状态）、`skills/`（29 个程序性技能）、`evidence/`（冻结证据） |
+| `.agents/` | `memory/`（MEMORY.md、CONTEXT.md、`tasks/<slug>.md`、`purge.log`、`trash/` 与本地状态）、`skills/`（33 个程序性技能，含手写的入口技能）、`evidence/`（冻结证据） |
 
 ## 开发命令
 
@@ -103,7 +103,7 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 
 ## 测试与 QA
 
-- 规模：`test/` 33 个文件 14,642 行，其中 29 个 `*.test.mjs` 注册 **492** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
+- 规模：`test/` 38 个文件 17,235 行，其中 34 个 `*.test.mjs` 注册 **583** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
 - 运行器是内置 `node:test`：`import test from "node:test"`，没有 `describe`/`it`/`vitest`。包脚本的 glob 是单引号包起来的 `'test/**/*.test.mjs'`（`package.json:56`），只选测试文件——裸 `node --test` 会把 fixture 也算成一个永远绿的幽灵用例。
 - **测试跑的是编译后的 `lib/`，不是 `src/`**（`test/logic.test.mjs:17-40` 从 `../lib/…` 导入）：`pnpm test` 先 `tsc`，所以类型错误会在任何用例报告之前终止整轮；忘了构建就测到旧产物。
 - 单文件跑 `node --test test/handoff-relabel.test.mjs` 会绕过 `tsc` 前缀，改过 `src/` 时先 `pnpm build`。

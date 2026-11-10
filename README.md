@@ -66,7 +66,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 ```
 <project>/.agents/
-├── skills/<name>/SKILL.md        # ③ 沉淀出的项目技能（description 常驻，body 按需加载）
+├── skills/<name>/SKILL.md        # ③ 沉淀出的项目技能 + 手写入口技能（description 常驻，body 按需加载）
 └── memory/
     ├── MEMORY.md                 # ② 长期记忆（由 journal 折叠渲染，可手改）
     ├── CONTEXT.md                # ② 工作态：摘要 / 关键点 / open tasks

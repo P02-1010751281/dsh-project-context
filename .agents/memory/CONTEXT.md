@@ -1,10 +1,10 @@
 # Project Context
 
-Last updated: 2026-11-10T14:39:19.584Z
+Last updated: 2026-11-10T14:50:15.295Z
 
 ## Summary
 
-本会话做的是批次 Z5（todo 接线）：`turn/end` 读会话的 `todos` 投影，把未完成项按 `- [todo] …` 写进该会话文档 Open tasks 的顶部，整理 pass 用同一个 `withTodoLines` 接着维护。已实现、18 条新用例 + 14 个变异校验、门禁 578 通过 / 0 失败，提交并推送。下一步按 §11.8 是 Z6（路由型技能）。
+本会话做的是批次 Z6（路由型技能）：`.agents/skills/dsh-project-context-maintenance/SKILL.md` 用一张判断表把四块维护任务（记忆、索引与归档、交接、技能沉淀）路由到「先跑哪条命令 / 读哪个文件 / 载入哪个专项技能」，专项细节仍只写在既有技能里；`MEMORY.md` 的 Index 收了一行指针，并用 `test/routing-skill.test.mjs` 把 frontmatter 合规、名字不冲突、指向的技能与命令都存在、正文只是一张表钉住。Z5（todo 接线）已提交推送，Z6 之后只剩 Z7（种子按任务切片）。
 
 ## Key points
 
@@ -19,6 +19,11 @@ Last updated: 2026-11-10T14:39:19.584Z
 - 仓库已有 30+ 技能，记忆相关至少 4 个（cap-guard、recovery、loss-repair、four-section-migration），新 skill 做成短路由型入口，专项细节留在已有技能里避免第二份真相。
 - Z5 todo 接线：机械行 `- [todo] …` 只由 `src/project-memory/todo.ts` 维护，`turn/end` 与整理 pass 共用 `withTodoLines`；投影 `null`（本轮没写）一行不写、上次快照继续站着，只有空列表才清机械行；快照不变按整份文档逐字节相等判据不落盘。
 - Z5 的 pass 半边不是可选项：pass 整份重写文档且恰跑在 `turn/end` 后的 idle 上，只做 `turn/end` 会在几秒后把刚写下的清单擦掉；机械行受 Open tasks 段落预算与 50 条上限约束，写不下的项计入 `droppedItems` 并写 `errors.log`。
+- Z6 的落点是 `.agents/skills/dsh-project-context-maintenance/SKILL.md`（模型可调用、description 常驻），正文只有一张四列表：插件 / 任务 / 第一步 / 专项技能，15 行覆盖四块；`dsh-session-archive-repair` 与 `agents-memory-recovery` 在用户层（`~/.agents/skills`），clean clone 自证不了，测试里用显式白名单声明。
+- Z6 的机械门禁是 `test/routing-skill.test.mjs`（5 条）：frontmatter 名=目录名、全语料无重名、每个 `dsh-*` 指向的技能在 `.agents/skills/` 存在、每个 `/命令` 都在 `src/*/index.ts` 真注册、正文 < 3000 字符且四块各有行；9 个变异各只红自己的目标。
+- 项目层技能是 watcher 热加载：新建 `SKILL.md` 之后同一会话里 `skill` 工具就能载入（本次实测，不需要重启宿主），所以 Z6 不欠重启，欠重启的仍是 Z1–Z5 的宿主侧行为。
+- MEMORY.md 的 Index 指针走的是 `loadMemory` → `renderMemoryDocument` → `recordMemoryDocument` 这条插件路径（不手工编辑）：44688/45000、一条不截断、无整条目丢弃、渲染→解析→渲染逐字节一致；同时把 test/ 套件名与 evidence 日期目录两处枚举压成读-now 说法，净增 133 字符。
+- `MEMORY.md` 的 headroom 现在只剩 312 字符：下一次整理 pass 一旦丢整条目就会被 tier C 拒绝，要加事实得先按 cap-guard 压别的条目（它不是可选项，是这套文档的常态）。
 
 ## Open tasks
 
@@ -30,6 +35,7 @@ Last updated: 2026-11-10T14:39:19.584Z
 - 设计选择待用户裁定：路由长期钉在失效模型上时自动交接会持续 5 分钟退避、唯一痕迹是 errors.log 且无用户可见面；是否变成可见告警，不擅自改。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
 - 若真要在 64K 窗口运行，需同时调小 handoffBudgetRecentTokens（如 4000）、调小宿主 compaction headroomTokens、并压小两份文档，缺一不可。
-- 下一批按 §11.8 是 Z6（路由型技能，独立可做）；Z7（种子按任务切片）依赖 Z3/Z4/Z5。
+- Z6 已落地并推送（新技能 + 一条 Index 指针 + 5 条用例，无 src 改动，路由技能已在当前会话热加载）；下一批按 §11.8 是 Z7（种子按任务切片，依赖 Z3/Z4/Z5），现在可做。
+- MEMORY.md 只剩 312 字符 headroom，下一次整理 pass 前先按 cap-guard 压 Index，否则会撞 tier C 的整条目拒绝。
 
-<!-- latest-session-title: 批次 Z5：todo 接线（turn/end 机械写入 Open tasks） -->
+<!-- latest-session-title: 批次 Z6：路由型技能（四块维护任务的入口） -->
