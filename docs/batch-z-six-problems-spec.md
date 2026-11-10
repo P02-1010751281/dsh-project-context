@@ -365,3 +365,162 @@ ssh 406-12 "bash -lc 'awk \"/\\[handoff\\]/{h++} END{print h}\" /home/user/.agen
 | **Z7** | 交接种子按任务切片 | 依赖 Z4；顺带把陈旧配对的失败变可见 |
 
 Z1/Z2/Z3 互相独立、风险低，可先做；Z4 是 Z7 的前置；Z5 依赖 Z4 的标记。
+
+## 11. 实现规格（2026-11-10 四轮裁定后）
+
+这一节把 §10 的诊断换成可执行的设计。**裁定来源**见每条的「裁定」行；没有裁定行的是从现有代码读出来的约束。
+Z1–Z7 取代 §10.9 的表。
+
+### 11.1 索引：改成 `meta.json` 的生成物
+
+**裁定**：生成式（用户 2026-11-10 选乙），并接受连带改动——`date` / `title` 进 `meta.json`。
+
+**真相源**：`session-logs/<id>/meta.json`，每会话一份：
+
+```json
+{ "id": "session-…", "title": "↪ handoff · …", "date": "2026-11-09",
+  "kind": "session|handoff", "parentId": "session-…", "task": "release" }
+```
+
+- `title` 与现在的索引标题同一套生成逻辑（`MAX_TITLE_CHARS` 160，交接会话带 `↪ handoff · ` 前缀）。
+- `kind` 取代「靠标题猜」：`subagent` 不入索引（与 `isTopLevel` 闸一致），`handoff` 是展示与树形用的。
+- `parentId` 只有交接那一刻知道（dsh 会话头没有 parent），由 `performHandoff` 写进**子会话**的 meta（`src/project-handoff/perform.ts`，两个 id 都在手上）。
+- `task` 由 `/context task <slug>` 写入（见 §11.4）。
+
+**生成规则**（`writeSessionIndex` 改为整份重写，不再 append）：
+
+1. `readdir(logsDir)`；跳过不以会话 id 形态命名的路径。
+2. 读每个 `meta.json`；**缺 meta 的目录从 `session.jsonl` 头补 `id`/`cwd`，标题留空**（迁移期一次性回填，回填后写盘）。
+3. 排除 `kind: subagent`。
+4. 按 `id` 去重（一个目录一行，结构上不可能重复）；按 `date` 升序，同日按 id。
+5. 渲染 `# Session Index` + 每行 `- [<id>](<id>/session.jsonl) — <date> — <title>`。
+
+**删掉的东西**：`MAX_INDEX_LINES`（`src/project-context/session-index.ts:35`）与它那段「dropped 计数要 forward」的逻辑。行数不再设限。
+
+**结构收益**：漏写（目录在、行不在）与悬空（行在、目录不在）都变成不可能——两者不再是「要修好的 bug」，而是写不出来的状态。这也让 `migrateProjectState` 整目录搬迁的缺口自动闭合。
+
+**仍要保留的读取路径**：`readSessionIndex` / `LINE_PATTERN` 继续用于读**别人写的**旧索引（adoption 路径 `readLegacyIndexForAdoption`），但**写入方只用生成器**。
+
+**迁移**（一次性、幂等）：首次生成时，若某目录没有 `meta.json` 但旧 `INDEX.md` 里有对应行，用该行的日期与标题回填；回填完写盘。406-12 那 63 条目录由此自动入索引（用户选「不单独补」，由生成器覆盖）。
+
+### 11.2 会话树：读 `meta.json`，不再靠标题猜
+
+- 关系链 = 每个 `meta.json` 的 `parentId`。一棵树 = 一次 `readdir` + 读 meta。
+- `/session-log tree`：打印缩进树（父 → 子）；节点标 `kind`、`date`、`title`。
+- **暂缓**：把 `HANDOFF.md` 改成按子会话存（`handoff/<childId>.md`）。理由：交接文档的正文已经在子会话的第一条 user 消息里，归档日志可恢复；为它改存储路径会牵动种子里的指针，收益不成比例。若日后要「一次交接一个文件」，单独一批。
+
+### 11.3 记忆失效：删正文 + 写墓碑
+
+**裁定**：退休 = 立即从 `MEMORY.md` 删掉 + 在 `retired.md` 写一行墓碑（用户选丙，明确用 git 与历史会话兜底）。
+
+墓碑格式（一行一条，好解析也好人读）：
+
+```
+- 2026-11-10 · scripts/check-dsh-plugin-patches.sh 已不存在 · anchor-drift
+- 2026-11-10 · 批量不续写 pi、单文件 append 在 0.2.1-rc.5 上崩 · superseded-by:d8ee04f
+```
+
+**三条机械触发**（都不靠模型观感）：
+
+| 触发 | 判据 | 现在能不能算 |
+|---|---|---|
+| 锚点漂移 | bullet 里带目录的路径不存在 / 行号越界 | 能，探针已跑过（本机真漂移 1 条） |
+| 被取代 | 新条目显式声明取代旧条目 | 能，但需要条目 id（见下） |
+| 久未证实 | 超过 180 天没有任何归档会话再提到它 | 能，扫 `session-logs/*/session.jsonl` 的关键词 |
+
+**条目标记**：因为 `sectionsFromMarkdown` 只认「四节 + `- ` 开头」（§10.6），标记只能写在 bullet **正文内**。用尾部括注，不占行首：
+
+```
+- 某条事实……（tid:4f2a · 2026-11-10）
+```
+
+`tid` 是四字符短 id，只用于「被取代」的指向与墓碑引用；没有 id 的旧条目首次整理时补发。
+
+**防复活**：整理 pass 的提示词里注入墓碑摘要——**只给日期与标题**（不带原因），最多 20 条，超了只报数量。裁定：用户选乙。
+
+**压缩**：墓碑文件超过 200 行时，把最旧的一半搬到 `retired-archive.md`（移动，不删除）。
+
+### 11.4 任务维度
+
+**裁定**：`tasks/<slug>.md` 多文件；会话归属靠显式声明；模型只能在既有 slug 里挑；造新 slug 需确认；任务自身有生命周期（三态）。
+
+**文件**：`.agents/memory/tasks/<slug>.md`，头部是同样的四节结构（Summary / Key points / Open tasks），另加一行元信息：
+
+```
+> created 2026-11-10 · status active · lastSeen 2026-11-10
+```
+
+**三态与自动降级**：
+
+| 状态 | 进入方式 | 是否注入 |
+|---|---|---|
+| `active` | 创建 / 有任何会话活动 | 是 |
+| `dormant` | **自动**：30 天没有会话绑定或更新 | 是（摘要一行） |
+| `archived` | 显式命令，或 `dormant` 满 90 天 | 否（只留在文件里，可查） |
+
+**会话归属**：`/context task <slug>` 写入 `session-logs/<当前 id>/meta.json` 的 `task` 字段（**落盘而不是内存**，否则重启即丢）。没有 `task` 字段的会话用项目级 `CONTEXT.md`，行为与今天一致。
+
+**三种维护模式**（`config.ts` 新增一个枚举键，取值决定「谁可以造新任务」）：
+
+| 模式 | 谁能造新 slug | 谁改状态 |
+|---|---|---|
+| `assisted`（默认） | 模型可以提议，**要用户确认**；用户也可直接用命令 | 自动降级 + 显式命令 |
+| `delegated` | agents 按规则自动建（规则：出现**新的显式声明**才建；不猜） | 全自动 |
+| `manual` | 只有用户命令 | 只有用户命令 |
+
+**注入**：当前会话有 `task` → 注入 `tasks/<slug>.md`；否则注入 `CONTEXT.md`。两种情况都额外注入一行「其他任务」清单（只给 slug + 状态 + 标题，一行一个，不给正文）。
+
+**存量迁移**：现有 `CONTEXT.md` 的 20 条 bullet 全部留在项目级文档里当「无任务」；不自动拆分（拆错比不拆更贵）。
+
+### 11.5 清洗通道
+
+**裁定**：自动跑（用户选乙），删前先 tar；清理记录进独立日志（用户选丙）。
+
+- **触发**：每次整理 pass 之后（整理本身是低频的）。
+- **自动处理的**：`MEMORY.md.memory-backup-*` 只留最近 3 份；`memory-log-*.jsonl` 与 `memory.jsonl` 超过 90 天的轮转；`errors.log` 超过 1MB 轮转；`skill-candidates` 里超过 60 天的。
+- **绝不自动删的**：`session-logs/` 下任何会话目录。理由是本批改变了记忆的删除语义——**时间线就是审计线**，删了会话日志，「被取代」和「久未证实」这两个触发就再也无法回溯。
+- **顺序**：tar 到 `.agents/memory/trash/<date>.tar` → 删 → `purge.log` 追加一行（时间 / 目标 / 字节数 / 结果）。
+- **手动预览**：`/memory prune`（不带参数）只报告将删什么；`/memory prune --apply` 才真删。自动路径等价于 `--apply`，但同样先 tar。
+
+### 11.6 todo 接线
+
+**裁定**：只收当前会话（用户选甲），但**写入时机**用 `turn/end`（用户选甲），因为 todo 是每会话一份，不继承。
+
+- `turn/end` 时读 `todo/write` 投影（`null` = 没写过，与空列表区别对待）。
+- 与上次写入的 Open tasks 快照比较，**相同就不写**（多数轮次不写）。
+- 不同则替换该任务 Open tasks 里带 `[todo]` 前缀的那些行，其余条目不动。
+- **不调模型**。这是 §11.3 的例外：机械部分可以随时写，散文部分仍只在整理 pass 更新（用户 Q2 选乙）。
+- 已知不一致窗口：todo 行已经更新、Summary 还是旧的。接受。
+
+### 11.7 路由型技能
+
+**裁定**：一个短的入口技能（用户选乙），渐进式披露。
+
+- 位置 `.agents/skills/dsh-project-context-maintenance/SKILL.md`（名字要避开 autolearn 已生成的名字）。
+- 正文只有一张判断表：**要做的事 → 跑哪条命令 / 读哪个文件 / 加载哪个技能**（记忆维护、索引与归档、交接、技能沉淀四块）。
+- 专项细节**不复制**，指向既有技能（`dsh-project-memory-cap-guard`、`agents-memory-recovery`、`dsh-handoff-auto-trigger-forensics`、`dsh-skill-corpus-consolidation` 等）。
+- `MEMORY.md` 的 `## Index` 节加一行指针，保证它被看见；不靠模型的自觉。
+- 不使用 `ctx.skills.register` 注入（用户 2026-11-10 明确否决：要的是磁盘上可 review 的技能）。
+
+### 11.8 批次与验收
+
+| 批次 | 覆盖 | 依赖 | 验收（必须能机械判定） |
+|---|---|---|---|
+| **Z1** | §11.1 + §11.2 | 无 | ① 删上限后 186 行全保留；② 造一个空目录 → 下次写入自动出现一行；③ 删一个目录 → 行消失；④ 同一 id 永不出现两行；⑤ 老行回填后重复生成结果逐字节一致 |
+| **Z2** | §11.3 墓碑 | 无 | ① 构造一条锚点漂移条目 → 退休后正文消失、`retired.md` 多一行；② 第二次整理不再把同一事实写回（用墓碑摘要做阴性对照） |
+| **Z3** | §11.4 任务 | Z1（`meta.json` 的 `task` 字段） | ① 无 task 的会话行为与今天逐字节一致；② 绑定后注入的是 `tasks/<slug>.md`；③ 31 天不活动的任务自动 `dormant`，91 天自动 `archived` |
+| **Z4** | §11.5 清洗 | Z2 | ① 自动清理后 `session-logs/` 目录数不变（负控）；② trash 里有 tar；③ `purge.log` 每次一行 |
+| **Z5** | §11.6 todo | Z3 | ① 同一 todo 不重复写；② 会话结束前未完成项已在 Open tasks；③ 没写过 todo 的会话不产生 `[todo]` 行 |
+| **Z6** | §11.7 技能 | 无 | ① 技能能被 `skill` 工具加载；② `MEMORY.md` 里的一行指针不超预算；③ 与既有技能无同名 |
+
+Z1 先做：它同时闭合「索引漏写」「悬空」「迁移不补」三件事，且不需要任何配置键。
+
+**需要新增配置键的只有 Z3 一处**（任务维护模式），按 batch H 的教训：`config.ts`、`settings.ts`、`client/card-fields.ts`、`locales.ts`、读取方、`settingPatch` 六处一起动，并先改两个 profile 再重启。
+
+### 11.9 已知风险与残留
+
+- **生成式索引的代价**：每次写索引要读 N 个 `meta.json`（本机 186）。归档是低频操作，接受；若要优化，按目录 mtime 缓存，不要改成增量 append（那会重新引入两处真相）。
+- **`delegated` 模式的规则**：现在只定义了「出现显式声明才建」。若不定义得更细，agent 可能给每个会话都造一个任务——这是本批风险最高的默认值，建议上线时默认 `assisted`，`delegated` 由用户显式打开。
+- **CONTEXT 机械写与散文写不一致**：接受（§11.6）。
+- **墓碑只注入标题**：语义相近但措辞不同的事实仍可能复活；用「整理时发现重复就合并」的既有能力兜，不新增机制。
+- **`HANDOFF.md` 仍是项目级单文件**：暂缓（§11.2）。
