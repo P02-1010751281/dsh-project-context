@@ -43,6 +43,7 @@ async function fixture({ beforeReply } = {}) {
 	await utimes(memoryJournalFile(root), past, past);
 	const infos = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info: (message) => infos.push(message), warn: () => {} },
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),

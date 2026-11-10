@@ -44,7 +44,7 @@
 | 路径 | 是什么 |
 |---|---|
 | `src/project-context/` | ① 会话归档 + `session-logs/INDEX.md`，无模型调用；入口 `src/project-context/index.ts:50-60` |
-| `src/project-memory/` | ② 整理成 `MEMORY.md` / `CONTEXT.md`（绑定了任务的会话写 `tasks/<slug>.md`）并每轮注入；状态派生与绑定在 `src/project-memory/tasks.ts`；清洗通道（tar → 删 → `purge.log`）在 `src/project-memory/prune.ts`；入口 `src/project-memory/index.ts` 的 `apply` |
+| `src/project-memory/` | ② 整理成 `MEMORY.md` / `CONTEXT.md`（绑定了任务的会话写 `tasks/<slug>.md`）并每轮注入；状态派生与绑定在 `src/project-memory/tasks.ts`；`turn/end` 把 todo 未完成项机械写进 Open tasks（`src/project-memory/todo.ts`）；清洗通道（tar → 删 → `purge.log`）在 `src/project-memory/prune.ts`；入口 `src/project-memory/index.ts` 的 `apply` |
 | `src/project-autolearn/` | ③ 低频把材料沉淀成项目技能；入口 `src/project-autolearn/index.ts:65` |
 | `src/project-handoff/` | ④ 上下文越线时交接进新会话；入口 `src/project-handoff/index.ts:101`（本包最大的一支） |
 | `src/shared/` | 四个插件共用：配置、设置 schema、项目根/路径、跨进程锁、原子写、生命周期 helper |

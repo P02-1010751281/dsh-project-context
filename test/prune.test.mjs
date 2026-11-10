@@ -333,6 +333,7 @@ test("an archive that cannot be written deletes nothing and logs the failure", a
 function consolidationFixture({ root, reply }) {
 	const calls = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn() {} },
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
@@ -426,6 +427,7 @@ test("the command surface answers prune and --apply, and the usage names both ve
 		inject: () => () => undefined,
 		systemPrompt: { context: () => undefined },
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }), stream: () => (async function* generate() {})() },
 	};

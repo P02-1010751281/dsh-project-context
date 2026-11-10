@@ -528,6 +528,7 @@ test("a failed pass releases its version claim so the next forced pass retries",
 	await mkdir(memoryFile(root), { recursive: true });
 	const reply = JSON.stringify({ memory_markdown: `# Project Memory\n\n${"x".repeat(200)}`, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn() {} },
 		llm: {
 			stream() {
@@ -561,6 +562,7 @@ test("a malformed model reply cannot leak credentials into the logs", async () =
 	const key = "sk-abcdefghijklmnop";
 	const warnings = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn: (format, ...args) => { warnings.push(`${format} ${args.join(" ")}`); } },
 		llm: {
 			stream() {
@@ -609,6 +611,7 @@ test("the console copy of a failure is redacted even when its source is not", as
 	await writeFile(path.join(dir, ".agents"), "not a directory", "utf8");
 	const warnings = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn: (format, ...args) => { warnings.push(`${format} ${args.join(" ")}`); } },
 		llm: {
 			stream() {
@@ -651,6 +654,7 @@ test("the consolidation prompt sends the fitted artifacts inside the configured 
 
 	const calls = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn() {} },
 		llm: {
 			stream(options) {
@@ -1120,6 +1124,7 @@ function overCapMemory(count = 16) {
 async function viewEchoFixture(root, { efforts } = {}) {
 	const calls = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn() {} },
 		llm: {
 			// Opt-in, so every pre-existing caller keeps a context whose `resolveModelInfo` is missing —

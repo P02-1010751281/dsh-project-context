@@ -22,7 +22,7 @@
 | 阶段 | 插件（子路径） | 命令 | 自动档触发 | 产物 |
 |---|---|---|---|---|
 | ① 存档 | `project-context`（主入口） | `/context`、`/session-log` | 每轮 `turn/end` 追加；idle / disposed 落盘 | `session-logs/<id>/`、`INDEX.md` |
-| ② 整理 | `project-memory` | `/memory`、`/memory update`、`/memory prune`（清理通道） | idle / disposed + 节流；每次整理 pass 之后跑一次清洗 | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入）；`purge.log` 记录删除 |
+| ② 整理 | `project-memory` | `/memory`、`/memory update`、`/memory prune`（清理通道） | idle / disposed + 节流；每次整理 pass 之后跑一次清洗；`turn/end` 把本会话 todo 的未完成项写进 Open tasks（快照不变不写） | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入）；`purge.log` 记录删除 |
 | ③ 沉淀 | `project-autolearn` | `/autolearn` | 有新材料 + 轮数/间隔达标 + 至少一个真实存档 | `skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
 | ④ 交接 | `project-handoff` | `/handoff` | 越过阈值 + 无在跑后台子代理 + 本会话未再开新轮 | 新会话 + `HANDOFF.md` |
 

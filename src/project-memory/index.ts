@@ -15,6 +15,8 @@ import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
+import type { Session } from "@deepseek-ai/dsh-session";
+import type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { renderContextDocument, renderTaskDocument } from "./context-doc.js";
@@ -46,6 +48,7 @@ import { appendTombstones } from "./retired.js";
 import { recordEntryDates } from "./retirement.js";
 import { withMemoryLock } from "../shared/lock.js";
 import { type PruneOutcome, formatBytes, pruneProjectMemory } from "./prune.js";
+import { projectTodoLines, todoFitNotice, todoLinesIn, withTodoLines } from "./todo.js";
 
 export const name = "project-memory";
 export const inject = ["llm", "systemPrompt", "commands"];
@@ -446,7 +449,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// moves, because this pass is proof of activity. Everything else about the file is the
 				// pass's reply, exactly as `CONTEXT.md` is.
 				const previousMeta = taskSlug === undefined ? undefined : parseTaskMeta(existing);
-				const contextDocument = taskSlug === undefined
+				const renderedContext = taskSlug === undefined
 					? renderContextDocument(update, { updatedAt })
 					: renderTaskDocument(update, {
 						updatedAt,
@@ -458,6 +461,16 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 							title: update.title.trim() === "" ? previousMeta?.title ?? taskSlug : update.title,
 						},
 					}).text;
+				// The session's todo list is not the model's to restate, so a pass must not erase the
+				// mechanic lines the turn/end write just placed: re-apply the projection, or — when it has
+				// no opinion this turn — the lines the stored document already carried. Without this every
+				// pass (which runs on the idle right after a turn end) would silently undo the write.
+				const plannedTodoLines = projectTodoLines(projectionsOf(ctx), session) ?? todoLinesIn(existing);
+				const mechanic = withTodoLines(renderedContext, plannedTodoLines);
+				const contextDocument = mechanic.text;
+				if (mechanic.droppedItems > 0) {
+					await logError(projectRoot, "memory", todoFitNotice(contextName, mechanic.droppedItems));
+				}
 				await writeAtomic(contextPath, contextDocument);
 				wroteContext = true;
 				const dropped = contextTruncationDropped(contextDocument);
@@ -549,6 +562,45 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 	});
 }
 
+/**
+ * The projection registry, when the host (or a test harness) offers one.
+ *
+ * `sessionProjections` is optional per profile and undeclared in `inject`, so it is read through
+ * `ctx.get` like every other optional service. A context that predates the service, or a fixture
+ * that models only the parts a case needs, simply has no todo opinion.
+ */
+function projectionsOf(ctx: Context): SessionProjectionRegistry | undefined {
+	return ctx.get("sessionProjections") as SessionProjectionRegistry | undefined;
+}
+
+/**
+ * Copy one session's todo snapshot into the context document it owns.
+ *
+ * The document is the session's task's when the binding is in use, else `CONTEXT.md`; a missing
+ * document stays missing — this is a mechanical patch on the pass's artifact, not a second creator
+ * of one. A `null` projection (no todo write this turn) or an unchanged document writes nothing.
+ *
+ * No model call and no lock: the write is a read-modify-write of a few lines, and the pass applies
+ * the same projection after its own rewrite, so the two can only ever converge on the same block.
+ * @param ctx - the plugin context (for the projection read and the error log).
+ * @param config - the effective config; `taskMode` decides which document the session owns.
+ * @param session - the session whose turn just ended.
+ */
+export async function writeTodoSnapshot(ctx: Context, config: PluginConfig, session: Session): Promise<void> {
+	const lines = projectTodoLines(projectionsOf(ctx), session);
+	if (lines === undefined) return;
+	const projectRoot = await getProjectRoot(projectCwd(session));
+	const task = boundTaskSync(projectRoot, String(session.id), { mode: config.taskMode, today: dateStamp() });
+	const file = task === undefined ? contextFile(projectRoot) : taskFile(projectRoot, task.slug);
+	const target = task === undefined ? "CONTEXT.md" : taskRelativePath(task.slug);
+	const stored = await readOptional(file);
+	if (stored.trim() === "") return;
+	const patch = withTodoLines(stored, lines);
+	if (!patch.changed) return;
+	await writeAtomic(file, patch.text);
+	if (patch.droppedItems > 0) await logError(projectRoot, "memory", todoFitNotice(target, patch.droppedItems));
+}
+
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
 	/** In-flight consolidation work per session, awaited by durability flushes. */
@@ -633,6 +685,18 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		if (!current.memoryEnabled) return;
 		// Silent: the UI may already be rebuilding for a session switch.
 		void consolidateProject(ctx, current, agent, { force: true, silent: true, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
+	});
+
+	// The todo list is the one part of the context document that is not a model opinion: fold the
+	// finished snapshot into Open tasks at every turn end, before the pass that runs on the following
+	// idle can rewrite the document. Mechanical on purpose — no model call, and an unchanged list
+	// writes nothing at all.
+	ctx.on("session/event", (session, event) => {
+		if (event.type !== "turn/end") return;
+		if (!isTopLevel(session)) return;
+		const current = effectivePluginConfig(entry);
+		if (!current.memoryEnabled) return;
+		void writeTodoSnapshot(ctx, current, session).catch((error: unknown) => logError(projectCwd(session), "memory", error));
 	});
 
 	ctx.on("session/flush", (session) => pending.flush(session));

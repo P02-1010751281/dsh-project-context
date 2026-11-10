@@ -1500,6 +1500,7 @@ test("the memory command carries status and update, and the removed /context-upd
 		inject: () => () => undefined,
 		systemPrompt: { context: () => undefined },
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
@@ -1545,6 +1546,7 @@ test("the bare /session-log reads, `write` writes, and `now` is retired", async 
 			return () => undefined;
 		},
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 	};
 	applyContext(ctx, {});
@@ -2983,6 +2985,7 @@ test("the /handoff command routes the new verbs and rejects the retired spelling
 	const ctx = {
 		on: () => () => undefined,
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 		get: (service) => (service === "settings" ? { update: async (namespace, patch) => { writes.push({ namespace, patch }); } } : undefined),
 	};
@@ -4026,6 +4029,7 @@ test("a deferred retirement dropped by session disposal is recorded, not swallow
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 		get: (name) => (name === "sessionController" ? {
 			create: async () => ({ sessionId: "child-1" }),
@@ -4500,6 +4504,7 @@ test("the auto-handoff listener passes the trigger offset through to the settle 
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: {
 			info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); },
 			warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); },
@@ -4583,6 +4588,7 @@ test("a turn/end that lands while an attempt is in flight is re-evaluated, not l
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: { info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); }, warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); } },
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
@@ -4655,6 +4661,7 @@ test("the in-flight retry honours the same gates as a fresh attempt", async () =
 			effect: () => () => undefined,
 			inject: () => () => undefined,
 			commands: { register: () => () => undefined },
+			get: () => undefined,
 			logger: { info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); }, warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); } },
 			get: (name) => (name === "sessionController" ? {
 				// The failure this fixture needs is a genuine one; with the model call gone, the create
@@ -4720,6 +4727,7 @@ test("a disabled automatic handoff ignores turn/end entirely", async () => {
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: { info() {}, warn() {} },
 		get: (name) => (name === "sessionController" ? {
 			create: async () => { created.push(1); return { sessionId: "child-1" }; },
@@ -4763,6 +4771,7 @@ test("a nothing-to-summarize skip and a deferral have separate log gates", async
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: { info: (format, ...args) => { logs.push(`${format} ${args.join(" ")}`); }, warn: (format, ...args) => { logs.push(`warn ${format} ${args.join(" ")}`); } },
 		get: (name) => (name === "sessionController" ? {
 			create: async () => ({ sessionId: "child-1" }),
@@ -5307,6 +5316,7 @@ async function consolidationFixture({ root, replies, modelInfo, throwOnCall }) {
 	const calls = [];
 	const warnings = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn: (format, ...args) => { warnings.push(`${format} ${args.join(" ")}`); } },
 		llm: {
 			resolveModelInfo: async () => modelInfo ?? { context: { contextWindow: 200_000 } },
@@ -6023,6 +6033,7 @@ test("a handoff retires the session it replaced, and never mid-turn", async () =
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 		get: (name) => (name === "sessionController" ? {
 			create: async () => ({ sessionId: "child-1" }),
@@ -6088,6 +6099,7 @@ test("handoffRetireReplaced off keeps the replaced session: nothing archived, no
 		effect: () => () => undefined,
 		inject: () => () => undefined,
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 		get: (name) => (name === "sessionController" ? {
 			create: async () => ({ sessionId: "child-1" }),

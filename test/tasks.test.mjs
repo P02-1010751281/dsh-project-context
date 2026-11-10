@@ -58,6 +58,7 @@ function taskDocument(slug, { created = "2026-01-01", status = "active", lastSee
 function consolidationFixture({ root, reply, modelInfo }) {
 	const calls = [];
 	const ctx = {
+		get: () => undefined,
 		logger: { info() {}, warn() {} },
 		llm: {
 			resolveModelInfo: async () => modelInfo ?? { context: { contextWindow: 200_000 } },
@@ -256,6 +257,7 @@ test("an unbound session with no tasks injects exactly the bytes it injected bef
 		effect: () => () => undefined,
 		systemPrompt: { context: (spec) => { contexts.push(spec); return () => undefined; } },
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 	};
 	applyMemory(ctx, {});
@@ -284,6 +286,7 @@ test("a bound session injects its task document, and the other tasks are listed 
 		effect: () => () => undefined,
 		systemPrompt: { context: (spec) => { contexts.push(spec); return () => undefined; } },
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 	};
 	applyMemory(ctx, {});
@@ -311,6 +314,7 @@ test("an archived task is not injected, so a bound session reads the project con
 		effect: () => () => undefined,
 		systemPrompt: { context: (spec) => { contexts.push(spec); return () => undefined; } },
 		commands: { register: () => () => undefined },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 	};
 	applyMemory(ctx, {});
@@ -415,6 +419,7 @@ async function contextFixture(prefix) {
 			return () => undefined;
 		},
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		get: () => undefined,
 		logger: { info: () => undefined, warn: () => undefined },
 	};
 	applyContext(ctx, {});
@@ -493,6 +498,7 @@ test("under delegated a bare slug creates its task; `none` unbinds", async () =>
 			on: () => () => undefined,
 			effect: (fn) => { const dispose = fn(); if (typeof dispose === "function") disposers.push(dispose); return () => undefined; },
 			commands: { register: (command) => { delegated.set(command.name, command); return () => undefined; } },
+			get: () => undefined,
 			logger: { info: () => undefined, warn: () => undefined },
 		};
 		applyContext(ctx, { taskMode: "delegated" });

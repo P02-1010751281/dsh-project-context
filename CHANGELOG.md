@@ -10,6 +10,16 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 Z5：todo 接线——未完成项按 `[todo]` 行写进 Open tasks）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.6（用户 2026-11-10 两裁决：只收当前会话、写入时机用 `turn/end`）。
+- 新模块 `src/project-memory/todo.ts`。会话自己的 todo 列表是上下文文档里**唯一不属于模型意见**的部分：`todo_write` 的 `todos` 投影才是真相，所以 `turn/end` 时把未完成项按 `- [todo] …` 写进该会话文档的 Open tasks 顶部，其余条目与全文其余字节逐个不变；`in_progress` 带 `(in progress)`，`completed` 不写。**不调模型**，Summary / Key points 仍只在整理 pass 更新。
+- **两种「没有」必须区分**：投影为 `null`（本轮没写 todo，上游在每次 `turn/start` 清空）就**不写任何东西**，上次的快照继续站着；只有**空列表**（工具说没有剩余工作）才清掉机械行。把两者混为一谈会在每个不写 todo 的轮次删掉未完成清单，而那正是交接前最该留下的东西。
+- **整理 pass 必须接着维护同一段**，否则每次 `turn/end` 之后几秒跑的那次 pass 会把它擦掉（pass 是整份重写）。两个写方共用同一个 `withTodoLines`：pass 优先用投影，投影没有意见时用**已存文档里的机械行**，所以一次 pass 既不会复活已完成的项，也不会吞掉刚写下的项。
+- **快照不变就不写**（多数轮次），判据是重渲染后的整份文档逐字节相等；因此 `CONTEXT.md` 不会每轮多点 diff。写入位置是会话自己的文档：绑定了任务就是 `tasks/<slug>.md`（Z3），否则 `CONTEXT.md`；文档不存在就**不创建**——这是 pass 产物上的机械补丁，不是第二个创建者。
+- 机械行受 Open tasks 的**段落预算**与 50 条上限约束：写不下的项计入 `droppedItems` 并写一行 `errors.log`，而不是留给下一次 pass 去裁模型写的条目（那会把「加了一行 todo」变成「删了一条事实」）。
+- 新用例 18 条（`test/todo.test.mjs`）：行格式、空列表 vs `null`、围栏里的假标题、占位行、幂等（`mtimeNs` 证明没写）、绑定任务文件、pass 保留与回退；14 个变异各只红自己的目标（两个是同一缺陷的多处观察点）。
+
 **project-memory（批次 Z4：清洗通道——tar → 删 → `purge.log`，`/memory prune`）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.5（用户 2026-11-10 三裁决：自动跑、删前先 tar、清理记录写独立日志）。

@@ -46,6 +46,7 @@ async function fixture({ reply, race: handEditDuringCall = false } = {}) {
 	const past = new Date(Date.now() - 60_000);
 	await utimes(memoryJournalFile(root), past, past);
 	const ctx = {
+		get: () => undefined,
 		logger: { info: () => {}, warn: () => {} },
 		llm: {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),

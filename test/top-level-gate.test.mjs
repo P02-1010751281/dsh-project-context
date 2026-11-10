@@ -157,6 +157,7 @@ async function memoryCalls(event, origin, extra = {}, calls = []) {
 	const { handlers, on } = handlerContext();
 	applyMemory(
 		{
+			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			systemPrompt: { context: () => undefined },
 			on,
@@ -188,6 +189,7 @@ async function autolearnCalls(event, origin, calls = []) {
 	const { handlers, on } = handlerContext();
 	applyAutolearn(
 		{
+			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			effect: (callback) => callback(),
 			inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
@@ -231,6 +233,7 @@ async function handoffCreates(origin) {
 	agent.session.ownEvents = () => own;
 	applyHandoff(
 		{
+			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			on,
 			effect: () => () => undefined,
@@ -321,6 +324,7 @@ test("the flush a stamped request triggers returns while the model call is still
 	const { handlers, on } = handlerContext();
 	applyMemory(
 		{
+			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			systemPrompt: { context: () => undefined },
 			on,
@@ -375,6 +379,7 @@ test("the pass hands the tracker its write phase alone", async () => {
 	const agent = fakeAgent(root, { id: "session-aux-register" });
 	const pass = consolidateProject(
 		{
+			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			systemPrompt: { context: () => undefined },
 			llm: {
@@ -421,6 +426,7 @@ async function contextArchives(event, origin, overrides = {}) {
 	const { handlers, on } = handlerContext();
 	applyContext(
 		{
+			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			// `publishProjectContextSettings` registers a disposer through `ctx.effect`.
 			effect: (callback) => callback(),

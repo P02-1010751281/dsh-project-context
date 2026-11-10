@@ -71,6 +71,13 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
   成员核对，再删**；每次真的清理都往 `purge.log` 追加一行（`/memory prune` 预览不删也不写，`--apply` 才
   执行）。`session-logs/` 与活的 `memory.jsonl` 永不在候选里——时间线是审计线，Z2 的「被取代」「久未证
   实」两个触发都读它。
+- ② 里有一段**机械写入**（`src/project-memory/todo.ts`）：`turn/end` 时读本会话的 `todos` 投影，把未完成项
+  写成该会话文档 Open tasks 顶部的 `- [todo] …` 行（`in_progress` 标 `(in progress)` 的，`completed` 不写），
+  其余条目与全文其余字节不动。**不调模型**，也不改 Summary / Key points。投影为 `null`（本轮没写 todo）
+  时一行不写、上次的快照继续站着；只有空列表才清掉机械行。快照没变就不落盘，所以多数轮次没有 diff。
+  整理 pass 用同一个函数接着维护这段（投影没有意见时沿用已存文档里的行），否则它在 `turn/end` 后几秒就会
+  把刚写下的清单重写掉。写不下预算的项计入 `droppedItems` 并写 `errors.log`，不让下一次 pass 去裁模型
+  写的条目。
 - ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`，模型可返回至多 3
   个待回读会话，插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream`
   等大负载、各截断 16KB）后二次调用。闸门时间戳持久化在 `.agents/memory/autolearn-state.json`，
