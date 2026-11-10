@@ -26,8 +26,8 @@ Last updated: 2026-11-10T12:30:22.974Z
 ## Open tasks
 
 - 四轮裁定已全部落定并写进规格 §11（docs/batch-z-six-problems-spec.md）：① task 三态 active / dormant（30 天无活动自动）/ archived（显式或 dormant 满 90 天自动）；② CONTEXT 拆机械部分（turn/end 变化即写、不调模型）与散文部分（仍只在整理 pass）；③ 维护 skill 做成短路由型入口、渐进式披露，专项留给既有技能；④ 清理记录写 purge.log，索引不留不可验证注释。§11 另定：索引生成式重写、meta.json 带 date/title/kind/parentId/task、Z1–Z6 批次且 Z1 先行。
-- Z1（索引生成式）实际顺序：把 writeSessionIndex 从 append 改成「扫目录读 meta.json 整份重写」，同时删 MAX_INDEX_LINES；`entryLines` / `LINE_PATTERN` 退化为只读（只给 adoption 读旧文件用），不再在写入路径上——所以不需要为版本头去放宽它。
-- Z1 同时做索引对账（只增不删 → 之后双向），它验证「索引漏写与记忆过时同源」的判断；Z2 清洗通道依赖 Z3 标记约定，Z4 任务维度是 Z5 按任务切片种子的前置。
+- Z1 已实现并推送（cf6a790）：索引成为 `session-logs/*/meta.json` 的生成物，`MAX_INDEX_LINES` 与 dropped 注释已删；`entryLines` / `LINE_PATTERN` 只剩 adoption 读旧文件用。待宿主重启才生效（判据：宿主进程启动时刻晚于 cf6a790），重启后核对 `meta.json` 出现、INDEX 行数 = 目录数、文档内无 `<!-- N older sessions dropped -->`。
+- 索引「对账」在写入时天然发生（每次写入都重扫目录），但用户裁定「宿主启动时扫一次」尚未实现，留给后续批次；Z2 清洗通道依赖 Z3 标记约定，Z4 任务维度是 Z5 按任务切片种子的前置。
 - 行为验证（用户侧，阻塞）：跑一次 /memory update，确认点名 effort → 网关接受 → 写入落地整链，同时观察 cap 45000 下是否仍出现 lossy 拒绝。
 - 行为验证（用户侧）：闲置会话上执行 /handoff now，应立即可归档父会话（进 workspace.json 的 global.archivedSessionIds）。
 - 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档；另可验证 handoffRetireReplaced 关掉后的效果。
