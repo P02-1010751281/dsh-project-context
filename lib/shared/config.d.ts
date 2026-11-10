@@ -11,6 +11,8 @@
  * below throws on a key it does not know. The seven renames landed 2026-10-05 with no compatibility
  * reader on purpose — an alias nothing can retire is worse than a loud apply-time failure.
  */
+/** Who may create a task and what may change its status; the enum behind `taskMode`. */
+export type TaskMode = "assisted" | "delegated" | "manual";
 export interface PluginConfig {
     /** Write the per-session archive (session.jsonl / session.md / INDEX.md) on turns and settles. Explicit commands still work when false. */
     archiveEnabled: boolean;
@@ -28,6 +30,15 @@ export interface PluginConfig {
     maxOutputTokens: number;
     /** Cap on the rendered memory document, in characters; an over-cap memory is cut on a line boundary and marked. */
     maxMemoryChars: number;
+    /**
+     * How a task may come into existence, and what may change its status.
+     *
+     * `assisted` (the default) and `manual` both refuse a bare slug that names no existing task, so
+     * creating one always carries the user's confirmation; `delegated` accepts the bare slug as the
+     * declaration and creates the file. Status: `manual` never derives a status from age, the other
+     * two do, and only `delegated` auto-archives a task that has been dormant past its horizon.
+     */
+    taskMode: TaskMode;
     /** Optional auxiliary-call route override; must be set together with `model`. */
     provider: string;
     /** Optional auxiliary-call route override; must be set together with `provider`. */

@@ -24,6 +24,9 @@ import {
 } from "./limits.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 
+/** Who may create a task and what may change its status; the enum behind `taskMode`. */
+export type TaskMode = "assisted" | "delegated" | "manual";
+
 export interface PluginConfig {
 	/** Write the per-session archive (session.jsonl / session.md / INDEX.md) on turns and settles. Explicit commands still work when false. */
 	archiveEnabled: boolean;
@@ -41,6 +44,15 @@ export interface PluginConfig {
 	maxOutputTokens: number;
 	/** Cap on the rendered memory document, in characters; an over-cap memory is cut on a line boundary and marked. */
 	maxMemoryChars: number;
+	/**
+	 * How a task may come into existence, and what may change its status.
+	 *
+	 * `assisted` (the default) and `manual` both refuse a bare slug that names no existing task, so
+	 * creating one always carries the user's confirmation; `delegated` accepts the bare slug as the
+	 * declaration and creates the file. Status: `manual` never derives a status from age, the other
+	 * two do, and only `delegated` auto-archives a task that has been dormant past its horizon.
+	 */
+	taskMode: TaskMode;
 	/** Optional auxiliary-call route override; must be set together with `model`. */
 	provider: string;
 	/** Optional auxiliary-call route override; must be set together with `provider`. */
@@ -84,6 +96,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	maxTokens: 8192,
 	maxOutputTokens: 32_768,
 	maxMemoryChars: MAX_MEMORY_CHARS,
+	taskMode: "assisted",
 	provider: "",
 	model: "",
 	autolearnEnabled: true,
@@ -180,6 +193,11 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		throw new Error('dsh-project-context: handoffPendingQuestion must be "defer" or "wait"');
 	}
 
+	const taskMode = input.taskMode;
+	if (taskMode !== undefined && taskMode !== "assisted" && taskMode !== "delegated" && taskMode !== "manual") {
+		throw new Error('dsh-project-context: taskMode must be "assisted", "delegated", or "manual"');
+	}
+
 	const handoffLang = input.handoffLang;
 	if (handoffLang !== undefined && handoffLang !== "auto" && handoffLang !== "zh" && handoffLang !== "en") {
 		throw new Error('dsh-project-context: handoffLang must be "auto", "zh", or "en"');
@@ -200,6 +218,7 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		maxTokens: positive("maxTokens", DEFAULT_CONFIG.maxTokens, 256),
 		maxOutputTokens: positive("maxOutputTokens", DEFAULT_CONFIG.maxOutputTokens, 256),
 		maxMemoryChars: bounded("maxMemoryChars", DEFAULT_CONFIG.maxMemoryChars, MIN_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT),
+		taskMode: taskMode ?? DEFAULT_CONFIG.taskMode,
 		provider,
 		model,
 		autolearnEnabled: boolean("autolearnEnabled", DEFAULT_CONFIG.autolearnEnabled),

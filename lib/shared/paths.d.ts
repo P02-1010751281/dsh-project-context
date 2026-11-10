@@ -7,6 +7,7 @@ export declare const LEGACY_DIR = ".pi";
 export declare const MEMORY_SUBDIR = "memory";
 export declare const SKILLS_SUBDIR = "skills";
 export declare const SESSION_LOGS_SUBDIR = "session-logs";
+export declare const TASKS_SUBDIR = "tasks";
 /** Cache-only lookup for prompt assembly; a miss warms the cache instead of blocking. */
 export declare function cachedProjectRoot(cwd: string): string | undefined;
 /** Resolve the project root for a cwd through its `.git` entry, falling back to the cwd itself. */
@@ -22,6 +23,19 @@ export declare function skillsDir(projectRoot: string): string;
 export declare function memoryFile(projectRoot: string): string;
 export declare function contextFile(projectRoot: string): string;
 export declare function logsDir(projectRoot: string): string;
+/**
+ * One file per task (`<memory>/tasks/<slug>.md`), each a context-shaped document.
+ *
+ * A task is the unit a session can be bound to, so the context of two unrelated workflows stops
+ * sharing one `CONTEXT.md`: the file is the task's own state, and a session with no task keeps using
+ * the project-level document unchanged. Slugs are file names, so `validTaskSlug` (the skill-name
+ * rule, one kebab-case token) is the only accepted shape.
+ */
+export declare function tasksDir(projectRoot: string): string;
+/** The task document for one slug. */
+export declare function taskFile(projectRoot: string, slug: string): string;
+/** The per-session binding written by `/context task <slug>` and read by the injection and the pass. */
+export declare function sessionMetaFileFor(projectRoot: string, sessionId: string): string;
 /** Mechanical per-session index maintained by the archive step, next to the logs it points at. */
 export declare function sessionIndexFile(projectRoot: string): string;
 /** Pre-move index location (`<memory>/session-index.md`), merged into the new index whenever it holds one. */

@@ -84,6 +84,12 @@ export type ConsolidateReport = {
     /** Entries of the landed memory cut to their section's per-item cap and kept. */
     itemTruncated: number;
     /**
+     * Project-relative path of the context half that landed when it was a task document rather than
+     * `CONTEXT.md`. The receipt names this file, because "updated CONTEXT.md" would be false for a
+     * bound session — the project-level document was not touched at all.
+     */
+    contextTarget?: string;
+    /**
      * What a refused reply would have lost. Set only by `lossy-refused`, and never folded into the
      * landed counts above: tier C refuses the write, so the stored document lost none of it.
      */

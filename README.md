@@ -22,7 +22,7 @@
 | 阶段 | 插件（子路径） | 命令 | 自动档触发 | 产物 |
 |---|---|---|---|---|
 | ① 存档 | `project-context`（主入口） | `/context`、`/session-log` | 每轮 `turn/end` 追加；idle / disposed 落盘 | `session-logs/<id>/`、`INDEX.md` |
-| ② 整理 | `project-memory` | `/memory`、`/memory update` | idle / disposed + 节流 | `CONTEXT.md`、`MEMORY.md`（每轮注入） |
+| ② 整理 | `project-memory` | `/memory`、`/memory update` | idle / disposed + 节流 | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入） |
 | ③ 沉淀 | `project-autolearn` | `/autolearn` | 有新材料 + 轮数/间隔达标 + 至少一个真实存档 | `skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
 | ④ 交接 | `project-handoff` | `/handoff` | 越过阈值 + 无在跑后台子代理 + 本会话未再开新轮 | 新会话 + `HANDOFF.md` |
 
@@ -45,7 +45,8 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 | 命令 | 行为 |
 |---|---|
-| `/context` | 显示 CONTEXT.md、会话日志与索引路径 |
+| `/context` | 显示 CONTEXT.md、会话日志与索引路径，以及本会话绑定的任务 |
+| `/context task` | 列出任务（slug / 状态 / 标题）；`/context task <slug>` 绑定；`new` 新建并绑定；`none` 解绑；`archive` / `activate` 改状态 |
 | `/memory update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |
 | `/session-log` | 只读：显示会话日志目录与索引路径，并提示用 `/session-log write` 立即写出 |
 | `/session-log write` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |

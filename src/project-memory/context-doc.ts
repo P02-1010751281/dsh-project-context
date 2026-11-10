@@ -1,5 +1,9 @@
 /**
- * CONTEXT.md rendering: the rolling session summary, key points, and open tasks.
+ * Context-document rendering: the rolling session summary, key points, and open tasks.
+ *
+ * `CONTEXT.md` is one instance; a task document (`tasks/<slug>.md`) is the same document bound to a
+ * different owner, differing only in its header and stamp lines. Both render through one section
+ * path so the schema, the budgets and the marker stay single-sourced.
  *
  * The fixed sections and their per-section budgets come from `context-schema.ts`, shared with the
  * consolidation prompt. Over budget a section is clipped on a line boundary and the document ends
@@ -12,6 +16,7 @@
 import { MAX_LIST_ENTRIES, MAX_LIST_ITEM_CHARS } from "../shared/project-state.js";
 import { type ContextUpdate } from "../shared/reply-json.js";
 import { CONTEXT_HEADER, CONTEXT_TITLE_CHARS, contextSectionBudgets, contextTruncationMarker, type ContextSectionBudget } from "./context-schema.js";
+import { taskHeader, taskMetaLine, type TaskMeta } from "./tasks.js";
 import { clipToLineBoundary } from "./document.js";
 
 /** Collapse whitespace and trim; the shared normalization for titles, items, and summaries. */
@@ -52,7 +57,15 @@ function clipList(items: string[], limit: number): { lines: string[]; dropped: n
 	return { lines: kept, dropped: full.join("\n").length - kept.join("\n").length };
 }
 
-export function renderContextDocument(update: ContextUpdate, options: { updatedAt: string }): string {
+/**
+ * Render a context-shaped document: the caller's preamble, the three section bodies clipped to their
+ * budgets, and the trailing session-title comment. `CONTEXT.md` and a task document both go through
+ * this one path, so the schema, the budgets and the truncation marker cannot drift apart.
+ * @param update - the model's (or fallback) context section values.
+ * @param preamble - the document's own header and stamp lines, already laid out top to bottom.
+ * @returns the document and the characters its own clips dropped.
+ */
+function renderSections(update: ContextUpdate, preamble: readonly string[]): { text: string; dropped: number } {
 	const title = trimLine(update.title, CONTEXT_TITLE_CHARS) || "Untitled session";
 	const budgets = contextSectionBudgets();
 	const budgetByEntry: Record<ContextSectionBudget["entry"], number> = { summary: 0, key_points: 0, open_tasks: 0 };
@@ -67,15 +80,32 @@ export function renderContextDocument(update: ContextUpdate, options: { updatedA
 		open_tasks: listMarkdown(openTasks.lines),
 	};
 	const parts = [
-		CONTEXT_HEADER.trimEnd(),
-		"",
-		`Last updated: ${options.updatedAt}`,
-		"",
+		...preamble,
 		...budgets.flatMap((section) => [`## ${section.heading}\n\n${rendered[section.entry]}`, ""]),
 		`<!-- latest-session-title: ${title} -->`,
 	];
 	const document = `${parts.join("\n")}\n`;
 	const dropped = summary.dropped + keyPoints.dropped + openTasks.dropped;
-	// A cut context must never look complete: say how much was dropped, in the stored file itself.
-	return dropped > 0 ? `${document.trimEnd()}\n\n${contextTruncationMarker(dropped)}\n` : document;
+	// A cut document must never look complete: say how much was dropped, in the stored file itself.
+	return dropped > 0 ? { text: `${document.trimEnd()}\n\n${contextTruncationMarker(dropped)}\n`, dropped } : { text: document, dropped };
+}
+
+export function renderContextDocument(update: ContextUpdate, options: { updatedAt: string }): string {
+	return renderSections(update, [CONTEXT_HEADER.trimEnd(), "", `Last updated: ${options.updatedAt}`, ""]).text;
+}
+
+/**
+ * The document for one task: the same three sections, with the task's own header and metadata line
+ * where the context carries its `Last updated` stamp.
+ *
+ * A task file is not a second context format — it is the same document bound to a different owner,
+ * so the model's reply renders here unchanged. The metadata line is the only authored state in the
+ * file (`created`), the status is re-derived from `lastSeen` on every read, and `title` gives the
+ * "other tasks" list a label without opening the body.
+ * @param update - the consolidation reply's context section.
+ * @param options - the document's date, slug and metadata as stored before this write.
+ * @returns the rendered task document and the characters its section clips dropped.
+ */
+export function renderTaskDocument(update: ContextUpdate, options: { updatedAt: string; slug: string; meta: TaskMeta }): { text: string; dropped: number } {
+	return renderSections(update, [taskHeader(options.slug), "", taskMetaLine(options.meta), ""]);
 }

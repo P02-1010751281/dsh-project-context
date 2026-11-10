@@ -18,6 +18,8 @@ export const SKILLS_SUBDIR = "skills";
 
 export const SESSION_LOGS_SUBDIR = "session-logs";
 
+export const TASKS_SUBDIR = "tasks";
+
 const projectRootCache = new Map<string, string>();
 
 function cacheProjectRoot(cwd: string, root: string): string {
@@ -99,6 +101,28 @@ export function contextFile(projectRoot: string): string {
 
 export function logsDir(projectRoot: string): string {
 	return path.join(memoryDir(projectRoot), SESSION_LOGS_SUBDIR);
+}
+
+/**
+ * One file per task (`<memory>/tasks/<slug>.md`), each a context-shaped document.
+ *
+ * A task is the unit a session can be bound to, so the context of two unrelated workflows stops
+ * sharing one `CONTEXT.md`: the file is the task's own state, and a session with no task keeps using
+ * the project-level document unchanged. Slugs are file names, so `validTaskSlug` (the skill-name
+ * rule, one kebab-case token) is the only accepted shape.
+ */
+export function tasksDir(projectRoot: string): string {
+	return path.join(memoryDir(projectRoot), TASKS_SUBDIR);
+}
+
+/** The task document for one slug. */
+export function taskFile(projectRoot: string, slug: string): string {
+	return path.join(tasksDir(projectRoot), `${slug}.md`);
+}
+
+/** The per-session binding written by `/context task <slug>` and read by the injection and the pass. */
+export function sessionMetaFileFor(projectRoot: string, sessionId: string): string {
+	return path.join(logsDir(projectRoot), safeSessionId(sessionId), "meta.json");
 }
 
 /** Mechanical per-session index maintained by the archive step, next to the logs it points at. */

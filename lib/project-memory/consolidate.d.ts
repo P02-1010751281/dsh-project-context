@@ -39,6 +39,12 @@ export type ConsolidationOutcome = {
     kind: ConsolidateKind;
     /** No section held an entry worth storing, so the memory must not be written at all. */
     semanticEmpty: boolean;
+    /**
+     * The task this pass wrote for, when the session is bound to one. Absent means the project-level
+     * `CONTEXT.md` — the pre-task behaviour, byte for byte. The write path reads this rather than the
+     * session metadata again, so the file the prompt was built from is the file the reply replaces.
+     */
+    taskSlug?: string;
     /** Sections that lost at least one entry to their budget. */
     sectionDropped: number;
     /** Entries dropped because their section's budget was full. */

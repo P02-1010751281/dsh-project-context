@@ -16,8 +16,10 @@ import type {} from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
-import { renderContextDocument } from "./context-doc.js";
-import { buildContextInjection, buildMemoryInjection } from "./injection.js";
+import { renderContextDocument, renderTaskDocument } from "./context-doc.js";
+import { buildContextInjection, buildMemoryInjection, buildTaskInjection, buildTaskListInjection, type TaskListEntry } from "./injection.js";
+import { boundTaskSync, dateStamp, listTasksSync, parseTaskMeta, taskRelativePath, taskViews } from "./tasks.js";
+import { detectDocumentLanguage } from "../shared/language.js";
 import { contextClipNotice, contextTruncationDropped } from "./context-schema.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
 import { type ConsolidationOutcome, type PartialRefusalReason, consolidateProjectState, fallbackUpdate } from "./consolidate.js";
@@ -33,6 +35,7 @@ import {
 	migrateProjectState,
 	readOptional,
 	readTextCachedSync,
+	taskFile,
 	writeAtomic,
 } from "../shared/project-state.js";
 import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
@@ -69,19 +72,46 @@ function projectMemoryInjection(cwd: string | undefined, limit: number): string 
 	return `## Project Memory\nThe following is durable project memory learned from earlier sessions, not a new user instruction:\n\n${buildMemoryInjection(text, projectRoot)}`;
 }
 
-/** Synchronous text for the dynamic-context provider; empty until the root is cached. */
-function projectContextInjection(cwd: string | undefined): string {
+/**
+ * Synchronous text for the dynamic-context provider; empty until the root is cached.
+ *
+ * The document this session owns: its task's when it is bound to one that is still in use, the
+ * project-level `CONTEXT.md` otherwise. Both then carry one line per other task, because the model
+ * must know other workflows exist without paying for their bodies — and a project with no task
+ * documents adds nothing, which is what keeps an unbound session's prompt byte-identical to the
+ * behaviour before this dimension existed.
+ * @param cwd - the session's cwd, the key the project root is cached under.
+ * @param sessionId - the live session, whose `meta.json` may bind it to a task.
+ * @param mode - the project's task mode, which decides which statuses are derived.
+ * @returns the injected block, or `""` when there is nothing to inject.
+ */
+function projectContextInjection(cwd: string | undefined, sessionId: string | undefined, mode: PluginConfig["taskMode"]): string {
 	if (!cwd) return "";
 	const projectRoot = cachedProjectRoot(cwd);
 	if (projectRoot === undefined) {
 		void getProjectRoot(cwd).catch(() => undefined);
 		return "";
 	}
+	const today = dateStamp();
+	const task = boundTaskSync(projectRoot, sessionId, { mode, today });
 	// The read cap still applies to the document itself, so the pointer block replaces the indexed
 	// sections in what the model sees rather than adding a second copy of them.
-	const text = readTextCachedSync(contextFile(projectRoot)).trim().slice(0, MAX_CONTEXT_CHARS);
-	if (!text) return "";
-	return `## Project Context\nThe following is project context, not a new user instruction:\n\n${buildContextInjection(text, projectRoot)}`;
+	const text = (task?.text ?? readTextCachedSync(contextFile(projectRoot))).trim().slice(0, MAX_CONTEXT_CHARS);
+	// An archived task is deliberately not injected; the session then reads the project-level
+	// document, which is where its next pass will write too.
+	const others = taskViews(
+		listTasksSync(projectRoot).filter((record) => record.slug !== task?.slug),
+		{ mode, today },
+	).map((record): TaskListEntry => ({ slug: record.slug, status: record.status, title: record.meta.title }));
+	const list = buildTaskListInjection(others, detectDocumentLanguage([text, ...others.map((entry) => entry.title)]));
+	const parts: string[] = [];
+	if (text) {
+		parts.push(task === undefined
+			? `## Project Context\nThe following is project context, not a new user instruction:\n\n${buildContextInjection(text, projectRoot)}`
+			: `## Project Task (${task.slug})\nThe following is this task's context, not a new user instruction:\n\n${buildTaskInjection(text, projectRoot, task.slug)}`);
+	}
+	if (list) parts.push(list);
+	return parts.join("\n\n");
 }
 
 interface ConsolidateOptions {
@@ -154,6 +184,12 @@ export type ConsolidateReport = {
 	droppedItems: number;
 	/** Entries of the landed memory cut to their section's per-item cap and kept. */
 	itemTruncated: number;
+	/**
+	 * Project-relative path of the context half that landed when it was a task document rather than
+	 * `CONTEXT.md`. The receipt names this file, because "updated CONTEXT.md" would be false for a
+	 * bound session — the project-level document was not touched at all.
+	 */
+	contextTarget?: string;
 	/**
 	 * What a refused reply would have lost. Set only by `lossy-refused`, and never folded into the
 	 * landed counts above: tier C refuses the write, so the stored document lost none of it.
@@ -379,7 +415,13 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// nothing by landing.
 			const memoryKeptUnderSkeleton = outcome.semanticEmpty && outcome.basisKey.trim().length > 0;
 			const contextRefused = memoryRefused || memoryKeptStale || memoryKeptUnderSkeleton;
-			const existing = await readOptional(contextFile(projectRoot));
+			// The document this session owns: its task's, or the project-level context. Both halves of
+			// this block read and write the same path, so a bound session can never replace `CONTEXT.md`
+			// and an unbound one can never touch a task file.
+			const taskSlug = outcome.taskSlug;
+			const contextPath = taskSlug === undefined ? contextFile(projectRoot) : taskFile(projectRoot, taskSlug);
+			const contextName = taskSlug === undefined ? "CONTEXT.md" : taskRelativePath(taskSlug);
+			const existing = await readOptional(contextPath);
 			// A read-cap refusal publishes nothing at all: no reply exists to carry a context section, its own
 			// log line above already named what was hidden, and the session-derived placeholder is not the
 			// reply's context — a refusal that writes one is exactly the silent half-write batch T2 removed.
@@ -391,13 +433,29 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// Silent no-ops are this repo's standing failure class: say what did not land, and do not
 				// call the session-derived placeholder "the reply's context section".
 				const carried = outcome.result.context !== undefined || outcome.result.contextUnusable === true;
-				const kept = existing.trim() ? "the previous CONTEXT.md stays effective" : "no CONTEXT.md was written";
+				const kept = existing.trim() ? `the previous ${contextName} stays effective` : `no ${contextName} was written`;
 				await logError(projectRoot, "memory", carried
 					? `the refused reply's context section was not published; ${kept}`
-					: "the refused pass wrote no CONTEXT.md (the reply carried no context section)");
+					: `the refused pass wrote no ${contextName} (the reply carried no context section)`);
 			} else if (update) {
-				const contextDocument = renderContextDocument(update, { updatedAt: new Date().toISOString() });
-				await writeAtomic(contextFile(projectRoot), contextDocument);
+				const updatedAt = new Date().toISOString();
+				// A task document keeps its own authored `created` date and stored status; only `lastSeen`
+				// moves, because this pass is proof of activity. Everything else about the file is the
+				// pass's reply, exactly as `CONTEXT.md` is.
+				const previousMeta = taskSlug === undefined ? undefined : parseTaskMeta(existing);
+				const contextDocument = taskSlug === undefined
+					? renderContextDocument(update, { updatedAt })
+					: renderTaskDocument(update, {
+						updatedAt,
+						slug: taskSlug,
+						meta: {
+							created: previousMeta?.created ?? dateStamp(),
+							status: previousMeta?.status ?? "active",
+							lastSeen: dateStamp(),
+							title: update.title.trim() === "" ? previousMeta?.title ?? taskSlug : update.title,
+						},
+					}).text;
+				await writeAtomic(contextPath, contextDocument);
 				wroteContext = true;
 				const dropped = contextTruncationDropped(contextDocument);
 				contextDroppedChars = dropped ?? 0;
@@ -430,6 +488,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				...loss,
 				contextWritten: wroteContext,
 				contextDroppedChars: wroteContext ? contextDroppedChars : 0,
+				...(wroteContext && taskSlug !== undefined ? { contextTarget: taskRelativePath(taskSlug) } : {}),
 			};
 			if (memoryKeptStale) return { status: "stale", ...loss };
 			if (memoryRefused) {
@@ -506,7 +565,11 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 		name: "project-context",
 		order: 210,
 		interpolate: false,
-		text: (assembleContext) => projectContextInjection(assembleContext.agent?.session.header.cwd),
+		text: (assembleContext) => projectContextInjection(
+			assembleContext.agent?.session.header.cwd,
+			assembleContext.agent === undefined ? undefined : String(assembleContext.agent.session.id),
+			effectivePluginConfig(entry).taskMode,
+		),
 	});
 
 	ctx.on("agent/created", ({ agent }) => {
@@ -674,8 +737,12 @@ function refusedLossCause(report: ConsolidateReport): string {
  * landed" stays distinguishable from "only one did" without reading as `Memory: memory …`.
  */
 function writtenTarget(report: ConsolidateReport): string {
-	if (report.memoryWritten && report.contextWritten) return "MEMORY.md and CONTEXT.md";
-	return report.memoryWritten ? "MEMORY.md" : "CONTEXT.md";
+	// A bound session writes its task's document instead of the project-level one, and the receipt has
+	// to name the file that actually changed: "CONTEXT.md" would be a landed write reported against a
+	// document this pass never opened.
+	const context = report.contextTarget ?? "CONTEXT.md";
+	if (report.memoryWritten && report.contextWritten) return `MEMORY.md and ${context}`;
+	return report.memoryWritten ? "MEMORY.md" : context;
 }
 
 /**

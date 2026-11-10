@@ -34,6 +34,7 @@ export interface ProjectContextSettings {
 	maxTokens: number;
 	maxOutputTokens: number;
 	maxMemoryChars: number;
+	taskMode: "assisted" | "delegated" | "manual";
 	provider: string;
 	model: string;
 	autolearnEnabled: boolean;
@@ -110,6 +111,10 @@ export const SECTIONS: readonly FieldSection[] = [
 			{ key: "maxTokens", kind: "number" },
 			{ key: "maxOutputTokens", kind: "number" },
 			{ key: "maxMemoryChars", kind: "number" },
+			// Who may create a task, and whether age may change its status: `assisted`/`manual` both
+			// refuse to invent a task from a bare slug (creation needs the explicit `new`), `manual`
+			// additionally freezes the stored status, so only `delegated` lets the pass act alone.
+			{ key: "taskMode", kind: "union", options: ["assisted", "delegated", "manual"] },
 			{ key: "provider", kind: "text" },
 			{ key: "model", kind: "text" },
 		],

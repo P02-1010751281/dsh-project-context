@@ -10,7 +10,8 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
-import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional } from "../shared/project-state.js";
+import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional, taskFile } from "../shared/project-state.js";
+import { boundTaskSync, dateStamp } from "./tasks.js";
 import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
 import { type CompletionOutcome, type PluginTool, type ToolsFallbackState, auxiliaryReasoningEffort, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
@@ -86,6 +87,12 @@ export type ConsolidationOutcome = {
 	kind: ConsolidateKind;
 	/** No section held an entry worth storing, so the memory must not be written at all. */
 	semanticEmpty: boolean;
+	/**
+	 * The task this pass wrote for, when the session is bound to one. Absent means the project-level
+	 * `CONTEXT.md` — the pre-task behaviour, byte for byte. The write path reads this rather than the
+	 * session metadata again, so the file the prompt was built from is the file the reply replaces.
+	 */
+	taskSlug?: string;
 	/** Sections that lost at least one entry to their budget. */
 	sectionDropped: number;
 	/** Entries dropped because their section's budget was full. */
@@ -578,6 +585,15 @@ export function consolidateProjectState(
 		const session = agent.session;
 		const turns = userTurnCount(session);
 		const sessionId = String(session.id);
+		const today = dateStamp();
+		// The task dimension's read half: a session bound by `/context task <slug>` consolidates into
+		// that task's document instead of the shared `CONTEXT.md`, so the prompt shows the workflow's
+		// own state and the reply replaces the same file. A binding whose task has been archived is
+		// bound but not in use, so it takes the same path as an unbound session — the state table's
+		// "archived is not injected" applies to the write as well, or a pass would reopen it by
+		// refreshing `lastSeen`. Unbound sessions take the old path byte for byte.
+		const boundTask = boundTaskSync(projectRoot, sessionId, { mode: config.taskMode, today });
+		const taskSlug = boundTask?.slug;
 		const previous = throttle.get(projectRoot);
 		// The turn counter is session-local: after a session change, count from zero again.
 		// Otherwise a fresh session would need `previous session turns + consolidateTurns` before learning.
@@ -599,7 +615,7 @@ export function consolidateProjectState(
 		// the prompt would otherwise look as if the project had no memory at all.
 		if (existing.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${existing.source}`);
 		else if (existing.damaged) await logError(projectRoot, "memory", `memory journal has ${existing.damaged} unusable line(s); they were skipped`);
-		const existingContextText = await readOptional(contextFile(projectRoot));
+		const existingContextText = await readOptional(taskSlug === undefined ? contextFile(projectRoot) : taskFile(projectRoot, taskSlug));
 		const existingContext = existingContextText.slice(0, MAX_CONTEXT_CHARS);
 		// Characters the context read cap alone kept from the model, before the fit clips anything: an
 		// over-cap stored context loses this much on every pass, and only the fit's own count was ever
@@ -624,6 +640,7 @@ export function consolidateProjectState(
 				// No reply exists, so the result carries no memory and no context: a refusal publishes
 				// neither artifact, which is what keeps the other half from landing behind its back.
 				result: { memory: "" },
+				...(taskSlug === undefined ? {} : { taskSlug }),
 				version: (nextVersion += 1),
 				basisKey: existing.text,
 				kind: "none",
@@ -650,7 +667,6 @@ export function consolidateProjectState(
 		// from the conversation and a stale fact left in `<existing-memory>` is exactly what gets copied
 		// forward. `basisKey` stays the stored bytes — what is written is judged against the store, not
 		// against this shortened view.
-		const today = new Date().toISOString().slice(0, 10);
 		const nowMs = Date.now();
 		const storedTombstones = await readTombstones(projectRoot);
 		const storedSectionsForPlan = sectionsFromMarkdown(existing.text);
@@ -695,6 +711,7 @@ export function consolidateProjectState(
 			await logError(projectRoot, "memory", `the consolidation pass was not run: the ${config.maxOutputTokens}-token output budget cannot hold both stored documents, so ${parts.join(" and ")} would have been hidden from the model, and a reply built from that shortened view would have replaced the stored file with it`);
 			const refusal: ConsolidationOutcome = {
 				result: { memory: "" },
+				...(taskSlug === undefined ? {} : { taskSlug }),
 				version: (nextVersion += 1),
 				basisKey: existing.text,
 				kind: "none",
@@ -1006,6 +1023,7 @@ export function consolidateProjectState(
 			: undefined;
 		const outcome: ConsolidationOutcome = {
 			result,
+			...(taskSlug === undefined ? {} : { taskSlug }),
 			version,
 			basisKey: existing.text,
 			kind: resolved.kind,

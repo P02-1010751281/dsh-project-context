@@ -26,6 +26,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     maxTokens: import("@deepseek-ai/schemastery").default<number, number>;
     maxOutputTokens: import("@deepseek-ai/schemastery").default<number, number>;
     maxMemoryChars: import("@deepseek-ai/schemastery").default<number, number>;
+    taskMode: import("@deepseek-ai/schemastery").default<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: import("@deepseek-ai/schemastery").default<string, string>;
     model: import("@deepseek-ai/schemastery").default<string, string>;
     autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
@@ -48,6 +49,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     maxTokens: import("@deepseek-ai/schemastery").default<number, number>;
     maxOutputTokens: import("@deepseek-ai/schemastery").default<number, number>;
     maxMemoryChars: import("@deepseek-ai/schemastery").default<number, number>;
+    taskMode: import("@deepseek-ai/schemastery").default<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: import("@deepseek-ai/schemastery").default<string, string>;
     model: import("@deepseek-ai/schemastery").default<string, string>;
     autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;

@@ -68,6 +68,20 @@ export declare function readSessionIndex(projectRoot: string): Promise<SessionIn
 /** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
 export declare function sessionIndexLineFor(meta: SessionMeta): string;
 /**
+ * Bind (or unbind) this session to a task, then refresh the index.
+ *
+ * The binding lives in `meta.json` so it survives a restart, and it is written through the same
+ * queue and locked section as every other metadata write: a concurrent archive write must not
+ * interleave with it, or the binding and the row would disagree. `undefined` removes the field —
+ * an unbind is an authored decision, not a missing value, so it must not be restored by the merge
+ * above.
+ * @param projectRoot - the project whose `session-logs/` holds this session's metadata.
+ * @param session - the live session being bound.
+ * @param task - the slug to bind, or `undefined` to unbind.
+ * @returns the metadata that landed.
+ */
+export declare function setSessionTask(projectRoot: string, session: Session, task: string | undefined): Promise<SessionMeta>;
+/**
  * Regenerate the index once per project per process, at startup.
  *
  * Every index write already reconciles, so this is not a repair path: it is what makes a directory

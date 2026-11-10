@@ -43,6 +43,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     maxTokens: z<number, number>;
     maxOutputTokens: z<number, number>;
     maxMemoryChars: z<number, number>;
+    taskMode: z<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: z<string, string>;
     model: z<string, string>;
     autolearnEnabled: z<boolean, boolean>;
@@ -65,6 +66,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     maxTokens: z<number, number>;
     maxOutputTokens: z<number, number>;
     maxMemoryChars: z<number, number>;
+    taskMode: z<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: z<string, string>;
     model: z<string, string>;
     autolearnEnabled: z<boolean, boolean>;

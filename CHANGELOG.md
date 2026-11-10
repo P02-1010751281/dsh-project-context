@@ -10,6 +10,23 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory + project-context（批次 Z3：任务维度——`tasks/<slug>.md`、三态、绑定命令）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.4（用户 2026-11-10 四轮裁定）。
+- 新模块 `src/project-memory/tasks.ts`：`tasks/<slug>.md` 的格式（`# Project Task: <slug>` + `> created … · status … · lastSeen … · title …` + 同一套 Summary / Key points / Open tasks）、三态的**派生**、绑定读取、状态改写。渲染走 `context-doc.ts` 的同一个核心，所以任务文档不是第二套格式。
+- **状态只派生不双写**：`active` / `dormant` 由 `lastSeen` 年龄现算，`archived` 是唯一自主值；> 30 天 dormant、> 90 天由 `delegated` 自动归档，`assisted` 只自动降级，`manual` 完全不派生。这同时消掉了规格里「dormant 满 90 天」与验收「91 天」的矛盾（dormant 不是持久状态，唯一可测的边界是年龄）。
+- `/context task <slug>` 把绑定写进该会话的 `session-logs/<id>/meta.json`（落盘，重启不丢）；`new` 造任务、`none` 解绑、`archive` / `activate` 改状态；裸 `/context task` 列出 slug + 状态 + 标题。三种模式的差别是**制造权限**：`assisted`（默认）/`manual` 拒绝裸 slug 并点名 `new`，`delegated` 把裸 slug 当声明并建文件（模型主动提议的通道仍未实现，规格 §11.4 已记为残留）。
+- **绑定必须由归档写保护**：`meta.json` 每轮从活会话重建，原来会把命令写的 `task` 擦掉（症状是"命令用一次就失效"）。`preserveForeign` 让新元数据缺失的 `kind`/`parentId`/`task` 从已存文件继承，解绑走同一条队列与锁所以不会被下一次 settle 复活；`parentId` 的写方（`performHandoff`）仍未实现，这是给它留的前置。
+- **`archived` 既不注入也不写入**：只读与写侧共用一个判定 `boundTaskSync`，否则一次 pass 刷新 `lastSeen` 就会把归档任务自动复活；绑定本身留在 `meta.json`，`activate` 之后立刻恢复。
+- 注入：绑定的会话注入 `tasks/<slug>.md`（`## Project Task (slug)` + 指向该文件的指针块），否则仍是 `CONTEXT.md`；两种情况都在有其他任务时追加一行一个的清单（只给 slug / 状态 / 标题）。无任务的会话注入与改动前**逐字节一致**（用例直接比字符串）。
+- `/context` 的裸调用多一行 `Task:` 状态；命令面新增 `input.hint`，但 `/context` 仍是读命令，`task` 是它的子命令（无别名、无旧拼写）。
+- 配置新增 `taskMode`（`assisted`/`delegated`/`manual`，默认 `assisted`），六处一起动：`config.ts`（接口 / 默认值 / 校验）、`settings.ts`、`client/card-fields.ts`、`client/locales.ts`（zh/en）、读取方（状态派生与命令）；第六处「写回键」在本批不存在——没有命令写这个键，只有设置卡写它，所以没有 `settingPatch` 入口要改。**这是破坏性的配置面变更**：`config.ts` 对未知键抛错，`assisted` 之外的取值只影响新行为，缺省值不变。
+- 回执：绑定会话的整理回执点名真正落地的文件（`.agents/memory/tasks/<slug>.md`），不再说 `CONTEXT.md`——后者这次一个字节都没动。
+- 用例（`test/tasks.test.mjs`，19 条）：元信息行往返（标题含 ` · `）、30/31 与 90/91 边界、`manual` 冻结、`archived` 粘滞、slug 校验、坏文件不遮蔽其他任务、绑定读取与 `meta.json` 往返、归档写继承绑定与解绑不被复活、任务/上下文注入与"无任务逐字节一致"、绑定会话只写任务文件（`CONTEXT.md` 逐字节不动、`created` 保留、`lastSeen` 刷新）、归档绑定写项目文档、下一趟 pass 读到的是任务文档、以及命令的列出/新建/拒绝裸 slug/`delegated` 新建/解绑/归档/激活/绑定已归档被拒。
+- 变异校验：11 个变异各只让目标用例转红——dormant 边界、`manual` 冻结、`delegated` 归档、`archived` 粘滞、绑定继承、`archived` 注入、写目标、`lastSeen`、`created`、任务注入源、空清单块；还原后 `src` 与哈希备份逐字节一致并重建。
+- 门禁（现跑）：`pnpm typecheck` 0；`pnpm build` 0（`lib/client.js` 38274，重建字节一致）；`pnpm test` **543 通过 / 0 失败**。
+- **需要重启宿主**（`src/` 改了，配置键也变了）。重启后可见：`/context` 多一行 `Task:`、`/context task` 可用、设置卡多一行「任务维护模式」。
+
 **project-memory（批次 Z2：退休通道——删正文 + 写墓碑 + 三条机械触发）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.3（用户 2026-11-10 裁定「退休 = 立即删除 + 墓碑」，防复活摘要「只给日期与标题、最多 20 条」）。

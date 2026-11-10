@@ -49,4 +49,29 @@ export declare const CONTEXT_INJECTION: InjectionSpec;
 export declare function buildMemoryInjection(text: string, projectRoot: string): string;
 /** CONTEXT.md as it enters the system prompt, the same shape as the memory injection. */
 export declare function buildContextInjection(text: string, projectRoot: string): string;
+/** The project-relative path of one task document, as the pointer block shows it. */
+export declare function taskInjectionPath(slug: string): string;
+/**
+ * A task document enters the prompt through the same shape CONTEXT.md uses.
+ *
+ * The sections are the same three, so the only thing that changes is where the pointer resolves:
+ * a bound session's Summary is the task's, and the path must name the task's own file or the
+ * read-first instruction would send the model to the wrong document.
+ */
+export declare function buildTaskInjection(text: string, projectRoot: string, slug: string): string;
+/** One task as the "other tasks" block lists it: slug, derived status and label only. */
+export interface TaskListEntry {
+    readonly slug: string;
+    readonly status: string;
+    readonly title: string;
+}
+/**
+ * The one-line-per-task list injected beside the context document.
+ *
+ * Deliberately small: a session's own task document is the state, and this block exists so the
+ * model knows other workflows exist without paying for their bodies. The current task is excluded
+ * (the caller removes it), and a project with no tasks produces no block at all — which is what
+ * keeps an unbound session's prompt byte-identical to the pre-task behaviour.
+ */
+export declare function buildTaskListInjection(entries: readonly TaskListEntry[], language: DocumentLanguage): string;
 export {};

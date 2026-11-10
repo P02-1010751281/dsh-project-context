@@ -480,6 +480,19 @@ Z1–Z7 取代 §10.9 的表。
 
 **存量迁移**：现有 `CONTEXT.md` 的 20 条 bullet 全部留在项目级文档里当「无任务」；不自动拆分（拆错比不拆更贵）。
 
+**落地（2026-11-10，`src/project-memory/tasks.ts` + `/context task`）——五处按实现收敛**
+
+1. **状态是派生的，只有 `archived` 是自主值**。`active` / `dormant` 由 `lastSeen` 的年龄现算，不落盘：一个昨天还有活动的任务不可能因为某次清扫没跑就显示 dormant——这与索引那条同源（能和证据不一致的状态就是 bug）。
+   由此统一了上文「`dormant` 满 90 天」与 §11.8 验收 ③「91 天自动 archived」的矛盾：dormant 不是持久状态，"dormant 满 90 天"没有独立可观测的含义，唯一可测的边界是 `lastSeen` 的年龄。实现取验收那条：**> 30 天 dormant，> 90 天由 `delegated` 自动 archived**；`assisted` 只自动降级、归档要显式命令；`manual` 完全不派生（存的值就是答案）。
+2. **三种模式收敛为「制造权限阶梯」**，因为规格里「模型可以提议」这半没有通道：本包不注册任何工具（AGENTS.md 的不变量），模型无法自己声明白名单外的 slug。于是确认门槛放在命令上——`assisted`（默认）与 `manual` 都拒绝裸 slug 并点名 `/context task <slug> new`，`delegated` 把裸 slug 当成声明并建文件；`manual` 另外冻结状态派生。**残留**：模型主动提议的通道未实现，`assisted` 与 `manual` 在"谁造"上目前一致，差别只在状态派生。
+3. **绑定必须由归档写保护**。`meta.json` 的每轮刷新（`queueSessionIndexEntry` → `sessionMetaOf(session)`）会从活会话重建整份元数据，因此它会把 `/context task` 写的 `task` 擦掉——绑定"用一次就丢"，而症状看起来像命令没生效。`preserveForeign` 让新元数据缺失的 `kind` / `parentId` / `task` 从已存文件继承；命令自己的写（含解绑这种"缺失即删除"的授权写）走同一条队列与锁，因此解绑不会被下一次 settle 复活。`parentId` 的写方（`performHandoff`）仍未实现，这个继承是给它的前置。
+4. **`archived` 既不注入也不写入**。只读侧不注入是表格原文；写侧同样要退回去，否则一次 pass 刷新 `lastSeen` 就把它自动复活了。两个半边共用一个判定 `boundTaskSync`（绑定 + 文件存在 + 非 archived），所以提示词与写入不会对"这个会话拥有哪个文件"给出不同答案；绑定本身留在 `meta.json` 里，`activate` 之后立刻恢复注入。
+5. **任务文档不是第二套格式**：`CONTEXT.md` 与 `tasks/<slug>.md` 共用 `context-doc.ts` 的一个渲染核心（同一节 schema、同一预算、同一截断标记）。任务头是 `# Project Task: <slug>` 加一行 `> created … · status … · lastSeen … · title …`；`title` 进这一行是因为「其他任务」清单要一个标签而不该打开正文，"` · `" 在标题里安全（`title` 是最后一个字段且解析锚定在 `lastSeen` 之后）。`session-logs/<id>/meta.json` 的 `task` 字段读出即用，文件的 `created` / `status` 在每次写入时保留，`lastSeen` 由落地本身刷新。
+
+**验收（`test/tasks.test.mjs`，19 条用例）**：① 无 task 的会话注入与今天逐字节一致（用 `buildContextInjection` 的同一输入比字符串）；② 绑定后注入的是任务文档（`## Project Task (slug)` + 指向 `tasks/<slug>.md` 的指针），且 pass 写的是任务文件、`CONTEXT.md` 逐字节不动；③ 30/31 天与 90/91 天的边界各有用例，`manual` 冻结与 `archived` 粘滞各有一条。
+**变异校验**：11 个变异（dormant 边界、manual 冻结、delegated 归档、archived 粘滞、绑定继承、archived 注入、写目标、`lastSeen`、`created`、任务注入源、空清单块）各自只让目标用例转红；还原后 `src` 与哈希备份逐字节一致并重建。
+**未做（残留）**：① 模型主动提议的通道（见上）；② 同一任务被多个会话绑定时后写覆盖前写（`CONTEXT.md` 今天也是这个语义，任务只是把它按工作流切开）；③ 子代理不继承父会话的绑定，它看到的是项目级文档。
+
 ### 11.5 清洗通道
 
 **裁定**：自动跑（用户选乙），删前先 tar；清理记录进独立日志（用户选丙）。

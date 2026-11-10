@@ -24,7 +24,7 @@
 
 1. 命令 → `consolidateProject(..., {force: true})`，回执由 `memoryUpdateReply` 渲染（`src/project-memory/index.ts:521-529`）。
 2. 串行化 + 节流：同一项目根**单飞**（`src/project-memory/consolidate.ts:533-534`）、轮次/间隔节流（`:554`）、版本与 cap 去重（`src/project-memory/index.ts:420-422`、`src/project-memory/consolidate.ts:553-556`）。
-3. 读入：`loadMemory(root, maxMemoryChars)` 折叠 journal、优先较新的 render（`src/project-memory/consolidate.ts:558`）；`CONTEXT.md` 先被 `MAX_CONTEXT_CHARS`（32000）截（`:563-568`）；两份再经 `fitMemoryInput` 按输出预算裁一次（`:579`，`src/shared/conversation.ts:41`）。
+3. 读入：`loadMemory(root, maxMemoryChars)` 折叠 journal、优先较新的 render；上下文那半边读会话绑定的 `tasks/<slug>.md`，未绑定则读 `CONTEXT.md`，先被 `MAX_CONTEXT_CHARS`（32000）截；两份再经 `fitMemoryInput` 按输出预算裁一次（`src/shared/conversation.ts`）。
 4. 模型调用：固定规则 + 每次的预算规则 + `<existing-memory>` / `<existing-context>` / `<recent-conversation>`（`src/project-memory/consolidate.ts:580-601`）→ `requestPluginTextWithMeta`（`src/shared/model-call.ts:180`）→ `ctx.llm.stream`（`:207`）；`tools` 参数被拒时换一次无工具重试（`:288`）。
 5. 解析回复：优先 `record_memory` 工具调用，其次四节 Markdown，最后是不透明文本（`src/project-memory/consolidate.ts:373`）；部分文档先过 `applyPartialGuard`（`:457`）。
 6. **有损闸（tier C）**：会丢整条目的回复先做一次定向重试，仍丢就整次拒绝、一个字节都不写（`src/project-memory/consolidate.ts:691-734`）。
@@ -44,7 +44,7 @@
 | 路径 | 是什么 |
 |---|---|
 | `src/project-context/` | ① 会话归档 + `session-logs/INDEX.md`，无模型调用；入口 `src/project-context/index.ts:50-60` |
-| `src/project-memory/` | ② 整理成 `MEMORY.md` / `CONTEXT.md` 并每轮注入；入口 `src/project-memory/index.ts:437` |
+| `src/project-memory/` | ② 整理成 `MEMORY.md` / `CONTEXT.md`（绑定了任务的会话写 `tasks/<slug>.md`）并每轮注入；状态派生与绑定在 `src/project-memory/tasks.ts`；入口 `src/project-memory/index.ts` 的 `apply` |
 | `src/project-autolearn/` | ③ 低频把材料沉淀成项目技能；入口 `src/project-autolearn/index.ts:65` |
 | `src/project-handoff/` | ④ 上下文越线时交接进新会话；入口 `src/project-handoff/index.ts:101`（本包最大的一支） |
 | `src/shared/` | 四个插件共用：配置、设置 schema、项目根/路径、跨进程锁、原子写、生命周期 helper |
@@ -53,7 +53,7 @@
 | `test/` | 33 个文件：29 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
 | `docs/` | 索引是 `docs/README.md`；机制文档 4 篇；`docs/changelog/`（8 个版本）；`docs/archive/`（18 个收口批次档案） |
 | `scripts/` | `build-client.mjs`（唯一产出 `lib/client.js` 的地方）、`import-archives.mjs`（回填历史会话） |
-| `.agents/` | `memory/`（MEMORY.md、CONTEXT.md 与本地状态）、`skills/`（29 个程序性技能）、`evidence/`（冻结证据） |
+| `.agents/` | `memory/`（MEMORY.md、CONTEXT.md、`tasks/<slug>.md` 与本地状态）、`skills/`（29 个程序性技能）、`evidence/`（冻结证据） |
 
 ## 开发命令
 
