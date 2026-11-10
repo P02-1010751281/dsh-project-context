@@ -215,3 +215,146 @@ grep -niE 'retention|ttl|keepDays|maxAge' src/shared/config.ts
 # 远端现场（需 ssh 406-12；远端 shell 是 fish，必须 bash -lc 包一层）
 ssh 406-12 "bash -lc 'awk \"/\\[handoff\\]/{h++} END{print h}\" /home/user/.agents/memory/errors.log'"
 ```
+
+---
+
+# §10 第二轮提问的回答（2026-11-10）
+
+用户追加五问。下面每条都给代码锚点，不给印象。
+
+## 10.1 索引的硬上限不合理，而且「保留」也是错的方向
+
+**事实**
+
+- `MAX_INDEX_LINES = 200`（`src/project-context/session-index.ts:35`）。触顶时 `ordered.slice(-200)` 丢最旧的行，并写一条 `<!-- N older sessions dropped … -->`，注释里的数字会**累计携带**（`carried`）。
+- 唯一的索引消费方是 autolearn，而它**只读最新 50 条**：`MAX_INDEX_ENTRIES = 50`、`index.slice(-MAX_INDEX_ENTRIES)`（`src/project-autolearn/pass.ts:70,142`）。
+- 200 行 × 约 90 字节 ≈ 18 KB。这个量级不值得为它牺牲可导航性。
+
+**判断**：上限保护不了任何资源，却在**破坏可导航性**——第 201 个会话起从索引里消失，而那条 `dropped` 注释让它读起来像「有意为之」。更糟的是它给了人一个错觉：以为「保留了最新的就够了」，但索引不是缓存，它是**归档的唯一目录**。
+
+**建议**：分两层而不是截断。
+
+1. `INDEX.md` 不收上限，永远只增不删；
+2. 若要控制单文件体积，另开 `INDEX-archive.md`（冻结、只追加），`INDEX.md` 顶部写一行指针，**移动而非删除**；
+3. 删除 `MAX_INDEX_LINES` 与 `dropped` 注释；真正的保留策略属于「归档保留期」，由 §3 的清洗通道决定。
+
+## 10.2 索引现在确实没有 schema，而且额外字段会被静默吃掉
+
+**事实**：`HEADING = "# Session Index"`；行格式 `LINE_PATTERN = /^- \[([^\]]+)\]\(([^)]+)\) — (\d{4}-\d{2}-\d{2}) — (.*)$/`（`session-index.ts:32,37`）。只有 **id / 链接 / 日期 / 标题** 四个位置，没有版本号、没有 front-matter。
+
+两个具体的容纳缺陷（都已从实现读出，不是推测）：
+
+1. 写入时只保留 `- [` 开头的行（`entryLines`），所以**任何版本注释/front-matter 行会在下一次写时被直接丢弃**——我本想加的 `<!-- index-schema: 2 -->` 现在活不过一轮；
+2. 行内多余的字段不会报错，而是被 `(.*)$` **并进标题**，下一次写就固化成标题文本；同理日期解析失败的行会被 `orderIndexLines` 排到**最新端**，看起来像刚创建。
+
+**建议**：加版本头 + 结构化尾注，保持 v1 行可解析。
+
+```markdown
+<!-- index-schema: 2 -->
+- [session-abc…](session-abc…/session.jsonl) — 2026-11-09 — 标题 <!-- parent:session-xyz…; kind:handoff; tags:release,memory -->
+```
+
+- 版本头缺失时按 v1 读（现状兼容）；
+- 未知字段忽略但**回写时保留原文**（现在的实现会把整行当新行重写，等于丢字段）；
+- `parseSessionIndex` 返回结构化对象，`renderSessionIndexLine` 负责序列化，两者成对——避免再出现「多一个字段就丢一行」。
+
+## 10.3 会话树与交接关系：dsh 侧根本没有，现在是靠文本猜
+
+**事实**
+
+- dsh 原生会话头只有 `{harness, id, version, createdAt, cwd, isSeeded, agentPreset}`（实测：`session-8cb9feac…/session.jsonl` 第一行），**没有 parent**。pi 时代有 `parentSession`，迁进来的文件里还留着，dsh 自己不再写。
+- `INDEX.md` 行里没有父子字段（见 10.2）。
+- `HANDOFF.md` 里**有**父会话 id，但它是**项目级单文件、每次交接覆盖**（`src/project-handoff/perform.ts:146`），保留不了历史。
+- 交接关系唯一的长久痕迹是标题文本 `↪ handoff · <短 id>`，由 `handoffLabel` 生成，属**展示层**。
+
+**结论**：树是缺的。可以「推导」（读标题 + HANDOFF.md），但推导会失败：标题可被用户改、HANDOFF.md 会被下一次覆盖、短 id 只有 8 位。
+
+**建议**：在交接事务里**写明**而非推导——`performHandoff` 同时知道父子两个 id，零成本：
+
+1. 子会话归档目录写 `meta.json`：`{parent, kind: "handoff", root, at}`；
+2. 索引行带 `parent:` 尾注（10.2）；
+3. `HANDOFF.md` 改为只追加或按 `<child>/handoff.md` 存，保留链条。
+
+有了这三样，树、链、`/session-log tree` 都是读出来的，不需要猜。
+
+## 10.4 记忆分层：两层已经有了，但没有「升降级」和「失效」
+
+**事实**：现在是两份文档——`CONTEXT.md`（会话工作状态，每轮重写）与 `MEMORY.md`（项目长期，四节）。所以「短期 + 长期」**结构上已存在**，缺的是三件事：
+
+1. `CONTEXT.md` 是**每项目一份**而不是每会话一份 → 后写的覆盖前写的（这就是远端 14 条跨任务 Open tasks 的机制）；
+2. 没有**晋升规则**：一条事实进 context 还是进 memory，全凭模型当轮判断；
+3. 没有**失效/降级**：进 memory 之后只有「文档到 cap」才会掉条目，而那是拒写而非退休。
+
+**建议**：显式三层 + 两条规则。
+
+| 层 | 载体 | 生命周期 | 注入 |
+|---|---|---|---|
+| 工作集 | `CONTEXT.md`（**每会话**，按会话 id 命名或分块） | 会话内 | 总是 |
+| 项目记忆 | `MEMORY.md` | 跨会话，带 `last-verified` | 总是（按节预算） |
+| 归档 | `session-logs/` + `retired.md` | 永久、只追加 | 不注入，按需检索 |
+
+- **晋升**：同一事实在 ≥N 个会话的 context 里重复出现且未被反驳 → 提议进 memory；
+- **降级/失效**：见 10.5。
+
+## 10.5 记忆失效：三条机械触发，替代「靠模型观感」
+
+现在**没有任何失效路径**（`MEMORY_SECTIONS` 无 status 字段，无 TTL 配置键，唯一删条目的地方是 cap 溢出）。建议三条，都能机械判定：
+
+1. **锚点漂移**：条目里的代码路径/`:line` 不存在（§1 的探针已能跑，本机 24 个锚点里 1 条真漂移）；
+2. **被取代**：后来的条目声明 `supersedes: <id>`，旧条目标 `retired`；
+3. **久未证实**：`last-verified` 早于 M 个会话且期间无引用。
+
+退休 = **移到 `retired.md` / journal，不删除**。这同时解决「旧记忆干扰」与「不敢删」。
+
+标记必须写在 bullet **正文内**（10.6 的兼容边界），例如：
+
+```markdown
+- [status:retired since 2026-11-09] 旧结论……（由 2026-10-xx 的 X 取代）
+- [task:release] 发布顺序：先跑门禁再打 tag……
+```
+
+## 10.6 兼容边界（重申，因为它约束 10.4/10.5 的形态）
+
+`sectionsFromMarkdown` 只接受「四节 + `- ` 开头」的纯 bullet 文档；子行、缩进、front-matter 都会让整份文档变成**不透明文本**（原样保留、不再结构化）。所以标记只能放在 bullet **内部**。
+
+## 10.7 todo：不要造第二套，dsh 已有且是日志持久化
+
+**事实**（dsh `packages/todo/tool-todo`，子系统文档 `docs/subsystems/todo.md`）：
+
+- `TodoItem = { content: string, status: "pending" | "in_progress" | "completed" }`——**刻意极简**：无 id、无优先级、无 activeForm，因为每次 `todo_write` 是**整表快照**（last-write-wins）；
+- 事件 `todo/write` 落在**会话日志**里，跨轮次、跨重开都在；列表属于**创建它的那个 agent 会话**。
+
+**建议**：不新增存储，做三件读的事：
+
+1. 整理 pass 读当前会话的 `todo/write`，把未完成项渲染进 `CONTEXT.md` 的 Open tasks（带 task 标记）——这样 Open tasks 有作者、有状态，不再是自由发挥；
+2. 交接时把当前 todo 快照写进种子（它已在父日志里，但种子要重述，否则子会话看不到）；
+3. 跨会话的长期任务仍归 `CONTEXT.md` / 任务注册表，todo 只当会话内工作集——两者别混。
+
+## 10.8 插件注入 skill：可以，而且有两条路
+
+**事实**（dsh `packages/skill/README.md`）：
+
+- `ctx.skills.register({...})` —— 注册**内存里的 embedded skill**，无需文件；registry 自动补 invocation policy，来源标为 `runtime`；同一层内同名 `runtime` 注册**先到先得**并告警。
+- `ctx.skills.registerProvider(provider)` —— 注册一个目录提供者，**同步**注册，返回 disposer；`runtime` 是保留名。
+- 每个 skill 带 `{modelInvocable, userInvocable}` 四象限，模型面与人类面各自取舍。
+- 已知限制（README 明写）：provider 串行查询（一个慢的拖后面所有）、被拒 provider 不留 last-good 目录、同名遮蔽没有查询 API。
+
+**判断**：能注入，但不该把它当主通道。
+
+- 本项目现在的 autolearn 走的是**文件**（`.agents/skills/<name>/SKILL.md`），由 `skill-filesystem` 发现——可 review、可 diff、可 commit、重启仍在；
+- `register()` 的价值在**短生命周期、会话级**的指引（例如「本项目交接流程」这种随配置变化的提示），代价是**重启即消失**、不可审阅、与磁盘技能同名时先到先得会**悄悄遮蔽**；
+- 所以：**磁盘是唯一持久通道**；runtime 注册只用于「这次会话的可执行提示」，且必须日志可查（谁注册了什么）。
+
+## 10.9 这批事的重新切分（替换 §7 的 Z1–Z5）
+
+| 批次 | 覆盖 | 关键动作 |
+|---|---|---|
+| **Z1** | 索引 schema + 去上限 | 版本头、`parent/kind/tags` 尾注、删 `MAX_INDEX_LINES`、`INDEX-archive.md` 分层 |
+| **Z2** | 索引对账 | `readdir` 对账 + `/session-log index`，只增不删 |
+| **Z3** | 会话树 | 交接时写 `meta.json` + 索引 `parent:`；`/session-log tree` 读出 |
+| **Z4** | 记忆分层与任务 | 每会话 CONTEXT、`[task:…]` 标记、晋升规则 |
+| **Z5** | 失效与清洗 | `retired.md`、三条触发、`/memory prune`、保留期、备份轮转 |
+| **Z6** | todo 接线 | 读 `todo/write` 渲染 Open tasks；种子带当前 todo |
+| **Z7** | 交接种子按任务切片 | 依赖 Z4；顺带把陈旧配对的失败变可见 |
+
+Z1/Z2/Z3 互相独立、风险低，可先做；Z4 是 Z7 的前置；Z5 依赖 Z4 的标记。
