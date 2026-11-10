@@ -20,7 +20,7 @@ Last updated: 2026-11-10T11:43:59.381Z
 - 真实余量（2026-11-09 现读，引用前须重算）：MEMORY.md 在 profile 实际 cap 45000 下渲染干净（41226/45000 = 91.6%，sectionDropped 0、droppedItems 0），仅剩约 3.3k 字符；同一文档按库默认 40000 会丢 3 节 6 条并报 lossy 拒绝。
 - 本轮读数坑：share-fit.mjs 读库默认 MAX_MEMORY_CHARS 而非 profile 的 maxMemoryChars；wc -m 数字符、ls -l 数字节，比较二者会误判为并发重写。
 - 规格文件 docs/batch-z-six-problems-spec.md 已落盘：六问取证、根因、Z1–Z5 切分、复现命令、§8 五个待裁定岔口。提交 216ecc6 已推送，远端 main = 216ecc6 = 本地 HEAD。
-- 2026-11-10 用户新提五问（索引上限/schema/会话树、记忆分层与按任务、失效路径、todo 项、插件注入 skill），尚未做任何调查或取证；其中「dsh 是否允许插件注入 skill」属外部 API 断言，按规矩须从克隆的 dsh 源码读，不能凭印象。
+- 技能优先级（2026-11-10 读 dsh 0.2.2-rc.1 源码，更正上一轮「先到先得」的 README 转述）：最近层直接胜出、rank 只在同一层内决定同名去重；层内 rank 小者胜——project/.dsh 100 → project/.agents 200 → runtime 250 → custom 300 → user/.dsh 400 → user/.agents 500 → bundled 600。故宿主层注入会静默压掉自定义目录与用户两份技能库，却压不掉项目 .agents/skills，且无查询 API 能看出遮蔽。
 - 会话上下文已越 157k 阈值；自动交接只在 turn/end 评估，轮内越线不触发，结论已落盘不依赖会话存活。
 
 ## Open tasks

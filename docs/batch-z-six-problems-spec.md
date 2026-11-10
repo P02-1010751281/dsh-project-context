@@ -319,10 +319,11 @@ ssh 406-12 "bash -lc 'awk \"/\\[handoff\\]/{h++} END{print h}\" /home/user/.agen
 
 ## 10.7 todo：不要造第二套，dsh 已有且是日志持久化
 
-**事实**（dsh `packages/todo/tool-todo`，子系统文档 `docs/subsystems/todo.md`）：
+**事实**（读自 dsh 0.2.2-rc.1 源码，非文档转述：`packages/todo/tool-todo/src/types.ts`）：
 
-- `TodoItem = { content: string, status: "pending" | "in_progress" | "completed" }`——**刻意极简**：无 id、无优先级、无 activeForm，因为每次 `todo_write` 是**整表快照**（last-write-wins）；
-- 事件 `todo/write` 落在**会话日志**里，跨轮次、跨重开都在；列表属于**创建它的那个 agent 会话**。
+- `TodoItem = { content: string, status: "pending" | "in_progress" | "completed" }`（`types.ts:23-27`）——**刻意极简**：无 id、无优先级、无 activeForm，因为每次 `todo_write` 是**整表快照**（last-write-wins）；
+- 事件 `'todo/write': { todos: TodoItem[] }`（`types.ts:33`）落在**会话日志**里，跨轮次、跨重开都在；投影给出该 agent 当前整表，**首次写入前是 `null`**（`types.ts:40-41`），不是空数组——读取方必须区分「没有清单」与「清单为空」；
+- 列表属于**创建它的那个 agent 会话**：子代理有自己的清单，父会话的清单不会自动对它可见。
 
 **建议**：不新增存储，做三件读的事：
 
@@ -332,17 +333,23 @@ ssh 406-12 "bash -lc 'awk \"/\\[handoff\\]/{h++} END{print h}\" /home/user/.agen
 
 ## 10.8 插件注入 skill：可以，而且有两条路
 
-**事实**（dsh `packages/skill/README.md`）：
+**事实**（读自 dsh 0.2.2-rc.1 源码 `packages/skill/skill/src/index.ts`，2026-11-10 现读；README 只是转述）：
 
-- `ctx.skills.register({...})` —— 注册**内存里的 embedded skill**，无需文件；registry 自动补 invocation policy，来源标为 `runtime`；同一层内同名 `runtime` 注册**先到先得**并告警。
-- `ctx.skills.registerProvider(provider)` —— 注册一个目录提供者，**同步**注册，返回 disposer；`runtime` 是保留名。
-- 每个 skill 带 `{modelInvocable, userInvocable}` 四象限，模型面与人类面各自取舍。
-- 已知限制（README 明写）：provider 串行查询（一个慢的拖后面所有）、被拒 provider 不留 last-good 目录、同名遮蔽没有查询 API。
+- `register(skill: SkillRegistration): () => void`（`:439`）—— 注册**内存里的 embedded skill**，无需文件；`SkillRegistration` 即 `SkillDefinition` 去掉 `invocation`/`provider`（两者可省、有默认），所以 `{ name, description, source, content }` 是**必填四件**。`validateRuntimeSkill`（`:741`）只校验 kebab 命名与空描述，**不校验 `content` 与 `source`**——类型层必填、运行期不设防，绕过类型就得到一个空正文技能。
+- `registerProvider(create: (control) => SkillProvider): () => void`（`:390`）—— 注册目录提供者，**同步**注册，返回 disposer；`runtime` 是 registry 自用的保留 provider 名（`:24`；有人拿它注册 provider 会被 `:406-407` 抛 `"runtime" is reserved for runtime skill registrations`）。
+- 每个 skill 带 `{modelInvocable, userInvocable}` 四象限（`:49-55`），模型面与人类面各自取舍；省略时两者都是 `true`。
+- **优先级是两张表，不是一条「先到先得」规则**（上一轮那句是错的，此处更正）：
+  - **层优先**：一次读取合并 global 层与观察者 scope 链，**最近层的条目直接胜出，与 rank 无关**；rank 只在**同一层内**决定同名去重（`:346-353` 类注释）。宿主插件注册落在 global 层，预设挂载的落在该预设层。
+  - **层内 rank，数字小者胜**：project `.dsh/skills` **100** → project `.agents/skills` **200** → **runtime 250** → custom **300** → user `~/.dsh/skills` **400** → user `~/.agents/skills` **500** → bundled **600**（`skill/src/index.ts:25-28`、`skill-filesystem/src/index.ts:35-39`）。
+  - tiebreak：provider 注册顺序 → provider 内部顺序（`:807-811`）。
+  - 同层同名 runtime：**先到先得**，重复者记 warning 并拿到 no-op disposer，删不掉胜者（`:439-447`）。
+- 已知限制：provider 串行查询（一个慢的拖后面所有）、被拒 provider 不留 last-good 目录、同名遮蔽没有查询 API。
 
 **判断**：能注入，但不该把它当主通道。
 
 - 本项目现在的 autolearn 走的是**文件**（`.agents/skills/<name>/SKILL.md`），由 `skill-filesystem` 发现——可 review、可 diff、可 commit、重启仍在；
-- `register()` 的价值在**短生命周期、会话级**的指引（例如「本项目交接流程」这种随配置变化的提示），代价是**重启即消失**、不可审阅、与磁盘技能同名时先到先得会**悄悄遮蔽**；
+- `register()` 的价值在**短生命周期、会话级**的指引（例如「本项目交接流程」这种随配置变化的提示），代价是**重启即消失**、不可审阅；
+- **遮蔽面与直觉相反，这是本轮最该记住的设计事实**：宿主层的 runtime 技能 rank 250 会静默压掉 custom（300）、用户自己的 `~/.dsh/skills`（400）与 `~/.agents/skills`（500）、以及全部 bundled（600），**但压不掉本项目自己的 `.agents/skills`（200）**。也就是说「我自己技能库里放一份同名技能就会赢」是错的，而且**没有查询 API 能看出遮蔽发生了**。真要做注入就得 ① 用命名空间前缀（如 `dpc-*`）② 启动时把注册名打进日志 ③ 只用于随配置变化的短时提示；
 - 所以：**磁盘是唯一持久通道**；runtime 注册只用于「这次会话的可执行提示」，且必须日志可查（谁注册了什么）。
 
 ## 10.9 这批事的重新切分（替换 §7 的 Z1–Z5）
