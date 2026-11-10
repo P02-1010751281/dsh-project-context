@@ -7,9 +7,10 @@
  * model context as dynamic runtime context. Skill distillation is a separate
  * feature (`project-autolearn`), and the raw archive is `project-context`.
  *
- * Commands: /memory (status | update)
+ * Commands: /memory (status | update | prune [--apply])
  */
 
+import path from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 // Type-only: pulls the commands service Context merge (ctx.commands).
 import type {} from "@deepseek-ai/dsh-commands";
@@ -33,6 +34,7 @@ import {
 	memoryDir,
 	memoryFile,
 	migrateProjectState,
+	purgeLogFile,
 	readOptional,
 	readTextCachedSync,
 	taskFile,
@@ -43,6 +45,7 @@ import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
 import { appendTombstones } from "./retired.js";
 import { recordEntryDates } from "./retirement.js";
 import { withMemoryLock } from "../shared/lock.js";
+import { type PruneOutcome, formatBytes, pruneProjectMemory } from "./prune.js";
 
 export const name = "project-memory";
 export const inject = ["llm", "systemPrompt", "commands"];
@@ -525,7 +528,16 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return cleanReport("deduped");
 			const work = write(outcome);
 			options.track?.(work);
-			return await work;
+			const report = await work;
+			// Batch Z4's cleaning channel runs after a pass that really ran, never after a deduped one
+			// (nothing happened, so nothing aged). It is deliberately outside the reported outcome: a
+			// cleanup failure must not turn a landed write into a failed command, and the receipt has no
+			// business mentioning a deletion — `purge.log` is where a removal is recorded.
+			const cleanup = await pruneProjectMemory(projectRoot, { apply: true, reason: "auto" });
+			if (cleanup.status === "failed" && !options.silent) {
+				ctx.logger.warn(`dsh-project-context: memory cleanup failed: ${cleanup.error ?? "unknown"}`);
+			}
+			return report;
 		} catch (error) {
 			// Release the claimed version when nothing was written: otherwise the next forced pass
 			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
@@ -627,15 +639,20 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "memory",
-		description: "Show this project's memory location and status, or 'update' to consolidate now",
-		input: { hint: "update" },
+		description: "Show this project's memory location and status, 'update' to consolidate now, or 'prune' to preview the cleaning channel",
+		input: { hint: "update | prune [--apply]" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const verb = (rawInput ?? "").trim().toLowerCase();
 			if (verb === "update") {
 				const report = await consolidateProject(ctx, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
 				return memoryUpdateReply(report);
 			}
-			if (verb !== "") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory (status) | /memory update` };
+			if (verb === "prune" || verb === "prune --apply") {
+				const projectRoot = await getProjectRoot(projectCwd(agent.session));
+				const outcome = await pruneProjectMemory(projectRoot, { apply: verb.endsWith("--apply"), reason: "manual" });
+				return memoryPruneReply(outcome, projectRoot);
+			}
+			if (verb !== "") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory (status) | /memory update | /memory prune [--apply]` };
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			const config = effectivePluginConfig(entry);
 			const memory = await loadMemory(projectRoot, config.maxMemoryChars);
@@ -842,4 +859,45 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		return { kind: "success", text: `${base} Raise maxMemoryChars, or retry the pass later, to give the reply more room.` };
 	}
 	return { kind: "success", text: detail === "" ? `Memory: updated ${target}.` : `Memory: updated ${target}, but the rewrite was lossy: ${detail}.` };
+}
+
+/**
+ * The `/memory prune` reply for one cleaning run. Exported for tests.
+ *
+ * A preview and an applied run answer different questions and must never read alike: the preview
+ * exists so a user can see what would leave the directory before anything does, and the applied
+ * receipt has to name the archive, because that tarball is the only way back.
+ * @param outcome - what the cleaning channel planned and what it did.
+ * @param projectRoot - the project root, for paths relative to it.
+ * @returns the command result.
+ */
+export function memoryPruneReply(outcome: PruneOutcome, projectRoot: string): { kind: "success" | "error"; text: string } {
+	const memory = path.relative(projectRoot, memoryDir(projectRoot)) || memoryDir(projectRoot);
+	const size = formatBytes(outcome.plan.bytes);
+	const listed = outcome.plan.candidates
+		.slice(0, 8)
+		.map((candidate) => `${candidate.name} (${candidate.reason}, ${formatBytes(candidate.bytes)})`)
+		.join(", ");
+	const more = outcome.plan.candidates.length > 8 ? `, and ${outcome.plan.candidates.length - 8} more` : "";
+	const trash = outcome.trash === undefined ? undefined : path.relative(projectRoot, outcome.trash) || outcome.trash;
+	const log = path.relative(projectRoot, purgeLogFile(projectRoot)) || purgeLogFile(projectRoot);
+	if (outcome.status === "failed") {
+		// Fail closed: the archive is written before the first removal, so a failure here means the
+		// directory is untouched. Say that, and do not imply a partial cleanup.
+		return { kind: "error", text: `Memory prune: nothing was deleted — ${outcome.error ?? "the bytes could not be archived"}. The ${outcome.plan.candidates.length} planned file(s) (${size}) are still in ${memory}; nothing was logged as removed.` };
+	}
+	if (outcome.status === "nothing") {
+		return { kind: "success", text: "Memory prune: nothing to clean — backups keep the newest 3, archived journals and stray journal temporaries are kept 90 days, errors.log is truncated above 1 MB, and skill candidates for 60 days." };
+	}
+	if (outcome.status === "preview") {
+		return { kind: "success", text: `Memory prune: ${outcome.plan.candidates.length} file(s), ${size}, could be cleaned from ${memory} — ${listed}${more}. Nothing was deleted; /memory prune --apply removes them after archiving the bytes to ${memory}/trash/<date>.tar and appending one line to ${log}.` };
+	}
+	const actions: string[] = [];
+	if (outcome.removed > 0) actions.push(`removed ${outcome.removed} file(s)`);
+	if (outcome.truncated > 0) actions.push(`truncated ${outcome.truncated} file(s) in place`);
+	const did = actions.join(" and ");
+	if (outcome.status === "partial") {
+		return { kind: "success", text: `Memory prune: ${did} of ${outcome.plan.candidates.length} planned (${size}), ${outcome.failed} file(s) could not be cleaned${outcome.error === undefined ? "" : ` (${outcome.error})`}; the bytes that left are archived in ${trash}. One line was appended to ${log}.` };
+	}
+	return { kind: "success", text: `Memory prune: ${did} (${size}); bytes archived in ${trash}, one line appended to ${log}.` };
 }

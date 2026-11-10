@@ -7,13 +7,14 @@
  * model context as dynamic runtime context. Skill distillation is a separate
  * feature (`project-autolearn`), and the raw archive is `project-context`.
  *
- * Commands: /memory (status | update)
+ * Commands: /memory (status | update | prune [--apply])
  */
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { type PluginConfig } from "../shared/config.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";
+import { type PruneOutcome } from "./prune.js";
 export declare const name = "project-memory";
 export declare const inject: string[];
 interface ConsolidateOptions {
@@ -177,6 +178,20 @@ export declare function memoryStatusReply(memory: Awaited<ReturnType<typeof load
  * @returns the command result.
  */
 export declare function memoryUpdateReply(report: ConsolidateReport): {
+    kind: "success" | "error";
+    text: string;
+};
+/**
+ * The `/memory prune` reply for one cleaning run. Exported for tests.
+ *
+ * A preview and an applied run answer different questions and must never read alike: the preview
+ * exists so a user can see what would leave the directory before anything does, and the applied
+ * receipt has to name the archive, because that tarball is the only way back.
+ * @param outcome - what the cleaning channel planned and what it did.
+ * @param projectRoot - the project root, for paths relative to it.
+ * @returns the command result.
+ */
+export declare function memoryPruneReply(outcome: PruneOutcome, projectRoot: string): {
     kind: "success" | "error";
     text: string;
 };

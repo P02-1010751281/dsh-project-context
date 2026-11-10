@@ -60,6 +60,25 @@ export declare function retiredArchiveFile(projectRoot: string): string;
  * the renderer drop 7 whole entries, while the bare id costs 804 and drops none.
  */
 export declare function entryDatesFile(projectRoot: string): string;
+/**
+ * Where the cleaning channel parks what it is about to delete (`<memory>/trash/<date>.tar`).
+ *
+ * Inside the memory directory on purpose: the tarball is evidence for a forgotten artifact, and it
+ * outlives the process that removed it. It is a local artifact, never committed (see
+ * `MEMORY_GITIGNORE_LINES`) and itself bounded by the same cleanup — a tar is only ever appended to
+ * on the day it is written.
+ */
+export declare function trashDir(projectRoot: string): string;
+/**
+ * The cleaning channel's own append-only log (`<memory>/purge.log`): one line per applied run.
+ *
+ * Separate from `errors.log` (batch Z4, user ruling 丙) because the two answer different questions:
+ * `errors.log` records failures, this records deletions. It also keeps the index from carrying
+ * unverifiable comments — the timeline stays the audit trail.
+ */
+export declare function purgeLogFile(projectRoot: string): string;
+/** One rotated append-only diagnostic log per project. */
+export declare function errorLogFile(projectRoot: string): string;
 export declare function legacyPiDir(projectRoot: string): string;
 export declare function legacyOmpDir(projectRoot: string): string;
 export declare function safeSessionId(sessionId: string): string;

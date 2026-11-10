@@ -7,11 +7,11 @@ import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { writeAtomic } from "./files.js";
 import { ensureMemoryGitignore } from "./gitignore.js";
-import { memoryDir } from "./paths.js";
+import { errorLogFile } from "./paths.js";
 import { redactSecrets } from "./redact.js";
 
 /** Rotate `errors.log` once its on-disk size passes this many bytes. */
-const MAX_ERROR_LOG_BYTES = 1_000_000;
+export const MAX_ERROR_LOG_BYTES = 1_000_000;
 
 /** How many characters of the newest tail survive a rotation. */
 const KEEP_ERROR_LOG_CHARS = 64_000;
@@ -23,6 +23,21 @@ const MAX_ERROR_DETAIL_CHARS = 8_000;
 const MAX_DIAGNOSTIC_CHARS = 400;
 
 /**
+ * The bytes a rotation keeps: a marker plus the newest tail, starting on a whole record.
+ *
+ * Exported because batch Z4's cleaning channel archives the whole file first and then truncates it
+ * with exactly this rule; a second copy of "how much survives" would drift from the live rotation.
+ * @param raw - the file's text before rotation.
+ * @returns the rotated text to write back.
+ */
+export function errorLogAfterRotation(raw: string): string {
+	const tail = raw.slice(-KEEP_ERROR_LOG_CHARS);
+	// Drop the partial first line so the kept text starts on a record.
+	const boundary = tail.indexOf("\n");
+	return `[...truncated; newest entries kept...]\n${boundary < 0 ? tail : tail.slice(boundary + 1)}`;
+}
+
+/**
  * Keep the diagnostic file bounded. It is append-only and lives inside the
  * user's repository, so an unrotated file would grow without limit there.
  * The size threshold is real bytes (from `stat`); the kept tail and the record
@@ -32,10 +47,7 @@ const MAX_DIAGNOSTIC_CHARS = 400;
 async function rotateErrorLog(file: string): Promise<void> {
 	try {
 		if ((await stat(file)).size <= MAX_ERROR_LOG_BYTES) return;
-		const tail = (await readFile(file, "utf8")).slice(-KEEP_ERROR_LOG_CHARS);
-		// Drop the partial first line so the kept text starts on a record.
-		const boundary = tail.indexOf("\n");
-		await writeAtomic(file, `[...truncated; newest entries kept...]\n${boundary < 0 ? tail : tail.slice(boundary + 1)}`);
+		await writeAtomic(file, errorLogAfterRotation(await readFile(file, "utf8")));
 	} catch {
 		// A missing file or a failed rotation must not block the append.
 	}
@@ -56,7 +68,7 @@ export function diagnosticMessage(error: unknown): string {
 
 export async function logError(projectRoot: string, scope: string, error: unknown): Promise<void> {
 	try {
-		const file = path.join(memoryDir(projectRoot), "errors.log");
+		const file = errorLogFile(projectRoot);
 		await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 		await ensureMemoryGitignore(path.dirname(file));
 		await rotateErrorLog(file);

@@ -45,6 +45,14 @@ export declare function foldMemoryJournalWithDrop(entries: readonly MemoryJourna
 /** Collapse an oversized journal into one replacement, archiving the previous bytes first. */
 export declare function rotateMemoryJournalIfNeeded(projectRoot: string, limit?: number): Promise<void>;
 /**
+ * Whether a directory entry is one of this module's archived journals.
+ *
+ * Exported because batch Z4's cleaning channel deletes old archives by exactly this name rule: the
+ * rule is the safety property (an archive is a regenerable copy of the journal, a user file next to
+ * it is not), so a second copy of the pattern would eventually delete something else.
+ */
+export declare function isJournalArchiveName(name: string): boolean;
+/**
  * The newest archived journal, or `undefined` when the project never rotated.
  *
  * Rotation archives the previous bytes, so when `memory.jsonl` is gone this is the only surviving

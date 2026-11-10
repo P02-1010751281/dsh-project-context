@@ -22,7 +22,7 @@
 | 阶段 | 插件（子路径） | 命令 | 自动档触发 | 产物 |
 |---|---|---|---|---|
 | ① 存档 | `project-context`（主入口） | `/context`、`/session-log` | 每轮 `turn/end` 追加；idle / disposed 落盘 | `session-logs/<id>/`、`INDEX.md` |
-| ② 整理 | `project-memory` | `/memory`、`/memory update` | idle / disposed + 节流 | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入） |
+| ② 整理 | `project-memory` | `/memory`、`/memory update`、`/memory prune`（清理通道） | idle / disposed + 节流；每次整理 pass 之后跑一次清洗 | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入）；`purge.log` 记录删除 |
 | ③ 沉淀 | `project-autolearn` | `/autolearn` | 有新材料 + 轮数/间隔达标 + 至少一个真实存档 | `skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
 | ④ 交接 | `project-handoff` | `/handoff` | 越过阈值 + 无在跑后台子代理 + 本会话未再开新轮 | 新会话 + `HANDOFF.md` |
 
@@ -52,6 +52,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/session-log write` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/memory` | 显示项目记忆路径与状态 |
+| `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**） |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除） |

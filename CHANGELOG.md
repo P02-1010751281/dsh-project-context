@@ -10,6 +10,20 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 Z4：清洗通道——tar → 删 → `purge.log`，`/memory prune`）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.5（用户 2026-11-10 三裁决：自动跑、删前先 tar、清理记录写独立日志）。
+- 新模块 `src/project-memory/prune.ts`。四类长期只涨不落的本地产物终于有了地板：`*.memory-backup-*` 只留最新 **3** 份（写入路径自己那套 5 份 + 1 小时下限是突发闸，这是长期地板）、`memory-log-*.jsonl` 超 **90 天**、`memory.jsonl.*.tmp`（原子写崩溃残留）超 **90 天**、`errors.log` 超 **1 MB** 时归档后原地截断到最新约 64000 字符的整行尾巴、`skill-candidates/*.md` 超 **60 天**。
+- **`session-logs/` 与活的 `memory.jsonl` 永不在候选里**：时间线就是审计线，批次 Z2 的「被取代」「久未证实」两个触发都读它，删一个会话目录会静默废掉两条机械到期；活 journal 是真相本身。计划只扫记忆目录一层与 `skill-candidates/`，不递归、不跟随符号链接。
+- **先归档、再校验、最后才删**，且归档器写在进程内（`src/` 不许有命令能力，这条不变量由 `test/project-root.test.mjs` 钉住）：ustar 512 字节头 + 补零 + 两个零块，写完后用同一个解析器读回**磁盘上的字节**逐成员核对，任一步失败就一个文件都不删、`purge.log` 记 `result=failed`。未压缩是刻意的——同一天第二次运行要**追加**（压缩包不能追加），早上那份证据不能被覆盖；超过 100 字节的成员名按 ustar 的 prefix 拆分，真 `tar -tf` 能读回原名。
+- `/memory prune` 是预览（**一行日志都不写**，看过不留痕），`/memory prune --apply` 才真删；自动路径在每次**真的跑了**的整理 pass 之后执行同一套逻辑（deduped 的 pass 不算），失败只 `warn` + 写自己的日志，绝不把已落地的写报成失败命令。
+- `purge.log` **每次一行**——这里的「每次」是「真的发生了清理的那次」：自动路径无事可清时不写（否则每个 pass 一行），显式 `--apply` 即使无事可做也写 `result=nothing`（用户问了就要回执）。行格式：`时间 reason=auto|manual removed= truncated= bytes= trash= targets= result=ok|nothing|partial|failed`，`targets` 超过 6 个只列前 6 个并给计数，避免一次突发写成 4 KB。
+- `purge.log` 与 `trash/` 进 `MEMORY_GITIGNORE_LINES`（本地产物，不入库）；`errors.log` 的「保留多少」只有一份实现：轮转函数与清理通道共用 `errorLogAfterRotation`。`/memory` 的用法串与 `input.hint` 加上 `prune [--apply]`。
+- 用例（`test/prune.test.mjs`，17 条）：预览零写入零日志、保留最新 3 份且被删成员都在 tar 里、**会话目录数与内容在自动/手动两条路径后都不变**（正控：同一次真的删了文件）、90/89 天与 60/59 天边界、活 journal 与外来名字（`MEMORY.md.user-backup`、`CONTEXT.md`、`entries.json`、`notes.txt`、`old.md~`）永不成为候选、1 MB 之上截断/之下不动、空目录也写日志/自动路径空闲不写、归档写不成则一个都不删、同日追加不重复成员、超长成员名、以及走真整理 pass 的自动钩子。
+- 变异校验：11 个变异各只让目标用例转红——保留份数、两个年龄地平线、错误日志阈值、名字过滤放宽、计划扫进 `session-logs`、tmp 规则误吞活 journal、归档写到别处却按内存校验、空闲也记日志、预览变成执行、自动钩子摘掉；还原后 `src` 与哈希备份逐字节一致并重建。
+- 门禁（现跑）：`pnpm typecheck` 0；`pnpm build` 0（`lib/client.js` 38274，重建字节一致）；`pnpm test` **560 通过 / 0 失败**。
+- **需要重启宿主**（`src/` 改了）。重启后可见：`/memory prune` 有回执、整理 pass 之后 `.agents/memory/purge.log` 出现行、`.agents/memory/trash/` 出现当天的 tar（本机当前有 2 份超出保留份数的备份，第一次 pass 就会触发）。
+
 **project-memory + project-context（批次 Z3：任务维度——`tasks/<slug>.md`、三态、绑定命令）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.4（用户 2026-11-10 四轮裁定）。

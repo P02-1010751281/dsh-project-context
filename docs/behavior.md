@@ -65,6 +65,12 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
 
 - ② 由 `project-memory` 独占：idle / disposed 触发，`session/flush`
   等待进行中的调用；同一项目一次只跑一个整理 pass，版本去重避免重复写入。
+- ② 的 pass 之后跟一条**清洗通道**（`src/project-memory/prune.ts`）：`*.memory-backup-*` 只留最新 3
+  份、`memory-log-*.jsonl` 与 `memory.jsonl.*.tmp` 超 90 天、`errors.log` 超 1 MB（归档后原地截断到最新
+  约 64000 字符的整行尾巴）、`skill-candidates/*.md` 超 60 天。**先写 `trash/<date>.tar`、读回磁盘字节逐
+  成员核对，再删**；每次真的清理都往 `purge.log` 追加一行（`/memory prune` 预览不删也不写，`--apply` 才
+  执行）。`session-logs/` 与活的 `memory.jsonl` 永不在候选里——时间线是审计线，Z2 的「被取代」「久未证
+  实」两个触发都读它。
 - ③ 由 `project-autolearn` 独占：先读 `MEMORY.md` + `CONTEXT.md` + `INDEX.md`，模型可返回至多 3
   个待回读会话，插件从对应 `session.jsonl` 提取对话（忽略 `assistant/message.stream`
   等大负载、各截断 16KB）后二次调用。闸门时间戳持久化在 `.agents/memory/autolearn-state.json`，

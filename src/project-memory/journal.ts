@@ -178,13 +178,24 @@ export async function rotateMemoryJournalIfNeeded(projectRoot: string, limit: nu
 /** Archived journals are generated names only; anything else in the directory is none of our business. */
 const JOURNAL_ARCHIVE_NAME = /^memory-log-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}\.jsonl$/;
 
+/**
+ * Whether a directory entry is one of this module's archived journals.
+ *
+ * Exported because batch Z4's cleaning channel deletes old archives by exactly this name rule: the
+ * rule is the safety property (an archive is a regenerable copy of the journal, a user file next to
+ * it is not), so a second copy of the pattern would eventually delete something else.
+ */
+export function isJournalArchiveName(name: string): boolean {
+	return JOURNAL_ARCHIVE_NAME.test(name);
+}
+
 /** Archived journals, newest first. Unreadable entries are skipped, never guessed about. */
 async function listMemoryArchives(projectRoot: string): Promise<Array<{ file: string; mtime: number }>> {
 	const found: Array<{ file: string; mtime: number }> = [];
 	try {
 		const directory = memoryDir(projectRoot);
 		for (const entry of await readdir(directory, { withFileTypes: true })) {
-			if (!entry.isFile() || !JOURNAL_ARCHIVE_NAME.test(entry.name)) continue;
+			if (!entry.isFile() || !isJournalArchiveName(entry.name)) continue;
 			const file = path.join(directory, entry.name);
 			try {
 				found.push({ file, mtime: (await stat(file)).mtimeMs });
@@ -219,7 +230,7 @@ export function newestMemoryArchiveSync(projectRoot: string): string | undefined
 	try {
 		const directory = memoryDir(projectRoot);
 		for (const entry of readdirSync(directory, { withFileTypes: true })) {
-			if (!entry.isFile() || !JOURNAL_ARCHIVE_NAME.test(entry.name)) continue;
+			if (!entry.isFile() || !isJournalArchiveName(entry.name)) continue;
 			const file = path.join(directory, entry.name);
 			let mtime: number;
 			try {
