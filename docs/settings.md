@@ -51,9 +51,8 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `taskMode` | `assisted` | 谁可以造任务、谁可以改状态。`assisted`：`/context task <slug> new` 才建（裸 slug 被拒并点名 `new`），`lastSeen` 超过 30 天自动 dormant，归档要显式命令。`delegated`：裸 slug 即建，且超过 90 天自动 archived。`manual`：只有命令能建、能改，状态完全不按年龄派生。`archived` 的任务不注入也不被整理 pass 写入（否则一次 pass 刷新 `lastSeen` 就会把它复活）；"模型可以提议"这半没有通道（本包不注册工具），所以确认门槛放在命令上 |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接（含交接子会话标题的事后改名），`/handoff` 仍可用 |
-| `handoffThresholdAuto` | `true` | 自适应阈值 = **护栏**取小：质量层（`autoCompactTokenLimit ?? knee(window)`——宿主暴露可用输入上限时优先用它，目前 dsh 只暴露 `contextWindow`，故恒回退膝曲线）与可用窗口；基线/保留量只决定可行性下限。false 时用固定比例 |
-| `handoffThresholdRatio` | `0.4` | `handoffThresholdAuto: false` 时的固定比例（0.1–0.95）；被 4K 安全边际压掉时阈值标签会写明实际值。卡片与 `/handoff threshold` 接受同样三种写法（`0.4`、`40`、`40%`），越界草稿在卡片本机就被拒（保存按钮置灰）。卡片只在固定模式下显示这一行 —— 自适应开启时触发计算不读它；例外：该行带覆盖值或非法草稿时仍显示，否则那个值无法重置 |
-| `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标请求量（8000–200000）：`/handoff status` 用它判断并点名「目标没被完整采纳」，它不移动触发点，也不产生任何模型调用。触发点由护栏决定，被压掉时点名被覆盖的值与压住它的那条护栏，不静默。任何模式都显示——它是 `/handoff budget summary` 在任一模式都能写的预算，不是另一模式的触发器，固定模式里只是暂时不生效（触发器那一行才按模式隐藏）；越界或非整数草稿在卡片上直接拒掉 |
+| `handoffThreshold` | `auto` | 触发点在哪，三种拼写写进同一个键：`auto` 由**护栏**决定（质量层 `autoCompactTokenLimit ?? knee(window)`——宿主目前只暴露 `contextWindow`，故恒回退膝曲线——与可用窗口取小，基线/保留量只决定可行性下限）；窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）；绝对 token 数（`400k` / `400000`，≥1）。消歧用合法区间本身而不是新语法：裸数字 ≤ 95 只能是比例（`5` 仍是越界比例，不会变成 5 token），> 95 只能是 token 数；`%` 恒为比例、`k` 恒为千。绝对数超过窗口容量 `W − 4000` 时**截断并在回执里写明**（`400000 tokens (capped to 96000)`）；低于物理下限（`overhead + handoffBudgetRecentTokens + 8000`）时**拒绝**，建议沿用当前写法。卡片只有一行文本控件（`kind: threshold`），三种拼写在本机折叠成规范值，越界草稿直接拒（保存按钮置灰）；`/handoff status` 的固定模式摘要写 `fixed ratio 40%` 或 `fixed threshold N tokens` |
+| `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标请求量（8000–200000）：`/handoff status` 用它判断并点名「目标没被完整采纳」，它不移动触发点，也不产生任何模型调用。触发点由护栏决定，被压掉时点名被覆盖的值与压住它的那条护栏，不静默。任何模式都显示——它是 `/handoff budget summary` 在任一模式都能写的预算，不是另一模式的触发器，固定模式里只是暂时不生效；触发点合并成一个键后卡上只剩一行阈值，不再有按模式隐藏的行；越界或非整数草稿在卡片上直接拒掉 |
 | `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要；卡片按同一区间本机校验，越界或非整数草稿直接拒掉）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
@@ -70,7 +69,7 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 
 `knee(W) ≥ W` 对 128K 及以下的窗口恒成立（膝曲线在 157K 以下不压缩），所以**小窗口上质量层永远不是约束**：
 够大时容量项恒为 84%（阈值与 `keep`、与文档大小都无关），不够时 `floor` 越界、自动交接整个不可用。
-想要更早的触发点只有固定比例（`handoffThresholdAuto: false`）一条路。
+想要更早的触发点只有把触发点写成固定值（`/handoff threshold <比例|token 数>`）一条路。
 
 第二个约束来自整理 pass 自己的请求：它 = 文档 + 它重发的 `<recent-conversation>`
 （上限 `MAX_CONVERSATION_CHARS`，不可配置）+ 回吐预算，而 `fitMemoryInput` 只按前一半做适配，

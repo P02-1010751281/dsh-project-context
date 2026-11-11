@@ -58,7 +58,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**） |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错 |
 | `/handoff on` / `off` | 开关自动交接 |
-| `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` | 切自适应；给比例则切固定比例。裸 `auto` 与裸比例已退役，不再生效 |
+| `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` / `threshold 400k` | 切自适应；给窗口比例或绝对 token 数则切固定阈值 —— 三种拼写写进同一个键 `handoffThreshold`（`40` / `40%` 是比例，`400k` / `400000` 是 token 数）。绝对数超过窗口容量 `W − 4000` 时截断并在回执里写明；低于物理下限时拒绝，建议沿用你当前的写法。裸 `auto` 与裸比例已退役，不再生效 |
 | `/handoff budget summary 64k` / `budget recent 20k` | 目标请求量（只用于回执，不移动触发点）/ 逐字保留的近端对话（`budget recent 0` = 不带尾料）；summary 被护栏压掉时 `/handoff status` 点名 |
 | `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
 | `/handoff lang auto\|zh\|en` | 交接语言：自动判定或固定中文 / 英文 |
@@ -100,8 +100,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `maxMemoryChars` | `40000` | 记忆文档字符上限；超限按行截断并标记 |
 | `provider` / `model` | 空 | 辅助调用路由覆盖，须成对设置 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接；`/handoff` 仍可用 |
-| `handoffThresholdAuto` | `true` | 自适应阈值（护栏取小）；关掉用固定比例 |
-| `handoffThresholdRatio` | `0.4` | 固定模式的比例（0.1–0.95；也接受 `40` / `40%`） |
+| `handoffThreshold` | `auto` | 触发点在哪，三种拼写同一个键：`auto`（护栏取小）、窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）、绝对 token 数（`400k` / `400000`）。`/handoff threshold` 与设置卡写的是它；超过窗口容量 `W − 4000` 时截断并在回执里写明 |
 | `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标量（8000–200000） |
 | `handoffBudgetRecentTokens` | `20000` | 逐字带入新会话的最近对话（0 = 不带；0–200000） |
 | `handoffPendingQuestion` | `defer` | 未答问题时：`defer` 等回答，`wait` 带进新会话 |
@@ -113,7 +112,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 ## 行为与边界
 
-- 手动 `/handoff` **始终执行**：不受 `handoffEnabled`、`handoffThresholdAuto` 与阈值门控。
+- 手动 `/handoff` **始终执行**：不受 `handoffEnabled`、`handoffThreshold` 与阈值门控。
 - `archiveEnabled: false` 时不发生任何自动写入；`/session-log write` 是文档化的逃生口。
 - 自动交接只在 `turn/end` 评估、没有定时器；有后台子代理在跑时**延后**，手动 `/handoff now` 则
   **拒绝并点名**。

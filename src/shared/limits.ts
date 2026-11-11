@@ -1,6 +1,7 @@
 /**
  * The numeric contracts shared by the host plugins and the client card: the character budgets of the
- * stored documents and the rendered prompt inputs, and the accepted range of `handoffThresholdRatio`.
+ * stored documents and the rendered prompt inputs, and the accepted range of a fixed window fraction
+ * (the ratio branch of `handoffThreshold`).
  */
 
 /** Default cap on the rendered memory document; the project's `maxMemoryChars` overrides it. */
@@ -25,8 +26,8 @@ export const MAX_LIST_ITEM_CHARS = 800;
 export const MAX_LIST_ENTRIES = 50;
 
 /**
- * Accepted range for `handoffThresholdRatio` and its default outside adaptive mode — the one source the
- * config validator, the settings schema, the command parser, the two usage sentences and the card hints
+ * Accepted range for a fixed window fraction — the ratio branch of `handoffThreshold` — the one source
+ * the config validator, the settings schema, the command parser, the usage sentence and the card hints
  * all read, so no two of them can disagree about what a ratio may be.
  *
  * Exported as a **pair** on purpose. pi exported only its maximum, left a literal minimum in its parser,
@@ -58,4 +59,5 @@ export const MIN_HANDOFF_RECENT_TOKENS = 0;
 
 export const MAX_HANDOFF_RECENT_TOKENS = 200_000;
 
+/** The fraction a test uses to hand-compute a trigger; not the setting's default, which is `auto`. */
 export const DEFAULT_THRESHOLD_RATIO = 0.4;

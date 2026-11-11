@@ -54,8 +54,13 @@ export type FieldKind = "boolean" | "number" | "text" | "union" | "threshold";
 
 /**
  * A condition under which a row's setting is *consulted*: the boolean row named by `key` must be
- * `text`. Two threshold rows carry one each, because the trigger computation reads only one of them
- * per mode — `handoffThresholdRatio` in fixed mode, `handoffBudgetSummaryTokens` in adaptive mode.
+ * `text`.
+ *
+ * No row carries one today: merging the two threshold keys left the trigger as a single row the
+ * computation always consults, and the summary target is a budget `/handoff budget summary` accepts in
+ * either mode. So `rowVisible` currently returns `true` for every row; the mechanism stays because
+ * retiring or reusing it is a whole batch's decision, and dropping it is one deletion rather than a
+ * rewrite.
  *
  * Not every inert row is hidden (with `handoffEnabled: false` every handoff row is inert and all of
  * them still render), and the gate is not a promise about validation: the config validator still

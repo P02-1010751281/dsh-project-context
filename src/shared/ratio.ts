@@ -1,6 +1,7 @@
 /**
- * The one reader of a user-typed `handoffThresholdRatio`, shared by the `/handoff threshold`
- * command and the settings card.
+ * The one reader of a user-typed window fraction, shared by the `/handoff threshold` command and the
+ * settings card. (The two threshold keys were merged into `handoffThreshold` in batch Z8e; this is the
+ * ratio branch of `parseThresholdSpec`, kept here because the folding rule is its own fact.)
  *
  * Three spellings mean the same ratio — `0.4`, `40` and `40%` — and the rule that folds them is
  * *one* rule, not a copy per input surface. A second copy is how a card ends up accepting a draft

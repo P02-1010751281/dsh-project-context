@@ -23,6 +23,7 @@
 - 变异 3 个，各只红自己的目标：去掉 token 的窗口截断 → 「超窗截断并具名」红；建议忽略 token 模式 → 「低于下限建议同模式」红；放宽「小裸数字是比例」的守卫 → 解析器的消歧用例红（第一次的 M3 因 `bare` 变成未引用触发 TS6133，属无效变异，换锚点后重跑）。
 - `pnpm test` **615 通过 / 0 失败**（原 609：+7 +4 −5），`pnpm typecheck` 0，`pnpm build` ok（`lib/client.js` 38791）。
 - 残留：`rowVisible` / `appliesWhen` 这套 gate 机制现在没有使用者（唯一被 gate 的行合并掉了）；本批保留不动，下一批决定删除还是复用。
+- 文档同步（同批补记）：`README.md` 的命令表与配置键表、`docs/settings.md` 的键表、`docs/vocabulary-conventions.md` 的键映射都改成合并后的单一键 `handoffThreshold`，`/handoff threshold 400k` 与「超窗截断并具名 / 低于下限拒绝」写进命令表；`docs/vocabulary-conventions.md` §K 保留批 H 当时的映射、另加一段「批 H 之后」说明本次合并（不改写历史）。同时改正四处仍在写已退役键名或旧默认的注释：`client/card-fields.ts` 的 `FieldGate`（现已无行被 gate）、`src/shared/ratio.ts`、`src/shared/limits.ts`（`DEFAULT_THRESHOLD_RATIO` 不再是「自适应之外的默认」，默认是 `auto`）、`src/project-handoff/index.ts` 的触发摘要。
 
 **project-memory（批次 Z8d：id 记账不再吞事实，也不再谎报丢事实）**
 

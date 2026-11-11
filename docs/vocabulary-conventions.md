@@ -35,9 +35,9 @@
   卡片 `client/card-fields.ts`（接口 + 行表）。两处的键集必须一致（`test/settings-form.test.mjs` 比对），
   回写路径产出的键也必须是 schema 键（`test/config-vocabulary.test.mjs`）。
 - 形式：camelCase，不带下划线；同一特性的键**同一拼写**（`autolearn*` 全用小写 `learn`）。
-- **键名镜射改变它的那个东西**（批 H 终态，见 §5 K）：有命令就用命令路径，没有就用设置卡——`memoryEnabled`（**设置卡开关；dsh 没有改这个键的命令**）、`autolearnEnabled`（同）、
+- **键名镜射改变它的那个东西**（批 H 定形；阈值两键已由批 Z8e 合并，见 §5 K 注）：有命令就用命令路径，没有就用设置卡——`memoryEnabled`（**设置卡开关；dsh 没有改这个键的命令**）、`autolearnEnabled`（同）、
   `handoffBudgetSummaryTokens`（`/handoff budget summary`）、`handoffBudgetRecentTokens`（`/handoff budget recent`）、
-  `handoffThinking`（`/handoff thinking`）、`handoffThresholdAuto`（`/handoff threshold auto`，与 `handoffThresholdRatio` 成对）、
+  `handoffThreshold`（`/handoff threshold auto|<窗口比例>|<token 数>`，三种拼写同一个键）、
   `handoffLang`（`/handoff lang`）。
 - 开关：`<能力>Enabled`；量：`<对象>Tokens` / `<对象>Chars` / `<对象>IntervalMs`，对象词与命令面二级词一致。
 - 卡片文案：`field.<key>` 与 `field.<key>Hint` 各一个字典条目，键随字段搬迁；**文案本身可以不改**——改名不是复述。
@@ -133,6 +133,12 @@
 | `handoffLanguage` | `handoffLang` | 镜射 `/handoff lang` |
 | `archiveEnabled` / `handoffEnabled` | 不变 | 已是 `<能力>Enabled` |
 | `handoffPendingQuestion` / `handoffThresholdRatio` | 不变 | pi 未改，不在本批改名集内 |
+
+**批 H 之后的键变更（上表只是批 H 当时的映射，不是今天的终态）**：`handoffThinking` 随批 J（v0.4.2）
+连带接力摘要一起退役，硬切、无别名；`handoffThresholdAuto` 与 `handoffThresholdRatio` 随批 Z8e
+（2026-11-11）合并为 **`handoffThreshold`**——`auto`、窗口比例（`0.4` / `40` / `40%`）与绝对 token 数
+（`400k` / `400000`）三种拼写同一个键，因为「触发点在哪」本就是一个事实，两个键让绝对数根本无处存。
+两批都是破坏性、无兼容读取，profile 改动与宿主重启同一步。
 
 **为什么没有兼容读取（已决）**：值由平台持久化进各 profile 自己的 `cordis.patch.yml`，dsh 无法改写该文件，
 所以旧名别名**永远无法退休**；本仓此前拒绝过命令层别名（`/context-update`、`/handoff force`），这次同样拒绝配置层别名。
