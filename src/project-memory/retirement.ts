@@ -372,7 +372,7 @@ export type RetirementResult = {
 	 * would come back dated today once room appears, delaying its retirement for no reason.
 	 */
 	keepIds: Set<string>;
-	/** Ids minted by this call, whose first-seen date is `today`. */
+	/** Ids this call minted and the returned document carries; their first-seen date is `today`. */
 	added: string[];
 	/** Ids this call removed from the document. An echo of one of these is dropped, not re-retired. */
 	droppedIds: Set<string>;
@@ -457,7 +457,7 @@ export async function retireSections(sections: MemorySections, context: Retireme
 			return tid === undefined || !drop.has(tid);
 		});
 	}
-	return { sections: kept, retired, ids: stamps.ids, keepIds: documentIds(kept), added: stamps.added, droppedIds: drop };
+	return { sections: kept, retired, ids: documentIds(kept), keepIds: documentIds(kept), added: stamps.added, droppedIds: drop };
 }
 
 /**
@@ -641,10 +641,11 @@ const TID_STAMP_CHARS = withEntryTid("x", "aaaa").length - 1;
  * rewritten every pass, so postponing their identity costs the least. Retirement still runs over all
  * four sections, so this is a value judgement about survival, not a claim that only two are aged.
  *
- * An entry whose body plus the six-character marker would exceed the per-item cap is left out: the
- * renderer's clipper would cut the marker off, so stamping it can never be clean. Keeping it in the
- * order made one such entry reject every prefix that contained it — the loop then walked the whole
- * budget down to zero and reported `stamped:false` with 20 other entries that could have carried ids.
+ * An entry longer than the per-item cap is left out. Every entry here already carries its marker —
+ * `retireSections` stamps before the budget is applied — so `entry.length` includes the six characters
+ * and the test must not add them again: the clipper's cap is at most `MAX_LIST_ITEM_CHARS`, so an entry
+ * over 800 can never be shown with its marker intact. Keeping it in the order made one such entry
+ * reject every prefix that contained it, walking the budget to zero while 20 other entries had room.
  */
 const STAMP_PRIORITY: readonly (keyof MemorySections)[] = ["invariants", "pitfalls", "project", "index"];
 
@@ -653,7 +654,7 @@ function stampOrder(sections: MemorySections): { key: keyof MemorySections; inde
 	const order: { key: keyof MemorySections; index: number }[] = [];
 	for (const key of STAMP_PRIORITY) {
 		for (const [index, entry] of sections[key].entries()) {
-			if (entry.length + TID_STAMP_CHARS > MAX_LIST_ITEM_CHARS) continue;
+			if (entry.length > MAX_LIST_ITEM_CHARS) continue;
 			order.push({ key, index });
 		}
 	}

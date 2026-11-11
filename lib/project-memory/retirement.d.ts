@@ -123,7 +123,7 @@ export type RetirementResult = {
      * would come back dated today once room appears, delaying its retirement for no reason.
      */
     keepIds: Set<string>;
-    /** Ids minted by this call, whose first-seen date is `today`. */
+    /** Ids this call minted and the returned document carries; their first-seen date is `today`. */
     added: string[];
     /** Ids this call removed from the document. An echo of one of these is dropped, not re-retired. */
     droppedIds: Set<string>;

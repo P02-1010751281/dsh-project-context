@@ -506,14 +506,19 @@ test("a near-cap entry postpones only itself, not every other id", async () => {
 	// past the 800 per-item cap, so the clipper can never show its id. Before the filter that single entry
 	// rejected every prefix containing it: the loop walked the whole budget down to zero and reported
 	// `stamped:false` while twenty short entries had room.
-	const long = `long ${"x".repeat(790)}`;
+	const long = `long ${"x".repeat(790)}`; // 795 characters, 801 with its marker
+	const edge = `edge ${"x".repeat(789)}`; // 794 characters, exactly 800 with its marker
 	const short = Array.from({ length: 20 }, (_, index) => `s${String(index).padStart(2, "0")} ${"y".repeat(120)}`);
-	const sections = sectionsOf({ invariants: [long, ...short] });
-	const cap = renderMemoryDocument(sections, 100_000).text.length + 120;
+	const sections = sectionsOf({ invariants: [long, edge, ...short] });
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 21 * 6;
 	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
 
+	// The entry is already stamped when the budget is applied, so the boundary is the stamped length:
+	// 794 + 6 = 800 still fits the per-item cap and must be stamped; 795 + 6 = 801 can never be shown
+	// whole and must only postpone itself.
 	assert.equal(result.stamped, true, "the short entries can still carry ids");
-	assert.equal(entryTid(result.sections.invariants[0]), undefined, "the near-cap entry stays unmarked");
-	assert.equal(result.ids.size, 20, "every short entry is stamped");
+	assert.equal(entryTid(result.sections.invariants[0]), undefined, "the 795-character body stays unmarked");
+	assert.notEqual(entryTid(result.sections.invariants[1]), undefined, "the 794-character body still gets its id");
+	assert.equal(result.ids.size, 21, "the edge entry and every short entry are stamped");
 	assert.equal(renderMemoryDocument(result.sections, cap).itemTruncated, 0, "no marker is clipped away");
 });
