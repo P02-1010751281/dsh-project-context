@@ -159,13 +159,17 @@ export declare function stripEntryIds(sections: MemorySections): MemorySections;
  *
  * The ids are six characters per entry, and a memory that is already at its cap drops whole entries to
  * make room. Measured on this project 2026-11-10: a document at 43720 of 45000 characters stays clean
- * with the bare ids (+804) but loses 7 entries with the dated marker (+3082). A *future* document may
- * be fuller still, so the stamping is decided by the renderer rather than assumed: if stamping would
- * make the document lossy, and the same document without ids would not be, the ids wait for a pass
- * where they fit and a line says so.
+ * with the bare ids (+804) but loses 7 entries with the dated marker (+3082).
  *
- * Ids are content-derived, so waiting costs nothing: the same body earns the same id whenever it is
- * finally stamped.
+ * A partial stamp, not all-or-nothing: when the whole document cannot afford every id, the ids that DO
+ * fit still land, in priority order — Invariants then Pitfalls, the two sections retirement ages and
+ * `supersedes:` read, then Project and Index, which are rewritten every pass. The spare characters are
+ * measured from the plain render, so an id can only ever spend leftover room; the alternative was that
+ * one character of overflow silently dropped every id and reset every age. Measured here 2026-11-11:
+ * 782 characters of headroom = 130 ids, enough for all 107 Invariants/Pitfalls entries.
+ *
+ * Ids are content-derived, so the stamped prefix keeps exactly the ids a full stamp would have minted:
+ * a body's id never changes just because the budget changed (see `tidFor`).
  */
 export declare function retireWithinBudget(sections: MemorySections, context: RetirementContext, cap: number): Promise<RetirementResult & {
     stamped: boolean;

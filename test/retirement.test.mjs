@@ -18,7 +18,7 @@ import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { recordMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { appendTombstones, MAX_DIGEST_ENTRIES, MAX_RETIRED_LINES, parseTombstones, readArchivedTombstones, readTombstones, renderTombstones, tombstoneDigest, tombstoneLine } from "../lib/project-memory/retired.js";
 import { entryTid, mentionNeedle, recordEntryDates, retireReply, retireSections, retireWithinBudget, scanMentions, stampEntryIds, supersededIds } from "../lib/project-memory/retirement.js";
-import { sectionsFromMarkdown } from "../lib/project-memory/sections.js";
+import { sectionsFromMarkdown, renderMemoryDocument } from "../lib/project-memory/sections.js";
 
 const DAY = 86_400_000;
 const NOW = Date.parse("2026-11-10T00:00:00Z");
@@ -293,17 +293,63 @@ test("an incomplete scan retires nothing", async () => {
 // The id budget
 // ---------------------------------------------------------------------------------------------------
 
-test("ids are skipped rather than costing a whole entry", async () => {
+test("a document that cannot afford every id stamps as many as fit", async () => {
 	const root = await projectDir();
-	// Sized so the document fits without ids and does not fit with them: 300 entries of ~140 characters
-	// at a 40 000-character cap leaves no room for six more characters each.
+	// Sized so the document fits without ids and does not fit with all of them: 250 entries of ~150
+	// characters at a 40 000-character cap leave room for a few hundred ids, not all 250.
 	const entries = Array.from({ length: 250 }, (_, index) => `${String(index).padStart(3, "0")} ${"记".repeat(150)}`);
 	const sections = sectionsOf({ project: entries });
 	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, 40_000);
-	assert.equal(result.stamped, false, "fixture: the ids must not fit");
+
+	// The ruling behind batch Z8d: an id is bookkeeping, so it spends leftover room and never a fact.
+	// Before it, one character of overflow silently dropped every id (and every age with it).
+	assert.equal(result.stamped, true, "the ids that fit still land");
 	assert.equal(result.sections.project.length, 250, "no entry may be lost to a metadata stamp");
-	assert.equal(entryTid(result.sections.project[0]), undefined, "the document is left without ids");
-	assert.deepEqual(result.added, [], "nothing is recorded when nothing was stamped");
+	assert.ok(result.ids.size > 0, "a partial stamp is not zero");
+	assert.ok(result.ids.size < 250, `fixture: not every id fits: ${result.ids.size}`);
+	assert.notEqual(entryTid(result.sections.project[result.ids.size - 1]), undefined, "the prefix is stamped");
+	assert.equal(entryTid(result.sections.project[result.ids.size]), undefined, "the rest waits for room");
+	assert.equal(result.added.length, result.ids.size, "only the stamped ids are recorded as added");
+	assert.equal(renderMemoryDocument(result.sections, 40_000).sectionDropped, 0, "the partial stamp spends leftover room only");
+});
+
+test("the partial stamp spends its budget on Invariants and Pitfalls before Project and Index", async () => {
+	const root = await projectDir();
+	const invariants = Array.from({ length: 12 }, (_, index) => `inv${index} ${"记".repeat(120)}`);
+	const pitfalls = Array.from({ length: 12 }, (_, index) => `pit${index} ${"记".repeat(120)}`);
+	const project = Array.from({ length: 12 }, (_, index) => `prj${index} ${"记".repeat(120)}`);
+	const index = Array.from({ length: 12 }, (_, index) => `idx${index} ${"记".repeat(120)}`);
+	const sections = sectionsOf({ project, invariants, pitfalls, index });
+	// Exactly enough room for the 24 retirement-relevant ids (144 characters) and no more, so the budget
+	// has to be spent in priority order rather than document order — Project comes first in the file.
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 144;
+	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
+
+	assert.equal(result.stamped, true);
+	assert.equal(result.ids.size, 24, "the budget pays for exactly the Invariants and Pitfalls ids");
+	for (const key of ["invariants", "pitfalls"]) {
+		for (const entry of result.sections[key]) assert.notEqual(entryTid(entry), undefined, `${key} entries are stamped first`);
+	}
+	for (const key of ["project", "index"]) {
+		for (const entry of result.sections[key]) assert.equal(entryTid(entry), undefined, `${key} entries wait: they are rewritten every pass`);
+	}
+	// A budget only decides which ids land, never what they are: the same body keeps the id a full stamp
+	// would have minted, so a later pass with more room does not reset an age.
+	const full = stampEntryIds(sections, new Set());
+	assert.equal(entryTid(result.sections.invariants[0]), entryTid(full.sections.invariants[0]), "the id is the body's, not the budget's");
+});
+
+test("both lossy keeps the ids: the overflow is the document's own", async () => {
+	const root = await projectDir();
+	// The document is over the cap even without ids, so the ids are not what made it lossy. Omitting them
+	// would only disable the retirement triggers for a document that loses entries either way.
+	const entries = Array.from({ length: 400 }, (_, index) => `${String(index).padStart(3, "0")} ${"记".repeat(150)}`);
+	const sections = sectionsOf({ project: entries });
+	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, 40_000);
+
+	assert.equal(result.stamped, true, "ids are kept when they are not the cause");
+	assert.equal(result.ids.size, 400, "every entry carries its id");
+	assert.ok(renderMemoryDocument(result.sections, 40_000).sectionDropped > 0, "control: the plain document is lossy too");
 });
 
 // ---------------------------------------------------------------------------------------------------

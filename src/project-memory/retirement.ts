@@ -566,13 +566,17 @@ export function stripEntryIds(sections: MemorySections): MemorySections {
  *
  * The ids are six characters per entry, and a memory that is already at its cap drops whole entries to
  * make room. Measured on this project 2026-11-10: a document at 43720 of 45000 characters stays clean
- * with the bare ids (+804) but loses 7 entries with the dated marker (+3082). A *future* document may
- * be fuller still, so the stamping is decided by the renderer rather than assumed: if stamping would
- * make the document lossy, and the same document without ids would not be, the ids wait for a pass
- * where they fit and a line says so.
+ * with the bare ids (+804) but loses 7 entries with the dated marker (+3082).
  *
- * Ids are content-derived, so waiting costs nothing: the same body earns the same id whenever it is
- * finally stamped.
+ * A partial stamp, not all-or-nothing: when the whole document cannot afford every id, the ids that DO
+ * fit still land, in priority order — Invariants then Pitfalls, the two sections retirement ages and
+ * `supersedes:` read, then Project and Index, which are rewritten every pass. The spare characters are
+ * measured from the plain render, so an id can only ever spend leftover room; the alternative was that
+ * one character of overflow silently dropped every id and reset every age. Measured here 2026-11-11:
+ * 782 characters of headroom = 130 ids, enough for all 107 Invariants/Pitfalls entries.
+ *
+ * Ids are content-derived, so the stamped prefix keeps exactly the ids a full stamp would have minted:
+ * a body's id never changes just because the budget changed (see `tidFor`).
  */
 export async function retireWithinBudget(
 	sections: MemorySections,
@@ -586,5 +590,52 @@ export async function retireWithinBudget(
 	const withoutIds = renderMemoryDocument(plain, cap);
 	// Both lossy: the overflow is the document's own, not the ids'. Keep the ids so the triggers work.
 	if (withoutIds.sectionDropped > 0 || withoutIds.itemTruncated > 0) return { ...result, stamped: true };
+	// The document only overflows once the ids are added, so this is the id tax that has to shrink. The
+	// budget is what the clean plain render leaves, and every stamp costs the same six characters.
+	const order = stampOrder(result.sections);
+	const budget = Math.max(0, cap - withoutIds.text.length);
+	let count = Math.min(order.length, Math.floor(budget / TID_STAMP_CHARS));
+	while (count > 0) {
+		const partial = stampFirst(result.sections, order, count);
+		const rendered = renderMemoryDocument(partial, cap);
+		if (rendered.sectionDropped === 0 && rendered.itemTruncated === 0) {
+			const ids = documentIds(partial);
+			return { ...result, sections: partial, ids, added: result.added.filter((tid) => ids.has(tid)), stamped: true };
+		}
+		// A stamp can shift the packing (it moves an entry's measured demand), so the arithmetic budget is
+		// an upper bound, not a proof: step down until the renderer agrees.
+		count -= 1;
+	}
 	return { ...result, sections: plain, ids: new Set(), added: [], stamped: false };
+}
+
+/** Characters one trailing id adds: a full-width parenthesis, four hex digits, and the closing one. */
+const TID_STAMP_CHARS = withEntryTid("x", "aaaa").length - 1;
+
+/**
+ * The order a partial stamp spends its budget in.
+ *
+ * Retirement's identity is only read from entries it can age or supersede, and Project/Index are meant
+ * to be rewritten every pass. Spending the last id on an entry that will be gone next pass while an
+ * Invariant goes untracked would be the wrong trade.
+ */
+const STAMP_PRIORITY: readonly (keyof MemorySections)[] = ["invariants", "pitfalls", "project", "index"];
+
+/** Every entry slot of one document, in `STAMP_PRIORITY` order and document order inside a section. */
+function stampOrder(sections: MemorySections): { key: keyof MemorySections; index: number }[] {
+	const order: { key: keyof MemorySections; index: number }[] = [];
+	for (const key of STAMP_PRIORITY) {
+		for (let index = 0; index < sections[key].length; index += 1) order.push({ key, index });
+	}
+	return order;
+}
+
+/** The document with the first `count` slots of `order` keeping their id and every other entry stripped. */
+function stampFirst(sections: MemorySections, order: readonly { key: keyof MemorySections; index: number }[], count: number): MemorySections {
+	const keep = new Set(order.slice(0, count).map((slot) => `${slot.key}:${slot.index}`));
+	const partial = {} as MemorySections;
+	for (const key of Object.keys(sections) as (keyof MemorySections)[]) {
+		partial[key] = sections[key].map((entry, index) => (keep.has(`${key}:${index}`) ? entry : stripEntryTid(entry)));
+	}
+	return partial;
 }
