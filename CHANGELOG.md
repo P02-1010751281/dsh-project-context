@@ -10,6 +10,13 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory / shared（清理：删掉六个没有读者的导出）**
+
+- 删除 `sectionsHaveEntries`（`retirement.ts`）、`TASK_STATUSES` 与 `TASK_MODES` 与 `hasTasks`（`tasks.ts`）、`TodoStatus`（`todo.ts`）、`modelOutputLimit`（`shared/model-call.ts`）。判据是全仓 `src`/`client`/`test`/`scripts` 的标识符引用数：这六个各自只有**定义那一处**，`export` 是它们唯一的露面方式（与上一批的 gate 机制同一条用户裁定，2026-11-11「没用的、没有复用价值的就不要留」）。删完后同一扫描归零。
+- 每个都是真死，不是暂时没接：`sectionsHaveEntries`、`TASK_STATUSES`、`TASK_MODES`、`hasTasks`、`TodoStatus` 自引入提交起就没有调用者（`git log -S` 只回到各自的新增提交）；`modelOutputLimit` 最后一次有调用者是 `111b1a3` 的自动学习路径，`f2acbae` 把那个调用点改掉后它就成了只剩定义的导出。`TASK_MODES` 尤其值得删：`config.ts` 校验 `taskMode` 用的是自己的三条字面量比较，这个数组是**从未接上的第二份真值**，留着只会在有人「顺手用它」时和校验器分叉。
+- 行为零变化：`tsc` 两个 `noUnusedLocals` 都没报（说明删的全是导出面，不是内部引用断链），`pnpm typecheck` 0、`pnpm test` **613 通过 / 0 失败**（无一条用例读它们）、`pnpm build` ok、`lib/` 重建确定。净减 69 行、增 0 行，`lib/client.js` 不变（37349）。
+- 保留但核过的：`TaskStatus` / `TaskMode` / `TaskRecord` 等类型仍被多处引用；`shared/model-call.ts` 的 `resolveModelMetadata` 仍由 `consolidate.ts` 与自动学习的 `pass.ts` 各自调用（`modelOutputLimit` 只是它的一个没人用的薄包装）。
+
 **client（清理：删掉没有使用者的模式 gate 机制）**
 
 - 删除 `FieldGate`、`FieldRow.appliesWhen`、`rowVisible`、`FieldDraftState`，以及 `settings-card.tsx` 里为它维护的 `state.modes` 投影与 `effectiveMode` 方法。Z8e 把触发器的两行（开关 + 比例）合并成一行后**没有任何行再带 gate**，`rowVisible` 恒为 `true`；渲染改为直接 `section.rows.map(...)`。依据用户 2026-11-11 的裁定「没用的、没有复用价值的就不要留」。

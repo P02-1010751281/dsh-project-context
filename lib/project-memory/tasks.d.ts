@@ -24,8 +24,6 @@
 import type { TaskMode } from "../shared/config.js";
 /** The three states a task can be in. Only `archived` is authoritative on disk. */
 export type TaskStatus = "active" | "dormant" | "archived";
-export declare const TASK_STATUSES: readonly TaskStatus[];
-export declare const TASK_MODES: readonly TaskMode[];
 /** Days without activity before a task reports `dormant`. */
 export declare const TASK_DORMANT_DAYS = 30;
 /**
@@ -101,8 +99,6 @@ export declare function readTaskSync(projectRoot: string, slug: string): TaskRec
 export declare function listTasks(projectRoot: string): Promise<TaskRecord[]>;
 /** The synchronous counterpart of {@link listTasks}, for the injection provider. */
 export declare function listTasksSync(projectRoot: string): TaskRecord[];
-/** A project with no task documents at all: the injection must then stay byte-identical to today. */
-export declare function hasTasks(projectRoot: string): boolean;
 /**
  * The task slug a session is bound to, read from its own `meta.json`.
  *

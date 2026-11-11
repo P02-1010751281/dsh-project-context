@@ -31,9 +31,6 @@ import { readTextCachedSync, writeAtomic } from "../shared/files.js";
 /** The three states a task can be in. Only `archived` is authoritative on disk. */
 export type TaskStatus = "active" | "dormant" | "archived";
 
-export const TASK_STATUSES: readonly TaskStatus[] = ["active", "dormant", "archived"];
-export const TASK_MODES: readonly TaskMode[] = ["assisted", "delegated", "manual"];
-
 /** Days without activity before a task reports `dormant`. */
 export const TASK_DORMANT_DAYS = 30;
 /**
@@ -218,11 +215,6 @@ export function listTasksSync(projectRoot: string): TaskRecord[] {
 		if (task !== undefined) records.push(task);
 	}
 	return records;
-}
-
-/** A project with no task documents at all: the injection must then stay byte-identical to today. */
-export function hasTasks(projectRoot: string): boolean {
-	return listTasksSync(projectRoot).length > 0;
 }
 
 /**

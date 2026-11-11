@@ -481,11 +481,6 @@ export async function retireReply(
 	return retireWithinBudget(stripSupersedesMarkers(sections), { ...context, declaredSupersedes }, cap);
 }
 
-/** Whether a four-section document still holds at least one entry. */
-export function sectionsHaveEntries(sections: MemorySections): boolean {
-	return (Object.keys(sections) as (keyof MemorySections)[]).some((key) => sections[key].length > 0);
-}
-
 /** All entry ids in a document, for the sidecar prune. */
 export function documentIds(sections: MemorySections): Set<string> {
 	const ids = new Set<string>();

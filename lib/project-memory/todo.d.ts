@@ -21,8 +21,6 @@ import type { Session } from "@deepseek-ai/dsh-session";
 import type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
 /** The prefix that marks a line as mechanically maintained rather than model-authored. */
 export declare const TODO_LINE_PREFIX = "[todo]";
-/** What one status the tool declares can mean; anything else is not trusted. */
-export type TodoStatus = "pending" | "in_progress" | "completed";
 /**
  * The document lines one projection value stands for, or `undefined` when it has no opinion.
  *

@@ -131,18 +131,6 @@ export async function resolveModelMetadata(
 }
 
 /**
- * The routed model's own output cap, when its adapter publishes one. Model catalog metadata is
- * advisory, so an unknown provider simply yields no cap.
- * @param ctx - the plugin context holding the `llm` service.
- * @param target - the resolved provider/model route.
- * @param signal - the pass's abort signal.
- * @returns the adapter's per-request output cap, or `undefined`.
- */
-export async function modelOutputLimit(ctx: Context, target: { provider: string; model: string }, signal: AbortSignal | undefined): Promise<number | undefined> {
-	return (await resolveModelMetadata(ctx, target, signal))?.defaultMaxTokens;
-}
-
-/**
  * The effort id that asks a route for no reasoning at all.
  *
  * `off` is pi-ai's own name for it (`llm-deepseek` builds the same id), and it is the level a route

@@ -56,9 +56,6 @@ const TODO_PROJECTION_KEY = "todos";
 type SnapshotKeys = NonNullable<Parameters<SessionProjectionRegistry["snapshot"]>[1]>;
 const TODO_SNAPSHOT_KEYS = [TODO_PROJECTION_KEY] as unknown as SnapshotKeys;
 
-/** What one status the tool declares can mean; anything else is not trusted. */
-export type TodoStatus = "pending" | "in_progress" | "completed";
-
 /**
  * The document lines one projection value stands for, or `undefined` when it has no opinion.
  *

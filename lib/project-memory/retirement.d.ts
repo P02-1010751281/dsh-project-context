@@ -146,8 +146,6 @@ export declare function retireSections(sections: MemorySections, context: Retire
 export declare function retireReply(sections: MemorySections, context: RetirementContext, cap: number): Promise<RetirementResult & {
     stamped: boolean;
 }>;
-/** Whether a four-section document still holds at least one entry. */
-export declare function sectionsHaveEntries(sections: MemorySections): boolean;
 /** All entry ids in a document, for the sidecar prune. */
 export declare function documentIds(sections: MemorySections): Set<string>;
 /** When each known entry id was first seen. An unreadable file reads as "nothing known". */
