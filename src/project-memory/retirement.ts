@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { MEMORY_GITIGNORE_LINES } from "../shared/gitignore.js";
+import { MAX_LIST_ITEM_CHARS } from "../shared/limits.js";
 import { withMemoryLock } from "../shared/lock.js";
 import { entryDatesFile, logsDir, readOptional, writeAtomic } from "../shared/project-state.js";
 import type { MemorySections } from "./sections.js";
@@ -363,6 +364,14 @@ export type RetirementResult = {
 	retired: Tombstone[];
 	/** Every id the returned document carries. */
 	ids: Set<string>;
+	/**
+	 * Every id the returned document *owns*, whether or not the entry could afford to carry it this pass.
+	 *
+	 * The sidecar prune reads this, not `ids`: with a partial stamp the unstamped entries are still in the
+	 * document, and pruning their dates would reset a clock that only the budget had postponed — the entry
+	 * would come back dated today once room appears, delaying its retirement for no reason.
+	 */
+	keepIds: Set<string>;
 	/** Ids minted by this call, whose first-seen date is `today`. */
 	added: string[];
 	/** Ids this call removed from the document. An echo of one of these is dropped, not re-retired. */
@@ -381,7 +390,12 @@ function supersedeReason(source: string): RetirementReason {
  * target even when the model does not repeat it.
  */
 export async function retireSections(sections: MemorySections, context: RetirementContext): Promise<RetirementResult> {
-	const stamps = stampEntryIds(sections, new Set(context.firstSeen.keys()));
+	// The id must be a pure function of the body, so the derivation is seeded with nothing: feeding it the
+	// sidecar's ids made an unmarked entry collide with its own remembered id, take a salt, and change
+	// identity on every pass — which reset the age of exactly the entries a partial stamp had postponed
+	// (measured 2026-11-11 on the 250-entry fixture). Uniqueness inside the document is still enforced by
+	// the ids already minted in this call.
+	const stamps = stampEntryIds(sections, new Set());
 	/** tid -> the entry that carries it, in document order. */
 	const byTid = new Map<string, string>();
 	for (const key of Object.keys(stamps.sections) as (keyof MemorySections)[]) {
@@ -443,7 +457,7 @@ export async function retireSections(sections: MemorySections, context: Retireme
 			return tid === undefined || !drop.has(tid);
 		});
 	}
-	return { sections: kept, retired, ids: stamps.ids, added: stamps.added, droppedIds: drop };
+	return { sections: kept, retired, ids: stamps.ids, keepIds: documentIds(kept), added: stamps.added, droppedIds: drop };
 }
 
 /**
@@ -569,11 +583,16 @@ export function stripEntryIds(sections: MemorySections): MemorySections {
  * with the bare ids (+804) but loses 7 entries with the dated marker (+3082).
  *
  * A partial stamp, not all-or-nothing: when the whole document cannot afford every id, the ids that DO
- * fit still land, in priority order — Invariants then Pitfalls, the two sections retirement ages and
- * `supersedes:` read, then Project and Index, which are rewritten every pass. The spare characters are
- * measured from the plain render, so an id can only ever spend leftover room; the alternative was that
- * one character of overflow silently dropped every id and reset every age. Measured here 2026-11-11:
- * 782 characters of headroom = 130 ids, enough for all 107 Invariants/Pitfalls entries.
+ * fit still land, in priority order — Invariants then Pitfalls, then Project and Index, which are
+ * rewritten every pass (retirement itself runs over all four sections, so the order is about which
+ * identity survives a rewrite, not about which sections can be aged). The spare characters are measured
+ * from the plain render, so an id can only ever spend leftover room; the alternative was that one
+ * character of overflow silently dropped every id and reset every age.
+ *
+ * Measured on this project 2026-11-11 (read again before quoting): 44589 characters, 140 entries,
+ * 45000 cap — 411 characters of headroom, so 68 ids fit: every Invariant (64) and 4 of 44 Pitfalls,
+ * with Project and Index postponed. The full tax (840) would have dropped 3 whole entries. An earlier
+ * check the same day read 782/130/107 on a 44218/139 document: these are snapshots, not constants.
  *
  * Ids are content-derived, so the stamped prefix keeps exactly the ids a full stamp would have minted:
  * a body's id never changes just because the budget changed (see `tidFor`).
@@ -592,6 +611,9 @@ export async function retireWithinBudget(
 	if (withoutIds.sectionDropped > 0 || withoutIds.itemTruncated > 0) return { ...result, stamped: true };
 	// The document only overflows once the ids are added, so this is the id tax that has to shrink. The
 	// budget is what the clean plain render leaves, and every stamp costs the same six characters.
+	// `stampOrder` already leaves out entries that could not carry a marker without being clipped, so a
+	// single near-cap entry postpones only itself instead of spending the whole budget on a prefix the
+	// renderer will always refuse.
 	const order = stampOrder(result.sections);
 	const budget = Math.max(0, cap - withoutIds.text.length);
 	let count = Math.min(order.length, Math.floor(budget / TID_STAMP_CHARS));
@@ -613,19 +635,27 @@ export async function retireWithinBudget(
 const TID_STAMP_CHARS = withEntryTid("x", "aaaa").length - 1;
 
 /**
- * The order a partial stamp spends its budget in.
+ * The order a partial stamp spends its budget in, and the entries that can carry a marker at all.
  *
- * Retirement's identity is only read from entries it can age or supersede, and Project/Index are meant
- * to be rewritten every pass. Spending the last id on an entry that will be gone next pass while an
- * Invariant goes untracked would be the wrong trade.
+ * Invariants and Pitfalls come first because their facts are meant to outlive a pass; Project/Index are
+ * rewritten every pass, so postponing their identity costs the least. Retirement still runs over all
+ * four sections, so this is a value judgement about survival, not a claim that only two are aged.
+ *
+ * An entry whose body plus the six-character marker would exceed the per-item cap is left out: the
+ * renderer's clipper would cut the marker off, so stamping it can never be clean. Keeping it in the
+ * order made one such entry reject every prefix that contained it — the loop then walked the whole
+ * budget down to zero and reported `stamped:false` with 20 other entries that could have carried ids.
  */
 const STAMP_PRIORITY: readonly (keyof MemorySections)[] = ["invariants", "pitfalls", "project", "index"];
 
-/** Every entry slot of one document, in `STAMP_PRIORITY` order and document order inside a section. */
+/** Every stampable entry slot of one document, in `STAMP_PRIORITY` order and document order inside a section. */
 function stampOrder(sections: MemorySections): { key: keyof MemorySections; index: number }[] {
 	const order: { key: keyof MemorySections; index: number }[] = [];
 	for (const key of STAMP_PRIORITY) {
-		for (let index = 0; index < sections[key].length; index += 1) order.push({ key, index });
+		for (const [index, entry] of sections[key].entries()) {
+			if (entry.length + TID_STAMP_CHARS > MAX_LIST_ITEM_CHARS) continue;
+			order.push({ key, index });
+		}
 	}
 	return order;
 }

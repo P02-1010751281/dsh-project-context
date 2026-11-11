@@ -17,7 +17,7 @@ import { resolvePluginConfig } from "../lib/shared/config.js";
 import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { recordMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { appendTombstones, MAX_DIGEST_ENTRIES, MAX_RETIRED_LINES, parseTombstones, readArchivedTombstones, readTombstones, renderTombstones, tombstoneDigest, tombstoneLine } from "../lib/project-memory/retired.js";
-import { entryTid, mentionNeedle, recordEntryDates, retireReply, retireSections, retireWithinBudget, scanMentions, stampEntryIds, supersededIds } from "../lib/project-memory/retirement.js";
+import { entryTid, mentionNeedle, readEntryDates, recordEntryDates, retireReply, retireSections, retireWithinBudget, scanMentions, stampEntryIds, supersededIds } from "../lib/project-memory/retirement.js";
 import { sectionsFromMarkdown, renderMemoryDocument } from "../lib/project-memory/sections.js";
 
 const DAY = 86_400_000;
@@ -296,7 +296,7 @@ test("an incomplete scan retires nothing", async () => {
 test("a document that cannot afford every id stamps as many as fit", async () => {
 	const root = await projectDir();
 	// Sized so the document fits without ids and does not fit with all of them: 250 entries of ~150
-	// characters at a 40 000-character cap leave room for a few hundred ids, not all 250.
+	// characters at a 40 000-character cap leave room for 113 ids, not all 250.
 	const entries = Array.from({ length: 250 }, (_, index) => `${String(index).padStart(3, "0")} ${"记".repeat(150)}`);
 	const sections = sectionsOf({ project: entries });
 	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, 40_000);
@@ -311,6 +311,23 @@ test("a document that cannot afford every id stamps as many as fit", async () =>
 	assert.equal(entryTid(result.sections.project[result.ids.size]), undefined, "the rest waits for room");
 	assert.equal(result.added.length, result.ids.size, "only the stamped ids are recorded as added");
 	assert.equal(renderMemoryDocument(result.sections, 40_000).sectionDropped, 0, "the partial stamp spends leftover room only");
+	assert.equal(result.keepIds.size, 250, "every entry keeps a clock, marked or not");
+	for (const tid of result.ids) assert.ok(result.keepIds.has(tid), "a carried id is always owned");
+});
+
+test("less than one stamp's room still keeps every entry's clock", async () => {
+	const root = await projectDir();
+	const entries = Array.from({ length: 20 }, (_, index) => `${String(index).padStart(2, "0")} ${"记".repeat(120)}`);
+	const sections = sectionsOf({ project: entries });
+	// Five characters of headroom is not one id (six), so no marker can land. The smallest document the
+	// budget can leave unstamped must still know which entries it owns, or every age resets.
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 5;
+	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
+
+	assert.equal(result.stamped, false, "no id landed");
+	assert.equal(result.ids.size, 0, "nothing is carried");
+	assert.equal(result.keepIds.size, entries.length, "but every entry is still owned");
+	assert.deepEqual(result.added, [], "nothing is recorded as added");
 });
 
 test("the partial stamp spends its budget on Invariants and Pitfalls before Project and Index", async () => {
@@ -458,4 +475,45 @@ test("a pass that lands nothing records no tombstone", async () => {
 	assert.equal(outcome.semanticEmpty, true, "fixture: the reply carries no entry");
 	assert.equal(outcome.retirement, undefined, "nothing landed, so nothing is retired");
 	assert.equal(existsSync(path.join(root, ".agents/memory/retired.md")), false);
+});
+
+test("the pass keeps the clock of an entry its partial stamp could not mark", async () => {
+	// The sidecar is pruned against the ids the landed document owns, not the ones it managed to print: a
+	// budget that postpones a marker must not also postpone the entry's age, or the fact would come back
+	// dated today and its retirement would slide another 180 days.
+	const root = await projectDir();
+	const entries = Array.from({ length: 250 }, (_, index) => `${String(index).padStart(3, "0")} ${"记".repeat(150)}`);
+	const stored = doc({ project: entries });
+	await writeFile(path.join(root, ".agents/memory/MEMORY.md"), stored, "utf8");
+	const full = stampEntryIds(sectionsOf({ project: entries }), new Set());
+	const unmarkedId = entryTid(full.sections.project[249]);
+	assert.notEqual(unmarkedId, undefined, "fixture: every entry has a derived id");
+	await recordEntryDates(root, new Map([[unmarkedId, "2026-11-01"]]));
+	const config = resolvePluginConfig({ maxTokens: 16_384, maxOutputTokens: 65_536, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
+
+	const { outcome } = await pass(root, stored, config);
+	const landed = sectionsFromMarkdown(outcome.result.memory);
+	assert.notEqual(landed, undefined, "fixture: the landed memory parses");
+	assert.equal(entryTid(landed.project[249]), undefined, "fixture: the tail entry lands without a marker");
+	await land(root, outcome, config);
+
+	assert.equal((await readEntryDates(root)).get(unmarkedId), "2026-11-01", "the unmarked entry kept the age it was recorded with");
+});
+
+test("a near-cap entry postpones only itself, not every other id", async () => {
+	const root = await projectDir();
+	// One 795-character entry sits first in Invariants; adding a six-character marker would make it 801,
+	// past the 800 per-item cap, so the clipper can never show its id. Before the filter that single entry
+	// rejected every prefix containing it: the loop walked the whole budget down to zero and reported
+	// `stamped:false` while twenty short entries had room.
+	const long = `long ${"x".repeat(790)}`;
+	const short = Array.from({ length: 20 }, (_, index) => `s${String(index).padStart(2, "0")} ${"y".repeat(120)}`);
+	const sections = sectionsOf({ invariants: [long, ...short] });
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 120;
+	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
+
+	assert.equal(result.stamped, true, "the short entries can still carry ids");
+	assert.equal(entryTid(result.sections.invariants[0]), undefined, "the near-cap entry stays unmarked");
+	assert.equal(result.ids.size, 20, "every short entry is stamped");
+	assert.equal(renderMemoryDocument(result.sections, cap).itemTruncated, 0, "no marker is clipped away");
 });

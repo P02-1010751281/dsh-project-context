@@ -115,6 +115,14 @@ export type RetirementResult = {
     retired: Tombstone[];
     /** Every id the returned document carries. */
     ids: Set<string>;
+    /**
+     * Every id the returned document *owns*, whether or not the entry could afford to carry it this pass.
+     *
+     * The sidecar prune reads this, not `ids`: with a partial stamp the unstamped entries are still in the
+     * document, and pruning their dates would reset a clock that only the budget had postponed — the entry
+     * would come back dated today once room appears, delaying its retirement for no reason.
+     */
+    keepIds: Set<string>;
     /** Ids minted by this call, whose first-seen date is `today`. */
     added: string[];
     /** Ids this call removed from the document. An echo of one of these is dropped, not re-retired. */
@@ -162,11 +170,16 @@ export declare function stripEntryIds(sections: MemorySections): MemorySections;
  * with the bare ids (+804) but loses 7 entries with the dated marker (+3082).
  *
  * A partial stamp, not all-or-nothing: when the whole document cannot afford every id, the ids that DO
- * fit still land, in priority order — Invariants then Pitfalls, the two sections retirement ages and
- * `supersedes:` read, then Project and Index, which are rewritten every pass. The spare characters are
- * measured from the plain render, so an id can only ever spend leftover room; the alternative was that
- * one character of overflow silently dropped every id and reset every age. Measured here 2026-11-11:
- * 782 characters of headroom = 130 ids, enough for all 107 Invariants/Pitfalls entries.
+ * fit still land, in priority order — Invariants then Pitfalls, then Project and Index, which are
+ * rewritten every pass (retirement itself runs over all four sections, so the order is about which
+ * identity survives a rewrite, not about which sections can be aged). The spare characters are measured
+ * from the plain render, so an id can only ever spend leftover room; the alternative was that one
+ * character of overflow silently dropped every id and reset every age.
+ *
+ * Measured on this project 2026-11-11 (read again before quoting): 44589 characters, 140 entries,
+ * 45000 cap — 411 characters of headroom, so 68 ids fit: every Invariant (64) and 4 of 44 Pitfalls,
+ * with Project and Index postponed. The full tax (840) would have dropped 3 whole entries. An earlier
+ * check the same day read 782/130/107 on a 44218/139 document: these are snapshots, not constants.
  *
  * Ids are content-derived, so the stamped prefix keeps exactly the ids a full stamp would have minted:
  * a body's id never changes just because the budget changed (see `tidFor`).

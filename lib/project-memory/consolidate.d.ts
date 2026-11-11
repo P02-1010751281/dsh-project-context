@@ -118,8 +118,9 @@ export type ConsolidationOutcome = {
      *
      * The tombstones describe a deletion that has not been written yet: a pass refused by tier C or by
      * the basis-key race deletes nothing, so recording them would claim a fact was retired while it is
-     * still in `MEMORY.md`. `added` carries the first-seen date of every id this pass minted, and `ids`
-     * is the id set of the landed document, which prunes the sidecar.
+     * still in `MEMORY.md`. `added` carries the first-seen date of every id the landed document owns, and
+     * `ids` is that same set, which prunes the sidecar — a partial stamp's unstamped entries are in the
+     * document too, so their clocks must survive the prune.
      */
     retirement?: {
         tombstones: Tombstone[];

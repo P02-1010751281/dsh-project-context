@@ -155,8 +155,9 @@ export type ConsolidationOutcome = {
 	 *
 	 * The tombstones describe a deletion that has not been written yet: a pass refused by tier C or by
 	 * the basis-key race deletes nothing, so recording them would claim a fact was retired while it is
-	 * still in `MEMORY.md`. `added` carries the first-seen date of every id this pass minted, and `ids`
-	 * is the id set of the landed document, which prunes the sidecar.
+	 * still in `MEMORY.md`. `added` carries the first-seen date of every id the landed document owns, and
+	 * `ids` is that same set, which prunes the sidecar — a partial stamp's unstamped entries are in the
+	 * document too, so their clocks must survive the prune.
 	 */
 	retirement?: { tombstones: Tombstone[]; added: [string, string][]; ids?: string[] };
 };
@@ -1017,8 +1018,9 @@ export function consolidateProjectState(
 		}
 		// Batch Z2's record half. A tombstone describes a deletion that only exists once the document
 		// lands, so a refused or semantically empty reply carries none: writing one would claim a fact
-		// was retired while it is still stored. `ids` is left out when the ids did not fit this pass,
-		// because pruning the sidecar against a document that carries none would reset every age.
+		// was retired while it is still stored. `ids` is every id the landed document owns — the carried
+		// ones and the content-derived ones a partial stamp left without a marker — so the prune removes
+		// only entries that are genuinely gone and never resets the clock of one the budget postponed.
 		const retirement = !semanticEmpty && !memoryLossyRefused && !partialRefused && (plan !== undefined || applied !== undefined)
 			? {
 				tombstones: [...(plan?.retired ?? []), ...(applied?.retired ?? [])],
@@ -1026,10 +1028,10 @@ export function consolidateProjectState(
 				// not just the ones this call minted. A document restored from git, or hand-edited with
 				// ids of its own, would otherwise carry ids whose age is unknown forever, and an entry
 				// with no age can never be unconfirmed.
-				added: [...new Set([...(plan?.added ?? []), ...(applied?.added ?? []), ...(applied?.stamped === true ? [...applied.ids] : [])])]
+				added: [...new Set([...(plan?.added ?? []), ...(applied?.added ?? []), ...(applied?.keepIds ?? [])])]
 					.filter((tid) => !entryDates.has(tid))
 					.map((tid): [string, string] => [tid, today]),
-				...(applied?.stamped === true ? { ids: [...applied.ids] } : {}),
+				...(applied === undefined ? {} : { ids: [...applied.keepIds] }),
 			}
 			: undefined;
 		const outcome: ConsolidationOutcome = {
