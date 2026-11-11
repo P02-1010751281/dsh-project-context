@@ -10,6 +10,16 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 Z8d：id 记账不再吞事实，也不再谎报丢事实）**
+
+- 修复（2026-11-11T03:33Z 的假警报）：Z2 的 id 盖章会在计划阶段给文档带上 id、回写阶段因装不下而整份去掉，而回归守卫 `removedSectionEntries` 逐字比较新旧条目，于是把每一条未改动的 Invariants/Pitfalls 条目都判成「已消失」——`errors.log` 里是 107 条，实测其中 96 条只差 id、11 条是真改写。现在两侧都先 `stripEntryTid` 再归一化比较；守卫仍然只报告、不阻断，Project/Index 仍排除。新用例 `batch Z8d`（`test/logic.test.mjs`）用 4000 字符 cap 复现「计划带 id、回写不带 id」的完整链路，变异后红在 `removedEntries.count`。
+- 机制（用户 2026-11-11 裁定 A）：`retireWithinBudget` 不再全有全无。带 id 渲染干净 → 全量盖章；不带 id 干净而带 id 不干净 → **按 Invariants → Pitfalls → Project → Index 的顺序，用剩余字符盖多少算多少**（Project/Index 本来就每轮重写，排最后），每盖一个先用渲染器复核，宁可少盖也绝不丢条目；两份都脏（溢出是文档自己的）→ 保留全部 id；一个都盖不下 → `stamped:false`（新语义：只有真的零个 id 落地）。预算按纯文本渲染后的剩余字符算，再逐个降到渲染器接受为止——盖 id 会改变分配里的条目需求，算术值只是上界。
+- 本机算例（cap 45 000，44 276 字符 / 139 条）：剩余 782 字符 = 130 个 id，107 个 Invariants/Pitfalls 条目全部落在里面；旧行为下全量税 834 差 52 字符就让 139 个 id 一起消失。
+- id 仍由正文 sha256 派生，因此部分盖章与全量盖章给同一条目同一个 id；`entries.json` 只记录真正落地的 id，未盖章条目下次盖章时年龄从当天起算（方向安全：推迟退休，不会误删事实）。
+- 新用例 3 条（`test/retirement.test.mjs`：部分盖章不丢条目 / 预算花在 Invariants+Pitfalls 上 / 两份都脏时保留 id），替换原来的「装不下就整份不盖」1 条；2 个变异各只红自己的目标（预算归零 → 前两条红；优先级反转 → 只有优先级用例红）。
+- `pnpm test` **606 通过 / 0 失败**（原 604，−1 换 +3），`pnpm typecheck` 与 `pnpm build` 均 0（`lib/client.js` 38274 未变）。
+- 本批动了 `src/`，**需要重启宿主才生效**。
+
 **project-handoff（批次 Z8c：放弃的交接不再留下空会话目录）**
 
 - 发现方式（2026-11-11）：Z7/Z8 的测试跑完后按 Z1 的口径核对存档——`session-logs/` 有 196 个目录而 `INDEX.md` 只有 194 行；差的两个里，一个是本次会话（尚未归档，理应缺行），另一个是空目录 `child-1`（无 `meta.json`、无 `session.jsonl`）。
