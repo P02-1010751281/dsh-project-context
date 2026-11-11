@@ -27,10 +27,10 @@ import { normalizeMemoryEntry, renderMemoryDocument } from "./sections.js";
 import type { RetirementReason, Tombstone } from "./retired.js";
 
 /** Days an entry may go unmentioned in the archive before it is unconfirmed. */
-export const MAX_UNCONFIRMED_DAYS = 180;
+const MAX_UNCONFIRMED_DAYS = 180;
 
 /** Bytes of `session.jsonl` the unconfirmed scan may read in one pass. */
-export const MENTION_SCAN_BYTE_CAP = 32 * 1024 * 1024;
+const MENTION_SCAN_BYTE_CAP = 32 * 1024 * 1024;
 
 /**
  * The entry id: four hex characters in a trailing full-width parenthetical.
@@ -59,7 +59,7 @@ export function stripEntryTid(entry: string): string {
 }
 
 /** The entry carrying `tid` as its trailing id, replacing any id it already had. */
-export function withEntryTid(entry: string, tid: string): string {
+function withEntryTid(entry: string, tid: string): string {
 	return `${stripEntryTid(entry).trimEnd()}（${tid}）`;
 }
 
@@ -79,7 +79,7 @@ function tidFor(body: string, taken: ReadonlySet<string>): string {
 }
 
 /** A document whose entries all carry an id, plus what the stamping did. */
-export type StampedSections = {
+type StampedSections = {
 	sections: MemorySections;
 	/** Ids this call minted, in document order. Their first-seen date is today. */
 	added: string[];
@@ -128,7 +128,7 @@ export function supersededIds(sections: MemorySections): Map<string, string> {
 }
 
 /** Remove every `supersedes:` declaration from a document (the tombstone already recorded it). */
-export function stripSupersedesMarkers(sections: MemorySections): MemorySections {
+function stripSupersedesMarkers(sections: MemorySections): MemorySections {
 	const stripped = {} as MemorySections;
 	for (const key of Object.keys(sections) as (keyof MemorySections)[]) {
 		stripped[key] = sections[key].map((entry) => {
@@ -240,7 +240,7 @@ export function mentionNeedle(entry: string): string | undefined {
 	return longest === undefined ? undefined : longest.slice(0, 32);
 }
 
-export type MentionScan = {
+type MentionScan = {
 	/** Needles an archived session still mentions. */
 	mentioned: Set<string>;
 	/** Bytes of archive text actually read. */
@@ -331,7 +331,7 @@ export async function scanMentions(
 	return { mentioned, scannedBytes, complete };
 }
 
-export type RetirementContext = {
+type RetirementContext = {
 	projectRoot: string;
 	/** `<tid> -> YYYY-MM-DD`, when the id was first seen. Missing ids are stamped today. */
 	firstSeen: ReadonlyMap<string, string>;
@@ -482,7 +482,7 @@ export async function retireReply(
 }
 
 /** All entry ids in a document, for the sidecar prune. */
-export function documentIds(sections: MemorySections): Set<string> {
+function documentIds(sections: MemorySections): Set<string> {
 	const ids = new Set<string>();
 	for (const key of Object.keys(sections) as (keyof MemorySections)[]) {
 		for (const entry of sections[key]) {
@@ -562,7 +562,7 @@ export async function recordEntryDates(projectRoot: string, dates: ReadonlyMap<s
 }
 
 /** Every entry id removed from each step of a pass, for the reply's echo guard. */
-export function stripEntryIds(sections: MemorySections): MemorySections {
+function stripEntryIds(sections: MemorySections): MemorySections {
 	const stripped = {} as MemorySections;
 	for (const key of Object.keys(sections) as (keyof MemorySections)[]) {
 		stripped[key] = sections[key].map((entry) => stripEntryTid(entry));

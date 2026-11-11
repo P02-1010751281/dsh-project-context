@@ -23,16 +23,7 @@
  */
 import type { TaskMode } from "../shared/config.js";
 /** The three states a task can be in. Only `archived` is authoritative on disk. */
-export type TaskStatus = "active" | "dormant" | "archived";
-/** Days without activity before a task reports `dormant`. */
-export declare const TASK_DORMANT_DAYS = 30;
-/**
- * Days without activity before a task reports `archived`. The spec words this as "dormant for 90
- * days", which in derived terms is simply "no activity for 90 days": dormant is not a stored state,
- * so the only observable boundary is the age of `lastSeen`. Acceptance criterion ③ in §11.8 states
- * the same number as a test (`91` days), and that is the one this constant matches.
- */
-export declare const TASK_ARCHIVE_DAYS = 90;
+type TaskStatus = "active" | "dormant" | "archived";
 /** The metadata a task document carries under its `# Project Task:` heading. */
 export interface TaskMeta {
     /** `YYYY-MM-DD` the document was created. */
@@ -45,21 +36,19 @@ export interface TaskMeta {
     title: string;
 }
 /** One task as read from disk. */
-export interface TaskRecord {
+interface TaskRecord {
     slug: string;
     meta: TaskMeta;
     text: string;
 }
 /** A task with the status derived for the caller's mode and date. */
-export interface TaskView extends TaskRecord {
+interface TaskView extends TaskRecord {
     status: TaskStatus;
 }
 /** Slugs are file names, so they take the same kebab-case rule the skill directory uses. */
 export declare function validTaskSlug(slug: string): boolean;
 /** `YYYY-MM-DD` for one instant, in UTC — the convention `session-meta.ts` and `retirement.ts` use. */
 export declare function dateStamp(now?: Date): string;
-/** Whole days from one `YYYY-MM-DD` to another, or `undefined` when either is malformed. */
-export declare function daysBetween(from: string, to: string): number | undefined;
 /** The heading every task document carries; the slug is the document's identity, not its title. */
 export declare function taskHeader(slug: string): string;
 /** `> created 2026-11-10 · status active · lastSeen 2026-11-10 · title Release prep` */
@@ -88,13 +77,6 @@ export declare function deriveTaskStatus(meta: TaskMeta, options: {
 }): TaskStatus;
 /** Read one task document asynchronously; a missing file and an unparseable one both read as absent. */
 export declare function readTask(projectRoot: string, slug: string): Promise<TaskRecord | undefined>;
-/**
- * Synchronous cached read for prompt assembly: same bytes as {@link readTask}, no await.
- *
- * Prompt assembly cannot block, so this is the reader the injection uses; `readTextCachedSync`
- * re-reads only when the file's mtime or size changed.
- */
-export declare function readTaskSync(projectRoot: string, slug: string): TaskRecord | undefined;
 /** Every valid task file, sorted by slug. One unreadable document must not hide the rest. */
 export declare function listTasks(projectRoot: string): Promise<TaskRecord[]>;
 /** The synchronous counterpart of {@link listTasks}, for the injection provider. */
@@ -146,3 +128,4 @@ export declare function taskViews(records: readonly TaskRecord[], options: {
     mode: TaskMode;
     today: string;
 }): TaskView[];
+export {};

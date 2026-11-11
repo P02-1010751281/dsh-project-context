@@ -17,22 +17,6 @@ export declare class HandoffDeferred extends Error {
     constructor(message: string);
 }
 /**
- * Raised when a handoff failed for a reason that a plain retry can clear — the session controller
- * refused the seed because a turn was already open, the summary route dropped the connection, the
- * provider rate-limited the call. Distinct from an ordinary `Error`, which is terminal: a handoff
- * document that cannot be built, a model that does not exist, a project root that cannot be read.
- *
- * The manual path needs the distinction because `/handoff now` renders its `catch` verbatim: a
- * retryable cause reported as "Handoff failed" tells the user the operation is over when the fix
- * is to run the same command again. The automatic path does not need it (it retries on its own
- * schedule), so this class exists for the receipt.
- */
-export declare class HandoffTransient extends Error {
-    constructor(message: string, options?: {
-        cause?: unknown;
-    });
-}
-/**
  * Whether a handoff failure is worth retrying. Only the shapes recognized below qualify; anything
  * else is terminal. The pattern is a heuristic over wording the runtime controls, so it is biased
  * toward "terminal" — an unrecognized transient is reported as a plain failure rather than promised

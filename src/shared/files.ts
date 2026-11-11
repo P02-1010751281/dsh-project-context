@@ -96,7 +96,7 @@ async function movePath(source: string, destination: string): Promise<void> {
  * an identical duplicate). `superseded` means the destination was at least as new, so the source was
  * deleted **without** being copied.
  */
-export type MergeOutcome = "merged" | "superseded" | "absent" | "conflict";
+type MergeOutcome = "merged" | "superseded" | "absent" | "conflict";
 
 /**
  * Merge one legacy artifact into the new location; newest content wins, then the

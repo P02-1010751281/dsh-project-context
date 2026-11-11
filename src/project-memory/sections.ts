@@ -312,10 +312,10 @@ const DECORATION_RE = /^(?:(?:>\s*|[-*+]\s+|\d+[.)]\s+))*/;
 const FENCE_LINE_RE = /^(`{3,}|~{3,})\s*(.*)$/;
 
 /** A fence line as CommonMark reads it: a run of three or more backticks or tildes plus whatever follows. */
-export type FenceToken = { char: string; run: string; info: string };
+type FenceToken = { char: string; run: string; info: string };
 
 /** The fence line in `value`, or `undefined` when the line is not a fence line at all. */
-export function readFenceLine(value: string): FenceToken | undefined {
+function readFenceLine(value: string): FenceToken | undefined {
 	const match = FENCE_LINE_RE.exec(value);
 	return match ? { char: match[1][0], run: match[1], info: match[2].trim() } : undefined;
 }
@@ -328,7 +328,7 @@ export function readFenceLine(value: string): FenceToken | undefined {
  * mirror only half the rule. dsh had this rule inlined in the heading-only gate once; a second hand-rolled
  * reader in the shape gate is exactly the kind of near-copy that drifts.
  */
-export function fenceCloses(token: FenceToken, open: FenceToken): boolean {
+function fenceCloses(token: FenceToken, open: FenceToken): boolean {
 	return token.char === open.char && token.run.length >= open.run.length && token.info === "";
 }
 

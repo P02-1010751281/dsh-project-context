@@ -29,7 +29,7 @@ function renderKeyOf(raw: string, limit: number): string {
 }
 
 /** What one write of the memory document did: published the reply, or kept newer stored bytes. */
-export type MemoryWriteResult = { written: true } | { written: false; kept: string };
+type MemoryWriteResult = { written: true } | { written: false; kept: string };
 
 /**
  * Fold an edit made outside the plugin (a hand edit, or an older build's render) into the journal so

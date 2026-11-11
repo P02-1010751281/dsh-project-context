@@ -152,7 +152,7 @@ function fixedFloorAdvice(config: PluginConfig, measurement: ContextMeasurement,
  * at `tokens <= 0` only a larger window helps, while a positive trigger under the floor is cleared by
  * raising the ratio or lowering the carried tail.
  */
-export type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold" | "fixed-below-floor";
+type ThresholdRefusal = "window-headroom" | "quality-knee" | "drop-floor" | "no-positive-threshold" | "fixed-below-floor";
 
 /**
  * The refusal cause behind `resolveThreshold(...) === undefined`, or `undefined` when the threshold
@@ -411,7 +411,7 @@ function capacityLimit(room: HandoffRoom): number {
  * ignored: a user who raises `/handoff budget summary` and sees nothing change has been sent to a control
  * that does nothing.
  */
-export interface ThresholdOverride {
+interface ThresholdOverride {
 	/** Which manual setting was overridden, as the receipt names it. */
 	setting: "target" | "ratio" | "tokens";
 	/** The threshold that setting asked for. */

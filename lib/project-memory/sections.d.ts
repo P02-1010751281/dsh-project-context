@@ -103,23 +103,6 @@ export type MemorySectionOverage = {
  * non-zero `truncatedEntries`: it needs rewording, not merging.
  */
 export declare function memorySectionOverage(sections: MemorySections, cap: number): MemorySectionOverage[];
-/** A fence line as CommonMark reads it: a run of three or more backticks or tildes plus whatever follows. */
-export type FenceToken = {
-    char: string;
-    run: string;
-    info: string;
-};
-/** The fence line in `value`, or `undefined` when the line is not a fence line at all. */
-export declare function readFenceLine(value: string): FenceToken | undefined;
-/**
- * Whether `token` closes a block opened by `open`: the same character, at least as long, and nothing but
- * whitespace after the run — an info string makes a line an opener, not a closer.
- *
- * Both readers of fences (the heading-only gate and the document-shape gate) share this, so neither can
- * mirror only half the rule. dsh had this rule inlined in the heading-only gate once; a second hand-rolled
- * reader in the shape gate is exactly the kind of near-copy that drifts.
- */
-export declare function fenceCloses(token: FenceToken, open: FenceToken): boolean;
 /**
  * True when a document carries no usable content at all.
  *

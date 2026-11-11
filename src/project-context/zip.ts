@@ -84,7 +84,7 @@ const SESSION_LOG_ENTRY = /^session(?:\.v(\d+))?\.jsonl$/;
  * @param buffer - the whole zip file.
  * @returns the canonical JSONL bytes, or `undefined` when no root session log exists.
  */
-export function readZipSessionLog(buffer: Buffer): Buffer | undefined {
+function readZipSessionLog(buffer: Buffer): Buffer | undefined {
 	let best: ZipRow | undefined;
 	let bestGeneration = -1;
 	for (const row of listZipRows(buffer)) {

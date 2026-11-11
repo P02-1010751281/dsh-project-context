@@ -31,7 +31,7 @@ export declare function readMemorySource(file: string): Promise<{
     unreadable: boolean;
 }>;
 /** One consistent read of the render: its bytes, the mtime that read saw, and whether it raced. */
-export type RenderRead = {
+type RenderRead = {
     text: string;
     mtimeMs?: number;
     changed: boolean;
@@ -71,8 +71,6 @@ export declare function renderChangedUnderRead(before: Stats | undefined, after:
  * @returns the bytes read, that read's mtime, and whether the file changed under it.
  */
 export declare function readRenderWithMtime(file: string): Promise<RenderRead>;
-/** The synchronous counterpart, for the prompt-assembly reader. Same contract as `readRenderWithMtime`. */
-export declare function readRenderWithMtimeSync(file: string): RenderRead;
 /**
  * Read this project's memory. The journal is the source of truth once it exists; `MEMORY.md` is
  * the old layout and stays readable for projects that never wrote a journal.
@@ -100,3 +98,4 @@ export declare function readMemoryDamage(projectRoot: string): Promise<{
 export declare function loadMemorySync(projectRoot: string, limit?: number): string;
 /** File mtime in milliseconds, 0 when it does not exist. */
 export declare function mtimeMs(file: string): number;
+export {};

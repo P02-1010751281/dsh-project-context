@@ -25,7 +25,7 @@ import { contextSectionBudgets } from "./context-schema.js";
 import { clipToLineBoundary } from "./document.js";
 
 /** The prefix that marks a line as mechanically maintained rather than model-authored. */
-export const TODO_LINE_PREFIX = "[todo]";
+const TODO_LINE_PREFIX = "[todo]";
 
 /** A rendered mechanic line: a bullet whose content starts with the prefix. */
 const TODO_LINE_RE = /^-\s+\[todo\](?:\s|$)/;
@@ -84,7 +84,7 @@ export function todoLines(value: unknown): string[] | undefined {
 }
 
 /** True for a line this module owns; the test and the pass both read it through {@link todoLinesIn}. */
-export function isTodoLine(line: string): boolean {
+function isTodoLine(line: string): boolean {
 	return TODO_LINE_RE.test(line.trim());
 }
 
@@ -159,7 +159,7 @@ function openTasksBody(scanned: Scanned): OpenTasksBody | undefined {
 }
 
 /** What one mechanic write did; `changed` false means the caller must not touch the file. */
-export interface TodoPatch {
+interface TodoPatch {
 	/** The document to store, or the input when nothing changed. */
 	text: string;
 	/** True when the document differs from the input. */

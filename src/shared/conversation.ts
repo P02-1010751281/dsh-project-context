@@ -172,7 +172,7 @@ export interface ConversationSection {
  * A compaction's checkpoint is such a replacement, so reading append-origin events lets the span it
  * summarized be rendered instead of the summary that replaced it.
  */
-export type ConversationSource = "surface" | "append-origin";
+type ConversationSource = "surface" | "append-origin";
 
 /**
  * The messages of one session under a {@link ConversationSource}.

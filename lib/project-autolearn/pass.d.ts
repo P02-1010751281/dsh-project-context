@@ -5,7 +5,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type PluginConfig } from "../shared/config.js";
 import { type LearnedSkill } from "./skill.js";
-export interface AutolearnOptions {
+interface AutolearnOptions {
     force?: boolean;
     signal?: AbortSignal;
     /**
@@ -50,3 +50,4 @@ export interface AutolearnOutcome {
  * count across sessions or wall-clock interval). Commands force the pass.
  */
 export declare function autolearnProjectSkills(ctx: Context, agent: Agent, config: PluginConfig, options?: AutolearnOptions): Promise<AutolearnOutcome | undefined>;
+export {};

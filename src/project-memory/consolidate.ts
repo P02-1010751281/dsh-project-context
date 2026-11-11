@@ -44,7 +44,7 @@ import { type RetirementResult, readEntryDates, retireReply, retireWithinBudget,
  * Which entry produced the memory this pass would write, or `"none"` when the pass was refused before
  * any model call (the read-cap gate): there is no reply, so nothing produced the document.
  */
-export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial" | "none";
+type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial" | "none";
 
 /** A reply read into the shape this pass writes: the sections when it had them, plus the context. */
 type ResolvedReply = {
@@ -162,7 +162,7 @@ export type ConsolidationOutcome = {
 	retirement?: { tombstones: Tombstone[]; added: [string, string][]; ids?: string[] };
 };
 
-export interface ConsolidationOptions {
+interface ConsolidationOptions {
 	force?: boolean;
 	signal?: AbortSignal;
 }
@@ -239,7 +239,7 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
  * is the pass's job, not the model's: asking the model to also delete the old entry is the behaviour
  * that failed before this existed.
  */
-export const MEMORY_ENTRY_ID_RULE =
+const MEMORY_ENTRY_ID_RULE =
 	"Every entry ends with its id in a full-width parenthetical, e.g. `… durable fact（4f2a）`. When you keep an entry, keep its id exactly as given. Do not invent an id for a new entry and do not add one to an entry that has none. To replace an entry, write the replacement and end it with `supersedes:<old id>`; the old entry is retired automatically, so do not repeat it.";
 
 export const MEMORY_KEEP_RULE =

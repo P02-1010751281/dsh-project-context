@@ -50,10 +50,10 @@ export interface ProjectContextSettings {
 }
 
 /** How one row is edited. `threshold` folds `auto` / `40%` / `400k` into the stored spelling. */
-export type FieldKind = "boolean" | "number" | "text" | "union" | "threshold";
+type FieldKind = "boolean" | "number" | "text" | "union" | "threshold";
 
 /** The inclusive bounds a numeric row enforces locally, mirroring the Host schema's `min`/`max`. */
-export interface FieldBounds {
+interface FieldBounds {
 	readonly min: number;
 	readonly max: number;
 }
@@ -67,7 +67,7 @@ export interface FieldRow {
 }
 
 /** One rendered group of rows. */
-export interface FieldSection {
+interface FieldSection {
 	readonly titleKey: SettingsCardKey;
 	readonly descriptionKey: SettingsCardKey;
 	readonly rows: readonly FieldRow[];

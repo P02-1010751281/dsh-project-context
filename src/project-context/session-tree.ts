@@ -28,7 +28,7 @@ import { listArchivedSessions } from "./session-index.js";
 import type { SessionMeta } from "./session-meta.js";
 
 /** One node and its continuations, in archive order. */
-export interface SessionTreeNode {
+interface SessionTreeNode {
 	readonly meta: SessionMeta;
 	readonly children: readonly SessionTreeNode[];
 	/** The `parentId` that is not in the archive, when this node is an orphan. */
@@ -36,7 +36,7 @@ export interface SessionTreeNode {
 }
 
 /** The whole forest plus the counts the header reports. */
-export interface SessionTree {
+interface SessionTree {
 	readonly roots: readonly SessionTreeNode[];
 	/** Sessions rendered (subagent archives excluded). */
 	readonly sessionCount: number;

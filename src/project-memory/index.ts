@@ -135,7 +135,7 @@ interface ConsolidateOptions {
 }
 
 /** What one consolidation attempt did, so the `/memory update` reply can be truthful. */
-export type ConsolidateStatus = "updated" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
+type ConsolidateStatus = "updated" | "unchanged" | "deduped" | "failed" | "stale" | "lossy-refused" | "partial-refused" | "read-capped-refused" | "fit-capped-refused";
 
 /**
  * What a refused reply would have lost, kept apart from the landed counts on purpose.
@@ -144,7 +144,7 @@ export type ConsolidateStatus = "updated" | "unchanged" | "deduped" | "failed" |
  * reply's numbers into those fields would report a loss the stored file never suffered. They are still
  * what the user needs to act on, so they ride in their own field instead.
  */
-export type RefusedLoss = {
+type RefusedLoss = {
 	/** Sections that would have lost at least one entry because the document reached its cap. */
 	sectionDropped: number;
 	/** Entries that would have been dropped whole. */
@@ -170,7 +170,7 @@ export type RefusedLoss = {
  * refused before the model call (`readCappedRefused` / `fitCappedRefused`), so no landed count can
  * describe a character the model was not shown.
  */
-export type ConsolidateReport = {
+type ConsolidateReport = {
 	status: ConsolidateStatus;
 	/** True when this pass's memory landed. A receipt must never claim an artifact that did not. */
 	memoryWritten: boolean;
@@ -233,7 +233,7 @@ export type ConsolidateReport = {
 };
 
 /** The no-loss half of a report: nothing landed and nothing was dropped. */
-export type ConsolidateLoss = Omit<ConsolidateReport, "status">;
+type ConsolidateLoss = Omit<ConsolidateReport, "status">;
 
 const NO_LOSS: ConsolidateLoss = {
 	memoryWritten: false,

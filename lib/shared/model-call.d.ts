@@ -6,7 +6,6 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "./config.js";
-export declare const LEARN_PLUGIN_NAME = "dsh-project-context";
 /**
  * This producer's message-source kind.
  *
@@ -57,7 +56,7 @@ export type PluginTool = {
  * One tool call the reply carried, with its arguments left as the raw JSON text the adapter
  * streamed. Whether those arguments are usable is the caller's policy, not this module's.
  */
-export type PluginToolCall = {
+type PluginToolCall = {
     name: string;
     arguments: string;
 };
@@ -165,8 +164,6 @@ export declare function requestPluginTextWithMeta(ctx: Context, target: {
     provider: string;
     model: string;
 }, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options: PluginCallOptions): Promise<CompletionOutcome>;
-/** The harness failure code an error carries (`HarnessError.code`), or undefined when it carries none. */
-export declare function failureCodeOf(error: unknown): string | undefined;
 /** Per-pass state for `callWithToolsFallback`; the switch belongs to the pass, not to this module. */
 export type ToolsFallbackState = {
     toolsDisabled?: boolean;
@@ -212,3 +209,4 @@ export declare function pickToolCall(toolCalls: readonly PluginToolCall[] | unde
  * half-written, so both are refused. A reply that carries no call is not this predicate's business.
  */
 export declare function toolCallIsTruncated(completion: CompletionOutcome): boolean;
+export {};

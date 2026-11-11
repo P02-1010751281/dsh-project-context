@@ -8,10 +8,6 @@
  */
 /** Languages this repo renders scaffolding or injected text in. */
 export type DocumentLanguage = "zh" | "en";
-/** CJK ideographs; the user's own messages are the most reliable language signal. */
-export declare const CJK_PATTERN: RegExp;
-/** CJK characters needed in the samples before the detector picks Chinese. */
-export declare const LANGUAGE_CJK_MIN = 2;
 /** Count how many times `pattern` matches across every sample. */
 export declare function countMatches(samples: readonly string[], pattern: RegExp): number;
 /**

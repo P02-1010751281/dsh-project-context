@@ -9,7 +9,7 @@
  *
  * Storage: `<project>/.agents/memory/autolearn-state.json`
  */
-export interface LearnState {
+interface LearnState {
     /**
      * The material timestamp the last recorded pass distilled, in epoch ms (a file mtime, so not
      * necessarily an integer); 0 when no pass was ever recorded.
@@ -44,3 +44,4 @@ export declare function readLearnState(projectRoot: string): Promise<LearnState>
  * @returns the state that was written (or would have been).
  */
 export declare function updateLearnState(projectRoot: string, patch: Partial<LearnState>): Promise<LearnState>;
+export {};

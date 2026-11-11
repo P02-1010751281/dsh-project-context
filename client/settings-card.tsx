@@ -54,14 +54,14 @@ injectStyles();
 export type { ProjectContextSettings };
 
 /** State the card renders: the shared form shell plus one entry per table row. */
-export interface ProjectContextSettingsCardState extends SettingsFormShell {
+interface ProjectContextSettingsCardState extends SettingsFormShell {
 	readonly fields: Readonly<Record<keyof ProjectContextSettings, SettingsFieldState>>;
 	/** The last save's cause, so the frame's one `failed` flag can name the one that applies. */
 	readonly saveFailure?: SaveFailure;
 }
 
 /** The registration-side face the card's slot entry injects. */
-export interface ProjectContextSettingsCardFace extends SettingsFormActions {
+interface ProjectContextSettingsCardFace extends SettingsFormActions {
 	hooks: {
 		/** Card snapshot bound by the renderer as useProjectContextSettingsCard. */
 		projectContextSettingsCard: SnapshotStore<ProjectContextSettingsCardState>;
@@ -144,7 +144,7 @@ export class ProjectContextSettingsCardController {
 }
 
 /** Props the renderer binds for the project-context plugin-configuration card. */
-export type ProjectContextSettingsCardProps =
+type ProjectContextSettingsCardProps =
 	& PropsRuntime<"plugins.bundle.config">
 	& PropsLocale<"project-context">
 	& InjectFace<ProjectContextSettingsCardFace>;

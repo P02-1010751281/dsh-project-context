@@ -71,7 +71,7 @@ export function outstandingSubagents(events: readonly unknown[], now: number, ho
  * This session's *own* events. A fork inherits its parent's log and an inherited child's notice
  * goes to the original parent, so the inherited prefix must not read as this session's work.
  */
-export function ownEventsOf(session: Session): readonly unknown[] {
+function ownEventsOf(session: Session): readonly unknown[] {
 	const withOwn = session as { ownEvents?: () => readonly unknown[] };
 	return withOwn.ownEvents?.() ?? session.snapshotEvents();
 }
@@ -177,7 +177,7 @@ interface AgentsLike {
  * @param session - the session about to be handed off.
  * @returns the running continuable child ids, or `undefined` when the log must be consulted.
  */
-export async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
+async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
 	const service = ctx.get("subagents") as SubagentsLike | undefined;
 	const agents = ctx.get("agents") as AgentsLike | undefined;
 	// Without the live registry there is no way to tell a working child from a resident one, and the

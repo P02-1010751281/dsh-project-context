@@ -11,9 +11,9 @@
 export type DocumentLanguage = "zh" | "en";
 
 /** CJK ideographs; the user's own messages are the most reliable language signal. */
-export const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
+const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
 /** CJK characters needed in the samples before the detector picks Chinese. */
-export const LANGUAGE_CJK_MIN = 2;
+const LANGUAGE_CJK_MIN = 2;
 
 /** Count how many times `pattern` matches across every sample. */
 export function countMatches(samples: readonly string[], pattern: RegExp): number {

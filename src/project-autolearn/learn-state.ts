@@ -14,7 +14,7 @@ import path from "node:path";
 import { withMemoryLock } from "../shared/lock.js";
 import { ensureMemoryGitignore, memoryDir, readOptional, writeAtomic } from "../shared/project-state.js";
 
-export interface LearnState {
+interface LearnState {
 	/**
 	 * The material timestamp the last recorded pass distilled, in epoch ms (a file mtime, so not
 	 * necessarily an integer); 0 when no pass was ever recorded.

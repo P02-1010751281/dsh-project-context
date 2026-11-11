@@ -24,7 +24,7 @@
  */
 import { type HandoffLanguage } from "./language.js";
 /** The route facts a failure is identified by. */
-export interface HandoffRouteFailure {
+interface HandoffRouteFailure {
     /** The provider `resolveTarget` resolved (config first, then the session's request header). */
     readonly provider: string;
     /** The model of that same pair. */
@@ -107,14 +107,4 @@ export declare function routeFailureText(sessionId: string): string;
  * @returns one receipt line.
  */
 export declare function routeFailureReceipt(failure: HandoffRouteFailure, detail: string, language: HandoffLanguage): string;
-/**
- * The model-facing rendering of one failure, without a recorded session.
- *
- * {@link routeFailureText} is the payload the injected line uses; this is the same sentence for a
- * caller that holds the failure itself (a test, or a future surface) — one renderer, so the prompt
- * cannot start describing the same failure two ways.
- * @param failure - the route facts.
- * @param language - the session's language.
- * @returns the rendered sentence.
- */
-export declare function renderRouteFailure(failure: HandoffRouteFailure, language: HandoffLanguage): string;
+export {};

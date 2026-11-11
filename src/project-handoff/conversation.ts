@@ -69,7 +69,7 @@ interface AskedQuestion {
 }
 
 /** One question of a carried decision, with the answer the result supplied for it. */
-export interface UserDecisionEntry {
+interface UserDecisionEntry {
 	readonly question: string;
 	readonly options: readonly string[];
 	/** Labels the user picked; empty when they typed an answer instead. */
@@ -283,7 +283,7 @@ function readSessionInputs(session: Session): SessionInputs {
  * What the continuation carries. At most one block owns the closing, so the seed can never tell the
  * child both "wait for the user" and "the user has already decided".
  */
-export interface HandoffCarry {
+interface HandoffCarry {
 	/** The assistant question still awaiting an answer, when it is the newest of the two. */
 	readonly pending?: string;
 	/** The user's own last input, when it is the newest of the two. */

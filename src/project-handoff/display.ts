@@ -32,7 +32,7 @@ import { type HandoffLanguage } from "./language.js";
 import { clearRouteFailure, routeFailureText } from "./route-failure.js";
 
 /** Why an over-threshold session has not handed off yet, as the trigger itself determined it. */
-export type HandoffDeferral = "question" | "subagents" | "nothing-to-drop";
+type HandoffDeferral = "question" | "subagents" | "nothing-to-drop";
 
 /**
  * One frozen crossing. The occupancy and threshold are captured at the crossing, not re-read, so

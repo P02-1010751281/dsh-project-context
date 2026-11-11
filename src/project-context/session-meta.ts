@@ -14,7 +14,7 @@ import path from "node:path";
 import { readOptional, safeSessionId, writeAtomic } from "../shared/project-state.js";
 
 /** `session` for an ordinary archive, `subagent` for a delegated child, `handoff` for a successor. */
-export type SessionKind = "session" | "subagent" | "handoff";
+type SessionKind = "session" | "subagent" | "handoff";
 
 export interface SessionMeta {
 	/** Safe session id — the directory name. */

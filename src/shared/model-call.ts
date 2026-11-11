@@ -9,7 +9,7 @@ import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "@deepseek-ai/dsh-llm";
 import { type PluginConfig } from "./config.js";
 
-export const LEARN_PLUGIN_NAME = "dsh-project-context";
+const LEARN_PLUGIN_NAME = "dsh-project-context";
 
 /**
  * This producer's message-source kind.
@@ -62,7 +62,7 @@ export type PluginTool = {
  * One tool call the reply carried, with its arguments left as the raw JSON text the adapter
  * streamed. Whether those arguments are usable is the caller's policy, not this module's.
  */
-export type PluginToolCall = { name: string; arguments: string };
+type PluginToolCall = { name: string; arguments: string };
 
 /** What one plugin-authored model call produced: its visible text, how the stream ended, and any tool calls. */
 export type CompletionOutcome = {
@@ -294,7 +294,7 @@ export async function requestPluginTextWithMeta(
 const REQUEST_SHAPE_CODES = new Set(["INVALID_REQUEST", "HTTP_400", "HTTP_413"]);
 
 /** The harness failure code an error carries (`HarnessError.code`), or undefined when it carries none. */
-export function failureCodeOf(error: unknown): string | undefined {
+function failureCodeOf(error: unknown): string | undefined {
 	const code = (error as { code?: unknown } | null | undefined)?.code;
 	return typeof code === "string" && code !== "" ? code : undefined;
 }

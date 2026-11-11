@@ -14,7 +14,7 @@ import { type DocumentLanguage } from "../shared/language.js";
 /** Languages the handoff scaffolding can be rendered in. */
 export type HandoffLanguage = DocumentLanguage;
 /** The configured language: `auto` follows the conversation. */
-export type HandoffLanguageSetting = "auto" | HandoffLanguage;
+type HandoffLanguageSetting = "auto" | HandoffLanguage;
 /** One raw message the `auto` decision samples. */
 export interface HandoffLanguageMessage {
     /** Provider-neutral role; only `user` messages are sampled. */
@@ -42,7 +42,7 @@ export declare function resolveLanguage(messages: readonly HandoffLanguageMessag
  */
 export declare const REPLAY_MARKER = "[handoff prompt omitted]";
 /** Localized scaffolding for the archived document and the continuation prompt. */
-export interface HandoffScaffolding {
+interface HandoffScaffolding {
     readonly documentTitle: (sessionId: string) => string;
     readonly documentCreated: (iso: string) => string;
     readonly documentProject: (root: string) => string;
@@ -82,3 +82,4 @@ export declare const SCAFFOLDING: Record<HandoffLanguage, HandoffScaffolding>;
  * `humanUserText` reuses this so a handoff's own seed is never counted as a human turn.
  */
 export declare function isHandoffContinuationText(text: string): boolean;
+export {};

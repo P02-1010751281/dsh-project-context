@@ -22,13 +22,6 @@ export type ConsolidationResult = {
     contextUnusable?: boolean;
 };
 export declare function parseJsonObject(text: string): Record<string, unknown> | undefined;
-/**
- * Read an optional list of strings out of a context field. `undefined` means the key was absent
- * (nothing to say), a string[] means it was usable, and `null` means it was present but
- * malformed — a caller must refuse the whole context rather than treat that as an empty list,
- * since doing the latter overwrites a good CONTEXT.md with hollowed-out sections.
- */
-export declare function readContextList(value: unknown): string[] | null | undefined;
 /** Undefined means the pass must fail without touching MEMORY.md. */
 export declare function parseConsolidation(text: string): ConsolidationResult | undefined;
 /**

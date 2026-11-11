@@ -6,7 +6,7 @@
  *
  * Ported from pi's `extensions/project-context/memory/schema.ts`.
  */
-export type MemorySectionSpec = {
+type MemorySectionSpec = {
     /** The `##` heading the section carries. */
     heading: string;
     /** What belongs in the section, rendered next to its heading in the prompt. */
@@ -31,13 +31,11 @@ export type MemorySectionSpec = {
  * the pool is measured against; they stopped being a per-section refusal.
  */
 export declare const MEMORY_SECTIONS: readonly MemorySectionSpec[];
-export type MemorySectionBudget = {
+type MemorySectionBudget = {
     heading: string;
     description: string;
     chars: number;
 };
-/** One blank line (two characters) terminates each section body; the last one over-reserves a character. */
-export declare const MEMORY_SECTION_GAP_CHARS = 2;
 /**
  * Characters the document header, the fixed section headings, and the blank lines around the section
  * bodies spend before any body text. The per-section budgets are shares of the remainder: shares of
@@ -70,3 +68,4 @@ export declare function memorySectionBudgets(cap: number): MemorySectionBudget[]
 export declare const MEMORY_SECTION_PROMPT_SHARE = 0.9;
 /** The per-section figure the prompt asks for: inside the hard budget, from the one table. */
 export declare function memorySectionPromptBudgets(cap: number): MemorySectionBudget[];
+export {};

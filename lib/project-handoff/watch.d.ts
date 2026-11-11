@@ -19,7 +19,7 @@
  * 2026-09-13 misdirected-command incident lacked.
  */
 /** The slice of the client context this watcher reads: `sessions` and `conversation`, when present. */
-export interface HandoffWatchContext {
+interface HandoffWatchContext {
     get(name: string): unknown;
 }
 /**
@@ -28,3 +28,4 @@ export interface HandoffWatchContext {
  * @returns disposer removing the list subscription.
  */
 export declare function watchHandoffSwitch(ctx: HandoffWatchContext): () => void;
+export {};

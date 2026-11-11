@@ -9,8 +9,8 @@
 /** The canonical heading every rendered context document carries. */
 export declare const CONTEXT_HEADER = "# Project Context\n\n";
 /** Which `ContextUpdate` field feeds a section; also picks its prose/list rendering. */
-export type ContextSectionEntry = "summary" | "key_points" | "open_tasks";
-export type ContextSectionSpec = {
+type ContextSectionEntry = "summary" | "key_points" | "open_tasks";
+type ContextSectionSpec = {
     /** The `##` heading the section carries. */
     heading: string;
     /** What belongs in the section, rendered next to its heading in the prompt. */
@@ -67,10 +67,6 @@ export declare const CONTEXT_TOOL_SCHEMA: {
         };
     };
 };
-/** One blank line (two characters) terminates each section body; the last one over-reserves a character. */
-export declare const CONTEXT_SECTION_GAP_CHARS = 2;
-/** `new Date().toISOString()` always renders this many characters. */
-export declare const CONTEXT_TIMESTAMP_CHARS = 24;
 /** Longest session title the trailing comment carries (`renderContextDocument` trims to this). */
 export declare const CONTEXT_TITLE_CHARS = 160;
 /** The line a truncated document ends with: a cut context must never look like a complete one. */
@@ -97,3 +93,4 @@ export declare function contextSectionBudgets(cap?: number): ContextSectionBudge
  * clamps because the marker's count alone cannot say which of them fired.
  */
 export declare function contextClipNotice(dropped: number): string;
+export {};

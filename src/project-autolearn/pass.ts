@@ -24,7 +24,7 @@ import { backtrackPrompt, basePrompt } from "./prompt.js";
 import { RECORD_SKILL_TOOL } from "./schema.js";
 import { type LearnedSkill } from "./skill.js";
 
-export interface AutolearnOptions {
+interface AutolearnOptions {
 	force?: boolean;
 	signal?: AbortSignal;
 	/**

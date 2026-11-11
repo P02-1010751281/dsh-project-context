@@ -134,7 +134,7 @@ export function carryPermissionPreset(ctx: Context, childId: string, session: Se
  * @param session - the parent session being handed off.
  * @returns the provider/model/effort triple, or `undefined`.
  */
-export function parentModelSelection(session: Session): { provider: string; model: string; reasoningEffort?: string } | undefined {
+function parentModelSelection(session: Session): { provider: string; model: string; reasoningEffort?: string } | undefined {
 	const routed = session.requestHeader()?.config as { provider?: unknown; model?: unknown; reasoningEffort?: unknown } | undefined;
 	const provider = routed?.provider;
 	const model = routed?.model;
@@ -277,7 +277,7 @@ export async function abandonChild(
  * @param ctx - plugin context carrying the optional workspace registry service.
  * @param session - the session that was handed off.
  */
-export async function retireSession(ctx: Context, session: Session): Promise<void> {
+async function retireSession(ctx: Context, session: Session): Promise<void> {
 	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
 	if (registry?.archiveSession === undefined) return;
 	try {

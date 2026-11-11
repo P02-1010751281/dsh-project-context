@@ -21,14 +21,10 @@
  */
 /** Byte-level backups kept, newest first. The render names the newest one, so it always survives. */
 export declare const PRUNE_BACKUPS_KEPT = 3;
-/** Archived journals (`memory-log-*.jsonl`) older than this are reclaimable. */
-export declare const PRUNE_JOURNAL_AGE_MS: number;
-/** Autolearn candidate notes older than this are reclaimable. */
-export declare const PRUNE_CANDIDATE_AGE_MS: number;
 /** What an applied run does with one candidate. */
-export type PruneAction = "remove" | "truncate";
+type PruneAction = "remove" | "truncate";
 /** One reclaimable artifact, named relative to the memory directory so it is also a tar entry. */
-export interface PruneCandidate {
+interface PruneCandidate {
     /** Path relative to `<memory>/`; used verbatim as the tar member name. */
     name: string;
     bytes: number;
@@ -36,7 +32,7 @@ export interface PruneCandidate {
     reason: "byte-backup" | "journal-archive" | "journal-temp" | "error-log" | "skill-candidate";
     action: PruneAction;
 }
-export interface PrunePlan {
+interface PrunePlan {
     candidates: PruneCandidate[];
     /** Total bytes that leave the directory (a truncation counts its original size). */
     bytes: number;
@@ -64,8 +60,6 @@ export interface PruneOutcome {
 export declare function planPrune(projectRoot: string, now?: number): Promise<PrunePlan>;
 /** A receipt- and log-friendly size: the plan can hold a megabyte-sized log next to a 300-byte note. */
 export declare function formatBytes(bytes: number): string;
-/** The members a tarball carries, by the format's own rules (how a verifying reader sees it). */
-export declare function readTarNames(archive: Buffer): string[];
 /**
  * Clean this project's memory directory.
  *
@@ -85,3 +79,4 @@ export declare function pruneProjectMemory(projectRoot: string, options: {
     reason: "auto" | "manual";
     now?: number;
 }): Promise<PruneOutcome>;
+export {};

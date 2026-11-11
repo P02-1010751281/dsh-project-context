@@ -9,7 +9,7 @@
  * mean opening every archive on every write.
  */
 /** `session` for an ordinary archive, `subagent` for a delegated child, `handoff` for a successor. */
-export type SessionKind = "session" | "subagent" | "handoff";
+type SessionKind = "session" | "subagent" | "handoff";
 export interface SessionMeta {
     /** Safe session id — the directory name. */
     id: string;
@@ -44,3 +44,4 @@ export declare function readSessionMeta(sessionDir: string): Promise<SessionMeta
 export declare function writeSessionMeta(sessionDir: string, meta: SessionMeta): Promise<void>;
 /** Whether a path is a directory; a missing path and a file both read as `false`. */
 export declare function isDirectory(target: string): Promise<boolean>;
+export {};

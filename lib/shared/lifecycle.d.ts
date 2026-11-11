@@ -8,8 +8,6 @@ import type { Session } from "@deepseek-ai/dsh-session";
 export declare const FLUSH_WAIT_MS = 90000;
 export declare function isTopLevel(session: Session): boolean;
 export declare function projectCwd(session: Session): string;
-/** Wait for a promise, but never longer than the flush budget. */
-export declare function waitBounded(promise: Promise<void>): Promise<void>;
 /**
  * Serialize background writes. A failed task reaches its caller through the
  * returned promise, but never poisons later tasks on the same queue.

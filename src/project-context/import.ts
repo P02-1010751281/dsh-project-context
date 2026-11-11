@@ -10,7 +10,7 @@ import { queueIndexLine, sessionIndexLineFrom, sessionTitleFromEntries } from ".
 import { markdownHeaderView, parseSessionJsonl } from "./session-jsonl.js";
 import { readArchiveFile } from "./zip.js";
 
-export interface ImportOptions {
+interface ImportOptions {
 	/** Project root whose `.agents/memory/session-logs/` receives the archive. */
 	projectRoot: string;
 	/** Render `session.md` next to the canonical JSONL (default true). */
@@ -19,7 +19,7 @@ export interface ImportOptions {
 	replace?: boolean;
 }
 
-export interface ImportOutcome {
+interface ImportOutcome {
 	/** Session id taken from the archive header. */
 	id: string;
 	/** `created` wrote the artifacts, `skipped` found an existing copy, `failed` carried an error. */

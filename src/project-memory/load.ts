@@ -62,7 +62,7 @@ function legacyMemory(text: string, source: string, limit: number): LoadedMemory
 }
 
 /** One consistent read of the render: its bytes, the mtime that read saw, and whether it raced. */
-export type RenderRead = { text: string; mtimeMs?: number; changed: boolean };
+type RenderRead = { text: string; mtimeMs?: number; changed: boolean };
 
 /** Whether the render's time is strictly ahead of the journal's: bytes the journal has not absorbed yet. */
 export function renderIsNewerThanJournal(renderMtimeMs: number | undefined, journalMtimeMs: number | undefined): boolean {
@@ -124,7 +124,7 @@ export async function readRenderWithMtime(file: string): Promise<RenderRead> {
 }
 
 /** The synchronous counterpart, for the prompt-assembly reader. Same contract as `readRenderWithMtime`. */
-export function readRenderWithMtimeSync(file: string): RenderRead {
+function readRenderWithMtimeSync(file: string): RenderRead {
 	const before = statSafe(file);
 	const text = readMemorySync(file).text;
 	const after = statSafe(file);

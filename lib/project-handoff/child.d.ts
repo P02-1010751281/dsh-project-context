@@ -51,21 +51,6 @@ export declare function createChildSession(ctx: Context, controller: SessionCont
  */
 export declare function carryPermissionPreset(ctx: Context, childId: string, session: Session): void;
 /**
- * The model selection to carry into the continuation: whatever the parent was last routed to, as
- * recorded in its request header. The selection is Session-local (the browser's model picker writes
- * it through `session/selectModel`), and `create` takes no model at all — `SessionCreateRequest` is
- * only cwd/workspaceId/agentPreset — so without this the child would start on the deployment default
- * and silently drop the model and thinking level the user had switched to. Returns `undefined` when
- * the parent has not routed a request yet or the header carries no usable pair.
- * @param session - the parent session being handed off.
- * @returns the provider/model/effort triple, or `undefined`.
- */
-export declare function parentModelSelection(session: Session): {
-    provider: string;
-    model: string;
-    reasoningEffort?: string;
-} | undefined;
-/**
  * Apply {@link parentModelSelection} to the freshly created child. Fail-open in every direction: a
  * runtime without `selectModel`, a parent that never routed a request, or a rejected selection must
  * never fail a handoff whose child already exists.
@@ -117,21 +102,6 @@ export declare function seedChildSession(ctx: Context, childId: string, prompt: 
  *   call rejects, so a rejection is not proof that the child is idle).
  */
 export declare function abandonChild(ctx: Context, controller: SessionControllerLike, childId: string, parentLabel: string, error: unknown, promptAttempted: boolean): Promise<void>;
-/**
- * Retire the session a handoff replaced: stop whatever still runs for it, then archive it.
- *
- * dsh's handoff *forks* — the child is a separate session — so the session that was handed off stays
- * live, and because the workspace list groups by activity the still-running old session sits above its
- * own continuation. The host has no "end session" RPC; its archive is the closest thing, and
- * `stopActivity` is what makes it apply to a session with running work (without it the host *refuses*
- * rather than stopping anything). The archive only hides: the log, the archive artifacts and the
- * workspace position all survive, and the client can undo it.
- *
- * Failures are logged, never thrown: the handoff itself already succeeded.
- * @param ctx - plugin context carrying the optional workspace registry service.
- * @param session - the session that was handed off.
- */
-export declare function retireSession(ctx: Context, session: Session): Promise<void>;
 /**
  * Retire the handed-off session now, or — when its own turn is still open — when that turn ends.
  * @param ctx - plugin context.

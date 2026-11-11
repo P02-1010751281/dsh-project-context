@@ -32,7 +32,7 @@ export class HandoffDeferred extends Error {
  * is to run the same command again. The automatic path does not need it (it retries on its own
  * schedule), so this class exists for the receipt.
  */
-export class HandoffTransient extends Error {
+class HandoffTransient extends Error {
 	constructor(message: string, options?: { cause?: unknown }) {
 		super(message, options);
 		this.name = "HandoffTransient";

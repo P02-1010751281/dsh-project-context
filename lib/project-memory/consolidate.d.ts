@@ -15,7 +15,7 @@ import { type Tombstone } from "./retired.js";
  * Which entry produced the memory this pass would write, or `"none"` when the pass was refused before
  * any model call (the read-cap gate): there is no reply, so nothing produced the document.
  */
-export type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial" | "none";
+type ConsolidateKind = "structured" | "fallback-sections" | "fallback-opaque" | "merged-partial" | "unmergeable-partial" | "none";
 /**
  * Which half of batch Q2's merge could not be read: the stored document (nothing to merge into) or the
  * reply itself. The two are different causes with different levers, so the refusal names one of them
@@ -128,7 +128,7 @@ export type ConsolidationOutcome = {
         ids?: string[];
     };
 };
-export interface ConsolidationOptions {
+interface ConsolidationOptions {
     force?: boolean;
     signal?: AbortSignal;
 }
@@ -153,27 +153,6 @@ export declare const CONVERSATION_CAPTION = "[This session's working state. It m
  * a mis-shaped reply hollow out CONTEXT.md silently.
  */
 export declare const CONSOLIDATION_PROMPT_RULES: readonly string[];
-/**
- * The compression ladder both prompt layers state (batch L, ported from pi v0.4.4).
- *
- * The sentence this replaces — "When over budget, merge duplicates within a section, then drop the
- * least durable entries" — was the only permission the prompt gave for an overflow, and it made
- * deletion the closing step. Measured on 2026-10-06, this repo's memory sat at 98.8% / 97.9% of two
- * section budgets, one added line away from a whole-entry drop, and the tier C retry that fires on
- * exactly that loss repeated the same instruction — asking for the loss the gate refuses.
- * Compression is now the default and a deletion has to name a reason; one constant, so the two
- * layers cannot drift apart.
- */
-/**
- * The entry-id convention, stated where the model writes entries (batch Z2).
- *
- * The id has to be copied verbatim: it is what a `supersedes:` declaration points at and what a
- * tombstone names, and an id the model invents would either collide with a live entry or name nothing.
- * The replacement instruction is one sentence because the mechanical half — retiring the named entry —
- * is the pass's job, not the model's: asking the model to also delete the old entry is the behaviour
- * that failed before this existed.
- */
-export declare const MEMORY_ENTRY_ID_RULE = "Every entry ends with its id in a full-width parenthetical, e.g. `\u2026 durable fact\uFF084f2a\uFF09`. When you keep an entry, keep its id exactly as given. Do not invent an id for a new entry and do not add one to an entry that has none. To replace an entry, write the replacement and end it with `supersedes:<old id>`; the old entry is retired automatically, so do not repeat it.";
 export declare const MEMORY_KEEP_RULE = "Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections, then condense the wording. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one.";
 /**
  * The same rule at the block whose text the reply rewrites (pi's second layer): the material arrives
@@ -224,3 +203,4 @@ export declare function fallbackUpdate(session: Session): ContextUpdate;
  * session-context plugins can consume the same pass without a second model call.
  */
 export declare function consolidateProjectState(ctx: Context, agent: Agent, config: PluginConfig, options?: ConsolidationOptions): Promise<ConsolidationOutcome | undefined>;
+export {};

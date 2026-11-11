@@ -19,7 +19,7 @@ import { isDirectory, readSessionMeta, writeSessionMeta } from "./session-meta.j
 import type { SessionMeta } from "./session-meta.js";
 import type { PiBlock } from "./archive.js";
 
-export interface SessionIndexEntry {
+interface SessionIndexEntry {
 	id: string;
 	date: string;
 	title: string;
@@ -167,7 +167,7 @@ export function sessionIndexLine(session: Session, title: string = sessionTitle(
  * @param document - the legacy index body.
  * @returns the body with every link made relative to `session-logs/`.
  */
-export function normalizeLegacyIndex(document: string): string {
+function normalizeLegacyIndex(document: string): string {
 	return document
 		.split("\n")
 		.map((line) => line.replace(/\]\(session-logs\//, "]("))
@@ -278,7 +278,7 @@ function sessionIndexLockTarget(projectRoot: string): string {
 }
 
 /** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
-export function sessionIndexLineFor(meta: SessionMeta): string {
+function sessionIndexLineFor(meta: SessionMeta): string {
 	const safe = safeSessionId(meta.id);
 	return `- [${safe}](${safe}/session.jsonl) — ${meta.date} — ${clipTitle(meta.title, MAX_TITLE_CHARS)}`;
 }

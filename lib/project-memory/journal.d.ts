@@ -6,7 +6,7 @@ import { type NormalizedMemory } from "./document.js";
 /** The append-only memory journal for one project. */
 export declare function memoryJournalFile(projectRoot: string): string;
 /** One journal record: a whole-document replacement or an appended fragment. */
-export type MemoryJournalEntry = {
+type MemoryJournalEntry = {
     op: "replace" | "append";
     text: string;
 };
@@ -65,3 +65,4 @@ export declare function newestMemoryArchive(projectRoot: string): Promise<string
  * which dsh calls synchronously and therefore cannot await. Same name rule, same "newest first".
  */
 export declare function newestMemoryArchiveSync(projectRoot: string): string | undefined;
+export {};

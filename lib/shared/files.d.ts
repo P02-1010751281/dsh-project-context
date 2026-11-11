@@ -27,7 +27,7 @@ export declare function writeAtomic(file: string, content: string | Uint8Array):
  * an identical duplicate). `superseded` means the destination was at least as new, so the source was
  * deleted **without** being copied.
  */
-export type MergeOutcome = "merged" | "superseded" | "absent" | "conflict";
+type MergeOutcome = "merged" | "superseded" | "absent" | "conflict";
 /**
  * Merge one legacy artifact into the new location; newest content wins, then the
  * legacy path is removed.
@@ -47,3 +47,4 @@ export type MergeOutcome = "merged" | "superseded" | "absent" | "conflict";
 export declare function mergePath(source: string, destination: string): Promise<MergeOutcome>;
 /** Remove leftover `<name>.<pid>.tmp` files from interrupted atomic writes. */
 export declare function cleanStaleTemps(directory: string): Promise<void>;
+export {};

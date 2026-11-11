@@ -29,7 +29,7 @@ import { type Session } from "@deepseek-ai/dsh-session";
 import { type ResolvedHandoffGate } from "./gate.js";
 import { type HandoffLanguage } from "./language.js";
 /** Why an over-threshold session has not handed off yet, as the trigger itself determined it. */
-export type HandoffDeferral = "question" | "subagents" | "nothing-to-drop";
+type HandoffDeferral = "question" | "subagents" | "nothing-to-drop";
 /**
  * Record the gate the trigger resolved (or the one a `step/start` tick resolved on its behalf).
  *
@@ -73,3 +73,4 @@ export declare function clearHandoffPressure(sessionId: string): void;
  * @returns the frozen line, or the empty string.
  */
 export declare function handoffPressureText(session: Session): string;
+export {};

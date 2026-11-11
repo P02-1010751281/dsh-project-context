@@ -2,7 +2,7 @@
  * Backfill entry points: import one parsed session, one archive file, or a whole directory tree,
  * idempotently and with the canonical artifacts written last.
  */
-export interface ImportOptions {
+interface ImportOptions {
     /** Project root whose `.agents/memory/session-logs/` receives the archive. */
     projectRoot: string;
     /** Render `session.md` next to the canonical JSONL (default true). */
@@ -10,7 +10,7 @@ export interface ImportOptions {
     /** Overwrite an already-imported session instead of skipping it. */
     replace?: boolean;
 }
-export interface ImportOutcome {
+interface ImportOutcome {
     /** Session id taken from the archive header. */
     id: string;
     /** `created` wrote the artifacts, `skipped` found an existing copy, `failed` carried an error. */
@@ -28,3 +28,4 @@ export declare function importSessionJsonl(text: string, options: ImportOptions)
 export declare function importArchiveFile(file: string, options: ImportOptions): Promise<ImportOutcome>;
 /** Import a batch of archives (files passed in order; no ordering assumption inside). */
 export declare function importArchiveFiles(files: readonly string[], options: ImportOptions): Promise<ImportOutcome[]>;
+export {};

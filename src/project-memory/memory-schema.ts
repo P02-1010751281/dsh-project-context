@@ -9,7 +9,7 @@
 
 import { MEMORY_HEADER } from "./document.js";
 
-export type MemorySectionSpec = {
+type MemorySectionSpec = {
 	/** The `##` heading the section carries. */
 	heading: string;
 	/** What belongs in the section, rendered next to its heading in the prompt. */
@@ -41,10 +41,10 @@ export const MEMORY_SECTIONS: readonly MemorySectionSpec[] = [
 	{ heading: "Index", description: "pointers to docs, source files, and commands", share: 0.09 },
 ];
 
-export type MemorySectionBudget = { heading: string; description: string; chars: number };
+type MemorySectionBudget = { heading: string; description: string; chars: number };
 
 /** One blank line (two characters) terminates each section body; the last one over-reserves a character. */
-export const MEMORY_SECTION_GAP_CHARS = 2;
+const MEMORY_SECTION_GAP_CHARS = 2;
 
 /**
  * Characters the document header, the fixed section headings, and the blank lines around the section

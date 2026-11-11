@@ -17,7 +17,7 @@ import { countMatches, detectDocumentLanguage, type DocumentLanguage } from "../
 export type HandoffLanguage = DocumentLanguage;
 
 /** The configured language: `auto` follows the conversation. */
-export type HandoffLanguageSetting = "auto" | HandoffLanguage;
+type HandoffLanguageSetting = "auto" | HandoffLanguage;
 
 /** One raw message the `auto` decision samples. */
 export interface HandoffLanguageMessage {
@@ -93,7 +93,7 @@ export function resolveLanguage(
 export const REPLAY_MARKER = "[handoff prompt omitted]";
 
 /** Localized scaffolding for the archived document and the continuation prompt. */
-export interface HandoffScaffolding {
+interface HandoffScaffolding {
 	readonly documentTitle: (sessionId: string) => string;
 	readonly documentCreated: (iso: string) => string;
 	readonly documentProject: (root: string) => string;

@@ -26,7 +26,7 @@
 import { type HandoffLanguage } from "./language.js";
 
 /** The route facts a failure is identified by. */
-export interface HandoffRouteFailure {
+interface HandoffRouteFailure {
 	/** The provider `resolveTarget` resolved (config first, then the session's request header). */
 	readonly provider: string;
 	/** The model of that same pair. */
@@ -198,7 +198,7 @@ export function routeFailureReceipt(failure: HandoffRouteFailure, detail: string
  * @param language - the session's language.
  * @returns the rendered sentence.
  */
-export function renderRouteFailure(failure: HandoffRouteFailure, language: HandoffLanguage): string {
+function renderRouteFailure(failure: HandoffRouteFailure, language: HandoffLanguage): string {
 	const { provider, model, code } = failure;
 	const route = `\`${provider}/${model}\``;
 	const codeText = code ?? (language === "zh" ? "未给出错误码" : "no error code");

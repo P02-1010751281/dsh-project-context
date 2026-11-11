@@ -18,7 +18,7 @@ export function projectCwd(session: Session): string {
 }
 
 /** Wait for a promise, but never longer than the flush budget. */
-export function waitBounded(promise: Promise<void>): Promise<void> {
+function waitBounded(promise: Promise<void>): Promise<void> {
 	return new Promise<void>((resolve) => {
 		const timer = setTimeout(resolve, FLUSH_WAIT_MS);
 		timer.unref?.();

@@ -10,13 +10,5 @@
  * @returns the entry's bytes, or `undefined` when no entry has that name.
  */
 export declare function readZipEntry(buffer: Buffer, entryName: string): Buffer | undefined;
-/**
- * Pick the newest session log in a dsh export zip. Only the archive root counts:
- * `subagents/<id>/session.vN.jsonl` entries belong to delegated children, not to
- * the exported session itself.
- * @param buffer - the whole zip file.
- * @returns the canonical JSONL bytes, or `undefined` when no root session log exists.
- */
-export declare function readZipSessionLog(buffer: Buffer): Buffer | undefined;
 /** Read one archive file (`.zip` holding the exported session log, or a bare `.jsonl`). */
 export declare function readArchiveFile(file: string): Promise<string>;

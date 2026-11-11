@@ -34,7 +34,7 @@ export interface HandoffWatchRow {
     readonly title?: unknown;
 }
 /** Everything one watcher scan observes. */
-export interface HandoffWatchInput {
+interface HandoffWatchInput {
     /** Session-list arrival lifecycle: `pending` means no pull has landed yet. */
     readonly phase?: unknown;
     /** Whether the pre-existing id set has already been captured. */
@@ -52,7 +52,7 @@ export interface HandoffWatchInput {
     } | undefined;
 }
 /** What the caller should do about one scan. */
-export interface HandoffWatchPlan {
+interface HandoffWatchPlan {
     /** Adopt every listed row as pre-existing instead of switching. */
     readonly seed: boolean;
     /** Rows settled as "not this watcher's business". */
@@ -73,3 +73,4 @@ export interface HandoffWatchPlan {
  * @returns the rows to settle, at most one session to open, and whether to retry.
  */
 export declare function planHandoffWatch(input: HandoffWatchInput): HandoffWatchPlan;
+export {};

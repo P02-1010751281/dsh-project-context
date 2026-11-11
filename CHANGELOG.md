@@ -10,6 +10,13 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**repo（清理：收窄导出面，只导出被别的模块读到的符号）**
+
+- 去掉 **94 个**「只在本文件内使用、声明文件之外零引用」的 `export` 关键字，跨 `src/` 与 `client/` 共 40 个文件。判据是先统计每个导出声明在其**声明文件之外**（含 `test/` 与 `scripts/`）的出现次数，为 0 才收窄；这是上一批「六个零引用导出」的同一条用户裁定（「没用的、没有复用价值的就不要留」）的下一层——那些是彻底没人读，这些是出了本模块没人读。
+- 保留的导出各有读者：四个插件入口的 `name` / `inject` / `apply` / `Config`（cordis loader 直接读），`client/index.ts` 整份（客户端 bundle 入口），以及被 `test/` 或别的模块 import 的符号。
+- 行为零变化：这不是删代码，是把仅内部使用的东西从模块对外接口上摘下来。`tsc`（含 declaration emit）通过——被导出签名引用的非导出类型（如 `ConsolidateReport`）由 TS 作为本地 `type` 声明写进 `.d.ts`（`lib/project-memory/index.d.ts:68`），签名不变；`pnpm test` **613 通过 / 0 失败**；`pnpm build` ok；`lib/client.js` 不变（37349，类型收窄不进运行时 bundle），`lib/*.js` 只少了 `export` 关键字。
+- 顺带核过、未收窄的：`docs/` 里 `ConsolidateReport` / `ThresholdRefusal` 的出现都是历史 changelog 与归档批次说明，或一条 triage 用的 grep 配方，没有「这是导出符号」的断言，所以不需要改文档。
+
 **project-memory / shared（清理：删掉六个没有读者的导出）**
 
 - 删除 `sectionsHaveEntries`（`retirement.ts`）、`TASK_STATUSES` 与 `TASK_MODES` 与 `hasTasks`（`tasks.ts`）、`TodoStatus`（`todo.ts`）、`modelOutputLimit`（`shared/model-call.ts`）。判据是全仓 `src`/`client`/`test`/`scripts` 的标识符引用数：这六个各自只有**定义那一处**，`export` 是它们唯一的露面方式（与上一批的 gate 机制同一条用户裁定，2026-11-11「没用的、没有复用价值的就不要留」）。删完后同一扫描归零。

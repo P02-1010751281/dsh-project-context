@@ -19,8 +19,6 @@
  */
 import type { Session } from "@deepseek-ai/dsh-session";
 import type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
-/** The prefix that marks a line as mechanically maintained rather than model-authored. */
-export declare const TODO_LINE_PREFIX = "[todo]";
 /**
  * The document lines one projection value stands for, or `undefined` when it has no opinion.
  *
@@ -33,14 +31,12 @@ export declare const TODO_LINE_PREFIX = "[todo]";
  * @returns the rendered `- [todo] …` lines, or `undefined`.
  */
 export declare function todoLines(value: unknown): string[] | undefined;
-/** True for a line this module owns; the test and the pass both read it through {@link todoLinesIn}. */
-export declare function isTodoLine(line: string): boolean;
 /** One document with the mechanic lines it currently carries, in document order. */
 export declare function todoLinesIn(text: string): string[];
 /** The session's todo snapshot as document lines; `undefined` when it has no opinion. */
 export declare function projectTodoLines(projections: SessionProjectionRegistry | undefined, session: Session): string[] | undefined;
 /** What one mechanic write did; `changed` false means the caller must not touch the file. */
-export interface TodoPatch {
+interface TodoPatch {
     /** The document to store, or the input when nothing changed. */
     text: string;
     /** True when the document differs from the input. */
@@ -67,3 +63,4 @@ export interface TodoPatch {
 export declare function withTodoLines(text: string, lines: readonly string[]): TodoPatch;
 /** One line for `errors.log` when a snapshot did not fit, naming where it was (not) written. */
 export declare function todoFitNotice(target: string, droppedItems: number): string;
+export {};

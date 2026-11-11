@@ -18,7 +18,7 @@ import { type MeasuredContext } from "./measure.js";
  * The measurement's threshold, structurally. `threshold.ts`'s `resolveThreshold` returns this shape
  * plus an optional `override`, so a caller may pass its result unchanged.
  */
-export interface ThresholdTerms {
+interface ThresholdTerms {
     /** The occupancy at which a handoff is attempted. */
     readonly tokens: number;
     /** The human-readable name of the term that set it (rendered in the receipt and the pressure line). */
@@ -84,3 +84,4 @@ export type Decision = {
  * @returns the decision; never `undefined`, so a caller cannot mistake "no decision" for an outcome.
  */
 export declare function decideAutoHandoff(inputs: GateInputs, config?: PluginConfig): Decision;
+export {};

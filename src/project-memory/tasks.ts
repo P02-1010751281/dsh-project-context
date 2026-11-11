@@ -29,17 +29,17 @@ import { AGENTS_DIR, MEMORY_SUBDIR, TASKS_SUBDIR, sessionMetaFileFor, taskFile, 
 import { readTextCachedSync, writeAtomic } from "../shared/files.js";
 
 /** The three states a task can be in. Only `archived` is authoritative on disk. */
-export type TaskStatus = "active" | "dormant" | "archived";
+type TaskStatus = "active" | "dormant" | "archived";
 
 /** Days without activity before a task reports `dormant`. */
-export const TASK_DORMANT_DAYS = 30;
+const TASK_DORMANT_DAYS = 30;
 /**
  * Days without activity before a task reports `archived`. The spec words this as "dormant for 90
  * days", which in derived terms is simply "no activity for 90 days": dormant is not a stored state,
  * so the only observable boundary is the age of `lastSeen`. Acceptance criterion ③ in §11.8 states
  * the same number as a test (`91` days), and that is the one this constant matches.
  */
-export const TASK_ARCHIVE_DAYS = 90;
+const TASK_ARCHIVE_DAYS = 90;
 
 /** The metadata a task document carries under its `# Project Task:` heading. */
 export interface TaskMeta {
@@ -54,14 +54,14 @@ export interface TaskMeta {
 }
 
 /** One task as read from disk. */
-export interface TaskRecord {
+interface TaskRecord {
 	slug: string;
 	meta: TaskMeta;
 	text: string;
 }
 
 /** A task with the status derived for the caller's mode and date. */
-export interface TaskView extends TaskRecord {
+interface TaskView extends TaskRecord {
 	status: TaskStatus;
 }
 
@@ -76,7 +76,7 @@ export function dateStamp(now: Date = new Date()): string {
 }
 
 /** Whole days from one `YYYY-MM-DD` to another, or `undefined` when either is malformed. */
-export function daysBetween(from: string, to: string): number | undefined {
+function daysBetween(from: string, to: string): number | undefined {
 	const day = (stamp: string): number | undefined => {
 		const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(stamp);
 		if (!match) return undefined;
@@ -173,7 +173,7 @@ export async function readTask(projectRoot: string, slug: string): Promise<TaskR
  * Prompt assembly cannot block, so this is the reader the injection uses; `readTextCachedSync`
  * re-reads only when the file's mtime or size changed.
  */
-export function readTaskSync(projectRoot: string, slug: string): TaskRecord | undefined {
+function readTaskSync(projectRoot: string, slug: string): TaskRecord | undefined {
 	if (!validTaskSlug(slug)) return undefined;
 	const text = readTextCachedSync(taskFile(projectRoot, slug));
 	return text === "" ? undefined : record(slug, text);

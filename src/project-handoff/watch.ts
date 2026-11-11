@@ -22,7 +22,7 @@
 import { planHandoffWatch, type HandoffWatchRow } from "./marker.js";
 
 /** The slice of the client context this watcher reads: `sessions` and `conversation`, when present. */
-export interface HandoffWatchContext {
+interface HandoffWatchContext {
 	get(name: string): unknown;
 }
 

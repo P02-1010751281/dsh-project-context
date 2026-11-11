@@ -86,7 +86,7 @@ function looksLikeJsonReply(text: string): boolean {
  * malformed — a caller must refuse the whole context rather than treat that as an empty list,
  * since doing the latter overwrites a good CONTEXT.md with hollowed-out sections.
  */
-export function readContextList(value: unknown): string[] | null | undefined {
+function readContextList(value: unknown): string[] | null | undefined {
 	if (value === undefined || value === null) return value === null ? null : undefined;
 	if (!Array.isArray(value)) return null;
 	if (!value.every((item): item is string => typeof item === "string")) return null;

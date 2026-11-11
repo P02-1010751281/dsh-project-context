@@ -16,18 +16,12 @@
  */
 import type { MemorySections } from "./sections.js";
 import type { Tombstone } from "./retired.js";
-/** Days an entry may go unmentioned in the archive before it is unconfirmed. */
-export declare const MAX_UNCONFIRMED_DAYS = 180;
-/** Bytes of `session.jsonl` the unconfirmed scan may read in one pass. */
-export declare const MENTION_SCAN_BYTE_CAP: number;
 /** The id an entry already carries, if any. */
 export declare function entryTid(entry: string): string | undefined;
 /** The entry with its id removed. */
 export declare function stripEntryTid(entry: string): string;
-/** The entry carrying `tid` as its trailing id, replacing any id it already had. */
-export declare function withEntryTid(entry: string, tid: string): string;
 /** A document whose entries all carry an id, plus what the stamping did. */
-export type StampedSections = {
+type StampedSections = {
     sections: MemorySections;
     /** Ids this call minted, in document order. Their first-seen date is today. */
     added: string[];
@@ -38,8 +32,6 @@ export type StampedSections = {
 export declare function stampEntryIds(sections: MemorySections, taken: ReadonlySet<string>): StampedSections;
 /** The `supersedes:` targets declared by the entries of one document, mapped to the declaring id. */
 export declare function supersededIds(sections: MemorySections): Map<string, string>;
-/** Remove every `supersedes:` declaration from a document (the tombstone already recorded it). */
-export declare function stripSupersedesMarkers(sections: MemorySections): MemorySections;
 /**
  * The paths in one entry that no longer resolve, as human-readable reasons.
  *
@@ -61,7 +53,7 @@ export declare function stripSupersedesMarkers(sections: MemorySections): Memory
 export declare function anchorDriftReasons(entry: string, projectRoot: string): string[];
 /** The most distinctive token of an entry, or `undefined` when it is pure prose. */
 export declare function mentionNeedle(entry: string): string | undefined;
-export type MentionScan = {
+type MentionScan = {
     /** Needles an archived session still mentions. */
     mentioned: Set<string>;
     /** Bytes of archive text actually read. */
@@ -83,7 +75,7 @@ export declare function scanMentions(projectRoot: string, needles: readonly stri
     sinceMs: number;
     byteCap?: number;
 }): Promise<MentionScan>;
-export type RetirementContext = {
+type RetirementContext = {
     projectRoot: string;
     /** `<tid> -> YYYY-MM-DD`, when the id was first seen. Missing ids are stamped today. */
     firstSeen: ReadonlyMap<string, string>;
@@ -146,8 +138,6 @@ export declare function retireSections(sections: MemorySections, context: Retire
 export declare function retireReply(sections: MemorySections, context: RetirementContext, cap: number): Promise<RetirementResult & {
     stamped: boolean;
 }>;
-/** All entry ids in a document, for the sidecar prune. */
-export declare function documentIds(sections: MemorySections): Set<string>;
 /** When each known entry id was first seen. An unreadable file reads as "nothing known". */
 export declare function readEntryDates(projectRoot: string): Promise<Map<string, string>>;
 /**
@@ -158,8 +148,6 @@ export declare function readEntryDates(projectRoot: string): Promise<Map<string,
  * never age out. Runs under the memory lock for the same reason the tombstone file does.
  */
 export declare function recordEntryDates(projectRoot: string, dates: ReadonlyMap<string, string>, keep?: ReadonlySet<string>): Promise<void>;
-/** Every entry id removed from each step of a pass, for the reply's echo guard. */
-export declare function stripEntryIds(sections: MemorySections): MemorySections;
 /**
  * Retire, then stamp ids — but never at the price of a whole entry.
  *
@@ -185,3 +173,4 @@ export declare function stripEntryIds(sections: MemorySections): MemorySections;
 export declare function retireWithinBudget(sections: MemorySections, context: RetirementContext, cap: number): Promise<RetirementResult & {
     stamped: boolean;
 }>;
+export {};

@@ -20,7 +20,7 @@ import { detectDocumentLanguage, type DocumentLanguage } from "../shared/languag
 /** One string per language; either can be rendered into the same slot. */
 type LocalizedText = Record<DocumentLanguage, string>;
 
-export interface InjectionSpec {
+interface InjectionSpec {
 	/**
 	 * Headings declared as staying inline. The renderer does not branch on this: a heading with no
 	 * pointer is inline by construction, so the list states the intent and lets a test check coverage.
@@ -133,8 +133,8 @@ export function renderProgressiveBody(text: string, spec: InjectionSpec, languag
 }
 
 /** The project-relative path both injected documents live at. */
-export const MEMORY_INJECTION_PATH = ".agents/memory/MEMORY.md";
-export const CONTEXT_INJECTION_PATH = ".agents/memory/CONTEXT.md";
+const MEMORY_INJECTION_PATH = ".agents/memory/MEMORY.md";
+const CONTEXT_INJECTION_PATH = ".agents/memory/CONTEXT.md";
 
 /** The two documents as they enter the system prompt. Exported so a test can pin the specs. */
 export const MEMORY_INJECTION: InjectionSpec = {

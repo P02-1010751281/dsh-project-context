@@ -3,7 +3,7 @@
  * derived from them. Both the file and the zip path parse through here.
  */
 import { type SessionFileHeader } from "./session-log.js";
-export interface ParsedArchive {
+interface ParsedArchive {
     /** Header exactly as parsed — never rewritten: unknown fields (e.g. `delegationDepth`) are preserved. */
     header: Record<string, unknown>;
     /** Session id from the header (the only field required for archiving). */
@@ -30,3 +30,4 @@ export declare function parseSessionJsonl(text: string): ParsedArchive;
  * display-only (nothing reads it back) and dsh archives are unaffected.
  */
 export declare function markdownHeaderView(archive: ParsedArchive): SessionFileHeader;
+export {};

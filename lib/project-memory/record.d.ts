@@ -12,7 +12,7 @@ import { readMemoryJournal } from "./journal.js";
  */
 export declare function nextRenderSupersedes(renderKey: string, nowKey: string, publishKey: string): boolean;
 /** What one write of the memory document did: published the reply, or kept newer stored bytes. */
-export type MemoryWriteResult = {
+type MemoryWriteResult = {
     written: true;
 } | {
     written: false;
@@ -65,3 +65,4 @@ export declare function recordMemoryDocument(projectRoot: string, text: string, 
  * @returns true when a legacy document was imported.
  */
 export declare function importLegacyMemory(projectRoot: string, limit?: number): Promise<boolean>;
+export {};

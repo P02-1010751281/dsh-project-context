@@ -35,19 +35,19 @@ const DAY_MS = 86_400_000;
 export const PRUNE_BACKUPS_KEPT = 3;
 
 /** Archived journals (`memory-log-*.jsonl`) older than this are reclaimable. */
-export const PRUNE_JOURNAL_AGE_MS = 90 * DAY_MS;
+const PRUNE_JOURNAL_AGE_MS = 90 * DAY_MS;
 
 /** Autolearn candidate notes older than this are reclaimable. */
-export const PRUNE_CANDIDATE_AGE_MS = 60 * DAY_MS;
+const PRUNE_CANDIDATE_AGE_MS = 60 * DAY_MS;
 
 /** Autolearn's candidate directory, relative to the memory directory. */
 const CANDIDATES_SUBDIR = "skill-candidates";
 
 /** What an applied run does with one candidate. */
-export type PruneAction = "remove" | "truncate";
+type PruneAction = "remove" | "truncate";
 
 /** One reclaimable artifact, named relative to the memory directory so it is also a tar entry. */
-export interface PruneCandidate {
+interface PruneCandidate {
 	/** Path relative to `<memory>/`; used verbatim as the tar member name. */
 	name: string;
 	bytes: number;
@@ -56,7 +56,7 @@ export interface PruneCandidate {
 	action: PruneAction;
 }
 
-export interface PrunePlan {
+interface PrunePlan {
 	candidates: PruneCandidate[];
 	/** Total bytes that leave the directory (a truncation counts its original size). */
 	bytes: number;
@@ -217,7 +217,7 @@ function headerBlock(member: { prefix: string; name: string }, size: number, mti
 }
 
 /** The members a tarball carries, by the format's own rules (how a verifying reader sees it). */
-export function readTarNames(archive: Buffer): string[] {
+function readTarNames(archive: Buffer): string[] {
 	const names: string[] = [];
 	for (let offset = 0; offset + TAR_BLOCK <= archive.length;) {
 		const block = archive.subarray(offset, offset + TAR_BLOCK);

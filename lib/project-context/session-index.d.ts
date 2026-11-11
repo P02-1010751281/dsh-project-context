@@ -8,7 +8,7 @@
  */
 import type { Session } from "@deepseek-ai/dsh-session";
 import type { SessionMeta } from "./session-meta.js";
-export interface SessionIndexEntry {
+interface SessionIndexEntry {
     id: string;
     date: string;
     title: string;
@@ -41,12 +41,6 @@ export declare function sessionTitle(session: Session): string;
 export declare function sessionIndexLineFrom(id: string, createdAt: number, title: string): string;
 /** One Markdown index line. Links are relative to `session-logs/`. */
 export declare function sessionIndexLine(session: Session, title?: string): string;
-/**
- * Convert pre-move index links (`session-logs/<id>/session.md`) to the current relative form.
- * @param document - the legacy index body.
- * @returns the body with every link made relative to `session-logs/`.
- */
-export declare function normalizeLegacyIndex(document: string): string;
 /** Parse an INDEX.md body; unrecognized lines are ignored. */
 export declare function parseSessionIndex(text: string): Array<{
     id: string;
@@ -76,8 +70,6 @@ export declare function readSessionIndex(projectRoot: string): Promise<SessionIn
  * @returns every session's metadata; empty when the archive directory does not exist yet.
  */
 export declare function listArchivedSessions(projectRoot: string): Promise<SessionMeta[]>;
-/** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
-export declare function sessionIndexLineFor(meta: SessionMeta): string;
 /**
  * Bind (or unbind) this session to a task, then refresh the index.
  *
@@ -113,3 +105,4 @@ export declare function queueSessionIndexEntry(projectRoot: string, session: Ses
  * parse keeps its own text as the title and today's date.
  */
 export declare function queueIndexLine(projectRoot: string, id: string, line: string): Promise<void>;
+export {};

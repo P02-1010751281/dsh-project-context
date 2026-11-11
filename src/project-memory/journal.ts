@@ -27,7 +27,7 @@ const MEMORY_JOURNAL_ROTATE_BYTES = 512 * 1024;
 const MEMORY_JOURNAL_ARCHIVES_KEPT = 5;
 
 /** One journal record: a whole-document replacement or an appended fragment. */
-export type MemoryJournalEntry = { op: "replace" | "append"; text: string };
+type MemoryJournalEntry = { op: "replace" | "append"; text: string };
 
 /** Append one record with a single `write` call; the file is append-only by construction. */
 export async function appendMemoryOp(file: string, op: MemoryJournalEntry["op"], text: string): Promise<void> {
