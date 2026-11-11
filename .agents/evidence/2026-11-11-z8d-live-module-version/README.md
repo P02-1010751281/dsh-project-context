@@ -40,3 +40,28 @@ probe 只开 `Debugger.enable` 读脚本源码，结束前 `Debugger.disable`；
 2. 下一次整理 pass 之后：`MEMORY.md` 140 个 id、渲染 0 丢弃 / 0 截断（本次以 `c4274c2` 的文档现算：44,825 → 44,879 字符，`stamped: true`，`keepIds` 140）；
 3. `entries.json` 应为 140 个 id（`keepIds`，含未盖章条目），而不是「正文携带」的 131；
 4. `errors.log` 不再出现新的 `memory regression:` 行。
+
+## 追加：Z8e（阈值合成一个键）—— 同一次重启的第三条判据
+
+> 测量时刻 2026-11-11T15:30+08:00，仓库 `HEAD = 23cc23a`，宿主仍是 pid 71971（10:41:56 启动，早于 Z8e 的两个提交 `3692170` / `5ccd5e6`）。
+
+Z8e 改了配置形状，于是除了模块哈希还有一条更省事的判据：**宿主自己发布的设置 schema**。它不需要
+inspector 端口，是宿主对该 entry 的投影，旧键还在就说明旧模块在跑。
+
+| 判据 | 现在（未重启） | 重启后应为 |
+|---|---|---|
+| `cordis_inspect_query`（host `Config`，`entry: include:project-context`）的 `schema.properties` | `handoffThresholdAuto`（boolean，默认 `true`）+ `handoffThresholdRatio`（number，`0.1`–`0.95`） | 只有 `handoffThreshold`（**string**，默认 `"auto"`），两个旧键消失 |
+| `probe.mjs --file lib/shared/threshold-spec.js` | `not loaded (the file is not parsed in this isolate)` | `the running host executes the code on disk` |
+| `probe.mjs --file lib/project-handoff/threshold.js` | `STALE`：常驻 blob（`0a082ca0…`）与 `3692170` 及更早的提交同 blob —— 该提交只新增解析模块、没动这个文件，所以常驻的是**合并前**的 `threshold.ts`；磁盘 blob（`3451df11…`）属于 `5ccd5e6`+ | 同上 |
+
+三条互相自洽：新模块从未被解析、`threshold.js` 仍是合并前的版本、schema 仍声明两个旧键 —— 宿主跑的是
+Z8e 之前的构建。（不要把 `3692170` 出现在「常驻归属」里读成「已经加载了一半」：它没改这个文件。）
+
+**重启后顺手验收的三条行为**（本会话窗口 1,048,576，`capacity = W − 4000 = 1,044,576`）：
+
+1. `/handoff threshold 400k` 的回执是 `threshold 400000 tokens` —— 在这个窗口上不截断；`(capped to N)` 只在 `asked > capacity` 时出现；
+2. `/handoff status` 的固定模式摘要：迁移后的 desktop profile 是 `"0.4"`，应写 `fixed ratio 40%`；写 token 数时是 `fixed threshold N tokens`；
+3. 设置卡上阈值只有**一行文本框**（旧版是「开关 + 比例」两行），提示语 `field.handoffThresholdHint`，默认值 `auto`。
+
+注意 profile 与重启是**一步**：`~/.dsh/profiles/desktop/cordis.patch.yml` 已是 `handoffThreshold: "0.4"`，而运行中的旧模块
+只认旧键 —— 重启前保存设置卡，旧代码会按旧键把文件写回去。
