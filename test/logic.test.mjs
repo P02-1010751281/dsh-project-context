@@ -2178,8 +2178,8 @@ test("batch Z8d: a deferred id stamping is not a memory regression", async () =>
 	// Batch Z2 stamps ids only when the rendered document stays clean, and it is all-or-nothing per
 	// document: the stored plan can carry ids while the document this pass would write cannot afford
 	// them, so the two are compared with and without the same ids. Reading that as a deletion reported
-	// every unchanged Invariants/Pitfalls entry — 107 of them on this project at 2026-11-11T03:33Z,
-	// all still present. The id is bookkeeping; only the body may decide whether an entry survived.
+	// every entry — 107 on this project at 2026-11-11T03:33Z, of which 96 were unchanged and 11 had
+	// genuinely been rewritten. The id is bookkeeping; only the body may decide whether an entry survived.
 	const entry = (tag, index) => `${tag}${String(index).padStart(2, "0")} ${"x".repeat(262)}`;
 	const invariants = Array.from({ length: 7 }, (_, index) => entry("inv", index));
 	const pitfalls = Array.from({ length: 7 }, (_, index) => entry("pit", index));
