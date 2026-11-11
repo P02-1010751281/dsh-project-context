@@ -65,6 +65,17 @@ export declare function untouchedSince(file: string, adopted: {
 }): Promise<boolean>;
 /** Read the index with absolute paths so later passes can open the archives directly. */
 export declare function readSessionIndex(projectRoot: string): Promise<SessionIndexEntry[]>;
+/**
+ * Every archived session's metadata, in directory-name order.
+ *
+ * The read-only half of the walk `regenerateSessionIndex` performs below; that one also writes metadata
+ * back for a directory that predates `meta.json`, so it cannot serve a reader. A directory whose
+ * metadata is unreadable is skipped rather than failing the listing: the next index write rebuilds it
+ * from the archive, and a navigation command must not be the thing that breaks on one bad file.
+ * @param projectRoot - the project whose archive to list.
+ * @returns every session's metadata; empty when the archive directory does not exist yet.
+ */
+export declare function listArchivedSessions(projectRoot: string): Promise<SessionMeta[]>;
 /** One rendered index line from a session's metadata: `<id> — <date> — <title>`. */
 export declare function sessionIndexLineFor(meta: SessionMeta): string;
 /**

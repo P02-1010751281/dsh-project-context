@@ -7,7 +7,8 @@
  * it back for skills is autolearn (`project-autolearn`); pointing a fresh
  * session at it is handoff (`project-handoff`).
  *
- * Commands: /context, /session-log (bare = read state, `write` = write now, `import <archive…>` = backfill)
+ * Commands: /context, /session-log (bare = read state, `write` = write now, `tree` = the handoff lineage,
+ * `import <archive…>` = backfill)
  */
 import type { Context } from "@deepseek-ai/cordis";
 export declare const name = "project-context";

@@ -7,7 +7,8 @@
  * it back for skills is autolearn (`project-autolearn`); pointing a fresh
  * session at it is handoff (`project-handoff`).
  *
- * Commands: /context, /session-log (bare = read state, `write` = write now, `import <archive…>` = backfill)
+ * Commands: /context, /session-log (bare = read state, `write` = write now, `tree` = the handoff lineage,
+ * `import <archive…>` = backfill)
  */
 
 import type { Context } from "@deepseek-ai/cordis";
@@ -22,6 +23,7 @@ import { dateStamp, deriveTaskStatus, listTasks, parseTaskMeta, readSessionTaskS
 import { importArchiveFiles } from "./import.js";
 import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./session-log.js";
 import { reconcileSessionIndexOnce, setSessionTask } from "./session-index.js";
+import { readSessionTree } from "./session-tree.js";
 import { logError } from "../shared/error-log.js";
 
 /**
@@ -233,8 +235,8 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "session-log",
-		description: "Show the session log location and index; `write` writes the current session's artifacts, `import <path…>` backfills ended sessions",
-		input: { hint: "write | import <session.jsonl|archive.zip|dir>…" },
+		description: "Show the session log location and index; `write` writes the current session's artifacts, `tree` shows the handoff lineage, `import <path…>` backfills ended sessions",
+		input: { hint: "write | tree | import <session.jsonl|archive.zip|dir>…" },
 		handler: async ({ agent, rawInput }) => {
 			const args = rawInput.trim();
 			// The bare command is the "what is my state" habit, so it reads; `write` writes. `now` was the
@@ -251,6 +253,20 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 					kind: "success",
 					text: `Session logs: ${logsDir(projectRoot)}\nSession index: ${sessionIndexFile(projectRoot)}\nWrite now: /session-log write`,
 				};
+			}
+			// The tree is a read of the archive's own metadata, so it sits with the bare reads rather than
+			// with the import path: a project with a directory named `tree` would otherwise shadow it, and
+			// the command is what a user reaches for when the flat index stops answering "which one
+			// continued which".
+			if (args === "tree") {
+				const projectRoot = await getProjectRoot(projectCwd(agent.session));
+				try {
+					return { kind: "success", text: await readSessionTree(projectRoot) };
+				} catch (error: unknown) {
+					// A command handler never throws: the failure is a receipt plus one log line.
+					await logError(projectRoot, "memory", error);
+					return { kind: "error", text: `Session tree: the command failed — ${error instanceof Error ? error.message : String(error)} (see .agents/memory/errors.log).` };
+				}
 			}
 			const files = await resolveImportTargets(args.replace(/^import\s+/, "").trim(), projectCwd(agent.session));
 			if (files.length === 0) return { kind: "error", text: "No archives found. Usage: /session-log import <session.jsonl|archive.zip|dir>…" };

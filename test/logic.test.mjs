@@ -1553,7 +1553,7 @@ test("the bare /session-log reads, `write` writes, and `now` is retired", async 
 	try {
 		const command = commands.get("session-log");
 		assert.ok(command, "the plugin registers /session-log");
-		assert.match(command.input.hint, /write \| import /, "the hint names the write verb");
+		assert.match(command.input.hint, /write \| tree \| import /, "the hint names the write verb and the tree read");
 
 		const session = fakeEventSession(
 			[{ type: "user/message", seq: 0, data: { source: { kind: "user" }, content: [{ type: "text", text: "one" }] } }],
