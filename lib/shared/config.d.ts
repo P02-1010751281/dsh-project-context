@@ -11,6 +11,7 @@
  * below throws on a key it does not know. The seven renames landed 2026-10-05 with no compatibility
  * reader on purpose — an alias nothing can retire is worse than a loud apply-time failure.
  */
+import { type ThresholdSpec } from "./threshold-spec.js";
 /** Who may create a task and what may change its status; the enum behind `taskMode`. */
 export type TaskMode = "assisted" | "delegated" | "manual";
 export interface PluginConfig {
@@ -51,11 +52,13 @@ export interface PluginConfig {
     autolearnIntervalMs: number;
     /** Start an automatic handoff when a top-level session approaches its context limit. */
     handoffEnabled: boolean;
-    /** Adaptive threshold derived from window/target/keep instead of a fixed ratio. */
-    handoffThresholdAuto: boolean;
-    /** Context-window fraction used when `handoffThresholdAuto` is false. The accepted range is the
-     * `MIN_THRESHOLD_RATIO`..`MAX_THRESHOLD_RATIO` pair in `limits.ts`; never write a literal here. */
-    handoffThresholdRatio: number;
+    /**
+     * Where the handoff trigger sits — the one fact `/handoff threshold`, the settings card and the
+     * stored profile have to agree on. The stored value is a string (`auto`, `0.4`/`40`/`40%`, or a
+     * token count such as `400k`); {@link parseThresholdSpec} is its only reader, so a fraction that is
+     * out of range stays a refusal instead of silently becoming a count.
+     */
+    handoffThreshold: ThresholdSpec;
     /** Adaptive mode: the trigger request the pass reports (no model call reads it). */
     handoffBudgetSummaryTokens: number;
     /** Recent conversation tokens carried into the continuation verbatim (0 = no verbatim tail). */

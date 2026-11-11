@@ -34,8 +34,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
     autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
     handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    handoffThresholdAuto: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    handoffThresholdRatio: import("@deepseek-ai/schemastery").default<number, number>;
+    handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
@@ -57,8 +56,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
     autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
     handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    handoffThresholdAuto: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    handoffThresholdRatio: import("@deepseek-ai/schemastery").default<number, number>;
+    handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;

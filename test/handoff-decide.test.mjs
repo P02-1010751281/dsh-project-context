@@ -55,7 +55,7 @@ assert.equal(typeof decide, "function", "the decision seam must export `decideAu
  * cases discriminating: an expected number that came out of the module under test would be circular.
  * Gate order is mode-independent; production's default (adaptive) mode is exercised in its own case.
  */
-const FIXED = { ...DEFAULT_CONFIG, handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 0 };
+const FIXED = { ...DEFAULT_CONFIG, handoffThreshold: { mode: "ratio", ratio: 0.4 }, handoffBudgetRecentTokens: 0 };
 
 const WINDOW = 100_000;
 /** `min(round(0.4 × 100 000), 100 000 − 4 000)` — the fixed-mode trigger at {@link WINDOW}. */

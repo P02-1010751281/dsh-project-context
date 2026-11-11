@@ -38,7 +38,7 @@ const RENAMED_KEYS = {
 	autoLearn: "autolearnEnabled",
 	handoffTargetTokens: "handoffBudgetSummaryTokens",
 	handoffKeepTokens: "handoffBudgetRecentTokens",
-	handoffAdaptive: "handoffThresholdAuto",
+	handoffAdaptive: "handoffThreshold",
 	handoffLanguage: "handoffLang",
 };
 
@@ -60,7 +60,7 @@ const RETIRED_KEY = "handoffThinking";
  * of their own) fall back to `DEFAULT_CONFIG` in the meantime. See the ruling's §7.
  */
 const PROFILE_SHAPES = {
-	desktop: { maxMemoryChars: 40_000, handoffThresholdAuto: true, handoffBudgetRecentTokens: 0, handoffPendingQuestion: "wait" },
+	desktop: { maxMemoryChars: 40_000, handoffThreshold: "0.4", handoffBudgetRecentTokens: 0, handoffPendingQuestion: "wait" },
 	web: { maxMemoryChars: 40_000, handoffBudgetRecentTokens: 0, handoffPendingQuestion: "wait" },
 };
 
@@ -114,7 +114,9 @@ test("every renamed key keeps its value and its type", () => {
 	assert.equal(resolvePluginConfig({ autolearnEnabled: false }).autolearnEnabled, false);
 	assert.equal(resolvePluginConfig({ handoffBudgetSummaryTokens: 12_000 }).handoffBudgetSummaryTokens, 12_000);
 	assert.equal(resolvePluginConfig({ handoffBudgetRecentTokens: 1_000 }).handoffBudgetRecentTokens, 1_000);
-	assert.equal(resolvePluginConfig({ handoffThresholdAuto: false }).handoffThresholdAuto, false);
+	// The rename target's *type* changed on purpose (batch Z8e merged the switch and the ratio into one
+	// spelling), so this one is asserted by the parsed spec rather than by an unchanged primitive.
+	assert.deepEqual(resolvePluginConfig({ handoffThreshold: "0.4" }).handoffThreshold, { mode: "ratio", ratio: 0.4 });
 	assert.equal(resolvePluginConfig({ handoffLang: "zh" }).handoffLang, "zh");
 
 	// The defaults moved with the names: a missing key still falls back to the same value.
@@ -122,7 +124,7 @@ test("every renamed key keeps its value and its type", () => {
 	assert.equal(DEFAULT_CONFIG.autolearnEnabled, true);
 	assert.equal(DEFAULT_CONFIG.handoffBudgetSummaryTokens, 64_000);
 	assert.equal(DEFAULT_CONFIG.handoffBudgetRecentTokens, 20_000);
-	assert.equal(DEFAULT_CONFIG.handoffThresholdAuto, true);
+	assert.deepEqual(DEFAULT_CONFIG.handoffThreshold, { mode: "auto" });
 	assert.equal(DEFAULT_CONFIG.handoffLang, "auto");
 });
 

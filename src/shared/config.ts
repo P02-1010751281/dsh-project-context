@@ -14,15 +14,14 @@
 
 import {
 	DEFAULT_HANDOFF_SUMMARY_TOKENS,
-	DEFAULT_THRESHOLD_RATIO,
 	MAX_HANDOFF_RECENT_TOKENS,
 	MAX_HANDOFF_SUMMARY_TOKENS,
-	MAX_THRESHOLD_RATIO,
 	MIN_HANDOFF_RECENT_TOKENS,
 	MIN_HANDOFF_SUMMARY_TOKENS,
-	MIN_THRESHOLD_RATIO,
 } from "./limits.js";
+import { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "./limits.js";
 import { MAX_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
+import { type ThresholdSpec, parseThresholdSpec, thresholdSpecHelp } from "./threshold-spec.js";
 
 /** Who may create a task and what may change its status; the enum behind `taskMode`. */
 export type TaskMode = "assisted" | "delegated" | "manual";
@@ -65,11 +64,13 @@ export interface PluginConfig {
 	autolearnIntervalMs: number;
 	/** Start an automatic handoff when a top-level session approaches its context limit. */
 	handoffEnabled: boolean;
-	/** Adaptive threshold derived from window/target/keep instead of a fixed ratio. */
-	handoffThresholdAuto: boolean;
-	/** Context-window fraction used when `handoffThresholdAuto` is false. The accepted range is the
-	 * `MIN_THRESHOLD_RATIO`..`MAX_THRESHOLD_RATIO` pair in `limits.ts`; never write a literal here. */
-	handoffThresholdRatio: number;
+	/**
+	 * Where the handoff trigger sits — the one fact `/handoff threshold`, the settings card and the
+	 * stored profile have to agree on. The stored value is a string (`auto`, `0.4`/`40`/`40%`, or a
+	 * token count such as `400k`); {@link parseThresholdSpec} is its only reader, so a fraction that is
+	 * out of range stays a refusal instead of silently becoming a count.
+	 */
+	handoffThreshold: ThresholdSpec;
 	/** Adaptive mode: the trigger request the pass reports (no model call reads it). */
 	handoffBudgetSummaryTokens: number;
 	/** Recent conversation tokens carried into the continuation verbatim (0 = no verbatim tail). */
@@ -103,8 +104,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	autolearnTurns: 20,
 	autolearnIntervalMs: 30 * 60 * 1000,
 	handoffEnabled: true,
-	handoffThresholdAuto: true,
-	handoffThresholdRatio: DEFAULT_THRESHOLD_RATIO,
+	handoffThreshold: { mode: "auto" },
 	handoffBudgetSummaryTokens: DEFAULT_HANDOFF_SUMMARY_TOKENS,
 	handoffBudgetRecentTokens: 20_000,
 	handoffPendingQuestion: "defer",
@@ -170,13 +170,27 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		return value;
 	};
 
-	const ratio = (name: keyof PluginConfig, fallback: number): number => {
+	// The merged threshold is stored as a string and parsed by the one reader, so the accepted
+	// spellings cannot drift between the profile, the card and the command.
+	const threshold = (name: keyof PluginConfig, fallback: ThresholdSpec): ThresholdSpec => {
 		const value = input[name];
 		if (value === undefined) return fallback;
-		if (typeof value !== "number" || !Number.isFinite(value) || value < MIN_THRESHOLD_RATIO || value > MAX_THRESHOLD_RATIO) {
-			throw new Error(`dsh-project-context: ${name} must be a number between ${MIN_THRESHOLD_RATIO} and ${MAX_THRESHOLD_RATIO}`);
+		// A resolved config is a legal input to this reader — `publishProjectContextSettings` re-resolves the
+		// config the entry was applied with — so a spec that is already parsed is returned as it is rather
+		// than sent through the string reader and rejected for not being a string.
+		if (typeof value === "object" && value !== null && "mode" in value) {
+			const spec = value as ThresholdSpec;
+			if (spec.mode === "auto") return { mode: "auto" };
+			if (spec.mode === "ratio" && typeof spec.ratio === "number" && spec.ratio >= MIN_THRESHOLD_RATIO && spec.ratio <= MAX_THRESHOLD_RATIO) {
+				return { mode: "ratio", ratio: spec.ratio };
+			}
+			if (spec.mode === "tokens" && Number.isSafeInteger(spec.tokens) && spec.tokens >= 1) return { mode: "tokens", tokens: spec.tokens };
+			throw new Error(`dsh-project-context: ${name} must be ${thresholdSpecHelp()} (got ${JSON.stringify(value)})`);
 		}
-		return value;
+		if (typeof value !== "string") throw new Error(`dsh-project-context: ${name} must be ${thresholdSpecHelp()}`);
+		const spec = parseThresholdSpec(value);
+		if (spec === undefined) throw new Error(`dsh-project-context: ${name} must be ${thresholdSpecHelp()} (got ${JSON.stringify(value)})`);
+		return spec;
 	};
 
 	const bounded = (name: keyof PluginConfig, fallback: number, min: number, max: number): number => {
@@ -225,8 +239,7 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		autolearnTurns: positive("autolearnTurns", DEFAULT_CONFIG.autolearnTurns, 1),
 		autolearnIntervalMs: positive("autolearnIntervalMs", DEFAULT_CONFIG.autolearnIntervalMs, 1000),
 		handoffEnabled: boolean("handoffEnabled", DEFAULT_CONFIG.handoffEnabled),
-		handoffThresholdAuto: boolean("handoffThresholdAuto", DEFAULT_CONFIG.handoffThresholdAuto),
-		handoffThresholdRatio: ratio("handoffThresholdRatio", DEFAULT_CONFIG.handoffThresholdRatio),
+		handoffThreshold: threshold("handoffThreshold", DEFAULT_CONFIG.handoffThreshold),
 		handoffBudgetSummaryTokens: bounded("handoffBudgetSummaryTokens", DEFAULT_CONFIG.handoffBudgetSummaryTokens, MIN_HANDOFF_SUMMARY_TOKENS, MAX_HANDOFF_SUMMARY_TOKENS),
 		handoffBudgetRecentTokens: bounded("handoffBudgetRecentTokens", DEFAULT_CONFIG.handoffBudgetRecentTokens, MIN_HANDOFF_RECENT_TOKENS, MAX_HANDOFF_RECENT_TOKENS),
 		handoffPendingQuestion: pendingQuestion ?? DEFAULT_CONFIG.handoffPendingQuestion,

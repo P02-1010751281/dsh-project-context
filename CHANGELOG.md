@@ -10,6 +10,20 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（批次 Z8e：阈值合成一个键，绝对 token 数也能写）**
+
+- 变更（用户 2026-11-11 裁定）：`/handoff threshold` 与设置卡片合成**一个**事实、一个键 `handoffThreshold`，三种拼写 —— `auto`（守门rail 自己决定）、窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）、绝对 token 数（`400k` / `400000`）。旧的 `handoffThresholdAuto` + `handoffThresholdRatio` 退役，**不留别名**（与既往 rename 同一规矩：profile 必须先改、再重启；新键在旧代码下是 unknown key，旧键在新代码下同样抛错，两头都不静默）。此前 `400k` 被拒且报错只说「0.1 到 0.95」，既没说是窗口比例、也没说 token 数是合法触发 —— 一个把原因说错的拒绝。
+- 消歧规则（唯一读者 `src/shared/threshold-spec.ts`）：裸数字 ≤ `0.95` 是比例、≤ `95` 是百分比、`> 95` 只能是 token 数（没有合法比例那么大）；`%` 显式表示比例，`k` 显式表示千。所以 `5` / `1` / `0` 仍然是「比例越界」的拒绝，而不是悄悄变成 5 token 的触发器（那会先通过解析、再在下限处报另一个原因，把一次错误变成两次）。
+- 围栏（用户裁定「截断 + 具名」）：绝对数超过窗口容量 `W − 4000` 时**截断并写明**（label `400000 tokens (capped to 96000)`，`override.setting:"tokens"`），绝不静默保留一个永远点不着的触发点；低于物理下限（`overhead + recent + 8000`）**拒绝**，且建议仍按当前模式给 —— token 模式建议 `/handoff threshold <floor>`，比例模式给最小可行比例。`no-positive-threshold` 与 `fixed-below-floor` 两句都不再假定「比例」，否则就是在说一个用户没设过的旋钮。
+- 回执：label 三态（`auto N (x%)` / `40% of window` / `400000 tokens`，后两者带 `(capped to N)`）；`/handoff status` 的固定模式摘要写 `fixed ratio 40%` 或 `fixed threshold N tokens`；`statusText` 的 pending patch 走**同一个** reader —— 直接把写回字符串铺进已解析的 config 会让合并对象没有 `mode`，把刚写下的值解释成 `fixed 0%`（本轮自查抓到，已由 `/handoff threshold 0.1` 的端到端用例钉住）。
+- 卡片：开关 + 比例两行换成一行文本框（`thresholdField`），draft 用同一个 parser、写入规范拼写（`400k` 存成 `400000`）；文案换成 `field.handoffThresholdHint`，默认写成 `auto`（schema 默认值就是它）。
+- 配置读取：`resolvePluginConfig` 接受**已解析**的 spec —— `publishProjectContextSettings` 会把 entry 的 config 再解析一次，字符串仍是唯一存储形状；这条容忍让那次重解析不再抛错回退。
+- profile 迁移（与重启同一步）：`~/.dsh/profiles/desktop/cordis.patch.yml` 的 `handoffThresholdAuto: false` + `handoffThresholdRatio: 0.4` 已改写为 `handoffThreshold: "0.4"`（备份 `cordis.patch.yml.bak-*-z8e-threshold-merge`）；web profile 本来没有这对键，默认 `auto` 不变。用户在重启前不要再保存设置卡片：旧代码会按旧键重写文件。
+- 测试：新增 `test/threshold-spec.test.mjs`（7 条，三种拼写 + 消歧边界 + 规范拼写往返）与 `test/threshold-tokens.test.mjs`（4 条，数量照用 / 超窗截断具名 / 低于下限拒绝且建议同模式）；`card-render`、`settings-form`、`config-vocabulary`、`threshold-floor`、`handoff-decide`、`logic` 的夹具与断言按合并改写，两条只为 gate 存在的用例删除（合并后没有任何行再被 gate）。
+- 变异 3 个，各只红自己的目标：去掉 token 的窗口截断 → 「超窗截断并具名」红；建议忽略 token 模式 → 「低于下限建议同模式」红；放宽「小裸数字是比例」的守卫 → 解析器的消歧用例红（第一次的 M3 因 `bare` 变成未引用触发 TS6133，属无效变异，换锚点后重跑）。
+- `pnpm test` **615 通过 / 0 失败**（原 609：+7 +4 −5），`pnpm typecheck` 0，`pnpm build` ok（`lib/client.js` 38791）。
+- 残留：`rowVisible` / `appliesWhen` 这套 gate 机制现在没有使用者（唯一被 gate 的行合并掉了）；本批保留不动，下一批决定删除还是复用。
+
 **project-memory（批次 Z8d：id 记账不再吞事实，也不再谎报丢事实）**
 
 - 修复（2026-11-11T03:33Z 的假警报）：Z2 的 id 盖章会在计划阶段给文档带上 id、回写阶段因装不下而整份去掉，而回归守卫 `removedSectionEntries` 逐字比较新旧条目，于是把每一条未改动的 Invariants/Pitfalls 条目都判成「已消失」——`errors.log` 里是 107 条，实测其中 96 条只差 id、11 条是真改写。现在两侧都先 `stripEntryTid` 再归一化比较；守卫仍然只报告、不阻断，Project/Index 仍排除。新用例 `batch Z8d`（`test/logic.test.mjs`）用 4000 字符 cap 复现「计划带 id、回写不带 id」的完整链路，变异后红在 `removedEntries.count`。

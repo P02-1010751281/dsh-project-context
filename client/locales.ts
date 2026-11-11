@@ -2,7 +2,7 @@
 
 import type { SettingsFormLabels } from "@deepseek-ai/dsh-client-ui-primitives";
 
-import { DEFAULT_HANDOFF_SUMMARY_TOKENS, DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../src/shared/limits.ts";
+import { DEFAULT_HANDOFF_SUMMARY_TOKENS, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../src/shared/limits.ts";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../src/shared/setting-labels.ts";
 
 export const zh = {
@@ -54,10 +54,8 @@ export const zh = {
 	"section.handoff.description": "上下文接近模型上限时另开新会话继续（不调用模型生成摘要）；/handoff 可手动触发",
 	"field.handoffEnabled": "启用自动交接",
 	"field.handoffEnabledHint": "关闭后自动交接暂停，/handoff 仍可用",
-	"field.handoffThresholdAuto": "自适应阈值",
-	"field.handoffThresholdAutoHint": "开启时按上下文窗口与保留量自动推导；关闭时用下面的固定比例",
-	"field.handoffThresholdRatio": "固定阈值（上下文窗口占比）",
-	"field.handoffThresholdRatioHint": `仅固定模式（自适应关闭）读取；可写 0.4、40 或 40%（与 /handoff threshold 相同）；${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}，默认 ${DEFAULT_THRESHOLD_RATIO}；设到 0.8 及以上时 dsh 内置压缩会先触发`,
+	"field.handoffThreshold": "交接阈值",
+	"field.handoffThresholdHint": `auto（默认）按窗口与保留量推导；或写窗口占比 0.4 / 40 / 40%（${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}），或写绝对 token 数 400k（与 /handoff threshold 相同）。绝对数超过窗口容量时会被截断并在回执里写明；设到 0.8 及以上时 dsh 内置压缩会先触发`,
 	"field.handoffBudgetSummaryTokens": "摘要目标（仅报告）",
 	"field.handoffBudgetSummaryTokensHint": `仅自适应模式读取；只决定回执里「目标是否被完整采纳」的报告，不移动触发点，也不产生任何模型调用（默认 ${DEFAULT_HANDOFF_SUMMARY_TOKENS}）`,
 	"field.handoffBudgetRecentTokens": HANDOFF_BUDGET_RECENT_LABEL.zh,
@@ -121,10 +119,8 @@ export const en: Record<SettingsCardKey, string> = {
 	"section.handoff.description": "Continue in a fresh session as the context fills (no model call generates a summary); /handoff triggers it manually",
 	"field.handoffEnabled": "Enable automatic handoff",
 	"field.handoffEnabledHint": "When off, automatic handoff pauses; /handoff still works",
-	"field.handoffThresholdAuto": "Adaptive threshold",
-	"field.handoffThresholdAutoHint": "Derive the trigger from the window and keep budget; off uses the fixed ratio below",
-	"field.handoffThresholdRatio": "Fixed threshold (share of window)",
-	"field.handoffThresholdRatioHint": `Read only when adaptive is off; accepts 0.4, 40 or 40% (same as /handoff threshold); ${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}, default ${DEFAULT_THRESHOLD_RATIO}; at 0.8 and above dsh's own compaction (0.8) fires first`,
+	"field.handoffThreshold": "Handoff threshold",
+	"field.handoffThresholdHint": `\`auto\` (the default) derives the trigger from the window and keep budget; otherwise a share of the window (0.4, 40 or 40%, ${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}) or an absolute token count (400k). A count larger than the window is capped and said so in the receipt; at 0.8 and above dsh's own compaction (0.8) fires first`,
 	"field.handoffBudgetSummaryTokens": "Summary target (report only)",
 	"field.handoffBudgetSummaryTokensHint": `Read in adaptive mode only; it decides whether the receipt reports this target as fully applied. It never moves the trigger and calls no model (default ${DEFAULT_HANDOFF_SUMMARY_TOKENS})`,
 	"field.handoffBudgetRecentTokens": HANDOFF_BUDGET_RECENT_LABEL.en,

@@ -26,12 +26,11 @@ import { DEFAULT_CONFIG, resolvePluginConfig, type PluginConfig } from "./config
 import {
 	MAX_HANDOFF_RECENT_TOKENS,
 	MAX_HANDOFF_SUMMARY_TOKENS,
-	MAX_THRESHOLD_RATIO,
 	MIN_HANDOFF_RECENT_TOKENS,
 	MIN_HANDOFF_SUMMARY_TOKENS,
-	MIN_THRESHOLD_RATIO,
 } from "./limits.js";
 import { MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
+import { formatThresholdSpec } from "./threshold-spec.js";
 
 /** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */
 export const SETTINGS_NAMESPACE = "project-context" as const;
@@ -62,8 +61,7 @@ export const PluginSettingsSchema = z.object({
 	autolearnTurns: z.natural().min(1).default(DEFAULT_CONFIG.autolearnTurns).extra("volatile", true),
 	autolearnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.autolearnIntervalMs).extra("volatile", true),
 	handoffEnabled: z.boolean().default(DEFAULT_CONFIG.handoffEnabled).extra("volatile", true),
-	handoffThresholdAuto: z.boolean().default(DEFAULT_CONFIG.handoffThresholdAuto).extra("volatile", true),
-	handoffThresholdRatio: z.number().min(MIN_THRESHOLD_RATIO).max(MAX_THRESHOLD_RATIO).default(DEFAULT_CONFIG.handoffThresholdRatio).extra("volatile", true),
+	handoffThreshold: z.string().default(formatThresholdSpec(DEFAULT_CONFIG.handoffThreshold)).extra("volatile", true),
 	handoffBudgetSummaryTokens: z.natural().min(MIN_HANDOFF_SUMMARY_TOKENS).max(MAX_HANDOFF_SUMMARY_TOKENS).default(DEFAULT_CONFIG.handoffBudgetSummaryTokens).extra("volatile", true),
 	handoffBudgetRecentTokens: z.natural().min(MIN_HANDOFF_RECENT_TOKENS).max(MAX_HANDOFF_RECENT_TOKENS).default(DEFAULT_CONFIG.handoffBudgetRecentTokens).extra("volatile", true),
 	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion).extra("volatile", true),

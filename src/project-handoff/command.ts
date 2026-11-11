@@ -7,15 +7,13 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import {
-	DEFAULT_THRESHOLD_RATIO,
 	MAX_HANDOFF_RECENT_TOKENS,
 	MAX_HANDOFF_SUMMARY_TOKENS,
-	MAX_THRESHOLD_RATIO,
 	MIN_HANDOFF_RECENT_TOKENS,
 	MIN_HANDOFF_SUMMARY_TOKENS,
-	MIN_THRESHOLD_RATIO,
 } from "../shared/limits.js";
 import { parseRatioInput } from "../shared/ratio.js";
+import { formatThresholdSpec, parseThresholdSpec, parseTokenCount, thresholdSpecHelp } from "../shared/threshold-spec.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { pendingSubagentWork } from "./guard.js";
@@ -38,13 +36,8 @@ export function parseRatio(input: string): number | undefined {
 	return parseRatioInput(input);
 }
 
-/** Parse "12k", "12000", or "0" into a token count. Exported for tests. */
-export function parseTokenCount(input: string): number | undefined {
-	const match = /^(\d+(?:\.\d+)?)(k)?$/.exec(input.trim().toLowerCase());
-	if (!match) return undefined;
-	const value = Number(match[1]) * (match[2] ? 1_000 : 1);
-	return Number.isFinite(value) ? Math.round(value) : undefined;
-}
+/** Re-exported for tests: the one token-count reader lives in `shared/threshold-spec.ts`. */
+export { parseTokenCount };
 
 /** Map one command argument to a settings patch. */
 /** Exported for tests: the settings patch `/handoff <args>` produces, if any. */
@@ -55,15 +48,14 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	if (pending) return { patch: { handoffPendingQuestion: pending[1] } };
 	const language = /^lang\s+(auto|zh|en)$/.exec(args);
 	if (language) return { patch: { handoffLang: language[1] } };
-	// One name for the fact "how the threshold is decided": `threshold auto`, or a ratio. The bare
-	// ratio and the bare `auto` are retired rather than aliased — a second spelling is what let the two
-	// drift apart, and an old spelling must not act.
+	// One name for the fact "where the trigger sits": `threshold` takes `auto`, a window fraction or an
+	// absolute count, and all three write the same key. The value is stored in its canonical spelling so
+	// `400k` comes back as the count it means.
 	const threshold = /^threshold\s+(\S+)$/.exec(args);
 	if (threshold) {
-		if (threshold[1] === "auto") return { patch: { handoffThresholdAuto: true } };
-		const ratio = parseRatio(threshold[1]);
-		if (ratio === undefined) return { error: `threshold needs auto or a ratio between ${MIN_THRESHOLD_RATIO} and ${MAX_THRESHOLD_RATIO} (e.g. threshold ${DEFAULT_THRESHOLD_RATIO})` };
-		return { patch: { handoffThresholdAuto: false, handoffThresholdRatio: ratio } };
+		const spec = parseThresholdSpec(threshold[1]);
+		if (spec === undefined) return { error: `threshold takes ${thresholdSpecHelp()} (e.g. threshold 0.4, threshold 400k)` };
+		return { patch: { handoffThreshold: formatThresholdSpec(spec) } };
 	}
 	// `budget summary|recent`, because the two amounts size different things and `target`/`keep` did not
 	// say which was which: `summary` is the trigger request the pass reports (no model call reads it
@@ -86,11 +78,11 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 	// A verb used without its argument names its own sub-verbs rather than falling through to the whole
 	// usage line, so the receipt says which spelling is missing.
 	if (/^budget\b/.test(args)) return { error: "budget needs summary or recent: budget summary <tokens> | budget recent <tokens>" };
-	if (/^threshold\b/.test(args)) return { error: `threshold needs auto or a ratio between ${MIN_THRESHOLD_RATIO} and ${MAX_THRESHOLD_RATIO} (e.g. threshold ${DEFAULT_THRESHOLD_RATIO})` };
+	if (/^threshold\b/.test(args)) return { error: `threshold takes ${thresholdSpecHelp()} (e.g. threshold 0.4, threshold 400k)` };
 	return undefined;
 }
 
-export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
+export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|<tokens>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
 
 /** Persist one settings patch through the mounted settings service. */
 export async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined> {
@@ -115,8 +107,22 @@ export async function writeSetting(ctx: Context, patch: Record<string, unknown>)
  * set — a fresh misattribution in the place a misattribution is least tolerable. `/handoff status`
  * passes nothing and reports exactly what is in force.
  */
-export async function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal, pending?: Partial<PluginConfig>): Promise<string> {
-	const config = { ...effectivePluginConfig(entry), ...(pending ?? {}) };
+export async function statusText(
+	ctx: Context,
+	session: Session,
+	entry: PluginConfig,
+	signal: AbortSignal,
+	/** The raw patch a just-completed write will put in force — stored spellings, not resolved values. */
+	pending?: Partial<Record<keyof PluginConfig, unknown>>,
+): Promise<string> {
+	const live = effectivePluginConfig(entry);
+	// The threshold's stored spelling is a string (`400k`) while the resolved config holds the parsed
+	// spec, so the pending value has to go through the one reader: spreading it raw would hand the
+	// receipt a mode-less object and explain the write as `fixed 0%`.
+	const merged = { ...live, ...(pending ?? {}) } as PluginConfig;
+	const config: PluginConfig = typeof pending?.handoffThreshold === "string"
+		? { ...merged, handoffThreshold: parseThresholdSpec(pending.handoffThreshold) ?? live.handoffThreshold }
+		: merged;
 	// Resolved once and early: the threshold refusal below is written in this language, and it must be
 	// the same one `HANDOFF.md` would use for this handoff.
 	const language = resolveHandoffLanguage(sessionLanguageMessages(session), config);
@@ -170,7 +176,12 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 			if (threshold?.override !== undefined) parts.push(thresholdOverrideText(threshold.override, config, measurement, contextWindow));
 		}
 	}
-	parts.push(config.handoffThresholdAuto ? `adaptive target ${config.handoffBudgetSummaryTokens}` : `fixed ratio ${config.handoffThresholdRatio}`);
+	const thresholdSetting = config.handoffThreshold;
+	parts.push(thresholdSetting.mode === "auto"
+		? `adaptive target ${config.handoffBudgetSummaryTokens}`
+		: thresholdSetting.mode === "ratio"
+			? `fixed ratio ${Math.round(thresholdSetting.ratio * 100)}%`
+			: `fixed threshold ${thresholdSetting.tokens} tokens`);
 	// The setting's name is the settings card's, in the receipt's own language — `keep` is an internal
 	// shorthand that appears nowhere the user can see it.
 	parts.push(config.handoffBudgetRecentTokens > 0

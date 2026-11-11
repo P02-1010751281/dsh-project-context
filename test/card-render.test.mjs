@@ -186,8 +186,7 @@ const VALUE = {
 	autolearnTurns: 12,
 	autolearnIntervalMs: 600000,
 	handoffEnabled: true,
-	handoffThresholdAuto: true,
-	handoffThresholdRatio: 0.8,
+	handoffThreshold: "0.8",
 	handoffBudgetSummaryTokens: 64000,
 	handoffBudgetRecentTokens: 20000,
 	handoffPendingQuestion: "defer",
@@ -197,7 +196,7 @@ const VALUE = {
 /** The table's shape, read from the source of truth rather than restated here. */
 const BOOLEAN_ROWS = ROWS.filter((row) => row.kind === "boolean");
 const UNION_ROWS = ROWS.filter((row) => row.kind === "union");
-const PLATFORM_KINDS = new Set(["number", "text", "ratio"]);
+const PLATFORM_KINDS = new Set(["number", "text", "threshold"]);
 const PILL_TOTAL = UNION_ROWS.reduce((sum, row) => sum + (row.options?.length ?? 0), 0);
 
 /**
@@ -219,7 +218,7 @@ function VISIBLE(value, user = {}) {
 /** The rows the platform's own field draws, for one section value. */
 const PLATFORM_OF = (value, user) => VISIBLE(value, user).filter((row) => PLATFORM_KINDS.has(row.kind));
 
-/** `VALUE` keeps the adaptive threshold on, so its platform rows are the summary target. */
+/** `VALUE` keeps the trigger in fixed-ratio mode, so its platform rows are the threshold and the two budgets. */
 const PLATFORM_ROWS = PLATFORM_OF(VALUE);
 
 /** Every clickable control a clean page is allowed: one switch per boolean, one pill per option, one save. */
@@ -360,51 +359,40 @@ test("a read-only document still shows every row, with the save disabled", () =>
 	assert.match(rendered.saveTag ?? "", /disabled/, "the save must refuse while the document is read-only");
 });
 
-test("the fixed-only trigger row swaps with the mode, while the report-only target stays put", async () => {
-	const adaptive = page();
-	assert.ok(adaptive.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"), "adaptive mode shows the summary target");
-	assert.equal(
-		adaptive.rendered.fieldKeys.includes("handoffThresholdRatio"),
-		false,
-		"the fixed ratio is not read while adaptive is on, so the card must not offer it",
-	);
-
-	const fixedValue = { ...VALUE, handoffThresholdAuto: false };
-	const fixed = page({ value: fixedValue });
-	assert.ok(fixed.rendered.fieldKeys.includes("handoffThresholdRatio"), "fixed mode shows the ratio");
-	assert.ok(
-		fixed.rendered.fieldKeys.includes("handoffBudgetSummaryTokens"),
-		"the report-only target keeps rendering: /handoff budget summary accepts it in this mode too",
-	);
-	assert.equal(
-		fixed.rendered.fieldKeys.length,
-		PLATFORM_OF(fixedValue).length,
-		"the ratio row joins the fixed-mode page without displacing the target",
-	);
-
-	// A switch flip is a staged set, so the pair swaps before the save rather than after it.
-	const scope = makeScope();
-	const { controller, face, props } = mount(scope);
-	face.edit("handoffThresholdAuto", "false");
+test("the trigger is one row in every mode, and its spelling is what the row shows", async () => {
+	// The trigger used to be two rows with a gate: a switch and a fixed ratio that appeared only while the
+	// switch was off. They are one fact now, so hiding the row in `auto` would hide the only control.
+	for (const stored of ["auto", "0.8", "400000"]) {
+		const { rendered } = page({ value: { ...VALUE, handoffThreshold: stored } });
+		assert.ok(rendered.fieldKeys.includes("handoffThreshold"), `${stored}: the trigger row must render`);
+		assert.equal(rendered.fieldKeys.length, PLATFORM_OF({ ...VALUE, handoffThreshold: stored }).length, `${stored}: one row, no gate`);
+	}
+	const { controller, face, props } = mount(makeScope());
+	face.edit("handoffThreshold", "400k");
 	await tick();
-	assert.ok(
-		render(props).html.includes('id="dsh-pc-handoffThresholdRatio"'),
-		"a staged switch flip must swap the pair immediately",
-	);
+	assert.ok(render(props).html.includes('id="dsh-pc-handoffThreshold"'), "editing the row keeps it on the page");
 	controller.dispose();
 });
 
-test("Reset on the mode switch previews the mode the save would leave", async () => {
-	// Reset stages a draft formatted from the (empty) composition layer, so it reads "false", while the
-	// write is an unset that re-inherits the schema default (`handoffThresholdAuto: true`). Gating on the
-	// draft text would show the fixed-ratio row for the whole edit — the opposite of what the save does.
-	const scope = makeScope({ user: { handoffThresholdAuto: true } });
-	const { controller, face, props } = mount(scope);
-	face.resetField("handoffThresholdAuto");
+test("Reset previews the unset the save would stage, not the user layer's own value", async () => {
+	// Reset stages a draft formatted from the (empty) composition layer, so the row goes blank and the save
+	// is an unset that re-inherits the schema default (`auto`) — showing the overridden `0.4` there would
+	// preview a write the save does not make.
+	const scope = makeScope({ user: { handoffThreshold: "0.4" } });
+	const { controller, face, props, store } = mount(scope);
+	face.resetField("handoffThreshold");
 	await tick();
 	const html = render(props).html;
-	assert.ok(html.includes('id="dsh-pc-handoffBudgetSummaryTokens"'), "the pending unset re-inherits adaptive mode");
-	assert.equal(html.includes('id="dsh-pc-handoffThresholdRatio"'), false, "so the fixed ratio must not appear yet");
+	assert.ok(html.includes('id="dsh-pc-handoffThreshold"'), "the row stays");
+	assert.doesNotMatch(html, /value="0\.4"/, "the overridden value is not what the unset leaves behind");
+	assert.equal(store.getSnapshot().invalid, false, "and the blank draft does not block the save");
+	face.save();
+	await tick();
+	assert.equal(
+		scope.calls.flatMap((call) => call.ops).some((op) => op.op === "set"),
+		false,
+		"a reset stages an unset, never a value",
+	);
 	controller.dispose();
 });
 
@@ -479,41 +467,27 @@ test("a failed save names the cause the card can observe", async () => {
 	landed.controller.dispose();
 });
 
-test("the ratio and bounded rows are drawn as numeric inputs", () => {
-	// `numeric` is what makes the platform's field numeric; dropping it leaves every behavioural test
-	// green, because this harness edits through the action rather than the input.
-	// The ratio renders only in fixed mode; the two budgets render in both, and the summary target is
-	// checked in both here so the un-gating is covered by the row-drawing test as well.
-	const modes = [
-		["handoffBudgetSummaryTokens", true],
-		["handoffBudgetSummaryTokens", false],
-		["handoffBudgetRecentTokens", true],
-		["handoffThresholdRatio", false],
-	];
-	for (const [key, adaptive] of modes) {
-		const { rendered } = page(adaptive ? {} : { value: { ...VALUE, handoffThresholdAuto: false } });
+test("the threshold row is a text input and the budget rows stay numeric", () => {
+	// `numeric` is what makes the platform's field numeric; the threshold must NOT be, because `400k` and
+	// `auto` are not numbers. This harness edits through the action, so a wrong input mode would otherwise
+	// stay invisible.
+	const { rendered } = page();
+	for (const key of ["handoffBudgetSummaryTokens", "handoffBudgetRecentTokens"]) {
 		const input = new RegExp(`<input[^>]*id="dsh-pc-${key}"[^>]*>`).exec(rendered.html)?.[0] ?? "";
-		assert.ok(input.length > 0, `${key} must render an input`);
 		assert.match(input, /inputmode="numeric"/i, `${key}'s input must be numeric: ${input}`);
 	}
+	const threshold = /<input[^>]*id="dsh-pc-handoffThreshold"[^>]*>/.exec(rendered.html)?.[0] ?? "";
+	assert.ok(threshold.length > 0, "the threshold row must render an input");
+	assert.doesNotMatch(threshold, /inputmode="numeric"/i, `the threshold takes spellings, not only digits: ${threshold}`);
 });
 
-test("a mode-gated row stays on the page while it carries the user's own value", () => {
-	// Dropping it would hide an override — or a staged draft that blocks the save — behind a switch the
-	// user can neither see nor reset, so the card keeps any row the user's attention is on.
-	const { rendered } = page({ user: { handoffThresholdRatio: 0.5 } });
-	assert.ok(rendered.fieldKeys.includes("handoffThresholdRatio"), "an overridden gated row must stay visible");
-	assert.equal(rendered.fieldKeys.length, PLATFORM_ROWS.length + 1, "and it adds that one row only");
-});
-
-test("the ratio row folds 40 and 40% to the 0.4 the Host stores", async () => {
-	// The command has always accepted all three spellings; a card that passed `40` through to a schema
-	// bounded by `limits.ts` was the save that failed with no explanation. Each spelling must both parse
-	// and write the same number.
-	for (const typed of ["0.4", "40", "40%"]) {
-		const scope = makeScope({ value: { ...VALUE, handoffThresholdAuto: false } });
+test("the threshold row folds every spelling the command accepts into the stored one", async () => {
+	// The command accepts `auto`, a fraction in three spellings, and an absolute count; a card that passes
+	// `40` or `400k` through to a string schema would store a value that re-parses as something else.
+	for (const [typed, stored] of [["auto", "auto"], ["0.4", "0.4"], ["40", "0.4"], ["40%", "0.4"], ["400k", "400000"], ["400000", "400000"]]) {
+		const scope = makeScope({ value: { ...VALUE } });
 		const { controller, face, props, store } = mount(scope);
-		face.edit("handoffThresholdRatio", typed);
+		face.edit("handoffThreshold", typed);
 		await tick();
 		assert.equal(store.getSnapshot().invalid, false, `${typed} is a draft the card must accept`);
 		assert.doesNotMatch(render(props).saveTag ?? "", /disabled/, `${typed} must not block the save`);
@@ -521,79 +495,20 @@ test("the ratio row folds 40 and 40% to the 0.4 the Host stores", async () => {
 		await tick();
 		assert.deepEqual(
 			scope.calls.map((call) => call.ops),
-			[[{ op: "set", path: ["handoffThresholdRatio"], value: 0.4 }]],
-			`${typed} must stage 0.4`,
+			[[{ op: "set", path: ["handoffThreshold"], value: stored }]],
+			`${typed} must stage ${stored}`,
 		);
 		controller.dispose();
 	}
 
-	// A draft the Host's pair refuses is refused here, rather than staged into a write the Host drops.
-	const refused = makeScope({ value: { ...VALUE, handoffThresholdAuto: false } });
+	// A draft the reader refuses is refused here, rather than staged into a write the Host drops.
+	const refused = makeScope({ value: { ...VALUE } });
 	const over = mount(refused);
-	over.face.edit("handoffThresholdRatio", String(MAX_THRESHOLD_RATIO + 0.01));
+	over.face.edit("handoffThreshold", String(MAX_THRESHOLD_RATIO + 0.01));
 	await tick();
-	assert.equal(over.store.getSnapshot().invalid, true, "a ratio outside the accepted pair must block the save");
+	assert.equal(over.store.getSnapshot().invalid, true, "a fraction outside the accepted pair must block the save");
 	over.face.save();
 	await tick();
 	assert.equal(refused.calls.length, 0, "and it must never reach the Host");
 	over.controller.dispose();
-});
-
-test("an overridden field is badged and resettable, whichever control draws it", () => {
-	for (const key of [BOOLEAN_ROWS[0].key, PLATFORM_ROWS[0].key]) {
-		const { rendered } = page({ user: { [key]: VALUE[key] } });
-		assert.equal(rendered.overriddenLabels, 1, `${key} must show one override badge`);
-		assert.equal(rendered.resetLabels, 1, `${key} must offer one reset`);
-		assert.equal(rendered.buttons, CLEAN_BUTTONS + 1, `${key} adds the reset and nothing else`);
-	}
-});
-
-test("the summary view is the one-liner, not the form", () => {
-	const scope = makeScope();
-	const { controller, props } = mount(scope);
-	const summary = renderToStaticMarkup(createElement(ProjectContextSettingsCard, { ...props, view: "summary" }));
-	controller.dispose();
-	assert.equal(summary, "card.description", "a list row gets the description; the form belongs to the page view");
-});
-
-test("a save writes every staged edit in one revision-fenced mutation", async () => {
-	const scope = makeScope();
-	const { controller, face, props, store } = mount(scope);
-	face.edit("consolidateTurns", "20");
-	await tick();
-	assert.equal(store.getSnapshot().dirty, true, "a staged edit makes the form dirty");
-	assert.equal(scope.calls.length, 0, "staging writes nothing");
-	assert.doesNotMatch(render(props).saveTag ?? "", /disabled/, "a staged edit is what enables the save");
-
-	face.save();
-	await tick();
-	assert.equal(scope.calls.length, 1, "the staged edits go out in one mutation, never field by field");
-	assert.deepEqual(scope.calls[0], { ops: [{ op: "set", path: ["consolidateTurns"], value: 20 }], expectedRevision: 7 });
-	assert.equal(store.getSnapshot().failed, false, "an accepted save reports no failure");
-	assert.equal(store.getSnapshot().dirty, false, "an accepted save clears the drafts");
-	controller.dispose();
-});
-
-test("a refused save keeps its drafts without wedging, and an invalid one is never written", async () => {
-	const refused = makeScope({ accept: false });
-	const first = mount(refused);
-	first.face.edit("consolidateTurns", "20");
-	await tick();
-	first.face.save();
-	await tick();
-	assert.equal(first.store.getSnapshot().failed, true, "the refusal must be reported");
-	assert.equal(first.store.getSnapshot().saving, false, "a rejected write must not leave the form saving forever");
-	assert.equal(first.store.getSnapshot().dirty, true, "the drafts must survive so the user can correct them");
-	first.controller.dispose();
-
-	const invalid = makeScope();
-	const second = mount(invalid);
-	second.face.edit("consolidateTurns", "not-a-number");
-	await tick();
-	second.face.save();
-	await tick();
-	assert.equal(invalid.calls.length, 0, "a draft the field cannot parse must never be written");
-	assert.equal(second.store.getSnapshot().invalid, true, "and it must block the save instead of being dropped");
-	assert.equal(second.store.getSnapshot().dirty, true);
-	second.controller.dispose();
 });

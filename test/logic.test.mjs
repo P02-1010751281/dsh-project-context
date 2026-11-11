@@ -96,7 +96,7 @@ function noModelCalls() {
 }
 
 test("fixed threshold is a window share, and refuses under the physical floor", () => {
-	const config = { ...DEFAULT_CONFIG, handoffThresholdAuto: false };
+	const config = { ...DEFAULT_CONFIG, handoffThreshold: { mode: "ratio", ratio: 0.4 } };
 	assert.equal(resolveThreshold(config, { totalTokens: 0, surfaceTokens: 0 }, 100_000)?.tokens, 40_000);
 	// 8_000 × 0.4 = 3_200 is a positive trigger, but it sits under the 28_000 floor the default kept tail
 	// (20_000) plus `MIN_DROP_TOKENS` builds, so this configuration cannot fire at all: fixed mode obeys
@@ -2806,7 +2806,7 @@ test("resolvePluginConfig validates every documented bound", () => {
 	assert.throws(() => resolvePluginConfig({ nope: 1 }), /unknown config key/);
 	assert.throws(() => resolvePluginConfig({ archiveEnabled: "yes" }), /archiveEnabled must be a boolean/);
 	assert.throws(() => resolvePluginConfig({ consolidateTurns: 0 }), /consolidateTurns must be a number >= 1/);
-	assert.throws(() => resolvePluginConfig({ handoffThresholdRatio: 0.96 }), /between 0.1 and 0.95/);
+	assert.throws(() => resolvePluginConfig({ handoffThreshold: "0.96" }), /auto, a window fraction \(0\.1–0\.95/);
 	assert.throws(() => resolvePluginConfig({ handoffBudgetSummaryTokens: 7_999 }), /between 8000 and 200000/);
 	// `handoffThinking` was retired with the generated summary: a stored value is now an unknown key.
 	assert.throws(() => resolvePluginConfig({ handoffThinking: "high" }), /unknown config key "handoffThinking"/);
@@ -2970,10 +2970,12 @@ test("resolvePluginConfig, settingPatch and the pending-question check behave", 
 	assert.equal(settingPatch("thinking off"), undefined);
 	assert.deepEqual(settingPatch("pending wait"), { patch: { handoffPendingQuestion: "wait" } });
 	assert.equal(settingPatch("pending sometimes"), undefined);
-	assert.deepEqual(settingPatch("threshold auto"), { patch: { handoffThresholdAuto: true } });
-	assert.deepEqual(settingPatch("threshold 0.5"), { patch: { handoffThresholdAuto: false, handoffThresholdRatio: 0.5 } });
-	assert.deepEqual(settingPatch("threshold 50%"), { patch: { handoffThresholdAuto: false, handoffThresholdRatio: 0.5 } });
-	assert.match(settingPatch("threshold 0.96").error, /threshold needs auto or a ratio/);
+	assert.deepEqual(settingPatch("threshold auto"), { patch: { handoffThreshold: "auto" } });
+	assert.deepEqual(settingPatch("threshold 0.5"), { patch: { handoffThreshold: "0.5" } });
+	assert.deepEqual(settingPatch("threshold 50%"), { patch: { handoffThreshold: "0.5" } });
+	assert.match(settingPatch("threshold 0.96").error, /threshold takes auto, a window fraction/);
+	assert.deepEqual(settingPatch("threshold 400k"), { patch: { handoffThreshold: "400000" } }, "an absolute count is a legal trigger");
+	assert.match(settingPatch("threshold 5").error, /threshold takes auto, a window fraction/, "a bare 5 stays a refused fraction");
 	assert.deepEqual(settingPatch("budget summary 64k"), { patch: { handoffBudgetSummaryTokens: 64_000 } });
 	assert.match(settingPatch("budget summary 1k").error, /8000–200000/);
 	assert.deepEqual(settingPatch("budget recent 0"), { patch: { handoffBudgetRecentTokens: 0 } });
@@ -3060,9 +3062,9 @@ test("the /handoff command routes the new verbs and rejects the retired spelling
 	assert.deepEqual(writes, [], "`force` did not reach the settings service");
 
 	assert.equal((await call("threshold auto")).kind, "success");
-	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: true });
+	assert.deepEqual(writes.at(-1).patch, { handoffThreshold: "auto" });
 	assert.equal((await call("threshold 0.6")).kind, "success");
-	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: false, handoffThresholdRatio: 0.6 });
+	assert.deepEqual(writes.at(-1).patch, { handoffThreshold: "0.6" });
 	assert.equal((await call("budget summary 64k")).kind, "success");
 	assert.deepEqual(writes.at(-1).patch, { handoffBudgetSummaryTokens: 64_000 });
 	assert.equal((await call("budget recent 20k")).kind, "success");
@@ -3316,7 +3318,7 @@ test("the automatic handoff never runs under its trigger, however droppable the 
 	const config = resolvePluginConfig({
 		provider: "test-provider", model: "test-model",
 		handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0,
-		handoffThresholdAuto: false, handoffThresholdRatio: 0.4,
+		handoffThreshold: { mode: "ratio", ratio: 0.4 },
 	});
 
 	// 50 000 is under the 80 000 trigger, with no pending question and no live subagent to blame. The
@@ -3614,7 +3616,7 @@ test("the status receipt names the term that refused the threshold, not always t
 	const advisedKnee = /\/handoff threshold (\d+(?:\.\d+)?)/.exec(kneeSqueezed);
 	assert.ok(advisedKnee !== null, `the refusal names the control that clears it: ${kneeSqueezed}`);
 	assert.notEqual(
-		resolveThreshold(resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: Number(advisedKnee[1]) }), heavy, 1_000_000),
+		resolveThreshold(resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThreshold: String(advisedKnee[1]) }), heavy, 1_000_000),
 		undefined,
 		"the ratio the receipt names must really clear this window's floor",
 	);
@@ -3626,7 +3628,7 @@ test("the status receipt names the term that refused the threshold, not always t
 	const bandMeasurement = { totalTokens: 600_000, surfaceTokens: 300_000, overheadTokens: 300_000 };
 	const bandAuto = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	assert.equal(thresholdRefusal(bandAuto, bandMeasurement, bandW), "quality-knee", "W=450K with a 300K reported envelope is a knee refusal");
-	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false, handoffThresholdRatio: 0.4, handoffBudgetRecentTokens: 0 });
+	const bandFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThreshold: "0.4", handoffBudgetRecentTokens: 0 });
 	// Probe the placement without the envelope: with the 300K envelope the same 0.4 trigger is refused by
 	// fixed mode's physical floor instead (asserted next), which is precisely why the knee sentence must
 	// not promise where a fixed trigger lands.
@@ -3645,13 +3647,13 @@ test("the status receipt names the term that refused the threshold, not always t
 	// Fixed mode has two refusals now, and naming the ratio as a lever is right for exactly one of them.
 	// This is the `tokens <= 0` one, where no legal ratio can help; the floor case is separate and is
 	// pinned in `threshold-floor.test.mjs`, where the ratio *is* the first lever.
-	const fixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThresholdAuto: false });
+	const fixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffThreshold: "0.4" });
 	assert.equal(resolveThreshold(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), undefined, "W = SAFETY_MARGIN is the boundary");
 	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 4_000), "no-positive-threshold", "at the boundary the trigger is not positive at all");
 	assert.equal(thresholdRefusal(fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000), "no-positive-threshold");
 	const fixedText = thresholdRefusalText("no-positive-threshold", fixed, { totalTokens: 0, surfaceTokens: 0 }, 3_000, "en");
 	assert.match(fixedText, /a larger window is the only lever/, "the receipt names the lever that works");
-	assert.match(fixedText, /the ratio cannot help/, "and says outright that the ratio does not");
+	assert.match(fixedText, /no fixed value can help/, "and says outright that the fixed value does not");
 	// The negative half has to name something that exists: an assertion about a phrase no code can emit
 	// passes no matter what the receipt says. What it must *not* do is send the user to the ratio control,
 	// which is exactly the advice the other fixed cause legitimately carries.
@@ -3840,11 +3842,11 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 	assert.match(capacity, /only 45152 tokens fit this 65536-token window/);
 	// Fixed mode: the ratio *is* the trigger, so a 95% ratio clamped by the safety margin on a small
 	// window is the same silent-override class (62_259 asked → 61_536 resolved).
-	const fixed = await statusAt(65_536, { handoffThresholdAuto: false, handoffThresholdRatio: 0.95 });
+	const fixed = await statusAt(65_536, { handoffThreshold: "0.95" });
 	assert.match(fixed, /fixed ratio 95% is not applied in full/);
 	assert.match(fixed, /asks for 62259 of this 65536-token window and the 4000-token safety margin leaves 61536/);
 	assert.match(fixed, /threshold 95% of window \(capped to 61536\)/, "the label stops claiming the full ratio");
-	const fixedFits = await statusAt(131_072, { handoffThresholdAuto: false, handoffThresholdRatio: 0.95 });
+	const fixedFits = await statusAt(131_072, { handoffThreshold: "0.95" });
 	assert.doesNotMatch(fixedFits, /not applied in full/, `unexpected warning: ${fixedFits}`);
 });
 
@@ -3885,7 +3887,7 @@ test("the quality layer is a fallback chain, and capacity has the last word", ()
 	// caps it at 379_616, whatever the target says.
 	assert.equal(at(400_000, { handoffBudgetSummaryTokens: 200_000 }), 379_616);
 	// Fixed ratio mode returns before the curve entirely, so an explicit user ratio is never touched.
-	const fixed = resolveThreshold(config({ handoffThresholdAuto: false, handoffThresholdRatio: 0.5 }), measurement, 1_000_000);
+	const fixed = resolveThreshold(config({ handoffThreshold: "0.5" }), measurement, 1_000_000);
 	assert.equal(fixed.tokens, 500_000);
 	// Regression: the W=40000 case the misattribution fix pinned as a refusal was a measurement-basis
 	// artifact, not model behaviour. The fixture keeps a non-zero `totalTokens − surfaceTokens` on purpose:

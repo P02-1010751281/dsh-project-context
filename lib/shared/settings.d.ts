@@ -50,8 +50,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     autolearnTurns: z<number, number>;
     autolearnIntervalMs: z<number, number>;
     handoffEnabled: z<boolean, boolean>;
-    handoffThresholdAuto: z<boolean, boolean>;
-    handoffThresholdRatio: z<number, number>;
+    handoffThreshold: z<string, string>;
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
@@ -73,8 +72,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     autolearnTurns: z<number, number>;
     autolearnIntervalMs: z<number, number>;
     handoffEnabled: z<boolean, boolean>;
-    handoffThresholdAuto: z<boolean, boolean>;
-    handoffThresholdRatio: z<number, number>;
+    handoffThreshold: z<string, string>;
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;

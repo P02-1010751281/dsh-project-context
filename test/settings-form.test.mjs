@@ -63,7 +63,7 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 
 	for (const row of rows) {
-		assert.ok(["boolean", "number", "text", "union", "ratio"].includes(row.kind), `${row.key} has an unknown kind`);
+		assert.ok(["boolean", "number", "text", "union", "threshold"].includes(row.kind), `${row.key} has an unknown kind`);
 		if (row.kind === "union") {
 			assert.ok(Array.isArray(row.options) && row.options.length > 0, `${row.key} is a union without options`);
 			// The row renders one control per option, so drift here loses a value the host still accepts:
@@ -98,12 +98,9 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 });
 
-test("only the other mode's trigger is gated, and a gated row never hides a draft", () => {
-	// `handoffThresholdRatio` is the other mode's trigger: while adaptive decides, nothing consults it, so
-	// the card hides it and the section never offers two competing triggers. The summary target is not a
-	// trigger — `/handoff budget summary` accepts it in either mode and it only reports whether the target
-	// was honoured — so gating it would make the card stricter than the command and remove the only
-	// control for a value the user still owns.
+test("the trigger row is never gated now that it is one key", () => {
+	// The trigger used to be two rows with a gate: a switch, plus the fixed ratio shown only while the
+	// switch was off. They are one setting, so a gate on it would hide the only control there is.
 	const drafts = (extra = {}) => Object.fromEntries(fields.ROWS.map((row) => [row.key, {
 		text: "0",
 		overridden: false,
@@ -113,41 +110,11 @@ test("only the other mode's trigger is gated, and a gated row never hides a draf
 	const row = (key) => fields.ROWS.find((candidate) => candidate.key === key);
 	const visible = (key, modes, state = drafts()) => fields.rowVisible(row(key), state, modes);
 
-	assert.equal(
-		row("handoffBudgetSummaryTokens").appliesWhen,
-		undefined,
-		"the report-only target is a budget, not the other mode's trigger, so it keeps rendering",
-	);
+	assert.equal(row("handoffThreshold").appliesWhen, undefined, "the merged trigger carries no gate");
 	for (const mode of ["true", "false"]) {
-		assert.equal(
-			visible("handoffBudgetSummaryTokens", { handoffThresholdAuto: mode }),
-			true,
-			`the summary target renders in every mode (adaptive=${mode})`,
-		);
-	}
-	assert.equal(
-		visible("handoffThresholdRatio", { handoffThresholdAuto: "true" }),
-		false,
-		"the fixed ratio is inert while adaptive is on",
-	);
-	assert.equal(visible("handoffThresholdRatio", { handoffThresholdAuto: "false" }), true);
-
-	// The user's own value keeps the row: hiding an override would make it unreachable, and hiding an
-	// invalid draft would block the save with no control left to fix it.
-	assert.equal(
-		visible("handoffThresholdRatio", { handoffThresholdAuto: "true" }, drafts({ handoffThresholdRatio: { overridden: true } })),
-		true,
-		"an overridden gated row must stay visible",
-	);
-	assert.equal(
-		visible("handoffThresholdRatio", { handoffThresholdAuto: "true" }, drafts({ handoffThresholdRatio: { invalid: true } })),
-		true,
-		"an invalid gated draft must stay visible",
-	);
-
-	// A row with no gate is never hidden by a mode.
-	for (const mode of ["true", "false"]) {
-		assert.equal(visible("handoffLang", { handoffThresholdAuto: mode }), true);
+		assert.equal(visible("handoffThreshold", {}), true, `the trigger row renders in every mode (${mode})`);
+		assert.equal(visible("handoffBudgetSummaryTokens", {}), true, "the report-only target keeps rendering too");
+		assert.equal(visible("handoffLang", {}), true);
 	}
 });
 
@@ -199,18 +166,22 @@ test("the failure line names the cause, and no cause keeps the generic sentence"
 	assert.equal(locales.formLabels((key) => key).saveFailed, "chrome.saveFailed", "a form with no failure keeps the generic line");
 });
 
-test("the ratio row takes the command's three spellings and refuses everything else", () => {
-	const spec = fields.ratioField("handoffThresholdRatio");
-	assert.equal(spec.format(0.4), "0.4");
-	assert.equal(spec.format(undefined), "", "an absent value renders empty rather than as a ratio nobody chose");
+test("the threshold row takes every spelling the command accepts and refuses everything else", () => {
+	const spec = fields.thresholdField("handoffThreshold");
+	assert.equal(spec.format("0.4"), "0.4");
+	assert.equal(spec.format(undefined), "", "an absent value renders empty rather than as a value nobody chose");
 	assert.deepEqual(spec.parse(""), { kind: "clear" });
 	// The command has always folded these three; a card that passed `40` through failed the save.
 	for (const typed of ["0.4", "40", "40%", " 40% "]) {
-		assert.deepEqual(spec.parse(typed), { kind: "set", value: 0.4 }, typed);
+		assert.deepEqual(spec.parse(typed), { kind: "set", value: "0.4" }, typed);
 	}
-	assert.deepEqual(spec.parse("0.95"), { kind: "set", value: 0.95 }, "the accepted bound must round-trip");
-	// Outside the pair the Host would drop the write, so the field refuses the draft and blocks the save.
-	for (const typed of ["0.09", "0.96", "nope"]) assert.equal(spec.parse(typed), undefined, typed);
+	// The spelling this batch added: an absolute count, canonicalized so it re-parses as the same count.
+	assert.deepEqual(spec.parse("400k"), { kind: "set", value: "400000" });
+	assert.deepEqual(spec.parse("400000"), { kind: "set", value: "400000" });
+	assert.deepEqual(spec.parse("auto"), { kind: "set", value: "auto" });
+	assert.deepEqual(spec.parse("0.95"), { kind: "set", value: "0.95" }, "the accepted bound must round-trip");
+	// Outside the accepted shapes the Host would drop the write, so the field refuses the draft.
+	for (const typed of ["0.09", "0.96", "nope", "5"]) assert.equal(spec.parse(typed), undefined, typed);
 });
 
 test("the retired handoffThinking row and its copy are gone from the card", () => {
@@ -334,32 +305,28 @@ test("the save-failure copy does not promise a retry that cannot work", () => {
 	}
 });
 
-test("every ratio spelling the hint promises is one the card accepts", async () => {
-	// The hint is where the card's extra spellings are discoverable, so it must not name one the parser
-	// then refuses: a hint that promises `40%` while the field rejects it is the same defect as the
-	// command/card split, moved into prose.
-	const { parseRatioInput } = await import("../lib/shared/ratio.js");
-	const spec = fields.ratioField("handoffThresholdRatio");
+test("every spelling the hint promises is one the card accepts", () => {
+	// The hint is where the card's spellings are discoverable, so it must not name one the reader then
+	// refuses: a hint promising `400k` while the field rejects it is the command/card split in prose.
+	const spec = fields.thresholdField("handoffThreshold");
 	for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
-		const hint = dict["field.handoffThresholdRatioHint"];
-		const percents = [...hint.matchAll(/\d+(?:\.\d+)?%/g)].map((match) => match[0]);
-		assert.ok(percents.length > 0, `${name} hint must show the percent spelling the card accepts: ${hint}`);
-		for (const token of percents) {
-			const ratio = parseRatioInput(token);
-			assert.notEqual(ratio, undefined, `${name} hint names ${token}, which the parser refuses`);
-			assert.deepEqual(spec.parse(token), { kind: "set", value: ratio }, `${name}: the card must accept what the hint promises`);
+		const hint = dict["field.handoffThresholdHint"];
+		for (const token of ["auto", "0.4", "40", "40%", "400k"]) {
+			assert.ok(hint.includes(token), `${name} hint must name ${token}: ${hint}`);
+			assert.notEqual(spec.parse(token), undefined, `${name}: the card must accept ${token}, which the hint promises`);
 		}
 	}
 });
 
-test("the ratio hint states the range the host enforces, from the one exported pair", async () => {
+test("the hint states the range the host enforces and the default it re-inherits", async () => {
 	// Batch K: the card is a reader of the accepted ratio range like the parser and the validator are, so a
 	// hint that hard-codes it is a copy that can drift into telling the user a range the host then rejects.
-	const { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } = await import("../lib/shared/limits.js");
+	// The default is `auto` now that the three spellings are one key.
+	const { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } = await import("../lib/shared/limits.js");
 	const range = `${MIN_THRESHOLD_RATIO}–${MAX_THRESHOLD_RATIO}`;
 	for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
-		const hint = dict["field.handoffThresholdRatioHint"];
+		const hint = dict["field.handoffThresholdHint"];
 		assert.ok(hint.includes(range), `${name} hint must state ${range}: ${hint}`);
-		assert.ok(hint.includes(String(DEFAULT_THRESHOLD_RATIO)), `${name} hint must state the default: ${hint}`);
+		assert.ok(hint.includes("auto"), `${name} hint must state the default: ${hint}`);
 	}
 });

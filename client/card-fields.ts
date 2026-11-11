@@ -21,7 +21,7 @@ import {
 	MIN_HANDOFF_RECENT_TOKENS,
 	MIN_HANDOFF_SUMMARY_TOKENS,
 } from "../src/shared/limits.ts";
-import { parseRatioInput } from "../src/shared/ratio.ts";
+import { formatThresholdSpec, parseThresholdSpec } from "../src/shared/threshold-spec.ts";
 import type { SettingsCardKey } from "./locales.ts";
 
 /** The `project-context` settings section shape (mirrors the host schema). */
@@ -41,8 +41,7 @@ export interface ProjectContextSettings {
 	autolearnTurns: number;
 	autolearnIntervalMs: number;
 	handoffEnabled: boolean;
-	handoffThresholdAuto: boolean;
-	handoffThresholdRatio: number;
+	handoffThreshold: string;
 	handoffBudgetSummaryTokens: number;
 	handoffBudgetRecentTokens: number;
 	handoffPendingQuestion: "defer" | "wait";
@@ -50,8 +49,8 @@ export interface ProjectContextSettings {
 	handoffRetireReplaced: boolean;
 }
 
-/** How one row is edited. `ratio` is a number row whose text folds `40` / `40%` into `0.4`. */
-export type FieldKind = "boolean" | "number" | "text" | "union" | "ratio";
+/** How one row is edited. `threshold` folds `auto` / `40%` / `400k` into the stored spelling. */
+export type FieldKind = "boolean" | "number" | "text" | "union" | "threshold";
 
 /**
  * A condition under which a row's setting is *consulted*: the boolean row named by `key` must be
@@ -133,14 +132,12 @@ export const SECTIONS: readonly FieldSection[] = [
 		descriptionKey: "section.handoff.description",
 		rows: [
 			{ key: "handoffEnabled", kind: "boolean" },
-			{ key: "handoffThresholdAuto", kind: "boolean" },
-			// Only the fixed ratio is gated, because it is the other mode's *trigger*: while adaptive decides
-			// nothing consults it, and sitting next to the switch it would read as a second trigger. The
-			// summary target is not a trigger and is not gated — it is a budget that
-			// `/handoff budget summary` accepts in either mode and that only reports whether the target was
-			// honoured, so hiding it would make the card stricter than the command and take away the only
-			// control for a value the user still owns.
-			{ key: "handoffThresholdRatio", kind: "ratio", appliesWhen: { key: "handoffThresholdAuto", text: "false" } },
+			// One row, because the trigger is one fact: `auto`, a fraction of the window, or an absolute
+			// token count all live in the same key, so the card cannot show two controls that disagree
+			// about which mode is in force. The summary target is deliberately not gated — it is a budget
+			// that `/handoff budget summary` accepts in either mode and that only reports whether the
+			// target was honoured.
+			{ key: "handoffThreshold", kind: "threshold" },
 			{
 				key: "handoffBudgetSummaryTokens",
 				kind: "number",
@@ -260,20 +257,21 @@ export function boundedNumberField(field: string, bounds: FieldBounds): Settings
 }
 
 /**
- * A ratio row: the same text the `/handoff threshold` command accepts, so the card cannot stage
- * `40` for a schema that only stores `0.4`.
+ * The threshold row: the same spellings the `/handoff threshold` command accepts, so the card cannot
+ * stage a value the stored schema would refuse. The draft is written in its canonical spelling, which
+ * is what makes `400k` come back as the count it means rather than as a suffix the reader must keep.
  * @param field - field name inside the namespace section.
  * @returns the field's conversion spec.
  */
-export function ratioField(field: string): SettingsFieldSpec {
+export function thresholdField(field: string): SettingsFieldSpec {
 	return {
 		field,
-		format: (value) => (typeof value === "number" ? String(value) : ""),
+		format: (value) => (typeof value === "string" ? value : ""),
 		parse: (text) => {
 			const trimmed = text.trim();
 			if (trimmed === "") return { kind: "clear" };
-			const ratio = parseRatioInput(trimmed);
-			return ratio === undefined ? undefined : { kind: "set", value: ratio };
+			const spec = parseThresholdSpec(trimmed);
+			return spec === undefined ? undefined : { kind: "set", value: formatThresholdSpec(spec) };
 		},
 	};
 }

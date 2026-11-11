@@ -88,7 +88,7 @@ export declare function qualityLimit(contextWindow: number, autoCompactTokenLimi
  */
 export interface ThresholdOverride {
     /** Which manual setting was overridden, as the receipt names it. */
-    setting: "target" | "ratio";
+    setting: "target" | "ratio" | "tokens";
     /** The threshold that setting asked for. */
     asked: number;
     /** What the guardrail resolved instead. */

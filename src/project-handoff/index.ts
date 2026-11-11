@@ -303,7 +303,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
  * The settings whose value the status receipt's threshold resolution reads. A write to one of these can
  * change the trigger, the refusal or the override warning, so its reply is the receipt.
  */
-const THRESHOLD_SETTING_KEYS = ["handoffThresholdAuto", "handoffThresholdRatio", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens"] as const;
+const THRESHOLD_SETTING_KEYS = ["handoffThreshold", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens"] as const;
 
 export function movesThreshold(patch: Record<string, unknown> | undefined): boolean {
 	return patch !== undefined && THRESHOLD_SETTING_KEYS.some((key) => key in patch);

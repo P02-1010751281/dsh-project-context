@@ -18,7 +18,7 @@ import {
 	boundedNumberField,
 	hintKey,
 	labelKey,
-	ratioField,
+	thresholdField,
 	ROWS,
 	rowVisible,
 	SECTIONS,
@@ -78,7 +78,7 @@ export interface ProjectContextSettingsCardFace extends SettingsFormActions {
  */
 const SPEC_BUILDERS: Record<FieldRow["kind"], (row: FieldRow) => SettingsFieldSpec> = {
 	number: (row) => (row.bounds === undefined ? settingsNumberField(row.key) : boundedNumberField(row.key, row.bounds)),
-	ratio: (row) => ratioField(row.key),
+	threshold: (row) => thresholdField(row.key),
 	text: (row) => settingsTextField(row.key),
 	boolean: (row) => booleanField(row.key),
 	union: (row) => unionField(row.key, row.options ?? []),
@@ -290,7 +290,7 @@ function Row(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; o
 			overriddenLabel={copy.overriddenLabel}
 			resetLabel={copy.resetLabel}
 			invalidLabel={copy.invalidLabel}
-			{...(row.kind === "number" || row.kind === "ratio" ? { numeric: true } : {})}
+			{...(row.kind === "number" ? { numeric: true } : {})}
 			disabled={copy.disabled}
 			{...state}
 			onEdit={props.onEdit}
