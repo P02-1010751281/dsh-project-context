@@ -12,8 +12,10 @@
  *
  * The write happens before the seed is admitted, because the child's first request resolves its
  * context from this file at admission; a later write would let that first turn see the project-wide
- * document instead. A failed handoff takes the file back ({@link discardHandoffBinding}), since a
- * metadata file with no archive would otherwise become an index row whose link goes nowhere.
+ * document instead. A failed handoff takes the file back, and the directory with it when this
+ * attempt created it ({@link discardHandoffBinding}), since a metadata file with no archive would
+ * otherwise become an index row whose link goes nowhere and an empty directory would count as an
+ * archived session on disk.
  */
 import { type SessionMeta } from "../project-context/session-meta.js";
 /** What the handoff recorded for its child, and where, so an abandoned attempt can take it back. */
@@ -22,6 +24,11 @@ export interface HandoffBinding {
     dir: string;
     /** The metadata that landed. */
     meta: SessionMeta;
+    /**
+     * Whether this attempt created `dir`. Only a directory it created may be removed on abort: one
+     * that already existed belongs to whatever wrote it first.
+     */
+    createdDir: boolean;
 }
 /**
  * Record the continuation's parent link and task binding.
@@ -38,8 +45,12 @@ export declare function bindHandoffChild(projectRoot: string, parentSessionId: s
  *
  * The archive owns this directory once it has written `session.jsonl`; removing the metadata then
  * would delete a real session's row on the next generation. Nothing else exists here yet, so the
- * only file to drop is the one this attempt wrote. The empty directory is skipped by generation (no
- * metadata and no archive header), and the child's own archive recreates it.
+ * only file to drop is the one this attempt wrote. The directory goes too when this attempt created
+ * it and it is still empty: an empty `session-logs/<id>/` is invisible to generation but still a
+ * directory on disk, so leaving it behind silently breaks "one row per directory" — the invariant
+ * the index projection exists to hold — and the transaction's own promise that an abandoned handoff
+ * leaves nothing behind in the project. `rmdir` rather than `rm -r`: anything that appeared after
+ * the emptiness check must survive, and an over-eager recursive remove could delete an archive.
  * @param binding - what {@link bindHandoffChild} returned, or `undefined` when it never ran.
  */
 export declare function discardHandoffBinding(binding: HandoffBinding | undefined): Promise<void>;

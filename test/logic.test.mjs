@@ -3241,9 +3241,14 @@ test("the automatic handoff never runs under its trigger, however droppable the 
 	// minimum. So a session over its trigger really would hand off: the trigger is the discriminator.
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
 	let caseId = 0;
+	// The positive control below really performs the transaction, and the transaction writes into the
+	// project root (the child's binding, before the seed is refused). A temp root keeps that write out
+	// of this repository's own `.agents/memory/`: an interrupted run would otherwise leave a fake
+	// session directory behind in the tracked archive.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-trigger-"));
 	const session = () => ({
 		id: `session-below-threshold-${caseId}`,
-		header: { cwd: process.cwd(), createdAt: Date.now() },
+		header: { cwd: root, createdAt: Date.now() },
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
 		snapshotEvents: () => [],
@@ -3290,9 +3295,10 @@ test("the automatic handoff waits for background subagents to settle", async () 
 	// that subagent settles, dsh wakes this session again, so handing off now would leave parent and
 	// child working the same project.
 	const conversation = Array.from({ length: 40 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(1500)));
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-subagents-"));
 	const makeSession = (events) => ({
 		id: "session-parent-000000000000",
-		header: { cwd: process.cwd(), createdAt: Date.now() },
+		header: { cwd: root, createdAt: Date.now() },
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
 		snapshotEvents: () => events,
@@ -3331,9 +3337,10 @@ test("subagent work is read as turn activity, not as residency", async () => {
 	// Each case needs its own session id: the automatic path keeps per-session state, so a second
 	// call on the same id could return before reaching any guard.
 	let caseId = 0;
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-handoff-registry-"));
 	const session = (events) => ({
 		id: `session-registry-${caseId}`,
-		header: { cwd: process.cwd(), createdAt: Date.now() },
+		header: { cwd: root, createdAt: Date.now() },
 		deriveMessages: () => conversation,
 		requestHeader: () => undefined,
 		snapshotEvents: () => events,

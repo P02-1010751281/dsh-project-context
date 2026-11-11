@@ -12,7 +12,9 @@
  * The negative controls matter as much as the positive one: a child of an unbound session must stay
  * unbound (an inherited empty task would make `boundTaskSync` fall back anyway but would leave a
  * misleading field), and an abandoned handoff must take its metadata back — a `meta.json` with no
- * archive becomes an index row whose link goes nowhere, which is exactly the state Z1 removed.
+ * archive becomes an index row whose link goes nowhere, which is exactly the state Z1 removed — and
+ * the directory with it when that attempt created it, because an empty `session-logs/<id>/` is still
+ * a directory on disk with no row able to point at it.
  *
  * These drive the real transaction (`performHandoff`) against a real temp project, a fake controller
  * and a fake Agent registry, so they fail if the wiring moves — not only if `binding.ts` changes.
@@ -21,7 +23,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -191,6 +193,11 @@ test("an abandoned handoff takes its metadata back, so no row links at a missing
 		"the visible title says the handoff failed",
 	);
 	assert.equal(await readSessionMeta(path.join(logsDir(root), CHILD)), undefined, "the provisional metadata is gone");
+	assert.equal(
+		existsSync(path.join(logsDir(root), CHILD)),
+		false,
+		"and so is the directory it created: an empty `session-logs/<id>/` is a directory on disk, which is the state a missing row must not have",
+	);
 
 	// Positive control: the parent's own metadata still produces a row, so the index ran.
 	await reconcileSessionIndexOnce(root);
@@ -207,4 +214,20 @@ test("the cleanup never deletes metadata the child's own archive has claimed", a
 	await writeFile(path.join(binding.dir, "session.jsonl"), "{}\n");
 	await discardHandoffBinding(binding);
 	assert.notEqual(await readSessionMeta(binding.dir), undefined, "the claimed metadata survived");
+	assert.equal(existsSync(binding.dir), true, "and the directory with it");
+});
+
+test("a directory this attempt did not create is not this attempt's to remove", async () => {
+	// Ownership is read before the metadata write creates the directory, so a directory that was
+	// already there — a previous attempt's, or anything else that claimed the id first — stays, even
+	// once its metadata is gone. Removing it would delete a directory whose contents this attempt
+	// cannot see.
+	const root = await tempRoot();
+	const dir = path.join(logsDir(root), CHILD);
+	await mkdir(dir, { recursive: true });
+	const binding = await bindHandoffChild(root, PARENT, CHILD, "↪ handoff · release");
+	assert.equal(binding.createdDir, false, "the directory predates this attempt");
+	await discardHandoffBinding(binding);
+	assert.equal(await readSessionMeta(dir), undefined, "the metadata still goes back");
+	assert.equal(existsSync(dir), true, "the directory itself does not");
 });
