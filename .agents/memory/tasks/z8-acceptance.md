@@ -1,30 +1,30 @@
 # Project Task: z8-acceptance
 
-> created 2026-11-11 · status active · lastSeen 2026-11-11 · title z8-acceptance: Z8d landed — regression fix, partial id stamping, constraints (fe5dfed + 287888b)
+> created 2026-11-11 · status active · lastSeen 2026-11-11 · title z8-acceptance: proved the host runs a stale build; answered the threshold token-vs-ratio question
 
 ## Summary
 
-本会话（session-4c23d245，父会话 5f3fb68a，任务 z8-acceptance）收掉 Z8 的两项遗留并补硬 id 记账约束。① 回归误报：`removedSectionEntries` 逐字比较新旧条目，而 Z2 的 id 盖章会在计划与回写之间变化（计划装得下、回写装不下就整份去掉），于是把未改动条目全报成删除（errors.log 107 条，实测 96 条只差 id、11 条真改写）；修法两侧先 `stripEntryTid` 再归一化，守卫仍只报告、Project/Index 仍排除。② 用户裁定 A：`retireWithinBudget` 改部分盖章——带 id 渲染不干净、不带 id 干净时按 Invariants → Pitfalls → Project → Index 用剩余字符盖多少算多少，两份都脏保留全部 id，零个落地才 `stamped:false`。③ 独立复核（subagent 53d21d42）的 3 条 blocking 全部复现并修：CHANGELOG/注释里的 44,276/139/782/130/95 是 03:33 那版快照，现读 44,589 字符 / 140 条（17/64/44/15），剩 411 → 68 个 id；正文 + 6 超过 800 单条上限的条目会让每个含它的前缀被拒、预算降到 0（现在直接跳过，只推迟自己）；`stampEntryIds` 用 sidecar 播种使未盖章条目换盐换 id、年龄重置（id 改纯正文函数，`entries.json` 裁剪改用 `keepIds`）。两条 nit 也修：退休实际跑四个 section（Project/Index 排后是因为每轮重写），测试里「a few hundred ids」实为 113。门禁实跑：typecheck 0、`pnpm test` 609 / 609、build ok（lib/client.js 38274）、0 变异标记；5 个变异各只红自己的目标。落地 `fe5dfed`（代码/测试）+ `287888b`（CONTEXT.md、任务文档、CHANGELOG、MEMORY.md），HEAD = origin/main。`.agents/memory/tasks/` 从 `??` 改为入库（项目状态、不在记忆 .gitignore 里），/tmp 探针与备份清空，工作树干净。宿主 pid 71971 启动于 10:41:56，早于最后一条 `src/` 提交，**本批尚未生效，需重启**。另发起了一个只读闭合复核 subagent 69845585，报告尚未回。
+本会话（session-4c23d245 交接，任务 z8-acceptance）接着 Z8 收尾。① 复核交接里“只差重启”的判断：宿主进程 10:41:56 启动，却在 14:21 写出了部分盖章，与新代码矛盾。用宿主已开的 inspector（127.0.0.1:9230）读运行中 isolate 常驻的 `lib/project-memory/retirement.js` 源码，与 `git show <commit>:lib/…` blob 逐字节比哈希：常驻 sha `658a6c81…` = 9864d05（13:54 部分盖章版），磁盘 sha `7dc2c223…` = e9c4214（14:31 近上限边界版）→ 判定 STALE，需重启；关键教训是“进程启动时刻晚于最后 src 提交”这条旧判据在本环境并不成立（插件代码能在不重启的情况下被换掉一次），已落成只读探针 `.agents/evidence/2026-11-11-z8d-live-module-version/probe.mjs` 并提交 9225b56，HEAD=origin/main、工作树干净。这解释了 entries.json 只有 131 个 carried id 而非 140（9864d05 无 keepIds）。② 用户问 `/handoff threshold 400k` 为何非法：`threshold` 只存窗口比例（handoffThresholdRatio 0.1–0.95）或 auto，`400k` 连比例都解析不出（Number("400k")=NaN；"400000" 折成 4000 越界），报错文案却只说范围未说“要的是窗口比例”，属误报原因；已给 400k≈0.3815 的等价写法与两种修法（只改文案 / 让 400k 可用），等用户拍板。Z8d 代码本身已落地 fe5dfed+287888b，另有 e9c4214（近上限盖章边界）与 c4274c2（MEMORY.md pass 重写）。
 
 ## Key points
 
-- Z7 与部分盖章的活体验证：本会话 meta 带 `task: z8-acceptance` / `kind: "handoff"` / `parentId: session-5f3fb68a…`，任务绑定随交接继承。
-- 部分盖章规则：带 id 干净 → 全量；不带 id 干净而带 id 不干净 → 按 Invariants → Pitfalls → Project → Index 花剩余字符；两份都脏 → 保留全部 id；零个落地 → `stamped:false`。
-- 边界一：**盖好之后**仍超过 800 单条上限（正文 ≥ 795）的条目直接跳过盖章——条目在预算前已被盖章，不能重复加 6；794 + 标记 = 800 照常盖章。用例 `a near-cap entry postpones only itself`。
-- 边界二：id 由正文 sha256 派生、不读 sidecar，因此推迟盖章不改变身份；`entries.json` 裁剪用 `keepIds`（含未盖章条目），推迟盖章不重置年龄；用例 `the pass keeps the clock of an entry its partial stamp could not mark`。
-- 退休范围纠正：`retireSections` 对四个 section 都跑 anchor drift + 180 天/未确认规则，Project/Index 条目也可能被判未确认退休；盖章顺序的理由是「Project/Index 每轮重写」，不是「退休只读两节」。
-- 变异矩阵 5 个：预算归零 → 部分盖章用例红；优先级反转 → 只有优先级用例红；`keepIds` 退化成 carried ids → 单元 + 端到端时钟用例红；id 派生退回 sidecar 播种 → 端到端时钟用例红；去掉近上限过滤 → 只有边界用例红。
-- 门禁本次实跑：`pnpm typecheck` 0 错、`pnpm test` 609 / 609 pass、`pnpm build` ok（`lib/client.js` 38274 bytes）、0 变异标记残留。
-- 数字是快照：`MEMORY.md` 在 `fe5dfed` 时 44,589 字符 / 140 条 / 68 个 id，14:21 自动 pass 后 44,997 / 131，本轮压到 44,825；引用前用构建后的 `renderMemoryDocument` 现读。
-- 文档改写走插件渲染器：`CONTEXT.md` 2,619 字符（3 节）、任务文档 2,736 字符，已不再把完成的回归修复与机制裁定列为待办。
-- 生效判据有了新证据：14:21 的自动 pass 已按部分盖章写入 131 个 id（64+44+17+6，正是优先级顺序），说明宿主至少载入了 13:54 那版；但 `entries.json` 里只有 131 个 carried id、不是 `keepIds` 的 140，说明 14:17 的 keepIds 版尚未载入——仍需重启才能保证最新构建生效。
+- Z8d 已落地：fe5dfed（代码/测试）+ 287888b（docs），追加 e9c4214（正文+6 超 800 单条上限时跳过盖章只推迟自己）与 c4274c2（MEMORY.md pass 重写、去掉易变 id 计数）；HEAD=origin/main。
+- 活体判据（哈希为准）：宿主常驻 retirement.js = 9864d05（13:54 部分盖章版），磁盘 = e9c4214（14:31 近上限版）→ STALE，需重启；旧“进程启动时刻”判据失效——插件代码可不重启被换一次但之后不重载。
+- 只读探针 `.agents/evidence/2026-11-11-z8d-live-module-version/probe.mjs`：Debugger.enable→getScriptSource→disable，打印常驻 vs 磁盘哈希 + 归属 commit + STALE/一致；已提交 9225b56。
+- entries.json 只有 131 个 carried id 不是 140 个 keepIds，正好符合 9864d05（无 keepIds），与 STALE 判定自洽。
+- `/handoff threshold` 只接受 auto 或窗口比例（`handoffThresholdRatio` 0.1–0.95）：`400k` 失败（Number("400k")=NaN，"400000"→4000 越界）；绝对 token 旋钮是 `/handoff budget summary|recent <tokens>`。
+- 本会话窗口 1,048,576：400k ≈ `threshold 0.3815`（→400,032），0.38→398,459，0.4→419,430；上限被 W−4000 截，floor=overhead+recent(20000)+8000。
+- threshold 报错文案误报原因（只报 0.1–0.95 未说“窗口比例”），两种修法待用户选：①只改文案（低风险，保留 `/threshold needs auto or a ratio/` 前缀即可不动 test/logic.test.mjs:2976）；②让 400k 折成比例（破 E 批一事实一名，换模型会重定基，需明确点头）。
+- 重启后对照基线（当前构建、只读）：stamped:true、140 个 id、44,825→44,879 字符、0 丢弃/0 截断、keepIds 140。
+- 上一轮门禁基线：typecheck 0、pnpm test 609/609、build lib/client.js 38274、0 变异标记；本轮只动文档/证据未改 src/test，lib/ 零漂移。
 
 ## Open tasks
 
-- 重启宿主（用户）：重启后触发一次整理 pass，确认 `MEMORY.md` 的 id 按优先级出现（条数现读渲染器）、`errors.log` 无新的 `memory regression:` 行。
-- 处理只读闭合复核 subagent 69845585 的报告：回来后逐条复现其发现，阻塞项当场修。
-- 决定是否补做方案 D（3-hex id）：A 已让 id 不再吞事实，D 只增加余量并会重置现有年龄，默认不做。
-- 观察 `context-injection.test.mjs` 的偶发失败是否在无并发写入时复现（旧项，仍未定性）。
+- 用户：重启桌面宿主 → 触发一次 `/memory update` → 验收：probe 报 executes the code on disk（归属 e9c4214+）；entries.json=140 个 id；MEMORY.md 140 id 且渲染 0 丢弃；errors.log 无新 `memory regression:`。
+- 用户拍板 threshold 报错修法：选项①只改文案（可立即做）或选项②让 `400k` 折成比例（需明确同意）。
+- 方案 D（3-hex id）：A 已让 id 不再吞事实，D 只增余量并会重置现有年龄——默认不做。
+- 观察 `context-injection.test.mjs` 偶发失败是否在无并发写入时复现（旧项，未定性）。
 - 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档（旧项）。
+- 只读闭合复核 subagent 69845585（上一会话发起）若仍待回，报告到达后逐条复现其发现、阻塞项当场修。
 
-<!-- latest-session-title: z8-acceptance: Z8d landed — regression fix, partial id stamping, constraints (fe5dfed + 287888b) -->
+<!-- latest-session-title: z8-acceptance: proved the host runs a stale build; answered the threshold token-vs-ratio question -->
