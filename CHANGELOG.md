@@ -10,6 +10,18 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（批次 Z8c：放弃的交接不再留下空会话目录）**
+
+- 发现方式（2026-11-11）：Z7/Z8 的测试跑完后按 Z1 的口径核对存档——`session-logs/` 有 196 个目录而 `INDEX.md` 只有 194 行；差的两个里，一个是本次会话（尚未归档，理应缺行），另一个是空目录 `child-1`（无 `meta.json`、无 `session.jsonl`）。
+- 根因：Z7 的绑定必须写在种子之前（子会话的第一个请求在 admission 读它），而失败路径的 `discardHandoffBinding` 只删 `meta.json`，目录留在盘上。`binding.ts` 的注释把这解释成「generation 会跳过没有元数据的目录」，但同一段事务在 `perform.ts` 里承诺的是「an abandoned handoff leaves nothing behind in the project」——两句话互相矛盾，按后者修。
+- 修法：`bindHandoffChild` 在 `writeSessionMeta`（它会 `mkdir`）**之前**读目录是否已存在，记进 `HandoffBinding.createdDir`；`discardHandoffBinding` 删掉 `meta.json` 之后，只有「这次创建的」且「仍为空」的目录才 `rmdir`。用 `rmdir` 而不是 `rm -r`：空检查与删除之间出现的任何新字节都必须存活，递归删除可能吃掉已落盘的归档。
+- 守卫不变：`session.jsonl` 已存在就元数据与目录都不动（归档已经拥有它）；**预先存在**的目录也不动（不是这次尝试的，删了会丢别人的东西）。
+- 测试隔离（同一缺陷的另一半暴露点）：`test/logic.test.mjs` 里三条会真的跑完交接事务的门禁用例原先给会话 `cwd: process.cwd()`，于是事务把绑定写进**本仓库自己的** `.agents/memory/session-logs/`——一次被中断的测试就会留下假会话目录与悬空索引行；改用 `mkdtemp` 临时根。
+- 新用例：`test/handoff-binding.test.mjs` 4 → 5 条（放弃后目录不存在；预先存在的目录不被删；归档已认领时目录与元数据都留）。
+- 变异：2 个各只红自己的目标——`createdDir` 恒 `false`（放弃用例红）、恒 `true`（所有权用例红）。
+- `pnpm test` **603 通过 / 0 失败**（原 602 + 1 条新用例），`pnpm typecheck` 与 `pnpm build` 均 0（`lib/client.js` 38274 未变）。
+- 本批动了 `src/`，**需要重启宿主才生效**。
+
 **project-handoff（批次 Z8a：陈旧 provider/model 配对的失败变成用户可见）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.10(a)（§11.8 Z7 落地小节留下的残留，用户 2026-11-11 裁定要做）。
@@ -35,7 +47,7 @@
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.8 Z7（§6 问题 6 第 2 条「种子只能带全量上下文」）。依赖 Z3（任务维度）与 Z5（todo 接线）。
 - 新模块 `src/project-handoff/binding.ts`：交接时把子会话的 `session-logs/<childId>/meta.json` 写成 `{id, date, title, kind:"handoff", parentId, task}`，`task` 从父会话自己的 meta 读（`readSessionTaskSync`）。**这是种子切片唯一需要写的东西**：注入侧按会话 id 解析上下文文档（`boundTaskSync`），所以绑定一落地，子会话注入的就是 `tasks/<slug>.md`，而不是含全部跨任务 Open tasks 的项目级 `CONTEXT.md`。
 - **写在种子落地之前**：子会话的第一个请求在 admission 时读同一个 `meta.json`，晚写会让第一轮看到项目级文档。用例在种子投递点同步读盘钉这个顺序；写失败只丢继承（回到旧行为）并写一行 `warn`，不让整个交接失败。
-- **放弃的交接要把元数据取回**：`discardHandoffBinding` 删掉本次写的 `meta.json`——有 meta 没有归档会在下一次生成里变成一条指向不存在文件的索引行（Z1 消掉的状态）。守卫是子会话自己的 `session.jsonl`：一旦归档写了它，目录就不再属于这次尝试，元数据必须留；两个方向都有用例。
+- **放弃的交接要把元数据取回**：`discardHandoffBinding` 删掉本次写的 `meta.json`——有 meta 没有归档会在下一次生成里变成一条指向不存在文件的索引行（Z1 消掉的状态）。守卫是子会话自己的 `session.jsonl`：一旦归档写了它，目录就不再属于这次尝试，元数据必须留；两个方向都有用例。**（目录本身当时被留在了盘上，Z8c 补修。）**
 - **todo 半边不需要新通道**：Z5 的机械 `- [todo] …` 行写在会话自己的文档里（绑定的是 `tasks/<slug>.md`，未绑定的是 `CONTEXT.md`），子会话读的正是同一份，所以「种子带当前 todo」由共享文档自动成立——没有第二份拷贝，也没有新的种子字段。
 - `kind`/`parentId` 同时把 §11.2 的会话树变成数据（归档写的 `preserveForeign` 会继承它们）；`/session-log tree` 命令当时未实现，由上面 2026-11-11 的 Z8b 补上。
 - **后续**：§10.9 Z7 的后半「陈旧 provider/model 配对失败改为用户可见提示」当时等用户裁定；用户 2026-11-11 裁定要做，实现见上面的 Z8a。

@@ -1,10 +1,10 @@
 # Project Context
 
-Last updated: 2026-11-11T02:16:58.181Z
+Last updated: 2026-11-11T02:34:33.426Z
 
 ## Summary
 
-本会话接着 Z7，把用户 2026-11-11 裁定的两条残留做完了：§11.10(a) 交接路由解析失败不再只有 `errors.log`——`withRouteFailure` 是唯一包装点，`HandoffRouteError` 进 `handoff-pressure` 注入行并在 `/handoff status` 回执里点名配对与原话（成功解析即清行）；§11.10(b) `/session-log tree` 把 `meta.json` 的 `parentId` 读成缩进树（孤儿标缺父、环终止、子代理隐藏计数、500 行上限）。7+7 条新用例 + 13 个变异各只红自己的目标，门禁 602 通过 / 0 失败，文档与记忆同轮落地。两项都动了 `src/`，仍需重启宿主才生效。
+本会话从 Z8 的交接会话接手。先核对磁盘而不是等指令：HEAD = origin/main = 929a3a4、工作树干净，而宿主进程启动于 2026-11-10 23:21:37（早于今天三次提交）——所以 Z7/Z8a/Z8b 都还没生效。接着按 Z1 的口径核对存档，发现 `session-logs/` 有 196 个目录而 `INDEX.md` 只有 194 行：多出的空目录 `child-1` 是 Z7 的放弃路径留下的（只删 `meta.json`，不删目录）。Z8c 修掉它——绑定在 mkdir 之前记下所有权，放弃时只删「本次创建且仍为空」的目录（`rmdir`；归档已认领或目录预先存在的都不动），并把三条会真跑交接事务、却把绑定写进本仓库存档的测试夹具改到 `mkdtemp`。5 条绑定用例 + 2 个变异，门禁 603 通过 / 0 失败，连续两轮无残留。
 
 ## Key points
 
@@ -23,15 +23,18 @@ Last updated: 2026-11-11T02:16:58.181Z
 - Z6 的机械门禁是 `test/routing-skill.test.mjs`（5 条）：frontmatter 名=目录名、全语料无重名、每个 `dsh-*` 指向的技能在 `.agents/skills/` 存在、每个 `/命令` 都在 `src/*/index.ts` 真注册、正文 < 3000 字符且四块各有行；9 个变异各只红自己的目标。
 - 项目层技能是 watcher 热加载：新建 `SKILL.md` 后同一会话 `skill` 工具即可载入（Z6 实测，不欠重启）；Z1–Z5 的宿主侧行为已在 2026-11-10 23:21 重启后生效——Z1 启动对账当场重生成索引，Z2/Z4 的产物仍要一次真 pass。
 - MEMORY.md 的 Index 指针走的是 `loadMemory` → `renderMemoryDocument` → `recordMemoryDocument` 这条插件路径（不手工编辑）：44688/45000、一条不截断、无整条目丢弃、渲染→解析→渲染逐字节一致；同时把 test/ 套件名与 evidence 日期目录两处枚举压成读-now 说法，净增 133 字符。
-- `MEMORY.md` 现在 44839/45000（headroom 161）：Z8a/Z8b 的事实并入既有条目（顺带删掉「unguarded」「待裁定」两条已被代码推翻的说法），无整条目丢弃、渲染→解析→渲染逐字节一致。
+- `MEMORY.md` 现在 44892/45000（headroom 108）：Z8a/Z8b/Z8c 的事实并入既有条目（顺带删掉「unguarded」「待裁定」两条已被代码推翻的说法），无整条目丢弃、渲染→解析→渲染逐字节一致。
 - Z7 切片等于一次绑定写：交接把父会话的 `task` 连同 `kind:"handoff"`/`parentId` 写进子会话 `session-logs/<childId>/meta.json`（`src/project-handoff/binding.ts`），注入侧 `boundTaskSync` 按会话 id 读同一文件，所以子会话注入的就是 `tasks/<slug>.md`；种子正文没有新字段。
 - Z7 的顺序与清理各有一条硬规则：绑定必须落在种子投递之前（子会话第一个请求在 admission 读它），写失败只 warn 不失败交接；放弃的交接删回 `meta.json`，但归档一旦写了 `session.jsonl` 就不删（否则索引行指向不存在的文件）。
 - 交接种子的 todo 不需要新通道：Z5 的机械 `- [todo] …` 行写在会话自己的文档里，绑定的父子读同一份 `tasks/<slug>.md`、未绑定的读同一份 `CONTEXT.md`，共享文档自动完成继承。
-- Z7 的机械门禁是 `test/handoff-binding.test.mjs`（4 条，真跑 `performHandoff`）：绑定继承与注入解析、绑定先于种子、未绑定负控、放弃清理与归档守卫；5 个变异各只红自己的目标。
+- Z7 的机械门禁是 `test/handoff-binding.test.mjs`（5 条，真跑 `performHandoff`）：绑定继承与注入解析、绑定先于种子、未绑定负控、放弃清理（元数据 + 目录）与归档守卫、预先存在的目录不被删；7 个变异各只红自己的目标。
 - Z8a 只有一个包装点：`withRouteFailure(route, read, signal)`（`src/project-handoff/route-failure.ts`）把 `ctx.llm.resolveModelInfo` 的非取消异常包成 `HandoffRouteError`（带 `failure {provider, model, code}` 与 `detail`）；`signal.aborted` 原样重抛——「调用方取消」不是「路由坏了」。gate 与 `/handoff status` 共用它，别再写第二处判断。
 - Z8a 的注入行有成本纪律：与越线拼成同一条 `systemPrompt.context`、两半各自冻结、**重复同一失败不重渲染**（一次文本变化 = 一次 ~37KB runtime-context 快照追加）；只写 route + harness code，不写适配器 message（message 进按需渲染的回执）；成功的 `recordHandoffGate` 与会话销毁各自清除它。
 - `/session-log tree`（Z8b）= `session-tree.ts` 的 `buildSessionTree`/`renderSessionTree` + `session-index.ts` 的只读口 `listArchivedSessions`：孤儿作根并标缺父、环在已发出的节点处当叶子（终止且每会话恰好一次）、子代理档案不渲染但表头计数、上限 500 行并指向 `INDEX.md`、`kind` 只标根节点。
 - Z8a/Z8b 的机械门禁是 `test/handoff-route-failure.test.mjs`（7 条，含真 `apply()` 的 `turn/end` 接线）与 `test/session-tree.test.mjs`（7 条，含真命令接线）+ `test/threshold-floor.test.mjs` 新增 1 条（死路由下的门槛写入）；13 个变异各只红自己的目标（8 + 5）。
+- Z8c 的放弃路径：`bindHandoffChild` 在 `writeSessionMeta`（它负责 `mkdir`）之前读 `isDirectory`，把所有权记进 `HandoffBinding.createdDir`；`discardHandoffBinding` 删掉 `meta.json` 之后，只有「本次创建」且「仍为空」的目录才 `rmdir`——`session.jsonl` 已写（归档认领）或目录预先存在都不动，用 `rmdir` 不用递归删（空检查之后出现的字节必须存活）。空目录对 generation 不可见，却仍让「目录数 = 行数」失效，也违背 `perform.ts`「放弃的交接不在项目里留下任何东西」那句注释。
+- 「目录数 = 行数」这个核对只数**带 `meta.json`** 的目录：没有元数据的目录从来不是一条已归档会话（Z8c 之后只剩预先存在的空目录会这样）。
+- 三条 `test/logic.test.mjs` 门禁用例原先给会话 `cwd: process.cwd()`，而事务会把绑定写进**本仓库自己的** `session-logs/`（被中断就是假会话目录 + 悬空索引行）；已改 `mkdtemp` 临时根，事务落在临时项目里。
 
 ## Open tasks
 
@@ -42,7 +45,8 @@ Last updated: 2026-11-11T02:16:58.181Z
 - 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
 - 若真要在 64K 窗口运行，需同时调小 handoffBudgetRecentTokens（如 4000）、调小宿主 compaction headroomTokens、并压小两份文档，缺一不可。
-- Z7、Z8a、Z8b 都已实现、验证、推送，但**都还没在宿主生效**：三项都动了 `src/`。重启后按 §11.10 的口径验收——绑定了任务的会话交接后子会话 meta 带 `task`/`kind`/`parentId`；死路由下注入行与 `/handoff status` 都点名该配对；`/session-log tree` 打得出交接链。
-- `MEMORY.md` 现在 44839/45000（headroom 161）：下一批要加事实前先按 cap-guard 压别的条目，否则会撞 tier C 的整条目拒绝。
+- Z7、Z8a、Z8b、Z8c 都已实现、验证、推送，但**都还没在宿主生效**：四项都动了 `src/`。重启后按 §11.10 / §11.11 的口径验收——绑定了任务的会话交接后子会话 meta 带 `task`/`kind`/`parentId`；死路由下注入行与 `/handoff status` 都点名该配对；`/session-log tree` 打得出交接链；一次**失败**的交接之后 `session-logs/` 不多出空目录。
+- `MEMORY.md` 现在 44892/45000（headroom 108）：下一批要加事实前先按 cap-guard 压别的条目，否则会撞 tier C 的整条目拒绝。
+- 重启后顺手核对存档：`INDEX.md` 的行数应等于「带 `meta.json` 的目录数」，本会话归档后是 195/195；空目录只应来自 Z8c 之前的历史遗留。
 
-<!-- latest-session-title: 批次 Z8：路由失败可见 + `/session-log tree` -->
+<!-- latest-session-title: 批次 Z8c：放弃的交接不留空目录 -->

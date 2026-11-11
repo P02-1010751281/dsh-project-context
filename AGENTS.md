@@ -103,7 +103,7 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 
 ## 测试与 QA
 
-- 规模：`test/` 41 个文件 17,842 行，其中 37 个 `*.test.mjs` 注册 **602** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
+- 规模：`test/` 41 个文件 17,926 行，其中 37 个 `*.test.mjs` 注册 **603** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
 - 运行器是内置 `node:test`：`import test from "node:test"`，没有 `describe`/`it`/`vitest`。包脚本的 glob 是单引号包起来的 `'test/**/*.test.mjs'`（`package.json:56`），只选测试文件——裸 `node --test` 会把 fixture 也算成一个永远绿的幽灵用例。
 - **测试跑的是编译后的 `lib/`，不是 `src/`**（`test/logic.test.mjs:17-40` 从 `../lib/…` 导入）：`pnpm test` 先 `tsc`，所以类型错误会在任何用例报告之前终止整轮；忘了构建就测到旧产物。
 - 单文件跑 `node --test test/handoff-relabel.test.mjs` 会绕过 `tsc` 前缀，改过 `src/` 时先 `pnpm build`。
