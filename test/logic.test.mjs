@@ -2174,6 +2174,52 @@ test("batch Q2: an entry-level removal is reported, never blocked", async () => 
 	assert.doesNotMatch(controlLog, /memory regression:/);
 });
 
+test("batch Z8d: a deferred id stamping is not a memory regression", async () => {
+	// Batch Z2 stamps ids only when the rendered document stays clean, and it is all-or-nothing per
+	// document: the stored plan can carry ids while the document this pass would write cannot afford
+	// them, so the two are compared with and without the same ids. Reading that as a deletion reported
+	// every unchanged Invariants/Pitfalls entry — 107 of them on this project at 2026-11-11T03:33Z,
+	// all still present. The id is bookkeeping; only the body may decide whether an entry survived.
+	const entry = (tag, index) => `${tag}${String(index).padStart(2, "0")} ${"x".repeat(262)}`;
+	const invariants = Array.from({ length: 7 }, (_, index) => entry("inv", index));
+	const pitfalls = Array.from({ length: 7 }, (_, index) => entry("pit", index));
+	const document = (indexEntry) =>
+		[
+			"# Project Memory",
+			"",
+			"## Project",
+			"- p1",
+			"",
+			"## Invariants",
+			...invariants.map((value) => `- ${value}`),
+			"",
+			"## Pitfalls",
+			...pitfalls.map((value) => `- ${value}`),
+			"",
+			"## Index",
+			`- ${indexEntry}`,
+			"",
+		].join("\n");
+	const root = await memoryProject("dsh-z8d-id-defer-", document("x1"));
+	// Every Invariants/Pitfalls entry is byte-identical in the reply; only the Index entry grows. That is
+	// enough to push the reply's id tax over the cap while the stored plan still fits it, which is the
+	// exact asymmetry a real pass hits near the cap.
+	const reply = document(`x1 ${"y".repeat(60)}`);
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [{ text: JSON.stringify({ memory_markdown: reply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4_000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 1, "a document inside the cap needs no retry");
+	assert.equal(report.memoryWritten, true, JSON.stringify(report));
+	assert.equal(report.removedEntries?.count, 0, "an id the pass could not afford is not a deleted fact");
+	const log = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8").catch(() => "");
+	assert.doesNotMatch(log, /memory regression:/);
+});
+
 test("batch Q2: a retry that answers with an unmergeable partial cannot replace a storable reply", async () => {
 	// The independent review's blocking finding: the refusal was decided before tier C, so a retry that
 	// answered with an unmergeable partial was accepted and written VERBATIM over the stored document —

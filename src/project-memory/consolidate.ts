@@ -525,14 +525,21 @@ function applyPartialGuard(reply: ResolvedReply, storedText: string): ResolvedRe
  * refusal, and the consolidation prompt asks for compression.
  */
 function removedSectionEntries(before: MemorySections, after: MemorySections): { count: number; samples: string[] } {
+	// The id is bookkeeping, not content, so it must not decide whether an entry is the same one. Batch
+	// Z2's stamping is all-or-nothing per document: a stored document can carry ids while the document
+	// this pass would write does not (the id tax did not fit under the cap), and comparing the two
+	// verbatim then reports every Invariants/Pitfalls entry as gone — measured on this project
+	// 2026-11-11T03:33Z as "107 … no longer present" while all 107 were still there, unchanged. The two
+	// rewritten entries are the real signal; the ids are not.
+	const comparable = (entry: string): string => normalizeMemoryEntry(stripEntryTid(entry));
 	const gone = (key: "invariants" | "pitfalls"): string[] => {
-		const kept = new Set(after[key].map((entry) => normalizeMemoryEntry(entry)));
-		return before[key].map((entry) => normalizeMemoryEntry(entry)).filter((entry) => entry !== "" && !kept.has(entry));
+		const kept = new Set(after[key].map(comparable));
+		return before[key].map(comparable).filter((entry) => entry !== "" && !kept.has(entry));
 	};
 	const removed = [...gone("invariants"), ...gone("pitfalls")];
-	// The samples are read by a human in `errors.log`, and batch Z2's entry id is noise there: it is four
-	// characters of bookkeeping appended to every bullet, not part of the fact being reported.
-	return { count: removed.length, samples: removed.slice(0, 3).map((entry) => stripEntryTid(entry)) };
+	// Every entry here already went through `comparable`, so the samples are the fact text a human reads
+	// in `errors.log` — never the id that `stripEntryTid` removed for the comparison above.
+	return { count: removed.length, samples: removed.slice(0, 3) };
 }
 
 /**
