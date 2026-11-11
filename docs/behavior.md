@@ -12,6 +12,7 @@
 | `session/disposed` | 收尾写出 + 释放进程内游标 |
 | `session/flush` | 等待进行中的写入（上限 90s），保证落盘 |
 | `/session-log write` | 手动立即写出（含索引刷新） |
+| `/session-log tree` | 只读：把 `session-logs/<id>/meta.json` 的 `parentId` 读成缩进树（交接链），不写盘 |
 
 - 本节的**归档**只表示「把会话写成 `.agents/memory/session-logs/` 下的存档文件」。它
   **不是**「交接后旧会话从侧栏消失」的那件事：后者是 ④ 的「退休」步骤调
@@ -144,6 +145,9 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
   的回执里报告**从何时起被跳过、以及原因**（同一个会话一旦重新变得可摘要，这条报告随即清除）——dsh
   没有 host 侧的通知服务，UI 里不会主动弹提示，`/handoff status`
   是唯一可见面；要看当时的上下文占用也用它，要强制移交用 `/handoff now`（手动路径的回执是可见的）。
+  本会话的路由（provider/model）在本机解析不出来时，自动交接按失败退避重试，并把这件事写进**同一条上下文注入行**
+  （模型转述给用户，不是客户端弹窗）；`/handoff status` 的回执同时点名该配对与适配器原话——不再只有
+  `errors.log` 里的一行。
   没有可摘要的更早消息时（空会话，或整段对话都落在 `handoffBudgetRecentTokens` 原文窗口内）直接拒绝，手动
   `/handoff now` 回一条错误说明而不是伪造摘要，并提示用 `/handoff budget recent 0`
   摘要整段对话。交接**跟随对话语言**（`handoffLang`，含摘要指令、六个段落标题与首条消息）；

@@ -1,10 +1,10 @@
 # Project Context
 
-Last updated: 2026-11-10T15:34:15.772Z
+Last updated: 2026-11-11T02:16:58.181Z
 
 ## Summary
 
-本会话接着 Z6，把 §11.8 的最后一批 Z7 做完了：交接时把父会话的任务绑定（连同 `kind:"handoff"`/`parentId`）写进子会话的 `meta.json`，子会话因此按任务切片注入 `tasks/<slug>.md`，而不是项目级的 `CONTEXT.md`。绑定写在种子投递之前，放弃的交接会取回元数据；todo 由共享文档自动继承。4 条新用例 + 5 个变异、门禁 587 通过 / 0 失败、提交并推送。Z1–Z5 已在 23:21 的重启后生效（Z1 当场重生成 193 行索引）；Z7 动了 `src/`，需要下次重启才生效。
+本会话接着 Z7，把用户 2026-11-11 裁定的两条残留做完了：§11.10(a) 交接路由解析失败不再只有 `errors.log`——`withRouteFailure` 是唯一包装点，`HandoffRouteError` 进 `handoff-pressure` 注入行并在 `/handoff status` 回执里点名配对与原话（成功解析即清行）；§11.10(b) `/session-log tree` 把 `meta.json` 的 `parentId` 读成缩进树（孤儿标缺父、环终止、子代理隐藏计数、500 行上限）。7+7 条新用例 + 13 个变异各只红自己的目标，门禁 602 通过 / 0 失败，文档与记忆同轮落地。两项都动了 `src/`，仍需重启宿主才生效。
 
 ## Key points
 
@@ -23,11 +23,15 @@ Last updated: 2026-11-10T15:34:15.772Z
 - Z6 的机械门禁是 `test/routing-skill.test.mjs`（5 条）：frontmatter 名=目录名、全语料无重名、每个 `dsh-*` 指向的技能在 `.agents/skills/` 存在、每个 `/命令` 都在 `src/*/index.ts` 真注册、正文 < 3000 字符且四块各有行；9 个变异各只红自己的目标。
 - 项目层技能是 watcher 热加载：新建 `SKILL.md` 后同一会话 `skill` 工具即可载入（Z6 实测，不欠重启）；Z1–Z5 的宿主侧行为已在 2026-11-10 23:21 重启后生效——Z1 启动对账当场重生成索引，Z2/Z4 的产物仍要一次真 pass。
 - MEMORY.md 的 Index 指针走的是 `loadMemory` → `renderMemoryDocument` → `recordMemoryDocument` 这条插件路径（不手工编辑）：44688/45000、一条不截断、无整条目丢弃、渲染→解析→渲染逐字节一致；同时把 test/ 套件名与 evidence 日期目录两处枚举压成读-now 说法，净增 133 字符。
-- `MEMORY.md` 现在 44778/45000（headroom 222）：Z3 条目并入 Z7 事实后仍无整条目丢弃、渲染→解析→渲染逐字节一致；headroom 是整套文档的常态预算，不是可选项。
+- `MEMORY.md` 现在 44839/45000（headroom 161）：Z8a/Z8b 的事实并入既有条目（顺带删掉「unguarded」「待裁定」两条已被代码推翻的说法），无整条目丢弃、渲染→解析→渲染逐字节一致。
 - Z7 切片等于一次绑定写：交接把父会话的 `task` 连同 `kind:"handoff"`/`parentId` 写进子会话 `session-logs/<childId>/meta.json`（`src/project-handoff/binding.ts`），注入侧 `boundTaskSync` 按会话 id 读同一文件，所以子会话注入的就是 `tasks/<slug>.md`；种子正文没有新字段。
 - Z7 的顺序与清理各有一条硬规则：绑定必须落在种子投递之前（子会话第一个请求在 admission 读它），写失败只 warn 不失败交接；放弃的交接删回 `meta.json`，但归档一旦写了 `session.jsonl` 就不删（否则索引行指向不存在的文件）。
 - 交接种子的 todo 不需要新通道：Z5 的机械 `- [todo] …` 行写在会话自己的文档里，绑定的父子读同一份 `tasks/<slug>.md`、未绑定的读同一份 `CONTEXT.md`，共享文档自动完成继承。
 - Z7 的机械门禁是 `test/handoff-binding.test.mjs`（4 条，真跑 `performHandoff`）：绑定继承与注入解析、绑定先于种子、未绑定负控、放弃清理与归档守卫；5 个变异各只红自己的目标。
+- Z8a 只有一个包装点：`withRouteFailure(route, read, signal)`（`src/project-handoff/route-failure.ts`）把 `ctx.llm.resolveModelInfo` 的非取消异常包成 `HandoffRouteError`（带 `failure {provider, model, code}` 与 `detail`）；`signal.aborted` 原样重抛——「调用方取消」不是「路由坏了」。gate 与 `/handoff status` 共用它，别再写第二处判断。
+- Z8a 的注入行有成本纪律：与越线拼成同一条 `systemPrompt.context`、两半各自冻结、**重复同一失败不重渲染**（一次文本变化 = 一次 ~37KB runtime-context 快照追加）；只写 route + harness code，不写适配器 message（message 进按需渲染的回执）；成功的 `recordHandoffGate` 与会话销毁各自清除它。
+- `/session-log tree`（Z8b）= `session-tree.ts` 的 `buildSessionTree`/`renderSessionTree` + `session-index.ts` 的只读口 `listArchivedSessions`：孤儿作根并标缺父、环在已发出的节点处当叶子（终止且每会话恰好一次）、子代理档案不渲染但表头计数、上限 500 行并指向 `INDEX.md`、`kind` 只标根节点。
+- Z8a/Z8b 的机械门禁是 `test/handoff-route-failure.test.mjs`（7 条，含真 `apply()` 的 `turn/end` 接线）与 `test/session-tree.test.mjs`（7 条，含真命令接线）+ `test/threshold-floor.test.mjs` 新增 1 条（死路由下的门槛写入）；13 个变异各只红自己的目标（8 + 5）。
 
 ## Open tasks
 
@@ -36,10 +40,9 @@ Last updated: 2026-11-10T15:34:15.772Z
 - 行为验证（用户侧）：跑一次 /memory update，确认点名 effort → 网关接受 → 写入落地整链。
 - 行为验证（用户侧）：空闲会话上执行 /handoff now，应立即可归档父会话（进 workspace.json 的 global.archivedSessionIds）。
 - 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档。
-- 设计选择待用户裁定：路由长期钉在失效模型上时自动交接会持续 5 分钟退避、唯一痕迹是 errors.log 且无用户可见面；是否变成可见告警，不擅自改。
 - 观察 context-injection.test.mjs 的偶发失败是否在无并发写入时复现，再决定是否记为已修。
 - 若真要在 64K 窗口运行，需同时调小 handoffBudgetRecentTokens（如 4000）、调小宿主 compaction headroomTokens、并压小两份文档，缺一不可。
-- Z7（交接种子按任务切片）已实现、验证、推送：子会话继承父会话的 `task`/`kind`/`parentId`，新用例 4 条 + 5 个变异；本批动了 `src/`，**需要重启宿主才生效**。
-- `MEMORY.md` 现在 44778/45000（headroom 222）：下一批要加事实前先按 cap-guard 压别的条目，否则会撞 tier C 的整条目拒绝。
+- Z7、Z8a、Z8b 都已实现、验证、推送，但**都还没在宿主生效**：三项都动了 `src/`。重启后按 §11.10 的口径验收——绑定了任务的会话交接后子会话 meta 带 `task`/`kind`/`parentId`；死路由下注入行与 `/handoff status` 都点名该配对；`/session-log tree` 打得出交接链。
+- `MEMORY.md` 现在 44839/45000（headroom 161）：下一批要加事实前先按 cap-guard 压别的条目，否则会撞 tier C 的整条目拒绝。
 
-<!-- latest-session-title: 批次 Z7：交接种子按任务切片（子会话继承父会话的任务绑定） -->
+<!-- latest-session-title: 批次 Z8：路由失败可见 + `/session-log tree` -->

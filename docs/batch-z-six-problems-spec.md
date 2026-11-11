@@ -577,8 +577,8 @@ Z1–Z7 取代 §10.9 的表。
 
 **验收（`test/handoff-binding.test.mjs`，4 条用例，真跑 `performHandoff`）**：① 绑定父会话 → 子会话 meta 带 `task`、`kind`、`parentId`，`readSessionTaskSync`/`boundTaskSync` 都解析为父会话的任务；② 未绑定父会话 → 子会话有 `kind`/`parentId` 但没有 `task`，两个读取器都返回 `undefined`（负控）；③ 种子被拒 → 元数据被取回，`reconcileSessionIndexOnce` 后索引有父会话行、没有子会话行（正负对照）；④ 归档已写 `session.jsonl` 时清理不动元数据。
 **变异校验**：5 个变异各只红自己的目标——不写 `task`、绑定挪到种子之后、放弃不清理、清理忽略归档声明、从子会话而不是父会话读 `task`；还原后与哈希备份逐字节一致。
-**未做（残留）**：§10.9 Z7 的后半（陈旧 provider/model 配对的用户可见提示）仍等用户裁定；`/session-log tree` 命令未实现，会话树目前只有数据没有读出口。
-**状态（2026-11-10）**：Z1、Z2、Z3、Z4、Z5、Z6、Z7 已落地；Z2/Z3/Z4/Z5/Z6 的落地小节在 §11.3/§11.4/§11.5/§11.6/§11.7 末尾，Z1 的记录在 `CHANGELOG.md` 的未发布段（§11.1/§11.2 未另写落地小节）。Z6 只有磁盘技能与文档、没有 `src/` 改动，且宿主 watcher 当场就认了新目录，所以不欠重启。Z1–Z5 的宿主侧行为已在 2026-11-10 23:21 的重启后实测：Z1 的启动对账在 23:21:55 整份重生成，193 目录 = 193 行；Z2/Z4 的产物（条目标记、`entries.json`、`purge.log`、`trash/<date>.tar`）只由一次真整理 pass 产生，仍待用户跑一次 `/memory update` 时验收。Z7 动了 `src/`，**需要重启宿主才生效**。
+**后续（2026-11-11）**：§10.9 Z7 的后半（陈旧 provider/model 配对的用户可见提示）与 `/session-log tree` 都被用户裁定要做，两条已在 §11.10 落地——本小节至此没有残留。
+**状态（2026-11-10）**：Z1、Z2、Z3、Z4、Z5、Z6、Z7 已落地；Z2/Z3/Z4/Z5/Z6 的落地小节在 §11.3/§11.4/§11.5/§11.6/§11.7 末尾，Z1 的记录在 `CHANGELOG.md` 的未发布段（§11.1/§11.2 未另写落地小节）。Z6 只有磁盘技能与文档、没有 `src/` 改动，且宿主 watcher 当场就认了新目录，所以不欠重启。Z1–Z5 的宿主侧行为已在 2026-11-10 23:21 的重启后实测：Z1 的启动对账在 23:21:55 整份重生成，193 目录 = 193 行；Z2/Z4 的产物（条目标记、`entries.json`、`purge.log`、`trash/<date>.tar`）只由一次真整理 pass 产生，仍待用户跑一次 `/memory update` 时验收。Z7 动了 `src/`，**需要重启宿主才生效**。2026-11-11 又落了 §11.10 的两项（同样动了 `src/`，同样需要重启才生效；宿主侧行为都未验收——本机最后一次重启早于这两次提交）。
 
 Z1 先做：它同时闭合「索引漏写」「悬空」「迁移不补」三件事，且不需要任何配置键。
 
@@ -592,3 +592,27 @@ Z1 先做：它同时闭合「索引漏写」「悬空」「迁移不补」三�
 - **CONTEXT 机械写与散文写不一致**：接受（§11.6）。
 - **墓碑只注入标题**：语义相近但措辞不同的事实仍可能复活；用「整理时发现重复就合并」的既有能力兜，不新增机制。
 - **`HANDOFF.md` 仍是项目级单文件**：暂缓（§11.2）。
+
+### 11.10 2026-11-11：交接路由失败可见 + `/session-log tree`
+
+**来源**：§11.8 Z7 落地小节的两条残留。用户 2026-11-11 裁定「两条都做」，两条互不依赖，同一轮落地。
+
+#### (a) 陈旧 provider/model 配对：从「只有 `errors.log`」变成用户可见
+
+- **事实**：`resolveHandoffGate` 读 `ctx.llm.resolveModelInfo` 时，若本会话的路由（`resolveTarget`：先插件配置，再**会话请求头**——所以一次中途切换模型会留下旧配对）指向本机解析不出来的组合，dsh 抛 `LlmError`（`UNKNOWN_MODEL` / `NO_ADAPTER` / `INVALID_CONFIG`）。旧行为：异常穿到 `src/project-handoff/index.ts` 的 catch → 一行 `warn` + `errors.log` + 5 分钟退避；而**唯一会讲成因的 `/handoff status` 自己也在同一处抛错**，于是用户端彻底不可见。
+- **一个包装点**：`src/project-handoff/route-failure.ts` 的 `withRouteFailure(route, read, signal)`，触发端的 gate 与回执共用它。非取消的 throw 包成 `HandoffRouteError`（带 `failure {provider, model, code}` 与 `detail`）；`signal.aborted` 时**原样重抛**——「调用方取消」不能被记成「路由坏了」。
+- **注入行**：`display.ts` 的 `handoffPressureText` 把越线与路由两半拼成一行，两半各自冻结。重复同一失败**不重渲染**（一次文本变化 = 一次 ~37KB runtime-context 快照追加）；`recordHandoffGate`（路由成功解析）与 `clearHandoffPressure`（会话销毁）各自清掉它，所以恢复之后那行不再声称失败。
+- **注入行只写稳定事实**（route + harness code），不写适配器 message：message 会随瞬时故障变化，而快照成本正是按文本变化计的；message 进回执（按需渲染，长度免费）。
+- **回执**：`statusText` 捕获 `HandoffRouteError` 后推一行 `route p/m cannot be resolved (CODE): <message>; …` 并跳过数字段。连带的正确性收益：`/handoff threshold <ratio>` 写已落地的回执**不再退化成「回执无法构建」**（两条用例钉住这两个分支）。
+- **残留**：告警是模型转述（`systemPrompt.context`），不是客户端横幅——本包没有客户端通知通道；路由修好后最长等一次失败退避（≤5 分钟）才重试并清行。
+
+#### (b) `/session-log tree`：把 `meta.json` 的 `parentId` 读成树
+
+- **§11.2 的规格原样落地**：一次 `readdir` + 读 meta → 缩进树，节点带日期与标题。
+- **偏离 §11.2 一处**：`kind` 只标在**根**节点（子节点的缩进已经说明它是续接的），另有 `task` 标注与孤儿标注——树是给人读的，重复标签只增噪。
+- **三种形状必须处理**：① 孤儿（`parentId` 不在存档：父会话被清掉，或导入只带回了子会话）→ 作为根并写明缺哪个父，否则它会被静默丢掉；② 环（只有手改 meta 才可能，交接只指向更老的会话）→ 已发出的节点当叶子，保证终止且每个会话恰好出现一次；③ 子代理档案（`kind: "subagent"`）→ 不渲染（`INDEX.md` 也不列它们），但表头计数，免得「我的子会话去哪了」。
+- **上限 500 行**并在尾部指向 `INDEX.md`：命令回执没有滚动条，而无界清单本来就是 `INDEX.md` 的角色。
+- **数据面新读口**：`src/project-context/session-index.ts` 的 `listArchivedSessions(projectRoot)`——只读的半边；`regenerateSessionIndex` 是同一次走查加上迁移写回，不能当读口复用。
+
+**验收**：`test/handoff-route-failure.test.mjs` 7 条、`test/session-tree.test.mjs` 7 条，外加 `test/threshold-floor.test.mjs` 新增 1 条（死路由下的门槛写入）；`pnpm test` **602 通过 / 0 失败**，`pnpm typecheck` 与 `pnpm build` 均 0（`lib/client.js` 38274 未变）。**变异校验**：13 个变异各只红自己的目标——不包路由失败、取消也包装、重复重录（语言可翻转）、清除变空操作、成功解析不清行、注入行丢掉路由半句、回执吞掉失败、触发端不记录、子代理进树、行数上限放大、去掉环守卫、孤儿不标记、`tree` 未接线；还原后 `src/` 与哈希备份逐字节一致、重建后 0 残留。
+**状态（2026-11-11）**：两条都动了 `src/`，**需要重启宿主才生效**；宿主侧行为未验收。

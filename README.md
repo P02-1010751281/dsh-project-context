@@ -51,11 +51,12 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/session-log` | 只读：显示会话日志目录与索引路径，并提示用 `/session-log write` 立即写出 |
 | `/session-log write` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
+| `/session-log tree` | 只读：把 `session-logs/<id>/meta.json` 的 `parentId` 读成缩进树（交接链），标 `kind`、日期、标题、任务与「父会话不在存档」；子代理档案不计入，行数上限 500 |
 | `/memory` | 显示项目记忆路径与状态 |
 | `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**） |
-| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除） |
+| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错 |
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` | 切自适应；给比例则切固定比例。裸 `auto` 与裸比例已退役，不再生效 |
 | `/handoff budget summary 64k` / `budget recent 20k` | 目标请求量（只用于回执，不移动触发点）/ 逐字保留的近端对话（`budget recent 0` = 不带尾料）；summary 被护栏压掉时 `/handoff status` 点名 |

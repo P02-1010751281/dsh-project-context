@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（批次 Z8a：陈旧 provider/model 配对的失败变成用户可见）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.10(a)（§11.8 Z7 落地小节留下的残留，用户 2026-11-11 裁定要做）。
+- 修的是什么：本会话路由（`resolveTarget`：插件配置优先，其次**会话请求头**——所以一次中途切换模型会留下旧配对）指向本机解析不出来的组合时，`ctx.llm.resolveModelInfo` 抛 `LlmError`；旧行为只有一行 `warn` + `errors.log` + 5 分钟退避，而唯一会讲成因的 `/handoff status` **自己也在同一处抛错**，用户端彻底不可见。
+- 新模块 `src/project-handoff/route-failure.ts`：`withRouteFailure(route, read, signal)` 是**唯一**的包装点（触发端的 gate 与回执共用），把非取消异常包成 `HandoffRouteError`（带 `failure {provider, model, code}` 与 `detail`）。`signal.aborted` 时**原样重抛**——「调用方取消」不能被记成「路由坏了」。
+- 注入行与越线共用一条 `systemPrompt.context`（`display.ts` 的 `handoffPressureText` 把两半拼成一行）。两半各自冻结，重复同一失败**不重渲染**：一次文本变化就是一次 ~37KB runtime-context 快照追加。注入行只写 route + harness code，不写适配器 message（message 会随瞬时故障变化，且它属于按需渲染的回执，长度免费）。成功的 `recordHandoffGate` 与会话销毁各自清除它，所以恢复之后那行不再声称失败。
+- `/handoff status` 不再抛：捕获后推一行 `route p/m cannot be resolved (CODE): <message>; …` 并跳过数字段。连带的正确性收益：`/handoff threshold <ratio>` 写已落地时，回执不再退化成「回执无法构建」——两个分支各有用例。
+- 残留：告警是**模型转述**，不是客户端横幅（本包没有客户端通知通道）；路由修好后最长等一次失败退避（≤5 分钟）才重试并清行。
+- 新用例 7 条（`test/handoff-route-failure.test.mjs`，含真 `apply()` 的 `turn/end` 接线与「关掉交接就不记录」负控）+ `test/threshold-floor.test.mjs` 新增 1 条；8 个变异各只红自己的目标（不包路由失败、取消也包装、重复重录、清除变空操作、成功解析不清行、注入行丢掉路由半句、回执吞掉失败、触发端不记录）。
+- 本批动了 `src/`，**需要重启宿主才生效**。
+
+**project-context（批次 Z8b：`/session-log tree`——把 `meta.json` 的 `parentId` 读成树）**
+
+- 设计来源：`docs/batch-z-six-problems-spec.md` §11.10(b) 与 §11.2（Z3 把 `parentId` 写成数据之后，它一直没有读出口）。
+- 新模块 `src/project-context/session-tree.ts`（`buildSessionTree` / `renderSessionTree` / `readSessionTree`）+ `src/project-context/session-index.ts` 的只读读口 `listArchivedSessions`（`regenerateSessionIndex` 是同一次走查加上迁移写回，不能当读口复用）；命令 `/session-log tree` 接在裸读那一侧，不与 `import` 争同一个回落分支。
+- 三种形状是**处理**而不是假设掉的：孤儿（`parentId` 不在存档）→ 作根并写明缺哪个父，否则它会被静默丢掉；环（只有手改 meta 才可能）→ 已发出的节点当叶子，保证终止且每个会话恰好出现一次；子代理档案（`kind: "subagent"`）→ 不渲染（`INDEX.md` 也不列）但表头计数，免得「我的子会话去哪了」。
+- 上限 500 行并在尾部指向 `INDEX.md`：回执没有滚动条，无界清单本来就是 `INDEX.md` 的角色。`kind` 只标在根节点（子节点的缩进已经说明它是续接），另有 `task` 与孤儿标注。
+- 新用例 7 条（`test/session-tree.test.mjs`，含真 `apply()` 的命令接线与临时项目里的 meta 文件）：嵌套与根序、孤儿标注、环与自环、子代理隐藏并计数、空存档与任务标注、行数上限、命令接线；5 个变异各只红自己的目标（子代理进树、行数上限放大、去掉环守卫、孤儿不标记、`tree` 未接线）。
+- 本批动了 `src/`，**需要重启宿主才生效**。
+
 **project-handoff（批次 Z7：交接种子按任务切片——子会话继承父会话的任务绑定）**
 
 - 设计来源：`docs/batch-z-six-problems-spec.md` §11.8 Z7（§6 问题 6 第 2 条「种子只能带全量上下文」）。依赖 Z3（任务维度）与 Z5（todo 接线）。
@@ -17,8 +37,8 @@
 - **写在种子落地之前**：子会话的第一个请求在 admission 时读同一个 `meta.json`，晚写会让第一轮看到项目级文档。用例在种子投递点同步读盘钉这个顺序；写失败只丢继承（回到旧行为）并写一行 `warn`，不让整个交接失败。
 - **放弃的交接要把元数据取回**：`discardHandoffBinding` 删掉本次写的 `meta.json`——有 meta 没有归档会在下一次生成里变成一条指向不存在文件的索引行（Z1 消掉的状态）。守卫是子会话自己的 `session.jsonl`：一旦归档写了它，目录就不再属于这次尝试，元数据必须留；两个方向都有用例。
 - **todo 半边不需要新通道**：Z5 的机械 `- [todo] …` 行写在会话自己的文档里（绑定的是 `tasks/<slug>.md`，未绑定的是 `CONTEXT.md`），子会话读的正是同一份，所以「种子带当前 todo」由共享文档自动成立——没有第二份拷贝，也没有新的种子字段。
-- `kind`/`parentId` 同时把 §11.2 的会话树变成数据（归档写的 `preserveForeign` 会继承它们）；`/session-log tree` 命令本身仍未实现，属残留。
-- **未做**：§10.9 Z7 的后半「陈旧 provider/model 配对失败改为用户可见提示」仍等用户裁定（本包没有宿主侧通知通道），不擅自改。
+- `kind`/`parentId` 同时把 §11.2 的会话树变成数据（归档写的 `preserveForeign` 会继承它们）；`/session-log tree` 命令当时未实现，由上面 2026-11-11 的 Z8b 补上。
+- **后续**：§10.9 Z7 的后半「陈旧 provider/model 配对失败改为用户可见提示」当时等用户裁定；用户 2026-11-11 裁定要做，实现见上面的 Z8a。
 - 新用例 4 条（`test/handoff-binding.test.mjs`，真跑 `performHandoff` + 真临时项目 + 假控制器/假 Agent 注册表）：绑定继承与注入解析、绑定先于种子、未绑定负控、放弃清理与归档守卫；5 个变异各只红自己的目标（不写 task、绑定挪到种子之后、放弃不清理、清理忽略归档声明、从子会话而不是父会话读 task）。
 - 本批动了 `src/`，**需要重启宿主才生效**。
 

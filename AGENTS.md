@@ -14,10 +14,10 @@
 
 四个插件组成一条流水线：**① 归档 → ② 记忆整理 → ③ 技能沉淀 → ④ 交接**。段与段之间只通过 `.agents/memory/` 下的文件交接，没有跨插件的函数调用。
 
-- 每个插件都是 `name` / `inject` / `apply(ctx, rawConfig)` 三个导出（`src/project-context/index.ts:50-60`、`src/project-memory/index.ts:437`、`src/project-autolearn/index.ts:65`、`src/project-handoff/index.ts:101`）；`rawConfig` 在每次 `apply` 时重新解析。
-- 只有 `project-context` 导出 `Config`，并发布那一个设置命名空间（`src/project-context/index.ts:58`、`src/shared/settings.ts:97`）；其余三个用 `effectivePluginConfig(entry)` 读同一份配置（`src/shared/settings.ts:118`）。
-- 事件面：① 在 `agent/created`（只暖缓存，不写盘）、`session/event` 的 `turn/end`、`agent/status = idle`、`agent/disposed`、`session/flush`、`session/disposed` 上工作（`src/project-context/index.ts:66-109`）；② 有两条 `systemPrompt.context` 注入（order 190/210、`interpolate: false`，`src/project-memory/index.ts:455-466`）；④ 有一条 `handoff-pressure` 注入（order 200，`src/project-handoff/index.ts:189-198`）。
-- **`isTopLevel` 闸**：写盘的自动路径都先判会话不是 `origin: "subagent"`（`src/project-context/index.ts:87`、`:96`、`:102`；`src/project-handoff/index.ts:166`），否则每个子代理都会整理同一个 `MEMORY.md`、把自己也归档、并试图交接。显式命令（如 `/session-log write`）不受这道闸限制。
+- 每个插件都是 `name` / `inject` / `apply(ctx, rawConfig)` 三个导出（`src/project-context/index.ts:56-66`、`src/project-memory/index.ts:437`、`src/project-autolearn/index.ts:65`、`src/project-handoff/index.ts:102`）；`rawConfig` 在每次 `apply` 时重新解析。
+- 只有 `project-context` 导出 `Config`，并发布那一个设置命名空间（`src/project-context/index.ts:64`、`src/shared/settings.ts:97`）；其余三个用 `effectivePluginConfig(entry)` 读同一份配置（`src/shared/settings.ts:118`）。
+- 事件面：① 在 `agent/created`（只暖缓存，不写盘）、`session/event` 的 `turn/end`、`agent/status = idle`、`agent/disposed`、`session/flush`、`session/disposed` 上工作（`src/project-context/index.ts:72-140`）；② 有两条 `systemPrompt.context` 注入（order 190/210、`interpolate: false`，`src/project-memory/index.ts:455-466`）；④ 有一条 `handoff-pressure` 注入（order 200，`src/project-handoff/index.ts:197-206`），它同时承载越线与「路由无法解析」两种状态。
+- **`isTopLevel` 闸**：写盘的自动路径都先判会话不是 `origin: "subagent"`（`src/project-context/index.ts:107`、`:116`、`:122`；`src/project-handoff/index.ts:174`），否则每个子代理都会整理同一个 `MEMORY.md`、把自己也归档、并试图交接。显式命令（如 `/session-log write`）不受这道闸限制。
 - 本包**不注册工具、不用 `tools/pre-execute`**：对模型暴露的唯一工具面是辅助调用的 `tools` 数组（`src/shared/model-call.ts:197`），`record_memory` 的定义在 `src/project-memory/sections.ts:636`。
 
 ### 代表性数据流：`/memory update`
@@ -34,7 +34,7 @@
 
 ### 对照：交接（④）
 
-- 触发面更窄：只有 `turn/end` 评估交接（`src/project-handoff/index.ts:211-223`），`step/start` 只重算压力线（`:216`）。
+- 触发面更窄：只有 `turn/end` 评估交接（`src/project-handoff/index.ts:208-232`），`step/start` 只重算压力线（`:224`）。
 - **不调模型、不写 journal**：尾料与文件索引来自 `handoffSplit`（`src/project-handoff/conversation.ts:527`），产物由 `handoffArtifacts` 组装（`src/project-handoff/perform.ts:34`）。
 - 写序是反的：先记录子会话的 `parentId`/`task`（`src/project-handoff/perform.ts:163`）再创建并播种新会话（`src/project-handoff/perform.ts:151`，走 `followup(pluginUserMessage(...))` 而不是 `controller.prompt`，`src/project-handoff/perform.ts:189`），最后才写 `HANDOFF.md`（`src/project-handoff/perform.ts:196`）；中途失败先取回绑定、再用 `abandonChild` 撤销（`src/project-handoff/perform.ts:201`）。
 - 触发状态全在进程内存（`src/project-handoff/state.ts:13-50`），不落盘；宿主重启后重新计数。
@@ -43,14 +43,14 @@
 
 | 路径 | 是什么 |
 |---|---|
-| `src/project-context/` | ① 会话归档 + `session-logs/INDEX.md`，无模型调用；入口 `src/project-context/index.ts:50-60` |
+| `src/project-context/` | ① 会话归档 + `session-logs/INDEX.md`，无模型调用；`/session-log tree` 把 `meta.json` 的 `parentId` 读成缩进树（`src/project-context/session-tree.ts`）；入口 `src/project-context/index.ts:56-66` |
 | `src/project-memory/` | ② 整理成 `MEMORY.md` / `CONTEXT.md`（绑定了任务的会话写 `tasks/<slug>.md`）并每轮注入；状态派生与绑定在 `src/project-memory/tasks.ts`；`turn/end` 把 todo 未完成项机械写进 Open tasks（`src/project-memory/todo.ts`）；清洗通道（tar → 删 → `purge.log`）在 `src/project-memory/prune.ts`；入口 `src/project-memory/index.ts` 的 `apply` |
 | `src/project-autolearn/` | ③ 低频把材料沉淀成项目技能；入口 `src/project-autolearn/index.ts:65` |
-| `src/project-handoff/` | ④ 上下文越线时交接进新会话；入口 `src/project-handoff/index.ts:101`（本包最大的一支） |
+| `src/project-handoff/` | ④ 上下文越线时交接进新会话；路由无法解析的失败在 `src/project-handoff/route-failure.ts` 具名并进注入行；入口 `src/project-handoff/index.ts:102`（本包最大的一支） |
 | `src/shared/` | 四个插件共用：配置、设置 schema、项目根/路径、跨进程锁、原子写、生命周期 helper |
 | `client/` | 浏览器半边 5 个文件；`client/card-fields.ts` 是设置卡字段表的唯一来源，`client/styles.ts` 是纯几何样式 |
 | `lib/` | **入库的构建产物**（153 个受跟踪文件）：tsc 的 `*.js`/`*.d.ts` 加 esbuild 的 `client.js` |
-| `test/` | 39 个文件：35 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
+| `test/` | 41 个文件：37 个 `*.test.mjs`（被包脚本的 glob 选中）+ 1 个共享 fixture helper + 3 个 fixture，见「测试与 QA」 |
 | `docs/` | 索引是 `docs/README.md`；机制文档 4 篇；`docs/changelog/`（8 个版本）；`docs/archive/`（18 个收口批次档案） |
 | `scripts/` | `build-client.mjs`（唯一产出 `lib/client.js` 的地方）、`import-archives.mjs`（回填历史会话） |
 | `.agents/` | `memory/`（MEMORY.md、CONTEXT.md、`tasks/<slug>.md`、`purge.log`、`trash/` 与本地状态）、`skills/`（33 个程序性技能，含手写的入口技能）、`evidence/`（冻结证据） |
@@ -76,10 +76,10 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 - **模块风格**：ESM + NodeNext；相对 import 一律带 `.js`；类型导入用 `import type`；`import type {} from "@deepseek-ai/dsh-commands"` 这种空导入用来拉 Context 合并而不引运行时依赖（`src/project-context/index.ts:15`）。
 - **命名**：文件 kebab-case；一个包一个 `index.ts` 作为插件模块；函数 camelCase、类型 PascalCase、常量 UPPER_SNAKE（`src/shared/limits.ts:7`、`:12`、`:14`）。
 - **大核旁边放窄模块**：一份义务一个小文件，别往大文件里塞——`src/project-memory/consolidate.ts` 809 行、`src/project-memory/sections.ts` 677 行，而 `src/project-handoff/measure.ts` 27 行、`src/project-handoff/state.ts` 50 行。
-- **命令处理器不抛**：返回 `{kind: "success" | "error", text}`（`src/project-context/index.ts:125-131`）。
+- **命令处理器不抛**：返回 `{kind: "success" | "error", text}`（`src/project-context/index.ts:146-159`）。
 - **fire-and-forget**：`void … .catch(() => undefined)`，但吞掉的异常必须进 `errors.log`，且写日志的函数自己永不抛（`src/shared/error-log.ts:57`）。
 - **状态归属**：持久状态只在文件里，布局写在 `src/shared/project-state.ts:3-12` 的注释块；其余都在进程内存（每会话 tracker、每项目根 map、交接触发状态），宿主重启即失效。
-- **读上游服务**：`inject` 声明过的用 `ctx.x`；未声明的用 `ctx.get("x")`，它返回 `undefined` 而不是抛——handoff 在 `inject` 里声明 `llm`（`src/project-handoff/index.ts:93`），自动路径失败写一行 `warn`（`:130`），只有可选能力才静默降级。
+- **读上游服务**：`inject` 声明过的用 `ctx.x`；未声明的用 `ctx.get("x")`，它返回 `undefined` 而不是抛——handoff 在 `inject` 里声明 `llm`（`src/project-handoff/index.ts:94`），自动路径失败写一行 `warn`（`:138`）并记录断掉的路由（`:131`），只有可选能力才静默降级。
 - **对称的失败处理**：枚举分支用 `assertNever` 收尾（`src/project-handoff/auto.ts:141`、`:153`）；抛出的错误保留 harness 的 `code`（`src/shared/model-call.ts:240`）。
 - **注释规则**：JSDoc 与行内注释用英文，写「为什么」和被否决的替代方案；中文只出现在面向用户的文案里（`src/project-handoff/language.ts:158`、`src/shared/setting-labels.ts`）。模型提示词一律英文。
 
@@ -103,7 +103,7 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 
 ## 测试与 QA
 
-- 规模：`test/` 39 个文件 17,445 行，其中 35 个 `*.test.mjs` 注册 **587** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
+- 规模：`test/` 41 个文件 17,842 行，其中 37 个 `*.test.mjs` 注册 **602** 个用例；`test/session-views.mjs` 只是共享 fixture helper，`test/fixtures/` 放类型夹具。数量会变，判据是现跑 `pnpm test` 读 exit code 与行数。
 - 运行器是内置 `node:test`：`import test from "node:test"`，没有 `describe`/`it`/`vitest`。包脚本的 glob 是单引号包起来的 `'test/**/*.test.mjs'`（`package.json:56`），只选测试文件——裸 `node --test` 会把 fixture 也算成一个永远绿的幽灵用例。
 - **测试跑的是编译后的 `lib/`，不是 `src/`**（`test/logic.test.mjs:17-40` 从 `../lib/…` 导入）：`pnpm test` 先 `tsc`，所以类型错误会在任何用例报告之前终止整轮；忘了构建就测到旧产物。
 - 单文件跑 `node --test test/handoff-relabel.test.mjs` 会绕过 `tsc` 前缀，改过 `src/` 时先 `pnpm build`。

@@ -4,6 +4,10 @@
 （`.agents/evidence/2026-11-03-handoff-decision-seam/audit.md`）逐条核对，下列内容已按审计结论修正；
 凡与早前版本冲突，以本文为准。
 
+> **行号口径（2026-11-11）**：本文的 `index.ts` / `gate.ts` / `command.ts` / `display.ts` 行号是批次 W 落地与审计时的树。
+> 此后批次 Z7、Z8a 改过这四份文件，行号会漂；**按符号名定位，别按行号**。下列事实性的判断不受影响，逐条改正的只有一处
+> （`ctx.llm` 的包装，见 ⌘ 标记）。
+
 ## 0. 上游动机：一条被我搞错的判断
 
 上一轮我用「三个宿主能力集不同，强行统一只能取交集」否掉了 handoff 参与三合一。用户直接反驳：
@@ -49,8 +53,12 @@
 perform 206/210/219、relabel 102），是全局设施、不是能力，但它承载了决策侧的三行日志，因此列入上表。
 （auto 的三处行号是**本批落地后**的现值；落地前为 50/59/72。）
 
-⚠️ 修正：`ctx.llm` **不是**静默失败 —— 它在 `inject` 里且 `gate.ts:55` 无 try/catch，reject 会穿到
-`index.ts:125-130`，留下一次 warn + `FAILED_UNTIL` 5 分钟退避。这是**响亮失败**。
+⚠️ 修正：`ctx.llm` **不是**静默失败 —— 它在 `inject` 里，reject 会穿到 `index.ts` 的 attempt catch，
+留下一次 warn + `FAILED_UNTIL` 5 分钟退避。这是**响亮失败**。
+
+⌘ **2026-11-11 更正（Z8a）**：`gate.ts` 现在**有**包装了 —— `withRouteFailure`（`src/project-handoff/route-failure.ts`）
+把 `resolveModelInfo` 的非取消异常包成 `HandoffRouteError`，同一个包装点也给 `/handoff status` 用。它仍然是响亮失败，
+只是**多了一个用户可见的出口**（`handoff-pressure` 注入行 + 回执那行），见 `docs/batch-z-six-problems-spec.md` §11.10(a)。
 
 执行状态（与宿主无关）：`state.ts:13-50` 的 `handedOff`（一次性）、`inFlight` + `pendingTriggerSeq`
 （单飞 + 记忆落下的 trigger）、`failedUntil`（5 min）、`skippedLoggedAt`/`deferredLoggedAt`（日志节流）、
