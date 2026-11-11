@@ -85,6 +85,7 @@ import { relabelHandoffChild } from "./relabel.js";
 import { maybeAutoHandoff } from "./auto.js";
 import { retireIfPending } from "./child.js";
 import { HandoffDeferred } from "./classify.js";
+import { isHandoffRouteError, recordRouteFailure } from "./route-failure.js";
 import { USAGE, runManual, settingPatch, statusText, writeSetting } from "./command.js";
 import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil, handedOff, inFlight, pendingRetire, pendingTriggerSeq, skippedLoggedAt, skippedSince } from "./state.js";
 
@@ -127,6 +128,13 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 					return;
 				}
 				failedUntil.set(key, Date.now() + FAILURE_BACKOFF_MS);
+				if (isHandoffRouteError(error)) {
+					// The one failure that repeats forever without saying anything: the pair the session is
+					// routed on cannot be resolved, so every later attempt fails the same way. It goes on the
+					// same injected line the crossing uses — a `warn` and an `errors.log` row are not a
+					// surface, and `/handoff status` used to throw the very same exception.
+					recordRouteFailure(key, error.failure, resolveHandoffLanguage(sessionLanguageMessages(session), config));
+				}
 				ctx.logger.warn("dsh-project-context: automatic handoff failed: %s", error instanceof Error ? error.message : String(error));
 				try {
 					const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());

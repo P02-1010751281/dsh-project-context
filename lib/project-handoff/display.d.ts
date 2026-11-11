@@ -17,6 +17,11 @@
  *     the reader needs;
  *   - falling back below the threshold empties it, so a later crossing speaks again.
  *
+ * The same line carries the trigger's *other* invisible state: a route the llm service cannot resolve
+ * keeps the automatic handoff from running at all, and used to surface only in `errors.log`. That half
+ * is recorded and rendered by `route-failure.ts`; the text here composes the two, because both are
+ * assembled into the same contribution and each must stay byte-stable on its own.
+ *
  * The numbers come from `ResolvedHandoffGate` — the very object the decision consumed — never from
  * a second resolution of the same terms.
  */
@@ -56,7 +61,7 @@ export declare function recordHandoffDeferral(sessionId: string, reason: Handoff
  * @returns whether a crossing is currently recorded.
  */
 export declare function handoffPressureIsOver(sessionId: string): boolean;
-/** Forget one session's line (disposal must not leak markers for the process lifetime). */
+/** Forget one session's line — both the crossing and a recorded route failure (disposal must not leak). */
 export declare function clearHandoffPressure(sessionId: string): void;
 /**
  * The model-facing text for this session, or `''` when nothing is crossed.

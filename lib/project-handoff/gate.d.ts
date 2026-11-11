@@ -30,6 +30,10 @@ export interface ResolvedHandoffGate {
  * Resolve the trigger for one session, or `undefined` when this profile/session cannot be measured
  * at all (no session controller or meter, no routed target, no window). Those are the same silent
  * exits the automatic path has always had: nothing to decide is not a failure to report.
+ *
+ * A route the llm service refuses to resolve is *not* one of those exits: it throws
+ * {@link HandoffRouteError}, because a dead route blocks every future attempt and reporting it as
+ * "unmeasurable" would hide a repeatable failure behind the quiet half of this function.
  * @param ctx - Host context.
  * @param session - the session to measure.
  * @param config - effective plugin config.

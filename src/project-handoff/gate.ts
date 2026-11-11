@@ -12,6 +12,7 @@
 import { type Context } from "@deepseek-ai/cordis";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
+import { withRouteFailure } from "./route-failure.js";
 import { type MeasuredContext, type SessionControllerLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { resolveThreshold } from "./threshold.js";
 
@@ -33,6 +34,10 @@ export interface ResolvedHandoffGate {
  * Resolve the trigger for one session, or `undefined` when this profile/session cannot be measured
  * at all (no session controller or meter, no routed target, no window). Those are the same silent
  * exits the automatic path has always had: nothing to decide is not a failure to report.
+ *
+ * A route the llm service refuses to resolve is *not* one of those exits: it throws
+ * {@link HandoffRouteError}, because a dead route blocks every future attempt and reporting it as
+ * "unmeasurable" would hide a repeatable failure behind the quiet half of this function.
  * @param ctx - Host context.
  * @param session - the session to measure.
  * @param config - effective plugin config.
@@ -52,7 +57,11 @@ export async function resolveHandoffGate(
 	const target = resolveTarget(session, config);
 	if (!target) return undefined;
 
-	const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
+	// A route the adapter refuses is *not* one of the silent exits below: it is named, because a dead
+	// route blocks every future attempt and "nothing to decide" would hide a repeatable failure. The
+	// wrap lives in `withRouteFailure` so the `/handoff status` receipt reports the same failure the
+	// same way (a caller-cancelled read stays a cancellation, in both).
+	const resolved = await withRouteFailure(target, () => ctx.llm.resolveModelInfo(target.provider, target.model, signal), signal);
 	const contextWindow = resolved.context?.contextWindow;
 	if (contextWindow === undefined || contextWindow <= 0) return undefined;
 

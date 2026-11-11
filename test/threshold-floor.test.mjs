@@ -262,20 +262,20 @@ test("/handoff budget recent is receipted, because it builds the floor", async (
 });
 
 test("a receipt that cannot be built does not report a landed write as a failure", async () => {
-	// The receipt resolves the model to learn the window, so the model registry can fail *after* the write
-	// landed. Throwing there would report a successful write as a failed command — the same misattribution
-	// in reverse, and `/handoff threshold` never touched the model before batch K.
+	// Every read the receipt performs can fail *after* the write landed — here the meter's own measurement.
+	// Throwing there would report a successful write as a failed command, the same misattribution in reverse,
+	// and `/handoff threshold` never touched the model before batch K.
 	const writes = [];
 	const commands = new Map();
 	const ctx = {
 		on: () => () => undefined,
 		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
 		logger: { info: () => undefined, warn: () => undefined },
-		llm: { resolveModelInfo: async () => { throw new Error("model registry offline"); } },
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 400_000 } }) },
 		get: (service) => (service === "settings"
 			? { update: async (namespace, patch) => { writes.push({ namespace, patch }); } }
 			: service === "tokenMeter"
-				? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) }
+				? { measure: () => { throw new Error("meter read failed"); } }
 				: undefined),
 	};
 	apply(ctx, { provider: "test-provider", model: "test-model" });
@@ -284,7 +284,36 @@ test("a receipt that cannot be built does not report a landed write as a failure
 	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: false, handoffThresholdRatio: 0.4 }, "the write landed before the receipt was attempted");
 	assert.equal(reply.kind, "success", "a receipt failure must not be reported as a write failure");
 	assert.match(reply.text, /Handoff setting updated: threshold 0\.4/);
-	assert.match(reply.text, /the status receipt could not be built: model registry offline/, `the missing receipt is named: ${reply.text}`);
+	assert.match(reply.text, /the status receipt could not be built: meter read failed/, `the missing receipt is named: ${reply.text}`);
+});
+
+test("a dead route after a threshold write is named in the receipt, and the write still counts", async () => {
+	// The other side of the same coin: the route itself is what the receipt now *reports* rather than throws
+	// (test/handoff-route-failure.test.mjs owns that failure), so a landed write must come back confirmed
+	// with the dead route named — not as the fallback "receipt could not be built", which would drop the one
+	// fact the user needs.
+	const writes = [];
+	const commands = new Map();
+	const ctx = {
+		on: () => () => undefined,
+		commands: { register: (command) => { commands.set(command.name, command); return () => undefined; } },
+		logger: { info: () => undefined, warn: () => undefined },
+		llm: { resolveModelInfo: async () => { throw Object.assign(new Error('pi-ai provider "test-provider" has no configured model "test-model"'), { code: "UNKNOWN_MODEL" }); } },
+		get: (service) => (service === "settings"
+			? { update: async (namespace, patch) => { writes.push({ namespace, patch }); } }
+			: service === "tokenMeter"
+				? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) }
+				: undefined),
+	};
+	apply(ctx, { provider: "test-provider", model: "test-model" });
+	const session = { id: "session-receipt-route", header: { cwd: process.cwd(), createdAt: Date.now() }, deriveMessages: () => [], requestHeader: () => undefined, snapshotEvents: () => [] };
+	const reply = await commands.get("handoff").handler({ agent: { session }, rawInput: "threshold 0.4", signal: new AbortController().signal });
+	assert.deepEqual(writes.at(-1).patch, { handoffThresholdAuto: false, handoffThresholdRatio: 0.4 }, "the write landed");
+	assert.equal(reply.kind, "success");
+	assert.match(reply.text, /fixed ratio 0\.4/, "the receipt still states the ratio now in force");
+	assert.match(reply.text, /route `test-provider\/test-model` cannot be resolved \(UNKNOWN_MODEL\)/, `the dead route is named: ${reply.text}`);
+	assert.match(reply.text, /has no configured model/, "with the adapter's own wording");
+	assert.doesNotMatch(reply.text, /could not be built/, "the receipt was built — it reported the failure");
 });
 
 test("the floor advice never withholds a ratio that clears it", () => {

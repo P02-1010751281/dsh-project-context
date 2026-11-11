@@ -22,6 +22,7 @@ import { pendingSubagentWork } from "./guard.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
 import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { performHandoff } from "./perform.js";
+import { isHandoffRouteError, routeFailureReceipt, withRouteFailure } from "./route-failure.js";
 import { type SessionControllerLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
 import { handedOff, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
 import { resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "./threshold.js";
@@ -124,8 +125,17 @@ export async function statusText(ctx: Context, session: Session, entry: PluginCo
 	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
 	const projections = ctx.get("sessionProjections");
 	if (target !== undefined && meter !== undefined) {
-		const resolved = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
-		const contextWindow = resolved.context?.contextWindow;
+		let contextWindow: number | undefined;
+		try {
+			contextWindow = (await withRouteFailure(target, () => ctx.llm.resolveModelInfo(target.provider, target.model, signal), signal)).context?.contextWindow;
+		} catch (error: unknown) {
+			// The receipt is the surface a user opens *because* handoff stopped; it must survive the very
+			// failure it exists to explain. A stale provider/model pair used to throw out of this handler,
+			// so the one readable answer was the exception's absence of an answer.
+			if (!isHandoffRouteError(error)) throw error;
+			parts.push(routeFailureReceipt(error.failure, error.detail, language));
+			contextWindow = undefined;
+		}
 		if (contextWindow !== undefined && contextWindow > 0) {
 			// Same envelope the automatic path uses, so the receipt cannot explain a decision the trigger
 			// did not make.
