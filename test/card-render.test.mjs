@@ -132,7 +132,7 @@ const result = await build({
 			'export { createElement } from "react";',
 			'export { renderToStaticMarkup } from "react-dom/server";',
 			'export { ProjectContextSettingsCard, ProjectContextSettingsCardController } from "./client/settings-card.tsx";',
-			'export { ROWS, rowVisible } from "./client/card-fields.ts";',
+			'export { ROWS } from "./client/card-fields.ts";',
 		].join("\n"),
 		resolveDir: root,
 		loader: "tsx",
@@ -167,7 +167,6 @@ const {
 	ProjectContextSettingsCard,
 	ProjectContextSettingsCardController,
 	ROWS,
-	rowVisible,
 } = await import(pathToFileURL(bundlePath).href);
 
 /** A section value that carries every field of the table. */
@@ -199,27 +198,8 @@ const UNION_ROWS = ROWS.filter((row) => row.kind === "union");
 const PLATFORM_KINDS = new Set(["number", "text", "threshold"]);
 const PILL_TOTAL = UNION_ROWS.reduce((sum, row) => sum + (row.options?.length ?? 0), 0);
 
-/**
- * The rows a section value leaves on the page, read off the card's own projection rather than a second
- * mirror of it — the gated pair swapped, not counted twice.
- * @param value - the section value the scope serves.
- * @param user - the stored user layer, when a row is overridden.
- * @returns the table's rows the card must render.
- */
-function VISIBLE(value, user = {}) {
-	const scope = makeScope({ value, user });
-	const { controller, store } = mount(scope);
-	const snapshot = store.getSnapshot();
-	const rows = ROWS.filter((row) => rowVisible(row, snapshot.fields, snapshot.modes));
-	controller.dispose();
-	return rows;
-}
-
-/** The rows the platform's own field draws, for one section value. */
-const PLATFORM_OF = (value, user) => VISIBLE(value, user).filter((row) => PLATFORM_KINDS.has(row.kind));
-
-/** `VALUE` keeps the trigger in fixed-ratio mode, so its platform rows are the threshold and the two budgets. */
-const PLATFORM_ROWS = PLATFORM_OF(VALUE);
+/** The rows the platform's own field draws: nothing hides a row any more, so this is the table. */
+const PLATFORM_ROWS = ROWS.filter((row) => PLATFORM_KINDS.has(row.kind));
 
 /** Every clickable control a clean page is allowed: one switch per boolean, one pill per option, one save. */
 const CLEAN_BUTTONS = BOOLEAN_ROWS.length + PILL_TOTAL + 1;
@@ -319,7 +299,7 @@ test("the card renders exactly one row per field of its table", () => {
 	);
 	assert.equal(
 		rendered.cardRows + rendered.fieldKeys.length,
-		VISIBLE(VALUE).length,
+		ROWS.length,
 		"every field of the table the current mode keeps must reach the page once",
 	);
 });
@@ -353,7 +333,7 @@ test("an unserved namespace renders the notice instead of the form", () => {
 
 test("a read-only document still shows every row, with the save disabled", () => {
 	const { rendered } = page({ writable: false });
-	assert.equal(rendered.cardRows + rendered.fieldKeys.length, VISIBLE(VALUE).length, "read-only hides nothing the mode keeps");
+	assert.equal(rendered.cardRows + rendered.fieldKeys.length, ROWS.length, "read-only hides nothing the mode keeps");
 	assert.equal(rendered.buttons, CLEAN_BUTTONS, "the rows stay interactive-looking except the save");
 	assert.ok(rendered.html.includes("chrome.readOnly"), "the read-only notice must be shown");
 	assert.match(rendered.saveTag ?? "", /disabled/, "the save must refuse while the document is read-only");
@@ -365,7 +345,7 @@ test("the trigger is one row in every mode, and its spelling is what the row sho
 	for (const stored of ["auto", "0.8", "400000"]) {
 		const { rendered } = page({ value: { ...VALUE, handoffThreshold: stored } });
 		assert.ok(rendered.fieldKeys.includes("handoffThreshold"), `${stored}: the trigger row must render`);
-		assert.equal(rendered.fieldKeys.length, PLATFORM_OF({ ...VALUE, handoffThreshold: stored }).length, `${stored}: one row, no gate`);
+		assert.equal(rendered.fieldKeys.length, PLATFORM_ROWS.length, `${stored}: one row, no gate`);
 	}
 	const { controller, face, props } = mount(makeScope());
 	face.edit("handoffThreshold", "400k");

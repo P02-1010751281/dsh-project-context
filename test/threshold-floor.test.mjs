@@ -20,7 +20,7 @@ import { parseRatio, settingPatch } from "../lib/project-handoff/command.js";
 import { apply as applyHandoff, movesThreshold } from "../lib/project-handoff/index.js";
 import { MIN_DROP_TOKENS, resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
-import { DEFAULT_THRESHOLD_RATIO, MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../lib/shared/limits.js";
+import { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../lib/shared/limits.js";
 import { PluginSettingsSchema } from "../lib/shared/settings.js";
 
 /** A resolved config on the test route; `over` drives one field at a time. */
@@ -40,7 +40,7 @@ test("fixed mode obeys the physical floor, and the boundary is the floor itself"
 	// The knob is the kept tail rather than the window, so the boundary is exact: at a 400_000-token window
 	// a 0.4 trigger is 160_000, and the floor is `keep + MIN_DROP_TOKENS` because no envelope is reported.
 	const window = 400_000;
-	const trigger = Math.round(window * DEFAULT_THRESHOLD_RATIO);
+	const trigger = 160_000; // 0.4 × the window, the ratio the config below sets
 	const keepAtFloor = trigger - MIN_DROP_TOKENS;
 	const onFloor = config({ handoffThreshold: "0.4", handoffBudgetRecentTokens: keepAtFloor });
 	assert.equal(resolveThreshold(onFloor, plain, window)?.tokens, trigger,

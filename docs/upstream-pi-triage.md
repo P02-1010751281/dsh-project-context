@@ -952,7 +952,9 @@ All four items plus the inventory marker are **ported**, not pending. `src/share
 validator, the settings schema, the command parser, both usage sentences and the card's two hints — reads the
 pair; fixed mode refuses under `thresholdFloor`; the two fixed refusals have separate causes and separate
 receipt sentences; `/handoff threshold <ratio>` answers with the status receipt; and `inventoryText` names its
-truncated tail.
+truncated tail. (`DEFAULT_THRESHOLD_RATIO` has since been deleted by the cleanup that followed batch Z8e —
+production never read it once the default became `auto`; `MIN` / `MAX` remain the one range for the ratio
+branch of `handoffThreshold`.)
 
 One implementation decision is not pi's shape and is worth recording. pi mutates its in-process `config` before
 rendering the receipt (`config.handoffThresholdRatio = ratio` then `notify(handoffStatusLine(ctx))`). dsh's

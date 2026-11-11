@@ -10,6 +10,13 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**client（清理：删掉没有使用者的模式 gate 机制）**
+
+- 删除 `FieldGate`、`FieldRow.appliesWhen`、`rowVisible`、`FieldDraftState`，以及 `settings-card.tsx` 里为它维护的 `state.modes` 投影与 `effectiveMode` 方法。Z8e 把触发器的两行（开关 + 比例）合并成一行后**没有任何行再带 gate**，`rowVisible` 恒为 `true`；渲染改为直接 `section.rows.map(...)`。依据用户 2026-11-11 的裁定「没用的、没有复用价值的就不要留」。
+- 顺带删除 `DEFAULT_THRESHOLD_RATIO`：生产代码没有读者（唯一用点是 `test/threshold-floor.test.mjs` 手算 `0.4 × 窗口`），而它的注释还宣称是「自适应之外的默认」——Z8e 之后默认是 `auto`，这个常量只会误导。测试改用字面量 `160_000`。
+- 卡片行为不变：`test/card-render.test.mjs` 的「表的每个字段恰好上一页一次」仍以 `ROWS.length` 为判据，源码里已不存在任何隐藏路径；`lib/client.js` 38791 → 37349。
+- 测试 **615 → 613**（−2：只为 gate 存在的两条用例 `the trigger row is never gated now that it is one key`、`a gate names a boolean row, or it can never be satisfied`），`pnpm typecheck` 0、`pnpm build` ok、`lib/` 重建确定。客户端改动一次硬刷新即生效，无需重启宿主（`DEFAULT_THRESHOLD_RATIO` 那个共享常量运行时无人读取）。
+
 **project-handoff（批次 Z8e：阈值合成一个键，绝对 token 数也能写）**
 
 - 变更（用户 2026-11-11 裁定）：`/handoff threshold` 与设置卡片合成**一个**事实、一个键 `handoffThreshold`，三种拼写 —— `auto`（守门rail 自己决定）、窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）、绝对 token 数（`400k` / `400000`）。旧的 `handoffThresholdAuto` + `handoffThresholdRatio` 退役，**不留别名**（与既往 rename 同一规矩：profile 必须先改、再重启；新键在旧代码下是 unknown key，旧键在新代码下同样抛错，两头都不静默）。此前 `400k` 被拒且报错只说「0.1 到 0.95」，既没说是窗口比例、也没说 token 数是合法触发 —— 一个把原因说错的拒绝。
@@ -22,7 +29,7 @@
 - 测试：新增 `test/threshold-spec.test.mjs`（7 条，三种拼写 + 消歧边界 + 规范拼写往返）与 `test/threshold-tokens.test.mjs`（4 条，数量照用 / 超窗截断具名 / 低于下限拒绝且建议同模式）；`card-render`、`settings-form`、`config-vocabulary`、`threshold-floor`、`handoff-decide`、`logic` 的夹具与断言按合并改写，两条只为 gate 存在的用例删除（合并后没有任何行再被 gate）。
 - 变异 3 个，各只红自己的目标：去掉 token 的窗口截断 → 「超窗截断并具名」红；建议忽略 token 模式 → 「低于下限建议同模式」红；放宽「小裸数字是比例」的守卫 → 解析器的消歧用例红（第一次的 M3 因 `bare` 变成未引用触发 TS6133，属无效变异，换锚点后重跑）。
 - `pnpm test` **615 通过 / 0 失败**（原 609：+7 +4 −5），`pnpm typecheck` 0，`pnpm build` ok（`lib/client.js` 38791）。
-- 残留：`rowVisible` / `appliesWhen` 这套 gate 机制现在没有使用者（唯一被 gate 的行合并掉了）；本批保留不动，下一批决定删除还是复用。
+- 残留：`rowVisible` / `appliesWhen` 这套 gate 机制现在没有使用者（唯一被 gate 的行合并掉了）；本批保留不动，下一批决定删除还是复用。**（已由紧随的清理批删除，见本节上方。）**
 - 文档同步（同批补记）：`README.md` 的命令表与配置键表、`docs/settings.md` 的键表、`docs/vocabulary-conventions.md` 的键映射都改成合并后的单一键 `handoffThreshold`，`/handoff threshold 400k` 与「超窗截断并具名 / 低于下限拒绝」写进命令表；`docs/vocabulary-conventions.md` §K 保留批 H 当时的映射、另加一段「批 H 之后」说明本次合并（不改写历史）。同时改正四处仍在写已退役键名或旧默认的注释：`client/card-fields.ts` 的 `FieldGate`（现已无行被 gate）、`src/shared/ratio.ts`、`src/shared/limits.ts`（`DEFAULT_THRESHOLD_RATIO` 不再是「自适应之外的默认」，默认是 `auto`）、`src/project-handoff/index.ts` 的触发摘要。
 
 **project-memory（批次 Z8d：id 记账不再吞事实，也不再谎报丢事实）**

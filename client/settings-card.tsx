@@ -20,7 +20,6 @@ import {
 	labelKey,
 	thresholdField,
 	ROWS,
-	rowVisible,
 	SECTIONS,
 	unionField,
 	type FieldRow,
@@ -57,8 +56,6 @@ export type { ProjectContextSettings };
 /** State the card renders: the shared form shell plus one entry per table row. */
 export interface ProjectContextSettingsCardState extends SettingsFormShell {
 	readonly fields: Readonly<Record<keyof ProjectContextSettings, SettingsFieldState>>;
-	/** Each gated row's effective mode after the pending write; `rowVisible` reads it, never the draft. */
-	readonly modes: Readonly<Partial<Record<keyof ProjectContextSettings, "true" | "false">>>;
 	/** The last save's cause, so the frame's one `failed` flag can name the one that applies. */
 	readonly saveFailure?: SaveFailure;
 }
@@ -104,31 +101,8 @@ export class ProjectContextSettingsCardController {
 	private projection(): ProjectContextSettingsCardState {
 		const fields = {} as Record<keyof ProjectContextSettings, SettingsFieldState>;
 		for (const row of ROWS) fields[row.key] = this.form.field(row.key);
-		const modes = {} as Partial<Record<keyof ProjectContextSettings, "true" | "false">>;
-		for (const row of ROWS) {
-			const gate = row.appliesWhen;
-			if (gate !== undefined) modes[gate.key] = this.effectiveMode(gate.key, fields[gate.key]);
-		}
 		const shell = this.form.shell();
-		return { ...shell, fields, modes, saveFailure: this.saveFailure(shell.failed) };
-	}
-
-	/**
-	 * The mode a gate is read in: a staged set is what the write will store, while a cleared or
-	 * unstaged switch means "whatever the Host serves".
-	 *
-	 * The distinction is load-bearing for Reset. It stages a draft built from the *composition* layer,
-	 * and our profiles carry no value for these keys there, so the draft of a reset reads `false` —
-	 * while the write is an `unset` that re-inherits the schema default (`true`). Gating on the draft
-	 * text would show the fixed-ratio row while saving would leave adaptive mode on.
-	 * @param key - the gate's boolean row.
-	 * @param state - that row's projected state.
-	 * @returns the mode the rows should be read in.
-	 */
-	private effectiveMode(key: keyof ProjectContextSettings, state: SettingsFieldState | undefined): "true" | "false" {
-		if (state?.overridden === true) return state.text === "true" ? "true" : "false";
-		const accepted = (this.scope.getSnapshot().value as Record<string, unknown> | undefined)?.[key];
-		return accepted === false ? "false" : "true";
+		return { ...shell, fields, saveFailure: this.saveFailure(shell.failed) };
 	}
 
 	/**
@@ -327,9 +301,7 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 				<section key={section.titleKey} className="dshPcSection">
 					<h3 className="dshPcSectionTitle">{t(section.titleKey)}</h3>
 					<p className="dshPcSectionDescription">{t(section.descriptionKey)}</p>
-					{/* Mode-gated rows are dropped rather than disabled: the setting is not read at all in the
-					    other mode, so a control there would invite a write that moves nothing. */}
-					{section.rows.filter((row) => rowVisible(row, state.fields, state.modes)).map((row) => (
+					{section.rows.map((row) => (
 						<Row
 							key={row.key}
 							row={row}

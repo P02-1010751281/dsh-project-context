@@ -42,5 +42,3 @@ export declare const MIN_HANDOFF_SUMMARY_TOKENS = 8000;
 export declare const MAX_HANDOFF_SUMMARY_TOKENS = 200000;
 export declare const MIN_HANDOFF_RECENT_TOKENS = 0;
 export declare const MAX_HANDOFF_RECENT_TOKENS = 200000;
-/** The fraction a test uses to hand-compute a trigger; not the setting's default, which is `auto`. */
-export declare const DEFAULT_THRESHOLD_RATIO = 0.4;

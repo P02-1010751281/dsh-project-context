@@ -52,29 +52,6 @@ export interface ProjectContextSettings {
 /** How one row is edited. `threshold` folds `auto` / `40%` / `400k` into the stored spelling. */
 export type FieldKind = "boolean" | "number" | "text" | "union" | "threshold";
 
-/**
- * A condition under which a row's setting is *consulted*: the boolean row named by `key` must be
- * `text`.
- *
- * No row carries one today: merging the two threshold keys left the trigger as a single row the
- * computation always consults, and the summary target is a budget `/handoff budget summary` accepts in
- * either mode. So `rowVisible` currently returns `true` for every row; the mechanism stays because
- * retiring or reusing it is a whole batch's decision, and dropping it is one deletion rather than a
- * rewrite.
- *
- * Not every inert row is hidden (with `handoffEnabled: false` every handoff row is inert and all of
- * them still render), and the gate is not a promise about validation: the config validator still
- * checks every key in every mode.
- *
- * `text` is the boolean literal, not `string`: the value is only ever produced by `booleanField`, so a
- * misspelled gate here would silently disable the row forever, and that class is better impossible
- * than merely tested.
- */
-export interface FieldGate {
-	readonly key: keyof ProjectContextSettings;
-	readonly text: "true" | "false";
-}
-
 /** The inclusive bounds a numeric row enforces locally, mirroring the Host schema's `min`/`max`. */
 export interface FieldBounds {
 	readonly min: number;
@@ -86,7 +63,6 @@ export interface FieldRow {
 	readonly key: keyof ProjectContextSettings;
 	readonly kind: FieldKind;
 	readonly options?: readonly string[];
-	readonly appliesWhen?: FieldGate;
 	readonly bounds?: FieldBounds;
 }
 
@@ -139,9 +115,9 @@ export const SECTIONS: readonly FieldSection[] = [
 			{ key: "handoffEnabled", kind: "boolean" },
 			// One row, because the trigger is one fact: `auto`, a fraction of the window, or an absolute
 			// token count all live in the same key, so the card cannot show two controls that disagree
-			// about which mode is in force. The summary target is deliberately not gated — it is a budget
-			// that `/handoff budget summary` accepts in either mode and that only reports whether the
-			// target was honoured.
+			// about which mode is in force. The summary target is a separate budget
+			// `/handoff budget summary` accepts in either mode and that only reports whether the target
+			// was honoured, so it is its own row.
 			{ key: "handoffThreshold", kind: "threshold" },
 			{
 				key: "handoffBudgetSummaryTokens",
@@ -165,40 +141,6 @@ export const SECTIONS: readonly FieldSection[] = [
 
 /** Every row, flattened: what both the spec list and the projection walk. */
 export const ROWS: readonly FieldRow[] = SECTIONS.flatMap((section) => section.rows);
-
-/** What a gate reads off a row: the platform's field state, structurally (no runtime import). */
-export interface FieldDraftState {
-	readonly text: string;
-	readonly overridden: boolean;
-	readonly invalid: boolean;
-}
-
-/**
- * Whether a row renders, given the effective mode and the row's own draft.
- *
- * A row whose setting is inert in the current mode is hidden — unless it carries the user's own
- * attention: a stored override (which would otherwise be unreachable and unresettable) or a draft that
- * blocks the save (an invisible one would block it with no control to fix). A staged `unset` is the one
- * case that is *not* kept: it is invisible but still lands, because the Host re-inherits the default
- * and the row it belongs to is inert by construction in that mode.
- * @param row - the table row.
- * @param fields - every row's current field state, as the card projects it.
- * @param modes - each gate key's effective mode after the pending write, not the formatted draft: a
- *   reset stages a draft built from the (empty) composition layer, which for an absent field reads as
- *   `false` while the write re-inherits the schema default `true`.
- * @returns whether the row belongs on the page.
- */
-export function rowVisible(
-	row: FieldRow,
-	fields: Readonly<Record<keyof ProjectContextSettings, FieldDraftState>>,
-	modes: Readonly<Partial<Record<keyof ProjectContextSettings, "true" | "false">>>,
-): boolean {
-	const gate = row.appliesWhen;
-	if (gate === undefined) return true;
-	const self = fields[row.key];
-	if (self?.overridden === true || self?.invalid === true) return true;
-	return modes[gate.key] === gate.text;
-}
 
 /**
  * A row's visible label key. The convention is fixed by the dictionaries (`field.<key>`), and the

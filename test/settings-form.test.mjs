@@ -98,41 +98,6 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 });
 
-test("the trigger row is never gated now that it is one key", () => {
-	// The trigger used to be two rows with a gate: a switch, plus the fixed ratio shown only while the
-	// switch was off. They are one setting, so a gate on it would hide the only control there is.
-	const drafts = (extra = {}) => Object.fromEntries(fields.ROWS.map((row) => [row.key, {
-		text: "0",
-		overridden: false,
-		invalid: false,
-		...extra[row.key],
-	}]));
-	const row = (key) => fields.ROWS.find((candidate) => candidate.key === key);
-	const visible = (key, modes, state = drafts()) => fields.rowVisible(row(key), state, modes);
-
-	assert.equal(row("handoffThreshold").appliesWhen, undefined, "the merged trigger carries no gate");
-	for (const mode of ["true", "false"]) {
-		assert.equal(visible("handoffThreshold", {}), true, `the trigger row renders in every mode (${mode})`);
-		assert.equal(visible("handoffBudgetSummaryTokens", {}), true, "the report-only target keeps rendering too");
-		assert.equal(visible("handoffLang", {}), true);
-	}
-});
-
-test("a gate names a boolean row, or it can never be satisfied", () => {
-	const kinds = new Map(fields.ROWS.map((row) => [row.key, row.kind]));
-	for (const row of fields.ROWS) {
-		if (row.appliesWhen === undefined) continue;
-		assert.equal(
-			kinds.get(row.appliesWhen.key),
-			"boolean",
-			`${row.key}'s gate reads ${row.appliesWhen.key}, which is not a boolean row`,
-		);
-		assert.ok(["true", "false"].includes(row.appliesWhen.text), `${row.key}'s gate must compare a boolean literal`);
-		// A row that gated itself would be unreachable: its own draft would decide whether it exists.
-		assert.notEqual(row.appliesWhen.key, row.key, `${row.key} must not gate itself`);
-	}
-});
-
 test("every bounded number row enforces exactly the Host schema's inclusive bounds", async () => {
 	// Derived from the schema object rather than restated, so changing `settings.ts` without the card
 	// turns this red while a change made in the one shared pair moves both sides together.
