@@ -240,7 +240,7 @@ export const CONSOLIDATION_PROMPT_RULES: readonly string[] = [
  * that failed before this existed.
  */
 const MEMORY_ENTRY_ID_RULE =
-	"Every entry ends with its id in a full-width parenthetical, e.g. `… durable fact（4f2a）`. When you keep an entry, keep its id exactly as given. Do not invent an id for a new entry and do not add one to an entry that has none. To replace an entry, write the replacement and end it with `supersedes:<old id>`; the old entry is retired automatically, so do not repeat it.";
+	"Every entry ends with its id in a full-width parenthetical, e.g. `… durable fact（4f2）`. When you keep an entry, keep its id exactly as given. Do not invent an id for a new entry and do not add one to an entry that has none. To replace an entry, write the replacement and end it with `supersedes:<old id>`; the old entry is retired automatically, so do not repeat it.";
 
 export const MEMORY_KEEP_RULE =
 	"Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections, then condense the wording. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one.";

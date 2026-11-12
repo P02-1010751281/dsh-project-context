@@ -151,7 +151,7 @@ export declare function recordEntryDates(projectRoot: string, dates: ReadonlyMap
 /**
  * Retire, then stamp ids — but never at the price of a whole entry.
  *
- * The ids are six characters per entry, and a memory that is already at its cap drops whole entries to
+ * The ids are five characters per entry, and a memory that is already at its cap drops whole entries to
  * make room. Measured on this project 2026-11-10: a document at 43720 of 45000 characters stays clean
  * with the bare ids (+804) but loses 7 entries with the dated marker (+3082).
  *

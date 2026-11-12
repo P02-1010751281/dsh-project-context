@@ -33,24 +33,38 @@ const MAX_UNCONFIRMED_DAYS = 180;
 const MENTION_SCAN_BYTE_CAP = 32 * 1024 * 1024;
 
 /**
- * The entry id: four hex characters in a trailing full-width parenthetical.
+ * The entry id: three hex characters in a trailing full-width parenthetical.
  *
- * Six characters per entry on a document that had 1280 characters of headroom on 2026-11-10, which is
+ * Five characters per entry on a document that had 1280 characters of headroom on 2026-11-10, which is
  * why the date is not part of it (see `entryDatesFile`). The id has to live in the bullet because the
  * model has to copy it: a `supersedes:` reference is meaningless if the id is only known to the code.
+ *
+ * Batch Z8f shrank the id from four hex to three so 145 entries buy 145 more characters of headroom.
+ * The smaller space is safe because the derivation is unchanged and the mint loop below resolves a
+ * collision inside one document by salting; a stored four-hex id is read as a legacy id and migrated by
+ * truncation, so identity — and with it the first-seen date in `entries.json` — survives the change
+ * instead of resetting every clock.
  */
-const TID_MARKER = /（([0-9a-f]{4})）(?:\s*(?:supersedes|取代)\s*[:：]\s*[0-9a-f]{4})?\s*$/;
-const TID_TAIL = /\s*（[0-9a-f]{4}）\s*$/;
+const TID_MARKER = /（([0-9a-f]{3})）(?:\s*(?:supersedes|取代)\s*[:：]\s*[0-9a-f]{3,4})?\s*$/;
+/** The pre-Z8f four-hex id. Only a bare trailing one is read: a legacy id still carrying a declaration
+ * is stripped of the declaration by the pass that consumes it, and migrates on the next one. */
+const LEGACY_TID_MARKER = /（([0-9a-f]{4})）\s*$/;
+const TID_TAIL = /\s*（[0-9a-f]{3,4}）\s*$/;
 
-/** `supersedes:4f2a` (or the Chinese `取代：4f2a`) inside a bullet body. */
-const SUPERSEDES_MARKER = /\s*(?:supersedes|取代)\s*[:：]\s*([0-9a-f]{4})/g;
+/** `supersedes:4f2` (or the Chinese `取代：4f2`) inside a bullet body; a legacy four-hex target is read too. */
+const SUPERSEDES_MARKER = /\s*(?:supersedes|取代)\s*[:：]\s*([0-9a-f]{3,4})/g;
 
-const HEX4 = /^[0-9a-f]{4}$/;
+const ENTRY_ID = /^[0-9a-f]{3,4}$/;
 
 /** The id an entry already carries, if any. */
 export function entryTid(entry: string): string | undefined {
 	const match = TID_MARKER.exec(entry.trimEnd());
 	return match?.[1];
+}
+
+/** The pre-Z8f four-hex id an entry carries, if any. */
+function legacyEntryTid(entry: string): string | undefined {
+	return LEGACY_TID_MARKER.exec(entry.trimEnd())?.[1];
 }
 
 /** The entry with its id removed. */
@@ -64,7 +78,7 @@ function withEntryTid(entry: string, tid: string): string {
 }
 
 /**
- * A deterministic four-hex id for one entry body, salted until it is unused.
+ * A deterministic three-hex id for one entry body, salted until it is unused.
  *
  * Content-derived rather than random so the same body keeps the same id across a lost marker, a
  * restored document and a re-run test; the salt only breaks a genuine collision inside one document.
@@ -72,10 +86,10 @@ function withEntryTid(entry: string, tid: string): string {
 function tidFor(body: string, taken: ReadonlySet<string>): string {
 	const base = createHash("sha256").update(normalizeMemoryEntry(stripEntryTid(body))).digest("hex");
 	for (let salt = 0; salt < 4096; salt += 1) {
-		const tid = (salt === 0 ? base : createHash("sha256").update(`${salt}:${base}`).digest("hex")).slice(0, 4);
+		const tid = (salt === 0 ? base : createHash("sha256").update(`${salt}:${base}`).digest("hex")).slice(0, 3);
 		if (!taken.has(tid)) return tid;
 	}
-	throw new Error("entry id space exhausted: 4096 salts could not find a free four-hex id");
+	throw new Error("entry id space exhausted: 4096 salts could not find a free three-hex id");
 }
 
 /** A document whose entries all carry an id, plus what the stamping did. */
@@ -99,7 +113,12 @@ export function stampEntryIds(sections: MemorySections, taken: ReadonlySet<strin
 				ids.add(existing);
 				return entry;
 			}
-			const tid = tidFor(entry, ids);
+			// A legacy four-hex id migrates by truncation rather than by re-minting: the body-derived
+			// derivation never changed, so the shorter id is the same fact's identity and its first-seen
+			// date still applies. A truncation that would collide falls through to a fresh salted id.
+			const legacy = legacyEntryTid(entry);
+			const inherited = legacy?.slice(0, 3);
+			const tid = inherited !== undefined && !ids.has(inherited) ? inherited : tidFor(entry, ids);
 			ids.add(tid);
 			added.push(tid);
 			return withEntryTid(entry, tid);
@@ -380,7 +399,7 @@ export type RetirementResult = {
 
 /** The reason to record for a supersede, degraded gracefully when the declaring id is not a real id. */
 function supersedeReason(source: string): RetirementReason {
-	return HEX4.test(source) ? `superseded-by:${source}` : "superseded";
+	return ENTRY_ID.test(source) ? `superseded-by:${source}` : "superseded";
 }
 
 /**
@@ -412,9 +431,14 @@ export async function retireSections(sections: MemorySections, context: Retireme
 		if (byTid.has(tid)) drop.add(tid);
 	}
 	for (const [target, source] of context.declaredSupersedes ?? supersededIds(stamps.sections)) {
-		const entry = byTid.get(target);
-		if (entry === undefined || drop.has(target)) continue;
-		drop.add(target);
+		// A declaration written before the id narrowed still names the four-hex spelling of the id the
+		// document carries after migration; resolving the truncated form keeps that retirement landing
+		// instead of the declaration being consumed while its target survives. The *resolved* id is what
+		// enters `drop`, or the final filter — which compares the document's three-hex ids — would keep it.
+		const resolved = byTid.has(target) ? target : target.slice(0, 3);
+		const entry = byTid.get(resolved);
+		if (entry === undefined || drop.has(resolved)) continue;
+		drop.add(resolved);
 		retired.push({ date: context.today, title: stripEntryTid(entry), reason: supersedeReason(source) });
 	}
 	// Anchor drift is exact and runs before the expiry scan, so an entry whose path is gone is reported
@@ -524,7 +548,12 @@ async function readEntryDatesRaw(projectRoot: string): Promise<Map<string, strin
 	const entries = (parsed as EntryDatesDocument | undefined)?.entries;
 	if (typeof entries !== "object" || entries === null) return dates;
 	for (const [tid, date] of Object.entries(entries)) {
-		if (HEX4.test(tid) && typeof date === "string" && DATE_ONLY.test(date)) dates.set(tid, date);
+		if (!ENTRY_ID.test(tid) || typeof date !== "string" || !DATE_ONLY.test(date)) continue;
+		// A legacy four-hex key is published under the id the document now carries, earliest wins, and the
+		// obsolete key is dropped: the next write of this file lands only three-hex keys.
+		const key = tid.length === 4 ? tid.slice(0, 3) : tid;
+		const known = dates.get(key);
+		if (known === undefined || date < known) dates.set(key, date);
 	}
 	return dates;
 }
@@ -573,7 +602,7 @@ function stripEntryIds(sections: MemorySections): MemorySections {
 /**
  * Retire, then stamp ids — but never at the price of a whole entry.
  *
- * The ids are six characters per entry, and a memory that is already at its cap drops whole entries to
+ * The ids are five characters per entry, and a memory that is already at its cap drops whole entries to
  * make room. Measured on this project 2026-11-10: a document at 43720 of 45000 characters stays clean
  * with the bare ids (+804) but loses 7 entries with the dated marker (+3082).
  *
@@ -605,7 +634,7 @@ export async function retireWithinBudget(
 	// Both lossy: the overflow is the document's own, not the ids'. Keep the ids so the triggers work.
 	if (withoutIds.sectionDropped > 0 || withoutIds.itemTruncated > 0) return { ...result, stamped: true };
 	// The document only overflows once the ids are added, so this is the id tax that has to shrink. The
-	// budget is what the clean plain render leaves, and every stamp costs the same six characters.
+	// budget is what the clean plain render leaves, and every stamp costs the same five characters.
 	// `stampOrder` already leaves out entries that could not carry a marker without being clipped, so a
 	// single near-cap entry postpones only itself instead of spending the whole budget on a prefix the
 	// renderer will always refuse.
@@ -626,8 +655,8 @@ export async function retireWithinBudget(
 	return { ...result, sections: plain, ids: new Set(), added: [], stamped: false };
 }
 
-/** Characters one trailing id adds: a full-width parenthesis, four hex digits, and the closing one. */
-const TID_STAMP_CHARS = withEntryTid("x", "aaaa").length - 1;
+/** Characters one trailing id adds: a full-width parenthesis, three hex digits, and the closing one. */
+const TID_STAMP_CHARS = withEntryTid("x", "aaa").length - 1;
 
 /**
  * The order a partial stamp spends its budget in, and the entries that can carry a marker at all.
@@ -637,7 +666,7 @@ const TID_STAMP_CHARS = withEntryTid("x", "aaaa").length - 1;
  * four sections, so this is a value judgement about survival, not a claim that only two are aged.
  *
  * An entry longer than the per-item cap is left out. Every entry here already carries its marker —
- * `retireSections` stamps before the budget is applied — so `entry.length` includes the six characters
+ * `retireSections` stamps before the budget is applied — so `entry.length` includes the five characters
  * and the test must not add them again: the clipper's cap is at most `MAX_LIST_ITEM_CHARS`, so an entry
  * over 800 can never be shown with its marker intact. Keeping it in the order made one such entry
  * reject every prefix that contained it, walking the budget to zero while 20 other entries had room.

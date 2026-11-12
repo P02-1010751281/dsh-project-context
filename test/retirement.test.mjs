@@ -103,13 +103,13 @@ test("the prompt digest shows titles and dates, counts the rest, and is empty wh
 // ---------------------------------------------------------------------------------------------------
 
 test("an entry id is preserved, minted deterministically, and never collides", () => {
-	const first = sectionsOf({ project: ["kept（aaaa）", "needs an id"] });
+	const first = sectionsOf({ project: ["kept（aaa）", "needs an id"] });
 	const stamped = stampEntryIds(first, new Set());
-	assert.equal(entryTid(stamped.sections.project[0]), "aaaa", "an existing id is kept");
+	assert.equal(entryTid(stamped.sections.project[0]), "aaa", "an existing id is kept");
 	assert.equal(stamped.sections.project[1].endsWith(`（${entryTid(stamped.sections.project[1])}）`), true, "a missing id is appended");
 	assert.equal(stamped.added.length, 1);
 
-	const again = stampEntryIds(sectionsOf({ project: ["kept（aaaa）", "needs an id"] }), new Set());
+	const again = stampEntryIds(sectionsOf({ project: ["kept（aaa）", "needs an id"] }), new Set());
 	assert.deepEqual(again.added, stamped.added, "the same body earns the same id on a later pass");
 
 	// Two identical bodies in one document cannot share an id, or a tombstone would name both.
@@ -117,9 +117,49 @@ test("an entry id is preserved, minted deterministically, and never collides", (
 	assert.notEqual(entryTid(twins.sections.project[0]), entryTid(twins.sections.project[1]));
 });
 
+test("a stored four-hex id migrates to three hex without changing identity", async () => {
+	// Batch Z8f narrowed the id from four hex to three. The derivation never changed, so the shorter id
+	// is the same fact's identity: truncating it is what keeps `entries.json`'s clock applying instead of
+	// restarting every entry at today.
+	const root = await projectDir();
+	const result = await retireWithinBudget(
+		sectionsOf({ invariants: ["old rule（1a2b）", "another（2b3c）"], project: ["no id yet"] }),
+		{ projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW },
+		100_000,
+	);
+	assert.deepEqual(result.sections.invariants, ["old rule（1a2）", "another（2b3）"], "the legacy id is truncated, not re-derived");
+	const minted = entryTid(result.sections.project[0]);
+	assert.notEqual(minted, undefined, "a new entry still earns an id");
+	assert.equal(minted.length, 3, "and the new width is three hex");
+	assert.ok(result.keepIds.has("1a2") && result.keepIds.has("2b3"), "a migrated id is owned, so its clock is not pruned");
+});
+
+test("a legacy id whose truncation is taken is re-minted instead of duplicated", () => {
+	const result = stampEntryIds(sectionsOf({ project: ["first（aaaa）", "second（aaab）"] }), new Set());
+	const [firstId, secondId] = result.sections.project.map((entry) => entryTid(entry));
+	assert.equal(firstId, "aaa", "the first truncation wins, in document order");
+	assert.notEqual(secondId, "aaa", "the second cannot share it");
+	assert.equal(secondId.length, 3, "the replacement is a full-width three-hex id");
+	assert.ok(result.sections.project[1].startsWith("second"), "the body survives the migration");
+	assert.equal(result.sections.project[1].match(/（[0-9a-f]{3,4}）$/g).length, 1, "the legacy tail is replaced, never doubled");
+});
+
+test("the entry-date sidecar publishes a legacy four-hex key under the truncated id", async () => {
+	// The document is the source of identity: a four-hex key is only a stale spelling of the id the
+	// document now carries, so it must be readable at the new key and must not survive as its own entry.
+	const root = await projectDir();
+	const file = path.join(root, ".agents", "memory", "entries.json");
+	await mkdir(path.dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify({ version: 1, entries: { "1a2b": "2026-10-01", aaa: "2026-10-02", aaab: "2026-09-30" } }), "utf8");
+	const dates = await readEntryDates(root);
+	assert.equal(dates.get("1a2"), "2026-10-01", "a legacy key is readable under its truncated id");
+	assert.equal(dates.has("1a2b"), false, "the four-hex key is not published on its own");
+	assert.equal(dates.get("aaa"), "2026-09-30", "two legacy keys that truncate alike keep the earliest date");
+});
+
 test("a supersedes declaration names the entry it replaces", () => {
-	const sections = sectionsOf({ invariants: ["old rule（1111）", "new rule（2222）supersedes:1111"] });
-	assert.deepEqual([...supersededIds(sections)], [["1111", "2222"]]);
+	const sections = sectionsOf({ invariants: ["old rule（111）", "new rule（222）supersedes:111"] });
+	assert.deepEqual([...supersededIds(sections)], [["111", "222"]]);
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -176,13 +216,28 @@ test("the plugin's own local artifacts are never drift", async () => {
 test("a superseded entry is retired with the replacing id, and the marker leaves the document", async () => {
 	const root = await projectDir();
 	const result = await retireReply(
-		sectionsOf({ invariants: ["old rule（1111）", "new rule（2222）supersedes:1111"], pitfalls: ["unrelated（3333）"] }),
+		sectionsOf({ invariants: ["old rule（111）", "new rule（222）supersedes:111"], pitfalls: ["unrelated（333）"] }),
 		{ projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW },
 		40_000,
 	);
-	assert.deepEqual(result.retired, [{ date: TODAY, title: "old rule", reason: "superseded-by:2222" }]);
-	assert.deepEqual(result.sections.invariants, ["new rule（2222）"], "the declaration is consumed, not stored");
-	assert.deepEqual(result.sections.pitfalls, ["unrelated（3333）"], "nothing else is touched");
+	assert.deepEqual(result.retired, [{ date: TODAY, title: "old rule", reason: "superseded-by:222" }]);
+	assert.deepEqual(result.sections.invariants, ["new rule（222）"], "the declaration is consumed, not stored");
+	assert.deepEqual(result.sections.pitfalls, ["unrelated（333）"], "nothing else is touched");
+});
+
+test("a declaration naming a legacy four-hex target still retires the entry", async () => {
+	// The transition window: the stored document still shows four-hex ids, so the reply copies one into
+	// its `supersedes:` declaration while the stamping already migrated the target to three hex. The
+	// declaration must resolve against the migrated id, or the entry survives while its marker is
+	// stripped — a silent no-op that would read as a successful retirement.
+	const root = await projectDir();
+	const result = await retireReply(
+		sectionsOf({ invariants: ["old rule（1a2b）", "new rule（222）supersedes:1a2b"] }),
+		{ projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW },
+		40_000,
+	);
+	assert.deepEqual(result.retired, [{ date: TODAY, title: "old rule", reason: "superseded-by:222" }]);
+	assert.deepEqual(result.sections.invariants, ["new rule（222）"], "the migrated target left, the declaration was consumed");
 });
 
 test("an echoed retired entry is dropped without a second tombstone", async () => {
@@ -202,11 +257,11 @@ test("an echoed retired entry is dropped without a second tombstone", async () =
 	const [retiredId] = [...first.droppedIds];
 
 	const echoed = await retireReply(
-		sectionsOf({ pitfalls: [`stale fact about scripts/gone-echo.mjs（${retiredId}）`, "fresh fact（2222）"] }),
+		sectionsOf({ pitfalls: [`stale fact about scripts/gone-echo.mjs（${retiredId}）`, "fresh fact（222）"] }),
 		{ projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW, retiredIds: first.droppedIds },
 		40_000,
 	);
-	assert.deepEqual(echoed.sections.pitfalls, ["fresh fact（2222）"], "the echo is dropped");
+	assert.deepEqual(echoed.sections.pitfalls, ["fresh fact（222）"], "the echo is dropped");
 	assert.deepEqual(echoed.retired, [], "the retirement was already recorded by the first call");
 });
 
@@ -224,14 +279,14 @@ async function archiveFixture({ mention }) {
 	return root;
 }
 
-const UNCONFIRMED_ENTRY = "The release script check-dsh-plugin-patches.sh must run before tagging（aaaa）";
+const UNCONFIRMED_ENTRY = "The release script check-dsh-plugin-patches.sh must run before tagging（aaa）";
 const OLD_DATE = new Date(NOW - 200 * DAY).toISOString().slice(0, 10);
 
 test("an old entry nothing mentions any more is unconfirmed", async () => {
 	const root = await archiveFixture({ mention: false });
 	const result = await retireSections(sectionsOf({ pitfalls: [UNCONFIRMED_ENTRY] }), {
 		projectRoot: root,
-		firstSeen: new Map([["aaaa", OLD_DATE]]),
+		firstSeen: new Map([["aaa", OLD_DATE]]),
 		today: TODAY,
 		now: NOW,
 	});
@@ -244,7 +299,7 @@ test("a mention keeps the entry, and so does an age below the horizon", async ()
 	const root = await archiveFixture({ mention: true });
 	const kept = await retireSections(sectionsOf({ pitfalls: [UNCONFIRMED_ENTRY] }), {
 		projectRoot: root,
-		firstSeen: new Map([["aaaa", OLD_DATE]]),
+		firstSeen: new Map([["aaa", OLD_DATE]]),
 		today: TODAY,
 		now: NOW,
 	});
@@ -253,7 +308,7 @@ test("a mention keeps the entry, and so does an age below the horizon", async ()
 
 	const young = await retireSections(sectionsOf({ pitfalls: [UNCONFIRMED_ENTRY] }), {
 		projectRoot: root,
-		firstSeen: new Map([["aaaa", new Date(NOW - 30 * DAY).toISOString().slice(0, 10)]]),
+		firstSeen: new Map([["aaa", new Date(NOW - 30 * DAY).toISOString().slice(0, 10)]]),
 		today: TODAY,
 		now: NOW,
 	});
@@ -267,7 +322,7 @@ test("an incomplete scan retires nothing", async () => {
 	const root = await archiveFixture({ mention: false });
 	const capped = await retireSections(sectionsOf({ pitfalls: [UNCONFIRMED_ENTRY] }), {
 		projectRoot: root,
-		firstSeen: new Map([["aaaa", OLD_DATE]]),
+		firstSeen: new Map([["aaa", OLD_DATE]]),
 		today: TODAY,
 		now: NOW,
 		mentionByteCap: 1,
@@ -279,14 +334,14 @@ test("an incomplete scan retires nothing", async () => {
 	// assertion above from passing because the trigger never fires at all.
 	const whole = await retireSections(sectionsOf({ pitfalls: [UNCONFIRMED_ENTRY] }), {
 		projectRoot: root,
-		firstSeen: new Map([["aaaa", OLD_DATE]]),
+		firstSeen: new Map([["aaa", OLD_DATE]]),
 		today: TODAY,
 		now: NOW,
 	});
 	assert.equal(whole.retired.length, 1, "a complete scan of the same project does retire");
 
 	// An entry with no distinctive token cannot be verified either way, so it stays.
-	assert.equal(mentionNeedle("短句（aaaa）"), undefined, "prose yields no needle");
+	assert.equal(mentionNeedle("短句（aaa）"), undefined, "prose yields no needle");
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -319,9 +374,9 @@ test("less than one stamp's room still keeps every entry's clock", async () => {
 	const root = await projectDir();
 	const entries = Array.from({ length: 20 }, (_, index) => `${String(index).padStart(2, "0")} ${"记".repeat(120)}`);
 	const sections = sectionsOf({ project: entries });
-	// Five characters of headroom is not one id (six), so no marker can land. The smallest document the
+	// Four characters of headroom is not one id (five), so no marker can land. The smallest document the
 	// budget can leave unstamped must still know which entries it owns, or every age resets.
-	const cap = renderMemoryDocument(sections, 100_000).text.length + 5;
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 4;
 	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
 
 	assert.equal(result.stamped, false, "no id landed");
@@ -337,9 +392,9 @@ test("the partial stamp spends its budget on Invariants and Pitfalls before Proj
 	const project = Array.from({ length: 12 }, (_, index) => `prj${index} ${"记".repeat(120)}`);
 	const index = Array.from({ length: 12 }, (_, index) => `idx${index} ${"记".repeat(120)}`);
 	const sections = sectionsOf({ project, invariants, pitfalls, index });
-	// Exactly enough room for the 24 retirement-relevant ids (144 characters) and no more, so the budget
+	// Exactly enough room for the 24 retirement-relevant ids (120 characters) and no more, so the budget
 	// has to be spent in priority order rather than document order — Project comes first in the file.
-	const cap = renderMemoryDocument(sections, 100_000).text.length + 144;
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 120;
 	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
 
 	assert.equal(result.stamped, true);
@@ -502,23 +557,23 @@ test("the pass keeps the clock of an entry its partial stamp could not mark", as
 
 test("a near-cap entry postpones only itself, not every other id", async () => {
 	const root = await projectDir();
-	// One 795-character entry sits first in Invariants; adding a six-character marker would make it 801,
+	// One 796-character entry sits first in Invariants; adding a five-character marker would make it 801,
 	// past the 800 per-item cap, so the clipper can never show its id. Before the filter that single entry
 	// rejected every prefix containing it: the loop walked the whole budget down to zero and reported
 	// `stamped:false` while twenty short entries had room.
-	const long = `long ${"x".repeat(790)}`; // 795 characters, 801 with its marker
-	const edge = `edge ${"x".repeat(789)}`; // 794 characters, exactly 800 with its marker
+	const long = `long ${"x".repeat(791)}`; // 796 characters, 801 with its marker
+	const edge = `edge ${"x".repeat(790)}`; // 795 characters, exactly 800 with its marker
 	const short = Array.from({ length: 20 }, (_, index) => `s${String(index).padStart(2, "0")} ${"y".repeat(120)}`);
 	const sections = sectionsOf({ invariants: [long, edge, ...short] });
-	const cap = renderMemoryDocument(sections, 100_000).text.length + 21 * 6;
+	const cap = renderMemoryDocument(sections, 100_000).text.length + 21 * 5;
 	const result = await retireWithinBudget(sections, { projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW }, cap);
 
 	// The entry is already stamped when the budget is applied, so the boundary is the stamped length:
-	// 794 + 6 = 800 still fits the per-item cap and must be stamped; 795 + 6 = 801 can never be shown
+	// 795 + 5 = 800 still fits the per-item cap and must be stamped; 796 + 5 = 801 can never be shown
 	// whole and must only postpone itself.
 	assert.equal(result.stamped, true, "the short entries can still carry ids");
-	assert.equal(entryTid(result.sections.invariants[0]), undefined, "the 795-character body stays unmarked");
-	assert.notEqual(entryTid(result.sections.invariants[1]), undefined, "the 794-character body still gets its id");
+	assert.equal(entryTid(result.sections.invariants[0]), undefined, "the 796-character body stays unmarked");
+	assert.notEqual(entryTid(result.sections.invariants[1]), undefined, "the 795-character body still gets its id");
 	assert.equal(result.ids.size, 21, "the edge entry and every short entry are stamped");
 	assert.equal(renderMemoryDocument(result.sections, cap).itemTruncated, 0, "no marker is clipped away");
 });

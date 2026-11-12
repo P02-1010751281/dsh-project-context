@@ -154,7 +154,8 @@ export function retiredArchiveFile(projectRoot: string): string {
 /**
  * Plugin-owned dates for the entry ids in `MEMORY.md`: when each id was first seen.
  *
- * The id itself rides inside the bullet (six characters per entry), because the model has to copy it
+ * The id itself rides inside the bullet (five characters per entry since batch Z8f, six before it),
+ * because the model has to copy it
  * for a `supersedes:` reference to mean anything. The *date* is what the 180-day expiry needs, and it
  * costs eleven characters per entry on a document that has no room for it — measured 2026-11-10:
  * stamping `（tid:4f2a · 2026-11-10）` on this project's 134 entries added 3082 characters and made

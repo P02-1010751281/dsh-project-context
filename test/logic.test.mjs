@@ -5659,9 +5659,9 @@ test("the pass offers record_memory first and renders its call into the four sec
 	assert.equal(calls.length, 1, "a tool call needs no retry");
 	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offers the tool");
 	assert.equal(outcome.kind, "structured");
-	// Batch Z2 stamps a four-hex id on every stored entry; the shape of the document is what this
-	// assertion is about, so the ids are matched rather than spelled out.
-	const id = "（[0-9a-f]{4}）";
+	// Batch Z2 stamps an id on every stored entry — three hex since batch Z8f; the shape of the document
+	// is what this assertion is about, so the ids are matched rather than spelled out.
+	const id = "（[0-9a-f]{3}）";
 	assert.match(outcome.result.memory, new RegExp(`^# Project Memory\\n\\n## Project\\n- p1${id}\\n\\n## Invariants\\n- i1${id}\\n\\n## Pitfalls\\n- q1${id}\\n\\n## Index\\n- x1${id}\\n$`));
 	assert.equal(outcome.result.context.summary, "s", "the context comes from the same call");
 	assert.equal(outcome.semanticEmpty, false);
