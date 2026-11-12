@@ -1,30 +1,32 @@
 # Project Task: z8-acceptance
 
-> created 2026-11-11 · status active · lastSeen 2026-11-11 · title z8-acceptance: proved the host runs a stale build; answered the threshold token-vs-ratio question
+> created 2026-11-11 · status active · lastSeen 2026-11-11 · title profile rollout: 613cb9f deployed to five install sites, desktop verified live, Windows and 406-12 await their own restart
 
 ## Summary
 
-本会话（session-4c23d245 交接，任务 z8-acceptance）接着 Z8 收尾。① 复核交接里“只差重启”的判断：宿主进程 10:41:56 启动，却在 14:21 写出了部分盖章，与新代码矛盾。用宿主已开的 inspector（127.0.0.1:9230）读运行中 isolate 常驻的 `lib/project-memory/retirement.js` 源码，与 `git show <commit>:lib/…` blob 逐字节比哈希：常驻 sha `658a6c81…` = 9864d05（13:54 部分盖章版），磁盘 sha `7dc2c223…` = e9c4214（14:31 近上限边界版）→ 判定 STALE，需重启；关键教训是“进程启动时刻晚于最后 src 提交”这条旧判据在本环境并不成立（插件代码能在不重启的情况下被换掉一次），已落成只读探针 `.agents/evidence/2026-11-11-z8d-live-module-version/probe.mjs` 并提交 9225b56，HEAD=origin/main、工作树干净。这解释了 entries.json 只有 131 个 carried id 而非 140（9864d05 无 keepIds）。② 用户问 `/handoff threshold 400k` 为何非法：`threshold` 只存窗口比例（handoffThresholdRatio 0.1–0.95）或 auto，`400k` 连比例都解析不出（Number("400k")=NaN；"400000" 折成 4000 越界），报错文案却只说范围未说“要的是窗口比例”，属误报原因；已给 400k≈0.3815 的等价写法与两种修法（只改文案 / 让 400k 可用），等用户拍板。Z8d 代码本身已落地 fe5dfed+287888b，另有 e9c4214（近上限盖章边界）与 c4274c2（MEMORY.md pass 重写）。
+接 z8-acceptance 会话之后继续，本轮把仓库构建（613cb9f，含 Z8e 的合并阈值键与 `lib/shared/threshold-spec.js`）推到了全部安装点，并首次拿到桌面的真实验收：用户 16:43:40 重启后宿主 pid 233258，`dsh-desktop-restart.sh --verify-only` 输出 `RESULT: PASS`、`enabled 但非 active: 0`；`probe.mjs` 报 `the running host executes the code on disk`（磁盘归属 613cb9f）。此前 `include:project-context` 不激活的根因是 profile 装的还是 9225b56：旧代码把 `handoffThreshold` 当成未知配置键在 apply 期抛错——把 desktop/web 的 git pin 升到 613cb9f、用 store pnpm 重装后重启即恢复。`~/.dsh/profiles/web` 同步升级（与仓库逐字节相同、`resolvePluginConfig` 接受 "0.4"→ratio 0.4），`ctxdev` 是 `link:` 无需动作。Windows 侧（`/run/media/user/OS/Users/P02-1/.dsh/profiles/desktop`，`file:./vendor/…tgz`）与「隔壁机器」406-12 用同一套三步换包：`pnpm pack` 出 168 项新 tgz 覆盖同名文件（166→168，仅多 `threshold-spec.{js,d.ts}`）、改 `pnpm-lock.yaml` 唯一一行 integrity、重解包 `node_modules`，随后追加 provenance；两处的 `config.js`/`threshold-spec.js`/`project-handoff/threshold.js`/`client.js` 与本机仓库 HEAD 的 sha256 逐个相同，`package.json` 只差 pack 重排版。两侧 `cordis.patch.yml` 只有 `handoffPendingQuestion: wait`、无阈值键（默认 auto），故不需改配置。406-12 的宿主 pid 2727214 仍在跑旧码，等用户重启。`DSH-AV/.dsh-sec` 四个 profile 都不装本插件，`~/.dsh-sec-web/profiles` 是指向 `~/.dsh/profiles` 的软链（共用同一份 desktop/web）。用户此前问的 `/handoff threshold 400k` 问题已由 Z8e 收敛（用户选了让 token 数可用）：`400k` 现应回 `threshold 400000 tokens`、`/handoff status` 写 `fixed ratio 40%`，待在重启后的宿主上实测。
 
 ## Key points
 
-- Z8d 已落地：fe5dfed（代码/测试）+ 287888b（docs），追加 e9c4214（正文+6 超 800 单条上限时跳过盖章只推迟自己）与 c4274c2（MEMORY.md pass 重写、去掉易变 id 计数）；HEAD=origin/main。
-- 活体判据（哈希为准）：宿主常驻 retirement.js = 9864d05（13:54 部分盖章版），磁盘 = e9c4214（14:31 近上限版）→ STALE，需重启；旧“进程启动时刻”判据失效——插件代码可不重启被换一次但之后不重载。
-- 只读探针 `.agents/evidence/2026-11-11-z8d-live-module-version/probe.mjs`：Debugger.enable→getScriptSource→disable，打印常驻 vs 磁盘哈希 + 归属 commit + STALE/一致；已提交 9225b56。
-- entries.json 只有 131 个 carried id 不是 140 个 keepIds，正好符合 9864d05（无 keepIds），与 STALE 判定自洽。
-- `/handoff threshold` 只接受 auto 或窗口比例（`handoffThresholdRatio` 0.1–0.95）：`400k` 失败（Number("400k")=NaN，"400000"→4000 越界）；绝对 token 旋钮是 `/handoff budget summary|recent <tokens>`。
-- 本会话窗口 1,048,576：400k ≈ `threshold 0.3815`（→400,032），0.38→398,459，0.4→419,430；上限被 W−4000 截，floor=overhead+recent(20000)+8000。
-- threshold 报错文案误报原因（只报 0.1–0.95 未说“窗口比例”），两种修法待用户选：①只改文案（低风险，保留 `/threshold needs auto or a ratio/` 前缀即可不动 test/logic.test.mjs:2976）；②让 400k 折成比例（破 E 批一事实一名，换模型会重定基，需明确点头）。
-- 重启后对照基线（当前构建、只读）：stamped:true、140 个 id、44,825→44,879 字符、0 丢弃/0 截断、keepIds 140。
-- 上一轮门禁基线：typecheck 0、pnpm test 609/609、build lib/client.js 38274、0 变异标记；本轮只动文档/证据未改 src/test，lib/ 零漂移。
+- 桌面验收首次 PASS：`--verify-only` → `RESULT: PASS`，`enabled 但非 active: 0`；探针报 `the running host executes the code on disk`，磁盘归属 613cb9f（宿主 16:43:40 重启，pid 233258）。
+- 不激活的根因：profile 装的是 9225b56，旧代码对 `handoffThreshold` 抛 unknown config key，apply 期失败 ⇒ 条目 enabled 但不 active；修法是升 pin/tgz + 重启，不是改 config。
+- 升级分布：desktop/web 的 git pin 升到 613cb9f（web 逐字节同仓库、resolve 0.4→ratio 0.4）；ctxdev 是 `link:` 天然最新；Windows（`P02-1/.dsh/profiles/desktop`）与 406-12 换了 168 项新 tgz + lock integrity + 重解包 node_modules。
+- tgz 三步法与校验：同名覆盖（`pnpm pack`，package.json 会重排版，只比语义）、lock 唯一 integrity 行、重解包；之后 sha256 比 `lib/shared/config.js`、`lib/shared/threshold-spec.js`、`lib/project-handoff/threshold.js`、`lib/client.js`，并追加 provenance。
+- 406-12 = CachyOS 笔记本，easytier 10.126.126.4（LAN 10.42.0.1），其 DSH desktop 宿主 pid 2727214 仍在跑旧码，须用户重启；它从 11-02 的 0.4.3 直接跨到 613cb9f。
+- `DSH-AV/.dsh-sec` 四个 profile 全都不装 dsh-project-context；`~/.dsh-sec-web/profiles` 是 `~/.dsh/profiles` 的软链，所以 desktop/web 的升级被共用。
+- 两侧 profile 的 `cordis.patch.yml` 只有 `handoffPendingQuestion: wait`，没有阈值键（默认 auto），换包后无需改配置。
+- Z8e 已随 613cb9f 落地：合并阈值键 `handoffThreshold`，`src/shared/threshold-spec.ts` 的 `resolvePluginConfig` 同时接受 auto / 窗口比例 / 绝对 token 数（`400k` → `threshold 400000 tokens`，`0.4` → 回执 `fixed ratio 40%`），此前「只接受比例」的断言与对应报错文案都已被取代。
+- 备份/回滚点：`/tmp/profile-desktop-20261111-162539`、`/tmp/profile-web-20261111-164942`、`~/.cache/win-pctx-backup-20261111-165019`、406-12 的 `~/.cache/pctx-backup-20261111-172424`。
+- 本轮只动 profile 与文档，未改 `src/`/`test/`，故 `lib/` 零漂移（HEAD=origin=cca4444，工作树干净）。
 
 ## Open tasks
 
-- 用户：重启桌面宿主 → 触发一次 `/memory update` → 验收：probe 报 executes the code on disk（归属 e9c4214+）；entries.json=140 个 id；MEMORY.md 140 id 且渲染 0 丢弃；errors.log 无新 `memory regression:`。
-- 用户拍板 threshold 报错修法：选项①只改文案（可立即做）或选项②让 `400k` 折成比例（需明确同意）。
-- 方案 D（3-hex id）：A 已让 id 不再吞事实，D 只增余量并会重置现有年龄——默认不做。
+- 用户：重启 406-12 的 DSH 桌面宿主（pid 2727214 仍跑旧码），重启后新构建生效；本机 Windows 侧下次启动 DSH 自动加载新包。
+- 用户：在本机触发一次 `/memory update` 修掉 `MEMORY.md` 第 57/58 行的旧断言（`handoffThresholdAuto`、「从不接受 token 数」）；文档 44,997/45,000 只剩 3 字符余量，pass 必须先腾空间。
+- 用户：在已重启的本机宿主上验 Z8e —— `/handoff threshold 400k` 应回 `threshold 400000 tokens`、`/handoff status` 写 `fixed ratio 40%`、设置卡片只剩一行阈值文本。
 - 观察 `context-injection.test.mjs` 偶发失败是否在无并发写入时复现（旧项，未定性）。
-- 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档（旧项）。
+- 被误留的旧会话 session-88ada514 需客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档（旧项）。
 - 只读闭合复核 subagent 69845585（上一会话发起）若仍待回，报告到达后逐条复现其发现、阻塞项当场修。
+- 方案 D（3-hex id）默认不做：A 已让 id 不再吞事实，D 只增余量且会重置现有年龄。
 
-<!-- latest-session-title: z8-acceptance: proved the host runs a stale build; answered the threshold token-vs-ratio question -->
+<!-- latest-session-title: profile rollout: 613cb9f deployed to five install sites, desktop verified live, Windows and 406-12 await their own restart -->
