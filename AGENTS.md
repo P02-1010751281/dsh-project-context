@@ -113,5 +113,5 @@ pnpm build:client  # 只重建 lib/client.js（package.json:54）
 - `test/settings-form.test.mjs` 不落盘：esbuild `write: false` 后从 `data:text/javascript;base64,…` 直接 import。
 - `test/projection-typing.test.mjs` 把 `tsc` 当判官：一对正/负夹具，要求恰好一条诊断，且落在那个近似拼错的键上。
 - 值得知道的夹具技巧：几乎所有用例在 `mkdtemp` 里建临时项目；跨进程锁用 4 个真子进程 + barrier 文件（`test/logic.test.mjs:399`，60 s 预算）；FIFO 守卫 15 s 且 `mkfifo` 不可用时 `t.skip`；`session.jsonl` 的追加路径会验证「外部改写后重建、并把更长的外来字节存成 `session.jsonl.broken-*`」。
-- 已知噪声：`test/context-injection.test.mjs` 读仓库自己的 `.agents/memory/MEMORY.md` / `CONTEXT.md`，并发跑一次整理 pass 会让它瞬时变红（跑三次即绿，未记为已修）；没有重跑包装器，flaky 只能人眼识别。
+- 曾经的噪声，已定性并修掉：`test/context-injection.test.mjs` 读仓库自己的 `.agents/memory/MEMORY.md` / `CONTEXT.md`；历史红是「按子串数指针」把散文里引用的 `` `## Summary` `` 当成第二条指针（2026-10-06 实测），`e61b481` 改成整行计数并加了一条引用用例。2026-11-12 复核：100 次单文件运行、12 次在并发原子改写（临时文件 + `rename`）下运行、5 次全量套件全绿。残留两种红法：某条条目行本身从行首写 `` - `## <heading>` ``（会被数成指针），或外部非原子改写把文件截断——插件的写路径是原子 rename，不会触发。
 - **没有覆盖率工具、没有 CI**：devDependencies 里没有 c8/nyc/istanbul，仓库里没有 `--experimental-test-coverage`，也没有 `.github/`。门禁就是手工跑 `pnpm typecheck` / `pnpm build` / `pnpm test` 三条。
