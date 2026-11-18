@@ -158,16 +158,11 @@ export declare function apply(ctx: Context, rawConfig: unknown): void;
 /**
  * The `/memory` status reply for one loaded memory. Exported for tests.
  *
- * The reply distinguishes the states a silent fold would otherwise hide: a torn journal line, a
- * source that exists but cannot be read, and a stored reply from the old bug. It also reports the
- * character cap, which is the one degraded state the document itself cannot surface to the user:
- * a marker records that the document was capped *at some point* (it is carried forward), while
- * `cappedDroppedChars` describes what **this** read's cap kept back — including on the no-journal
- * read, which clips without writing a marker at all. Either one is enough to warn.
- * Measure the current state rather than quoting one: `loadMemory(root, maxMemoryChars)` reports
- * `cappedDroppedChars` and the marker through `isMemoryTruncated(loaded.text)`. Without the note the
- * receipt calls a memory that lost a third of itself perfectly healthy, and every later append lands
- * past the cap and is dropped on write.
+ * This is only composition: the loader has already measured the document and its flags, `sections.ts`
+ * knows the document's shape, and `status-source.ts` measures the store around it. The receipt's
+ * wording lives in `status-report.ts`, so "what the user reads" and "what was measured" are two files
+ * that can be reviewed apart — and a test can render a receipt from plain objects without touching a
+ * disk.
  * @param memory - the loaded memory document and its status flags.
  * @param context - the paths and the cap this project is configured with.
  * @returns the command result.
@@ -176,10 +171,10 @@ export declare function memoryStatusReply(memory: Awaited<ReturnType<typeof load
     projectRoot: string;
     journal: string;
     maxMemoryChars: number;
-}): {
+}): Promise<{
     kind: "success" | "error";
     text: string;
-};
+}>;
 /**
  * The `/memory update` reply for one pass result. The pass swallows its own
  * error (it is also logged to `errors.log`), so the reply must not claim success

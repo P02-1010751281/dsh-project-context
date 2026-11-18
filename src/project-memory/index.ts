@@ -42,8 +42,10 @@ import {
 	taskFile,
 	writeAtomic,
 } from "../shared/project-state.js";
-import { backupMemoryBeforeWrite, importLegacyMemory, isMemoryTruncated, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
+import { backupMemoryBeforeWrite, importLegacyMemory, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
 import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
+import { formatMemoryStatus } from "./status-report.js";
+import { readMemoryFileFacts } from "./status-source.js";
 import { appendTombstones } from "./retired.js";
 import { recordEntryDates } from "./retirement.js";
 import { withMemoryLock } from "../shared/lock.js";
@@ -732,43 +734,31 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 /**
  * The `/memory` status reply for one loaded memory. Exported for tests.
  *
- * The reply distinguishes the states a silent fold would otherwise hide: a torn journal line, a
- * source that exists but cannot be read, and a stored reply from the old bug. It also reports the
- * character cap, which is the one degraded state the document itself cannot surface to the user:
- * a marker records that the document was capped *at some point* (it is carried forward), while
- * `cappedDroppedChars` describes what **this** read's cap kept back — including on the no-journal
- * read, which clips without writing a marker at all. Either one is enough to warn.
- * Measure the current state rather than quoting one: `loadMemory(root, maxMemoryChars)` reports
- * `cappedDroppedChars` and the marker through `isMemoryTruncated(loaded.text)`. Without the note the
- * receipt calls a memory that lost a third of itself perfectly healthy, and every later append lands
- * past the cap and is dropped on write.
+ * This is only composition: the loader has already measured the document and its flags, `sections.ts`
+ * knows the document's shape, and `status-source.ts` measures the store around it. The receipt's
+ * wording lives in `status-report.ts`, so "what the user reads" and "what was measured" are two files
+ * that can be reviewed apart — and a test can render a receipt from plain objects without touching a
+ * disk.
  * @param memory - the loaded memory document and its status flags.
  * @param context - the paths and the cap this project is configured with.
  * @returns the command result.
  */
-export function memoryStatusReply(
+export async function memoryStatusReply(
 	memory: Awaited<ReturnType<typeof loadMemory>>,
 	context: { projectRoot: string; journal: string; maxMemoryChars: number },
-): { kind: "success" | "error"; text: string } {
-	const capped = isMemoryTruncated(memory.text) || memory.cappedDroppedChars > 0
-		? ` Warning: MEMORY.md is at the ${context.maxMemoryChars}-character cap — this read is cut, so a consolidation pass refuses to rewrite it (status read-capped-refused), and anything appended past the cap is dropped on write; raise maxMemoryChars or shorten the document.`
-		: "";
-	if (memory.unreadable) {
-		const hint = memory.source.endsWith("memory.jsonl")
-			? `Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl`
-			: `check its permissions`;
-		return { kind: "error", text: `Memory: exists but cannot be read — ${memory.source}; ${hint}.` };
-	}
-	if (memory.damaged) {
-		return { kind: "success", text: `Memory: ${context.journal} (${memory.damaged} unusable line(s) skipped; see .agents/memory/errors.log).${capped}` };
-	}
-	if (memory.poisoned) {
-		return { kind: "success", text: `Memory: ${memory.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).${capped}` };
-	}
-	return {
-		kind: "success",
-		text: memory.text.trim() ? `Memory: ${memory.source}${capped}` : `Memory: none yet — ${memoryFile(context.projectRoot)}`,
-	};
+): Promise<{ kind: "success" | "error"; text: string }> {
+	return formatMemoryStatus({
+		document: memory.text,
+		source: memory.source,
+		expectedPath: memoryFile(context.projectRoot),
+		journalPath: context.journal,
+		maxChars: context.maxMemoryChars,
+		damaged: memory.damaged ?? 0,
+		unreadable: memory.unreadable === true,
+		poisoned: memory.poisoned === true,
+		cappedDroppedChars: memory.cappedDroppedChars ?? 0,
+		files: await readMemoryFileFacts(context.projectRoot),
+	});
 }
 
 /**
