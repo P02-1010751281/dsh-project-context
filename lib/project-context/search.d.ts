@@ -63,6 +63,15 @@ export interface SearchOptions {
     readonly maxChars?: number;
     /** Longest snippet per hit, ellipsis included. */
     readonly snippetChars?: number;
+    /**
+     * Hits one document may contribute; the rest of its matches stay counted but unprinted.
+     *
+     * The archive is the reason this exists: a `session.md` is a pretty-printed dump of every event, so
+     * one transcript can hold thousands of matching lines and would otherwise fill the Top N by itself.
+     * The command answers "which document mentions this, and where", and a receipt that is eight lines
+     * of the same transcript does not answer it.
+     */
+    readonly perDocument?: number;
 }
 export declare const DEFAULT_MAX_HITS = 8;
 export declare const DEFAULT_MAX_CHARS = 8000;

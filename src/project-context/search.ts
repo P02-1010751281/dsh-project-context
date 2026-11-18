@@ -63,11 +63,21 @@ export interface SearchOptions {
 	readonly maxChars?: number;
 	/** Longest snippet per hit, ellipsis included. */
 	readonly snippetChars?: number;
+	/**
+	 * Hits one document may contribute; the rest of its matches stay counted but unprinted.
+	 *
+	 * The archive is the reason this exists: a `session.md` is a pretty-printed dump of every event, so
+	 * one transcript can hold thousands of matching lines and would otherwise fill the Top N by itself.
+	 * The command answers "which document mentions this, and where", and a receipt that is eight lines
+	 * of the same transcript does not answer it.
+	 */
+	readonly perDocument?: number;
 }
 
 export const DEFAULT_MAX_HITS = 8;
 export const DEFAULT_MAX_CHARS = 8_000;
 const DEFAULT_SNIPPET_CHARS = 200;
+const DEFAULT_PER_DOCUMENT_HITS = 3;
 
 /** Ideographs, kana and hangul: scripts written without spaces, so they need the bigram fallback. */
 const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
@@ -194,6 +204,7 @@ export function search(docs: readonly SearchDoc[], query: string, options: Searc
 	const maxHits = options.maxHits ?? DEFAULT_MAX_HITS;
 	const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
 	const snippetChars = options.snippetChars ?? DEFAULT_SNIPPET_CHARS;
+	const perDocument = options.perDocument ?? DEFAULT_PER_DOCUMENT_HITS;
 	const matched: { doc: SearchDoc; index: number; score: number }[] = [];
 	for (const doc of docs) {
 		for (const [index, line] of doc.lines.entries()) {
@@ -216,8 +227,13 @@ export function search(docs: readonly SearchDoc[], query: string, options: Searc
 	// receipt then keeps the budget it advertises instead of exceeding it by one sentence whenever
 	// the budget bit. The note itself is far shorter than this reservation.
 	let used = header.length + OMISSION_NOTE_CHARS;
+	// One document's matches may crowd every other document out of a Top N; the cap keeps the receipt
+	// a map of *where* the fact lives rather than eight lines of one transcript. Matches it keeps back
+	// are still counted, so `hidden` stays truthful.
+	const printedPerDocument = new Map<string, number>();
 	for (const match of matched) {
 		if (hits.length >= maxHits) break;
+		if ((printedPerDocument.get(match.doc.path) ?? 0) >= perDocument) continue;
 		const line = (match.doc.lineNumbers?.[match.index] ?? match.index + 1);
 		const snippet = snippetOf(match.doc.lines[match.index], snippetChars);
 		const rendered = `- ${match.doc.path}:${line}: ${snippet}`;
@@ -225,6 +241,7 @@ export function search(docs: readonly SearchDoc[], query: string, options: Searc
 		// advertises. The first hit is always shown: an empty answer is worse than a long line.
 		if (hits.length > 0 && used + rendered.length + 1 > maxChars) break;
 		used += rendered.length + 1;
+		printedPerDocument.set(match.doc.path, (printedPerDocument.get(match.doc.path) ?? 0) + 1);
 		hits.push({ path: match.doc.path, line, snippet, score: match.score });
 	}
 	return { kind: "hits", query, hits, matched: matched.length, hidden: matched.length - hits.length, documents: docs.length };

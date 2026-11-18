@@ -47,6 +47,23 @@ test("ASCII terms match on word boundaries, so `cat` is not `catalog`", () => {
 	assert.deepEqual(result.hits.map((hit) => hit.line), [2], "only the whole word");
 });
 
+test("one document's transcript cannot fill the whole Top N", () => {
+	// A `session.md` is a pretty-printed dump of every event, so a single transcript can hold thousands
+	// of matching lines. Without a per-document cap the receipt is eight lines of that one file, and the
+	// curated memory bullet that also matches never appears — the command stops answering "where does
+	// this fact live".
+	const flood = doc(Array.from({ length: 10 }, (_, index) => `- the cat fact ${index}`), {
+		path: ".agents/memory/session-logs/session-x/session.md",
+		age: 1,
+	});
+	const curated = doc(["- the cat fact in memory"], { age: 0 });
+	const result = search([flood, curated], "cat");
+	assert.equal(result.kind, "hits");
+	assert.equal(result.hits.filter((hit) => hit.path === flood.path).length, 3, "the transcript keeps three lines");
+	assert.ok(result.hits.some((hit) => hit.path === curated.path), "the curated line is still printed");
+	assert.equal(result.matched, 11, "the matches the cap kept back are still counted");
+});
+
 test("CJK matches through its adjacent bigrams, and only through them", () => {
 	const corpus = [doc(["- 会话交接的记录在这里", "- 压缩之后仍然偏满"])];
 	const reordered = search(corpus, "交接会话");
