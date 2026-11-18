@@ -19,7 +19,9 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
-import { approveCandidate, listCandidates, rejectCandidate } from "./candidate.js";
+import { approveCandidate, listCandidateDetails, rejectCandidate } from "./candidate.js";
+import { evidenceText } from "./evidence.js";
+import { readEvidenceCorpus } from "./evidence-source.js";
 import { autolearnProjectSkills, type AutolearnOutcome } from "./pass.js";
 import { diagnosticMessage, getProjectRoot, logError, skillsDir } from "../shared/project-state.js";
 
@@ -95,10 +97,16 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			const verb = (parts[0] ?? "").toLowerCase();
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			if (verb === "list") {
-				const names = await listCandidates(projectRoot);
-				return names.length > 0
-					? { kind: "success" as const, text: `Skill candidates: ${names.join(", ")} (/autolearn approve <name>)` }
-					: { kind: "success" as const, text: "No skill candidates." };
+				// Two groups, because they answer two questions: which proposals wait for a decision, and
+				// what the learned population already records as its provenance. A learned skill from before
+				// this batch records no evidence, and the line says exactly that instead of failing the read.
+				const candidates = await listCandidateDetails(projectRoot);
+				const learned = (await readEvidenceCorpus(projectRoot)).skills.filter((skill) => skill.learned);
+				const lines = [candidates.length > 0 ? "Skill candidates:" : "No skill candidates."];
+				for (const candidate of candidates) lines.push(`- ${candidate.name} · evidence ${evidenceText(candidate.evidence)}`);
+				if (learned.length > 0) lines.push("Learned project skills:");
+				for (const skill of learned) lines.push(`- ${skill.name} · evidence ${evidenceText(skill.evidence)}`);
+				return { kind: "success" as const, text: lines.join("\n") };
 			}
 			if (verb === "approve") {
 				const result = await approveCandidate(projectRoot, parts[1]);

@@ -15,8 +15,10 @@ import path from "node:path";
 import test from "node:test";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { autolearnProjectSkills } from "../lib/project-autolearn/pass.js";
-import { approveCandidate, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
-import { MAX_SKILL_DESCRIPTION_CHARS, autolearnProvenance, promotedDocument } from "../lib/project-autolearn/skill.js";
+import { approveCandidate, listCandidateDetails, saveProposedSkill, shapeRejection } from "../lib/project-autolearn/candidate.js";
+import { conflictFindings, conflictText, evidenceText, keyTokens, normalizeEvidence, shortSessionId } from "../lib/project-autolearn/evidence.js";
+import { evidenceOfDocument, readEvidenceCorpus, withEvidenceFrontmatter } from "../lib/project-autolearn/evidence-source.js";
+import { MAX_SKILL_DESCRIPTION_CHARS, autolearnProvenance, promotedDocument, skillBody, skillDescription, withoutAutolearnProvenance } from "../lib/project-autolearn/skill.js";
 import { MAX_INSPECT_SKILLS, collectSkillInventory, inventoryText, learnedBodies } from "../lib/project-autolearn/inventory.js";
 import { RECORD_SKILL_TOOL } from "../lib/project-autolearn/schema.js";
 import { parseAutolearnReply } from "../lib/project-autolearn/parse.js";
@@ -364,7 +366,13 @@ test("a promoted skill carries the provenance marker, and a candidate never does
 	assert.equal(autolearnProvenance(candidateRaw), false, "a candidate carries no provenance marker");
 	const approved = await approveCandidate(root, "draft-workflow");
 	assert.equal(approved.ok, true, approved.message);
-	assert.equal(approved.message, "Activated project skill: draft-workflow");
+	assert.equal(
+		approved.message.split("\n")[0],
+		"Activated project skill: draft-workflow",
+		"the first line is the promotion itself",
+	);
+	assert.match(approved.message, /^Evidence: 1 session\(s\) — a$/m, "the candidate's one verified id rides along");
+	assert.match(approved.message, /^No token conflict with existing skills or memory\.$/m);
 	assert.ok(autolearnProvenance(await readOptional(path.join(skillsDir(root), "draft-workflow", "SKILL.md"))), "approving a candidate records the marker");
 });
 
@@ -411,7 +419,12 @@ test("only a skill the pipeline wrote may be superseded, and only through the ca
 	assert.equal(approved.ok, true, approved.message);
 	// Approving runs no prompt, so replacing a file here is blind by construction and the message
 	// has to say so instead of implying the body was merged.
-	assert.equal(approved.message, "Updated project skill: alpha-workflow — approved by hand; the body was not shown to the approval");
+	assert.equal(
+		approved.message.split("\n")[0],
+		"Updated project skill: alpha-workflow — approved by hand; the body was not shown to the approval",
+	);
+	assert.match(approved.message, /^Evidence: 1 session\(s\) — a$/m);
+	assert.match(approved.message, /^No token conflict with existing skills or memory\.$/m);
 	const updated = await readOptional(path.join(skillsDir(root), "alpha-workflow", "SKILL.md"));
 	assert.ok(updated.includes("node merged.mjs"), "the supersede landed");
 	assert.ok(autolearnProvenance(updated), "the superseded skill is still marked as ours");
@@ -1258,4 +1271,189 @@ test("the decision call names the route's cheapest enabled reasoning effort", as
 	await autolearnProjectSkills(offOnly, fakeAgent(offOnlyRoot, { turns: 3 }), config);
 	assert.equal(offOnly.calls.length, 1, "one model call");
 	assert.equal("reasoningEffort" in offOnly.calls[0], false, "a route with no enabled level carries no effort field");
+});
+
+// --- W2-E: promotion evidence and the mechanical conflict check -----------------------------
+
+const SESSION_A = "session-aaaa1111-2222-3333-4444-555566667777";
+const SESSION_B = "session-bbbb2222-3333-4444-5555-666677778888";
+
+/** The body every evidence fixture uses: long enough for the size gate, plain Markdown. */
+function evidenceBody(label) {
+	return `## When to use\n\n${`${label} step for the fixture project. `.repeat(10)}`;
+}
+
+test("an approved skill records its evidence in the frontmatter and leaves the body untouched", async () => {
+	const root = await project();
+	const body = evidenceBody("Record the release");
+	assert.equal(
+		await saveProposedSkill(root, { name: "evidence-workflow", description: "records evidence", body, evidence: [SESSION_A, SESSION_B], candidate: true }, new Set([SESSION_A, SESSION_B])),
+		"candidate",
+	);
+	// The candidate carries the ids, so the approval reads a fact out of the file.
+	assert.deepEqual(evidenceOfDocument(await readOptional(path.join(memoryDir(root), "skill-candidates", "evidence-workflow.md"))), [SESSION_A, SESSION_B]);
+
+	const approved = await approveCandidate(root, "evidence-workflow");
+	assert.equal(approved.ok, true, approved.message);
+	const live = await readOptional(path.join(skillsDir(root), "evidence-workflow", "SKILL.md"));
+	const frontmatter = live.slice(4, live.indexOf("\n---\n", 4));
+	assert.match(frontmatter, /^name: evidence-workflow$/m);
+	assert.match(frontmatter, /^description: "records evidence"$/m);
+	assert.match(frontmatter, /^derived_from: autolearn$/m);
+	assert.match(frontmatter, new RegExp(`^evidence: \\["${SESSION_A}", "${SESSION_B}"\\]$`, "m"));
+	// Additive only: the body the model wrote survives byte for byte, marker and all.
+	assert.equal(withoutAutolearnProvenance(skillBody(live)), body.trim());
+	assert.equal(skillDescription(live), "records evidence");
+	assert.equal((live.match(/autolearn-generated/g) ?? []).length, 1);
+	// The receipt shows the count and eight characters of each id (the `session-` prefix identifies
+	// nothing, so it is not what the shortening keeps).
+	assert.equal(approved.message.split("\n")[0], "Activated project skill: evidence-workflow");
+	assert.match(approved.message, /^Evidence: 2 session\(s\) — aaaa1111, bbbb2222$/m);
+	assert.match(approved.message, /^No token conflict with existing skills or memory\.$/m);
+});
+
+test("an old candidate's comment supplies the evidence, and a candidate with none stays activatable", async () => {
+	const root = await project();
+	await mkdir(path.join(memoryDir(root), "skill-candidates"), { recursive: true });
+	// Legacy shape: ids only in the old comment, no frontmatter keys.
+	await writeFile(
+		path.join(memoryDir(root), "skill-candidates", "legacy-workflow.md"),
+		`---\nname: legacy-workflow\ndescription: "legacy"\ncandidate: true\n---\n\n<!-- evidence: session-cccc3333 — from the old pass -->\n\n${evidenceBody("Legacy")}\n`,
+	);
+	const legacy = await approveCandidate(root, "legacy-workflow");
+	assert.equal(legacy.ok, true, legacy.message);
+	assert.deepEqual(evidenceOfDocument(await readOptional(path.join(skillsDir(root), "legacy-workflow", "SKILL.md"))), ["session-cccc3333"]);
+	assert.match(legacy.message, /^Evidence: 1 session\(s\) — cccc3333$/m);
+
+	// No citation at all is a state, not an error: it approves, and the keys are left out rather than
+	// written as an empty list that would claim a check recorded nothing.
+	await writeFile(
+		path.join(memoryDir(root), "skill-candidates", "uncited-workflow.md"),
+		`---\nname: uncited-workflow\ndescription: "uncited"\n---\n\n${evidenceBody("Uncited")}\n`,
+	);
+	const uncited = await approveCandidate(root, "uncited-workflow");
+	assert.equal(uncited.ok, true, uncited.message);
+	const live = await readOptional(path.join(skillsDir(root), "uncited-workflow", "SKILL.md"));
+	assert.doesNotMatch(live, /evidence:|derived_from:/, "no evidence means no frontmatter keys, not an empty list");
+	assert.match(uncited.message, /^Evidence: no evidence recorded$/m);
+});
+
+test("the frontmatter writer adds only the evidence keys, and leaves other documents alone", () => {
+	const document = promotedDocument("round-trip", "desc", "## Steps\n\n1. Run `node x.mjs`\n");
+	const decorated = withEvidenceFrontmatter(document, [SESSION_A, SESSION_A]);
+	assert.match(decorated, /^---\nname: round-trip\ndescription: "desc"\nderived_from: autolearn\nevidence: \["session-aaaa1111-2222-3333-4444-555566667777"\]\n---\n/);
+	assert.match(decorated, /<!-- autolearn-generated:/);
+	assert.deepEqual(evidenceOfDocument(decorated), [SESSION_A], "a repeated id is recorded once");
+	// No evidence, no keys: the historical bytes are what a project without citations keeps.
+	assert.equal(withEvidenceFrontmatter(document, []), document);
+	// Only a document this shim wrote is rewritten; a plain file is returned untouched.
+	assert.equal(withEvidenceFrontmatter("no frontmatter here", [SESSION_A]), "no frontmatter here");
+	assert.deepEqual(normalizeEvidence([" a ", "", "a", "b c"]), ["a"], "blanks, duplicates and multi-token ids are dropped");
+	assert.equal(shortSessionId(SESSION_A), "aaaa1111", "the `session-` prefix is dropped before shortening");
+	assert.equal(evidenceText([]), "no evidence recorded");
+});
+
+test("the conflict check fires on a shared path or command and stays quiet on boilerplate", () => {
+	// Boilerplate every skill here mentions: these are generic invocations, never a conflict by
+	// themselves. A flag or a second argument makes the same shape specific again.
+	assert.deepEqual(keyTokens("Run `pnpm test`, then `pnpm typecheck`, then `pnpm build`."), []);
+	assert.deepEqual(keyTokens("Run `pnpm test --filter web`."), ["pnpm test --filter web"]);
+	assert.deepEqual(keyTokens("Read `src/project-handoff/perform.ts:42`."), ["src/project-handoff/perform.ts:42"]);
+
+	// The candidate also names one bare file the unrelated skill names: one incidental shared token is
+	// below the threshold, so the unrelated skill must not be reported.
+	const candidate = { name: "release-steps", text: "## Steps\n\n1. Run `node scripts/release.mjs --dry-run`\n2. Read `docs/release.md`\n3. Record it in `MEMORY.md`\n" };
+	const duplicate = { name: "release-checklist", text: "## Steps\n\n1. Run `node scripts/release.mjs --dry-run`\n" };
+	// Shares only boilerplate and two incidental file names with the candidate: not a conflict.
+	const unrelated = { name: "memory-budget", text: "## Steps\n\n1. Run `pnpm test`\n2. Edit `MEMORY.md`\n3. Check `CONTEXT.md`\n" };
+	const findings = conflictFindings(candidate, [duplicate, unrelated], []);
+	assert.equal(findings.length, 1, `expected one finding, got ${JSON.stringify(findings)}`);
+	assert.equal(findings[0].target, 'skill "release-checklist"');
+	assert.deepEqual(findings[0].shared, ["node scripts/release.mjs --dry-run"]);
+	assert.match(conflictText(findings), /^Conflict: skill "release-checklist" shares `node scripts\/release\.mjs --dry-run`$/);
+	// The unrelated skill is never named, and a clean candidate says so in as many words.
+	assert.doesNotMatch(conflictText(findings), /memory-budget/);
+	assert.equal(conflictText([]), "No token conflict with existing skills or memory.");
+	// Three shared file names (no directory part) are a procedure-shaped overlap.
+	const threeShared = conflictFindings(
+		{ name: "c", text: "`MEMORY.md` `CONTEXT.md` `session.jsonl`" },
+		[{ name: "other", text: "`MEMORY.md` `CONTEXT.md` `session.jsonl`" }],
+		[],
+	);
+	assert.equal(threeShared.length, 1, "three shared key tokens fire even without a path separator");
+});
+
+test("a candidate that restates one memory entry is reported against MEMORY.md", () => {
+	const text = "Run `python tools/seed.py`, then read `docs/seed.md`, then check `seed/output.json`.\n";
+	// The shim hands the core a bullet's text without its `- ` marker; the core never sees the layout.
+	const restated = ["The seeding workflow: `python tools/seed.py`, read `docs/seed.md`, then check `seed/output.json`."];
+	const findings = conflictFindings({ name: "seed-steps", text }, [], restated);
+	assert.equal(findings.length, 1);
+	assert.match(findings[0].target, /^MEMORY\.md entry "The seeding workflow/);
+	// A memory line that mentions one of the same paths is not a restatement: memory names files
+	// everywhere, so only a whole-procedure containment counts.
+	assert.deepEqual(conflictFindings({ name: "seed-steps", text }, [], ["`python tools/seed.py` is used at some point."]), []);
+	// The receipt names the entry, so the reader can go read it.
+	assert.match(conflictText(findings), /^Conflict: MEMORY\.md entry "The seeding workflow: /);
+});
+
+test("/autolearn list shows each candidate's evidence and an old learned skill's missing evidence", async () => {
+	const root = await project();
+	// A learned skill from the pre-evidence pipeline: the body marker is there, no citation is.
+	await mkdir(path.join(skillsDir(root), "old-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "old-workflow", "SKILL.md"), promotedDocument("old-workflow", "old", "## Steps\n\n1. Run `node old.mjs`\n"));
+	await saveProposedSkill(root, { name: "draft-workflow", description: "draft", body: evidenceBody("Draft"), evidence: [SESSION_A], candidate: true }, new Set([SESSION_A]));
+
+	const registered = new Map();
+	const ctx = {
+		effect: (callback) => callback(),
+		inject: (_deps, callback) => callback({ settings: { installSection: () => undefined } }),
+		on: () => undefined,
+		commands: { register: (command) => registered.set(command.name, command) },
+		logger: { info() {}, warn() {} },
+		llm: { resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }) },
+	};
+	applyAutolearn(ctx, resolvePluginConfig({ provider: "test-provider", model: "test-model" }));
+	const result = await registered.get("autolearn").handler({ agent: fakeAgent(root), rawInput: "list", signal: new AbortController().signal });
+	assert.equal(result.kind, "success");
+	assert.match(result.text, /^Skill candidates:\n- draft-workflow · evidence 1 session\(s\) — aaaa1111$/m);
+	assert.match(result.text, /^Learned project skills:\n- old-workflow · evidence no evidence recorded$/m);
+	// An empty project still answers without an error.
+	const empty = await project();
+	const emptyResult = await registered.get("autolearn").handler({ agent: fakeAgent(empty), rawInput: "list", signal: new AbortController().signal });
+	assert.equal(emptyResult.text, "No skill candidates.");
+});
+
+test("the supersede gate still reads the body marker, not the new frontmatter key", async () => {
+	// `derived_from` is documentation of who wrote a file; `autolearn-generated` is the gate. A
+	// hand-written skill that merely says `derived_from: autolearn` must not become supersedable, or
+	// the new key would have widened the one boundary D established.
+	const root = await project();
+	const archived = new Set([SESSION_A, SESSION_B]);
+	await mkdir(path.join(skillsDir(root), "looks-learned"), { recursive: true });
+	await writeFile(
+		path.join(skillsDir(root), "looks-learned", "SKILL.md"),
+		`---\nname: looks-learned\ndescription: "hand-written"\nderived_from: autolearn\nevidence: ["${SESSION_A}"]\n---\n\n## When to use\n\nSomeone wrote this by hand.\n`,
+	);
+	assert.equal(autolearnProvenance(await readOptional(path.join(skillsDir(root), "looks-learned", "SKILL.md"))), false, "the marker, not the key, is what this reads");
+	// The direct publish path refuses the name...
+	assert.deepEqual(
+		await saveProposedSkill(root, { name: "looks-learned", description: "mine now", body: evidenceBody("Mine"), evidence: [SESSION_A, SESSION_B], candidate: false }, archived, new Set(["looks-learned"])),
+		{ rejected: 'skill "looks-learned" already exists' },
+	);
+	// ...and so does the approval, even with a well-formed candidate.
+	await mkdir(path.join(memoryDir(root), "skill-candidates"), { recursive: true });
+	await writeFile(path.join(memoryDir(root), "skill-candidates", "looks-learned.md"), `---\nname: looks-learned\ndescription: "mine"\n---\n\n${evidenceBody("Mine")}\n`);
+	const refused = await approveCandidate(root, "looks-learned");
+	assert.equal(refused.ok, false, refused.message);
+	assert.match(refused.message, /already exists/);
+	assert.ok((await readOptional(path.join(skillsDir(root), "looks-learned", "SKILL.md"))).includes("Someone wrote this by hand"), "the hand-written body survived");
+
+	// Positive control in the same test: a file the pipeline wrote (marker present) is supersedable.
+	await mkdir(path.join(skillsDir(root), "ours-workflow"), { recursive: true });
+	await writeFile(path.join(skillsDir(root), "ours-workflow", "SKILL.md"), promotedDocument("ours-workflow", "ours", "## Steps\n\n1. Run `node ours.mjs`\n"));
+	await writeFile(path.join(memoryDir(root), "skill-candidates", "ours-workflow.md"), `---\nname: ours-workflow\ndescription: "ours again"\n---\n\n${evidenceBody("Ours")}\n`);
+	const replaced = await approveCandidate(root, "ours-workflow");
+	assert.equal(replaced.ok, true, replaced.message);
+	assert.match(replaced.message.split("\n")[0], /^Updated project skill: ours-workflow/);
 });

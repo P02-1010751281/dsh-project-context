@@ -6,6 +6,8 @@
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { MAX_SKILL_BODY_CHARS, memoryDir, readOptional, skillsDir, validSkillName, writeAtomic } from "../shared/project-state.js";
+import { conflictFindings, conflictText, evidenceText, normalizeEvidence } from "./evidence.js";
+import { evidenceOfDocument, readEvidenceCorpus, withEvidenceFrontmatter } from "./evidence-source.js";
 import { collectSkillInventory, type SkillInventory } from "./inventory.js";
 import { MAX_SKILL_DESCRIPTION_CHARS, type ProposedSkill, autolearnProvenance, promotedDocument, skillBody, skillBodyUnsafe, skillDescription, skillDocument } from "./skill.js";
 
@@ -50,6 +52,14 @@ export function shapeRejection(description: string, body: string): string | unde
 	return undefined;
 }
 
+/**
+ * The citations the pass could verify on disk: the exact filter the admission gate counts, so the ids
+ * a promoted skill records are the ids that admitted it — never an unverified one the model named.
+ */
+function verifiedEvidence(evidence: readonly string[], archived: ReadonlySet<string>): string[] {
+	return normalizeEvidence(evidence.filter((id) => archived.has(id)));
+}
+
 function rejectionReason(
 	skill: ProposedSkill,
 	archived: Set<string>,
@@ -60,7 +70,7 @@ function rejectionReason(
 	if (!validSkillName(skill.name)) return "invalid kebab-case name";
 	const shape = shapeRejection(skill.description, skill.body);
 	if (shape !== undefined) return shape;
-	const cited = [...new Set(skill.evidence)].filter((id) => archived.has(id));
+	const cited = verifiedEvidence(skill.evidence, archived);
 	const required = skill.candidate ? MIN_CANDIDATE_SESSIONS : MIN_SKILL_SESSIONS;
 	if (cited.length < required) {
 		return skill.candidate ? "needs at least one verified session id" : "needs evidence from at least two different sessions";
@@ -111,23 +121,47 @@ export async function saveProposedSkill(
 	const replaced = await readOptional(destination);
 	if (replaced && autolearnProvenance(replaced) && !shownNames.has(skill.name)) return { rejected: "body not shown this pass" };
 	if (skill.candidate) {
-		await writeAtomic(candidateFile(projectRoot, skill.name), skillDocument(skill));
+		// The candidate carries the verified ids in its frontmatter, so the approval that promotes it
+		// later reads a fact out of the file instead of re-deriving one from the reply that stored it.
+		await writeAtomic(candidateFile(projectRoot, skill.name), withEvidenceFrontmatter(skillDocument(skill), verifiedEvidence(skill.evidence, archived)));
 		return "candidate";
 	}
 	// The publish path keeps its blanket refusal, whatever the destination carries: it is the belt to
 	// the approve path's braces, so a model that asks for a direct supersede cannot bypass the gate.
 	if (replaced) return { rejected: `skill "${skill.name}" already exists` };
-	await writeAtomic(destination, skillDocument(skill));
+	await writeAtomic(destination, withEvidenceFrontmatter(skillDocument(skill), verifiedEvidence(skill.evidence, archived)));
 	return "live";
 }
 
-/** Candidate names, sorted (used by `/autolearn list`). Exported for the plugin. */
-export async function listCandidates(projectRoot: string): Promise<string[]> {
+/** One stored candidate and the citations it records, for `/autolearn list`. */
+export interface CandidateDetail {
+	readonly name: string;
+	readonly evidence: readonly string[];
+}
+
+/**
+ * Stored candidates with their recorded evidence, sorted by name.
+ *
+ * The evidence is read from the candidate's own file: it is the same fact `/autolearn approve` later
+ * writes into the promoted skill, so the list cannot show one set of ids and the approval record
+ * another.
+ */
+export async function listCandidateDetails(projectRoot: string): Promise<CandidateDetail[]> {
 	const entries = await readdir(candidatesDir(projectRoot), { withFileTypes: true }).catch(() => []);
-	return entries
+	const names = entries
 		.filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
 		.map((entry) => entry.name.slice(0, -3))
 		.sort();
+	const details: CandidateDetail[] = [];
+	for (const name of names) {
+		details.push({ name, evidence: evidenceOfDocument(await readOptional(candidateFile(projectRoot, name))) });
+	}
+	return details;
+}
+
+/** Candidate names, sorted (used by the tests and the reject path's siblings). */
+export async function listCandidates(projectRoot: string): Promise<string[]> {
+	return (await listCandidateDetails(projectRoot)).map((candidate) => candidate.name);
 }
 
 /** Promote a candidate to a live skill. Exported for the plugin. */
@@ -156,13 +190,31 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	if (existing && !autolearnProvenance(existing)) {
 		return { ok: false, message: `Skill "${name}" already exists; remove the candidate manually.` };
 	}
-	await writeAtomic(destination, promotedDocument(name, description, body));
+	// The citations travel from the candidate file to the promoted one. They are not re-verified here
+	// on purpose: the pass verified them when it stored the candidate, and re-reading the archive at
+	// approval time would make the record depend on a directory that changed after the human decided.
+	const evidence = evidenceOfDocument(raw);
+	// The candidate's own name owns the destination, so its previous body is not a conflict with itself.
+	const corpus = await readEvidenceCorpus(projectRoot, { exclude: name });
+	const conflicts = conflictFindings({ name, text: body }, corpus.skills, corpus.memory);
+	await writeAtomic(destination, withEvidenceFrontmatter(promotedDocument(name, description, body), evidence));
 	await rm(file, { force: true });
 	// Approving is a human decision that runs no prompt, so when it replaces a file the overwrite is
 	// blind by construction and the message says so instead of implying the body was merged. It is
 	// worded around the approval, not "this pass", because the pass that stored the candidate may
 	// well have shown the body — what never saw it is the approval.
-	return { ok: true, message: `${existing ? "Updated" : "Activated"} project skill: ${name}${existing ? " — approved by hand; the body was not shown to the approval" : ""}` };
+	//
+	// Two more lines follow: what the skill records as its evidence, and the mechanical token overlap
+	// with the rest of the corpus. Both are verdicts about the document that just landed, so a reader
+	// never has to open the file to know either one.
+	return {
+		ok: true,
+		message: [
+			`${existing ? "Updated" : "Activated"} project skill: ${name}${existing ? " — approved by hand; the body was not shown to the approval" : ""}`,
+			`Evidence: ${evidenceText(evidence)}`,
+			conflictText(conflicts),
+		].join("\n"),
+	};
 }
 
 /** Drop a candidate. Exported for the plugin. */
