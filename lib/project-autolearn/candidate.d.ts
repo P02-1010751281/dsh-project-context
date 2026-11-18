@@ -32,7 +32,20 @@ export declare function shapeRejection(description: string, body: string): strin
 export declare function saveProposedSkill(projectRoot: string, skill: ProposedSkill, archived: Set<string>, shownNames?: ReadonlySet<string>): Promise<"live" | "candidate" | {
     rejected: string;
 }>;
-/** Candidate names, sorted (used by `/autolearn list`). Exported for the plugin. */
+/** One stored candidate and the citations it records, for `/autolearn list`. */
+export interface CandidateDetail {
+    readonly name: string;
+    readonly evidence: readonly string[];
+}
+/**
+ * Stored candidates with their recorded evidence, sorted by name.
+ *
+ * The evidence is read from the candidate's own file: it is the same fact `/autolearn approve` later
+ * writes into the promoted skill, so the list cannot show one set of ids and the approval record
+ * another.
+ */
+export declare function listCandidateDetails(projectRoot: string): Promise<CandidateDetail[]>;
+/** Candidate names, sorted (used by the tests and the reject path's siblings). */
 export declare function listCandidates(projectRoot: string): Promise<string[]>;
 /** Promote a candidate to a live skill. Exported for the plugin. */
 export declare function approveCandidate(projectRoot: string, name: string | undefined): Promise<{
