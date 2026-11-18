@@ -1,0 +1,37 @@
+system,category,host_scope,archive,consolidation,loss_guard,skill_distillation,handoff,injection_recall,cross_tool,observability,evidence
+dsh-project-context,DSH 插件,dsh,完整：每轮+INDEX+树+导入,journal→四节文档，idle 节流+手动,重试后整次拒绝、字节不变,证据门+候选+批准,新会话+原文尾料+文件+未答问题+门控,常驻小节+指针,—,回执/errors.log,docs/research/2026-11-18-similar-projects.md
+pi-project-context,同族,pi,完整,完整,拒绝有损,完整,新会话+replay-safe marker,常驻+指针,—,回执,sources/pi 仓库 README（本地快照）
+codex-project-context,同族,codex,完整,maintenance skill,部分,完整,SessionStart 注入+Stop 维护,常驻+指针,—,回执,local/siblings-snapshot.txt
+claude-mem,跨宿主产品,多宿主,观察/摘要,SQLite 观察+摘要,—,检索技能,会话启动注入（非新会话）,分层索引,15+ agent,viewer,sources/claude-mem.md
+OpenViking,跨宿主产品,多宿主,会话文件,文件系统+目录摘要,部分,技能目录,会话提交,L0/L1/L2,多宿主,Studio,sources/openviking.md
+ai-memory,跨宿主产品,20+,hooks 观察,session-end wiki,部分,—,显式跨 agent handoff,bounded brief,20+,控制台,sources/ai-memory.md
+agentmemory,跨宿主产品,多宿主,会话/replay,四层整理,部分,lessons+17 技能,session_handoff,混合检索,多宿主,viewer,sources/agentmemory.md
+Trail-Code,跨宿主产品,3,—,learnings 文件,—,soon,—,每 prompt,3,部分,sources/trail-code.md
+deja-vu,跨宿主产品,48,读原生会话,手工候选,—,—,handoff --to,搜索,48,view,sources/deja-vu.md
+Continuous-Claude,跨宿主产品,Claude Code,ledger,pgvector 记忆,部分,技能库,continuity ledger,是,—,部分,sources/continuous-claude.md
+planning-with-files,跨宿主产品,60+,三文件,无整理,—,一个 skill,抗 /clear,每轮 hook,60+,部分,sources/planning-with-files.md
+Cline Memory Bank,跨宿主产品,Cline,—,6 文档手动,—,—,手动新任务,rules,—,—,sources/cline-memory-bank.txt
+ConPort,跨宿主产品,MCP,—,SQLite KG+向量,部分,—,部分,MCP,MCP,部分,sources/context-portal.md
+basic-memory,跨宿主产品,MCP,—,Markdown KG,—,—,—,MCP,MCP,部分,sources/basic-memory.md
+beads,跨宿主产品,多,—,图+衰减压缩,压缩,—,bd prime,是,多,Dolt,sources/beads.md
+SpecStory,跨宿主产品,多,history,—,—,Lore,resume,—,多,是,sources/specstory.md
+Letta,基础设施,多,部分,MemFS+dreaming,备份,Skills,压缩触发,blocks,部分,是,sources/letta-sleep-time.txt
+mem0,基础设施,多,—,ADD-only,部分,—,—,API,多,部分,sources/mem0.md
+Zep/Graphiti,基础设施,多,—,时序图,部分,—,—,混合,多,部分,sources/graphiti.md
+MemOS,基础设施,多,—,统一 API,部分,L1/L2/L3,部分,是,多,是,sources/memos.md
+MemU,基础设施,多,—,wiki,部分,自动技能,—,是,多,部分,sources/memu.md
+memsearch,基础设施,20+,—,是,部分,从记忆蒸馏,部分,是,20+,dock,sources/memsearch.md
+Claude Code,宿主原生,Claude Code,transcripts,auto memory,超限报错,Skills,同会话压缩,是,—,/memory,sources/cc-memory-md.md
+Codex,宿主原生,Codex,rollouts,AGENTS.md,部分,—,auto compact,是,—,部分,sources/codex-config-sample.md
+Gemini CLI,宿主原生,Gemini,—,GEMINI.md 三层,部分,—,部分,是,—,部分,sources/gemini-memory.md
+Cursor,宿主原生,Cursor,—,Rules,—,—,—,rules,—,—,sources/cursor-memories.txt
+OpenHands,宿主原生,OpenHands,—,—,部分,Skills,condenser,Skills,—,部分,sources/openhands-condenser.txt
+dsh-memory-evolve,DSH 插件,dsh,部分,五轨,部分,自我进化,书签/分支,是,git 同步,tabs,sources/dsh-memory-evolve.md
+dsh-mnemon,DSH 插件,dsh,部分,运行时+文档,部分,进化+回测,部分,是,—,turn bar,sources/dsh-mnemon.md
+dsh-project-memory,DSH 插件,dsh,部分,混合索引+洞察,dedup/decay,procedures,部分,触发式,—,panel,sources/dsh-project-memory.md
+dsh-auto-memory,DSH 插件,dsh,部分,三层,部分,结晶,四段+0.75,主动召回,—,hub,sources/dsh-auto-memory.md
+dsh-block-ptc,DSH 插件,dsh,—,—,部分,—,AI compact,—,—,部分,sources/dsh-block-ptc.md
+dsh-context,DSH 插件,dsh,—,—,—,—,记录 compact,—,—,账本,sources/dsh-context.md
+memtrace,DSH 插件/MCP,多,—,双时态图,部分,使用技能,continuity,MCP,多,是,sources/memtrace.md
+mneme,DSH 插件/独立,dsh,—,autoDream,部分,—,—,是,部分,panel,sources/mneme.md
+Memory MCP server,基础设施,MCP,—,JSON 知识图谱,—,—,—,MCP,MCP,—,sources/memory-mcp.md

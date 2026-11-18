@@ -1,0 +1,233 @@
+Unified context | Zep Documentation
+For AI agents: a documentation index is available at the root level at /llms.txt. Append /llms.txt to any URL for a page-level index, or .md for the markdown version of any page.
+
+v4
+
+v4
+
+Search
+/Ask AIPlaygroundStatusDashboardSign Up >
+
+DocumentationSDK ReferenceGraphitiChangelogSkip to navigation
+
+Key Concepts
+
+Unified context
+
+Copy page
+Unified enterprise context, Context Graphs, and the Context Lake
+
+This page is for version v4 (default).
+For other versions, use one of these documentation indexes:
+- v4 (default): https://help.getzep.com/v4/llms.txt
+- v3: https://help.getzep.com/v3/llms.txt
+- v2: https://help.getzep.com/v2/llms.txt
+
+Use Get started with Zep to select the graph scope and implementation path for your task.
+
+Context is the information that an agent needs to complete a task. Unified context combines related information from business systems, documents, and conversations so agents and applications can use it together.
+
+Zep is the unified context layer for enterprise data. Teams use Zep for three main solutions:
+
+Enterprise context graphs combine knowledge about projects, products, operations, and business domains.
+
+Agent memory provides context from previous conversations, activity, and changes.
+
+Customer and account context combines records, conversations, and events for a customer or account.
+
+A Context Graph represents facts, their relationships, and changes over time. The Context Lake manages and serves Context Graphs as one system.
+
+Governance controls who can manage Zep and what context each agent or application can retrieve. Source episodes provide provenance for facts and other graph data. Audit Logs record dashboard activity, and API Logs record supported API request activity.
+
+Retrieval returns selected context from a Context Graph. The application decides how to place that context in a model request and whether an agent can use a tool or take an action.
+
+Flex Plus and Enterprise accounts can also use Observations. These records describe patterns that Zep identifies in graph data.
+
+ Concept Description Docs
+ Unified context Related information from different sources that agents and applications can use together. Docs
+ Context Lake Zep’s system for managing and serving Context Graphs with shared governance controls. Docs
+ Context Graph A temporal graph that represents facts, relationships, source episodes, and changes over time for a user, customer, account, project, or other subject. Docs
+ Agent memory Context from previous interactions, activity, and changes that an agent can retrieve for later tasks. Docs
+ Zep’s Context Block An assembled string that contains relevant context types from a user’s Context Graph. Docs
+ Context Types The distinct primitives Zep produces from a user graph: facts, entities, episodes, thread summaries, observations, and user summary. Choose the type that fits the agent’s task. Docs
+ Fact Invalidation When new data invalidates a prior fact, the time the fact became invalid is stored on that fact’s edge in the Context Graph. Docs
+ JSON, text, and message Data types that you can ingest into a Context Graph. Docs
+ Custom Entity/Edge Types Feature allowing use of Pydantic-like classes to customize creation/retrieval of entities and relations in the Context Graph. Docs
+ Graph A Context Graph addressed with its graph_uuid. Use it for shared or domain context that is not owned by one Zep user. Docs
+ User graph A Context Graph that stores context for one application user. Docs
+ User A Zep representation of an application user. Each user has a user graph and thread history. Docs
+ Threads Conversation threads of a user. By default, all messages added to any thread of that user are ingested into that user’s graph. Docs
+ Documents Grouping for episodes of the same source on a graph. Pass document_id when you add chunks of a PDF, export, or channel. Docs
+ Provenance Source information that connects facts and graph artifacts to the episodes from which Zep derived them. Docs
+ Governance Controls for team access, agent and application access to context, source traceability, and audit activity. Docs
+ graph.episode.add and thread.add_messages Methods that add business data and chat messages, respectively. Business data Messages
+ graph.search_edges & thread.get_context Low level and high level methods respectively for retrieving from the Context Graph. The other search methods are graph.search_nodes, graph.search_episodes, graph.search_observations, and graph.search_thread_summaries. Docs Docs
+ User summary instructions Up to five instructions that specify how Zep generates a user summary. Docs
+ Debug mode Time-limited project mode for capturing per-episode workflow logs. Flex, Flex Plus, and Enterprise accounts also capture LLM reasoning traces for selected ingestion steps. Docs
+ Agent tool A tool that lets an agent retrieve information from a Context Graph. Docs
+
+Was this page helpful?
+YesNo
+Previous
+
+Context Graph overview
+Represent facts, relationships, sources, and changes over time
+NextBuilt with
+
+DocumentationSDK ReferenceGraphitiChangelog
+
+Overview
+
+Get Started
+
+Key Concepts
+Unified Context
+Context Graphs
+The Context Lake
+Temporal Facts
+Observations
+Governance
+Context Engineering
+
+Solutions
+
+Build with Context
+
+Agent Skills
+
+Governance
+
+Integrations
+
+Best Practices
+
+Resources
+
+Overview
+Get Started with Zep
+Enterprise Context Graph Quickstart
+Agent Memory Quickstart
+Customer and Account Context Quickstart
+Install SDKs
+Unified Context
+Context Graphs
+The Context Lake
+Context Engineering
+Solutions Overview
+Enterprise Context Graphs
+Agent Memory
+Customer and Account Context
+Choose an Architecture
+Overview
+Build Tools for an Agent
+Overview
+Overview
+Prepare Data for Ingestion
+Create an Ingestion Pipeline
+Adding Messages
+Threads
+Adding Business Data
+Documents
+Batch Ingestion
+Overview
+Customizing Graph Structure
+How Graph Creation Works
+Custom Instructions
+User Summary Instructions
+Steering Observations
+Overview
+Overview
+Facts
+Entities
+Episodes
+Thread Summaries
+Observations
+User Summary
+Episode Metadata Projection
+Retrieving Context
+Querying a Graph
+Context Templates
+Advanced Context Block Construction
+Create a Context Graph
+Users and User Graphs
+Graph Directory
+Search a Context Graph
+Read Data from a Context Graph
+Graph Visualizer Assistant
+Delete Data from a Context Graph
+Clone Context Graphs
+Manually Update a Context Graph
+Hyperedges
+Add User-Specific Business Data
+Chunk Large Documents
+Check Data Ingestion Status
+Get Relevant Facts for a Query
+Find Facts for a Node
+Overview
+Quickstart
+Examples
+Capture Traces
+Import Traces from Braintrust
+Import Traces from LangSmith
+Configure Learning and Admission
+Retrieve Skills and Record Use
+Inspect and Restore Skills
+Share Agent Skills
+Write a Skill Manually
+Overview
+Manage Team Access
+Zep Support Access
+Enterprise SSO
+SCIM provisioning
+Policy-Based Access Control
+Agent Access
+UserGroup Access
+Source Traceability
+Content Policies
+Context Retention
+Audit Logging
+API Logging
+Overview
+HIPAA Compliance
+Bring Your Own Key (BYOK)
+Bring Your Own LLM (BYOM)
+Overview
+LangGraph
+Autogen
+LiveKit
+ElevenLabs
+CrewAI
+NVIDIA NeMo Agent Toolkit
+Google ADK
+AG2
+Microsoft Agent Framework
+Pydantic AI
+Strands
+Mastra
+Vercel AI SDK
+Eve
+Use Zep in Claude, ChatGPT, Cursor, and Other Clients
+Overview
+Configure Authentication
+Authorize Shared Context Graphs
+Connect a Client
+Implement Zep with Agents
+Documentation MCP Server
+llms.txt
+zepctl CLI
+Debug Mode
+Webhooks
+Performance
+Context Security
+Rate Limits
+Evaluate Zep for Your Use Case
+Migrating from v3
+February 2026 Deprecation Wave
+Migrate from Mem0
+Frequently Asked Questions
+Zep vs Graphiti
+Zep vs Graph RAG
+v4
+v3
+v2
+

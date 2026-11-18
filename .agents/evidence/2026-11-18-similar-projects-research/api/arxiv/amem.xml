@@ -1,0 +1,41 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/RsIfx9ILC1AjCV7+4yfzSm1Uj60</id>
+  <title>arXiv Query: search_query=ti:"A-MEM: Agentic Memory for LLM Agents"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-18T01:22:45Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22A-MEM:+Agentic+Memory+for+LLM+Agents%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2502.12110v11</id>
+    <title>A-MEM: Agentic Memory for LLM Agents</title>
+    <updated>2025-10-08T01:46:37Z</updated>
+    <link href="https://arxiv.org/abs/2502.12110v11" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2502.12110v11" rel="related" type="application/pdf" title="pdf"/>
+    <summary>While large language model (LLM) agents can effectively use external tools for complex real-world tasks, they require memory systems to leverage historical experiences. Current memory systems enable basic storage and retrieval but lack sophisticated memory organization, despite recent attempts to incorporate graph databases. Moreover, these systems' fixed operations and structures limit their adaptability across diverse tasks. To address this limitation, this paper proposes a novel agentic memory system for LLM agents that can dynamically organize memories in an agentic way. Following the basic principles of the Zettelkasten method, we designed our memory system to create interconnected knowledge networks through dynamic indexing and linking. When a new memory is added, we generate a comprehensive note containing multiple structured attributes, including contextual descriptions, keywords, and tags. The system then analyzes historical memories to identify relevant connections, establishing links where meaningful similarities exist. Additionally, this process enables memory evolution - as new memories are integrated, they can trigger updates to the contextual representations and attributes of existing historical memories, allowing the memory network to continuously refine its understanding. Our approach combines the structured organization principles of Zettelkasten with the flexibility of agent-driven decision making, allowing for more adaptive and context-aware memory management. Empirical experiments on six foundation models show superior improvement against existing SOTA baselines. The source code for evaluating performance is available at https://github.com/WujiangXu/A-mem, while the source code of the agentic memory system is available at https://github.com/WujiangXu/A-mem-sys.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.HC" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-02-17T18:36:14Z</published>
+    <arxiv:comment>Advances in Neural Information Processing Systems (NeurIPS 2025)</arxiv:comment>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Wujiang Xu</name>
+    </author>
+    <author>
+      <name>Zujie Liang</name>
+    </author>
+    <author>
+      <name>Kai Mei</name>
+    </author>
+    <author>
+      <name>Hang Gao</name>
+    </author>
+    <author>
+      <name>Juntao Tan</name>
+    </author>
+    <author>
+      <name>Yongfeng Zhang</name>
+    </author>
+  </entry>
+</feed>

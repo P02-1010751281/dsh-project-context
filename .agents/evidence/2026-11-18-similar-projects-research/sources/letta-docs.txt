@@ -1,0 +1,182 @@
+ Letta Documentation | Letta Docs 
+
+ Skip to content 
+
+ Letta Docs 
+
+ Docs 
+ Agent SDK 
+
+Docs 
+
+DocsDocs 
+
+Agent SDKAgent SDK Search the docs CtrlK 
+ Cancel 
+
+ Discord 
+
+ Docs 
+ Agent SDK 
+ Get started 
+ Overview 
+ Quickstart 
+ Pricing 
+ Concepts 
+ Stateful agents 
+ Conversations 
+ MemFS 
+ Shared memory 
+ Platform 
+ CLI 
+ Overview 
+ Slash commands 
+ Headless mode 
+ CLI reference 
+ Cloud agents 
+ Overview 
+ GitHub integration 
+ Slack integration 
+ Computers 
+ Overview 
+ Bring Your Own Machine 
+ Cloud sandboxes 
+ Teleportation 
+ ACP 
+ MCP 
+ Configuration 
+ Memory & dreaming 
+ Skills 
+ Mods 
+ Permissions 
+ Schedules 
+ Secrets 
+ Subagents 
+ Models 
+ Dynamic Workflows 
+ Self-hosting 
+ Overview 
+ App Server 
+ Overview 
+ Quickstart 
+ Protocol lifecycle 
+ External tools 
+ Integration patterns 
+ Channels 
+ Overview 
+ Automatic reply relay 
+ Slack 
+ Telegram 
+ Discord 
+ WhatsApp 
+ Signal 
+ Custom channels 
+ Enterprise & Team 
+ Get started 
+ Adding collaborators 
+ Configuring permissions 
+ Reference 
+ FAQ 
+ Terminology 
+ Settings 
+ Changelog 
+ GitHub action 
+ Letta Desktop 
+ Troubleshooting 
+ Deprecated 
+ Hooks 
+ Docker 
+
+Get started
+Overview
+Copy Markdown
+
+Open in Claude
+
+Open in ChatGPT
+
+Open in Cursor
+
+Copy Markdown
+
+View as Markdown
+
+Letta Documentation
+
+The platform for building stateful agents 
+
+Letta agents learn from experience and improve with use. The Letta Code harness is fully open source and builds on our lab’s latest research in AI memory and continual learning.
+Use Letta Code to create coding agents, personal assistants, AI coworkers, and stateful agents embedded in your own applications.
+Get started with Letta Code →
+
+Getting started
+Section titled “Getting started”
+
+If you’re a developer building stateful agents into an application, start with
+the Letta Agent SDK.
+
+New to Letta? Follow the quickstart and chat with Tutor, or choose a path below.
+
+”I want an AI coding assistant”
+Section titled “”I want an AI coding assistant””
+
+Start with the quickstart, choose an LLM provider, then explore Skills and the GitHub Action.
+
+”I want a personal assistant for work”
+Section titled “”I want a personal assistant for work””
+
+Use the Letta Code CLI to work with local files, add integrations with Skills, and automate recurring tasks with Schedules.
+
+”I want an AI coworker in Slack, Telegram, or Discord”
+Section titled “”I want an AI coworker in Slack, Telegram, or Discord””
+
+For cloud-hosted agents, use the Slack integration. For local-backend agents, follow the Channels guide and keep the channel server running on infrastructure you manage.
+
+”I want to automate recurring work”
+Section titled “”I want to automate recurring work””
+
+Explore Schedules for recurring prompts, Skills for reusable workflows, and Mods for extending the harness.
+
+”I’m building an application with stateful agents”
+Section titled “”I’m building an application with stateful agents””
+
+Start with the Letta Agent SDK, then choose between managed deployment with Letta Cloud or running the complete runtime yourself with the Letta App Server.
+
+Explore further
+Section titled “Explore further”
+
+ Quickstart 
+
+Quickstart guide
+
+Start with the Letta web app or CLI. 
+ Memory 
+
+Memory system
+
+Learn how to setup and customize a Letta agent's memory system. 
+ Skills 
+
+Skills system
+
+Extend your agent's abilities with skills, either learned, or pre-made. 
+
+Join the Letta Discord
+
+Chat with the community 
+
+Follow Letta on X
+
+Stay updated with the latest news 
+
+Star on GitHub
+
+Source code and issue tracker 
+
+Home
+
+ Next 
+
+Quickstart
+
+Get started with the Letta web app or CLI 

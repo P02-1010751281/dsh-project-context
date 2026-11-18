@@ -1,0 +1,231 @@
+
+
+Specifying coding conventions | aider
+
+ Skip to main content
+
+ aider
+
+ Installation
+Optional steps
+Aider with docker
+GitHub Codespaces
+Replit
+
+ Usage
+Tips
+In-chat commands
+Chat modes
+Tutorial videos
+Voice-to-code with aider
+Images & web pages
+Prompt caching
+Aider in your IDE
+Notifications
+Aider in your browser
+Specifying coding conventions
+Copy/paste with web chat
+Linting and testing
+Editing config & text files
+
+ Connecting to LLMs
+OpenAI
+Anthropic
+Gemini
+GROQ
+LM Studio
+xAI
+Azure
+Cohere
+DeepSeek
+Ollama
+OpenAI compatible APIs
+OpenRouter
+GitHub Copilot
+Vertex AI
+Amazon Bedrock
+Other LLMs
+Model warnings
+
+ Configuration
+API Keys
+Options reference
+YAML config file
+Config with .env
+Editor configuration
+Reasoning models
+Advanced model settings
+Model Aliases
+
+ Troubleshooting
+File editing problems
+Model warnings
+Token limits
+Aider not found
+Dependency versions
+Models and API keys
+Using /help
+
+ Screen recordings
+Add language support via tree-sitter-language-pack
+Add –auto-accept-architect feature
+Don’t /drop read-only files added at launch
+Warn when users apply unsupported reasoning settings
+
+ Example chat transcripts
+Create a simple flask app with aider
+Modify an open source 2048 game with aider
+A complex multi-file change, with debugging
+Create a “black box” test case
+Automatically update docs with aider
+Build pong with aider and pygame.
+Complete a css exercise with aider
+Download, analyze and plot US Census data
+Editing an asciinema cast file with aider
+Hello aider!
+Honor the NO_COLOR environment variable
+Improve css styling of chat transcripts
+Semantic search & replace code with aider
+
+ More info
+Git integration
+Supported languages
+Repository map
+Scripting aider
+Infinite output
+Edit formats
+Analytics
+Privacy policy
+FAQ
+Release history
+
+ Aider LLM Leaderboards
+Code editing leaderboard
+Refactoring leaderboard
+Scores by release date
+Benchmark notes
+Contributing results
+Aider blog
+
+ GitHub
+
+ Discord
+
+ Aider is AI pair programming in your terminal.
+ Aider is on
+ GitHub
+ and
+ Discord.
+
+ GitHub
+
+ Discord
+
+ Blog
+
+Usage
+
+Specifying coding conventions
+
+ Specifying coding conventions
+
+Sometimes you want GPT to be aware of certain coding guidelines,
+like whether to provide type hints, which libraries or packages
+to prefer, etc.
+
+The easiest way to do that with aider is to simply create
+a small markdown file and include it in the chat.
+
+For example, say we want our python code to:
+
+- Prefer httpx over requests for making http requests.
+- Use types everywhere possible.
+
+We would simply create a file like CONVENTIONS.md with those lines
+and then we can add it to the aider chat, along with the file(s)
+that we want to edit.
+
+It’s best to load the conventions file with /read CONVENTIONS.md 
+or aider --read CONVENTIONS.md. 
+This way it is marked as read-only, and cached if prompt caching
+is enabled.
+
+ Community contributed conventions
+
+You can check the aider conventions repository
+to find or contribute conventions files.
+
+ Always load conventions
+
+You can also configure aider to always load your conventions file
+in the .aider.conf.yml config file:
+
+# alone
+read: CONVENTIONS.md
+
+# multiple files
+read: [CONVENTIONS.md, anotherfile.txt]
+
+ Example
+
+See below for an example of how the conventions can affect the code
+that aider writes.
+
+$ aider –read CONVENTIONS.md useragent.py
+
+Aider v0.24.2-dev
+
+Added CONVENTIONS.md to the chat.
+
+Added useragent.py to the chat.
+
+ write a function that uses httpbin to check the user agent on the request. return the ua.
+
+To fulfill your request, I will:
+
+Add an import for httpx.
+
+Write a function named check_user_agent that makes a GET request to httpbin.org/user-agent and returns the user agent string.
+
+Here is the diff for the useragent.py file:
+
+--- useragent.py
++++ useragent.py
+@@ ... @@
++import httpx
++
++def check_user_agent() -> str:
++ response = httpx.get('https://httpbin.org/user-agent')
++ return response.json()['user-agent']
+
+This function uses httpx to make a GET request to httpbin.org/user-agent, which returns a JSON response containing the user agent of the HTTP client. The function then extracts the user agent string from the JSON response and returns it.
+
+Applied edit to useragent.py
+
+GPT correctly used httpx and provided type hints.
+See below for the transcript of this same
+coding task conducted without
+using CONVENTIONS.md.
+In this case, GPT used requests and skipped types,
+which is perhaps more typical in small python scripts.
+
+$ aider useragent.py
+
+Aider v0.24.2-dev
+
+Added useragent.py to the chat.
+
+ write a function that uses httpbin to check the user agent on the request. return the ua.
+
+--- /dev/null
++++ useragent.py
+@@ ... @@
++import requests
++
++def check_user_agent():
++ response = requests.get('https://httpbin.org/user-agent')
++ user_agent = response.json().get('user-agent')
++ return user_agent
+
+Applied edit to useragent.py
+

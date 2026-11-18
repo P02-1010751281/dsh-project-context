@@ -1,0 +1,5 @@
+cc-context-window	https://code.claude.com/docs/en/context-window	html
+cc-sessions	https://code.claude.com/docs/en/sessions	html
+codex-config	https://raw.githubusercontent.com/openai/codex/HEAD/docs/config.md	md
+gemini-memory	https://raw.githubusercontent.com/google-gemini/gemini-cli/HEAD/docs/tools/memory.md	md
+opencode-agents	https://raw.githubusercontent.com/sst/opencode/HEAD/AGENTS.md	md

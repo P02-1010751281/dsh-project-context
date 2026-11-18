@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/H5FtnTe5NJGsTt4ncUmUZdPjsQs</id>
+  <title>arXiv Query: search_query=ti:"Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-18T01:22:49Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22Mem0:+Building+Production-Ready+AI+Agents+with+Scalable+Long-Term+Memory%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2504.19413v1</id>
+    <title>Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory</title>
+    <updated>2025-04-28T01:46:35Z</updated>
+    <link href="https://arxiv.org/abs/2504.19413v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2504.19413v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large Language Models (LLMs) have demonstrated remarkable prowess in generating contextually coherent responses, yet their fixed context windows pose fundamental challenges for maintaining consistency over prolonged multi-session dialogues. We introduce Mem0, a scalable memory-centric architecture that addresses this issue by dynamically extracting, consolidating, and retrieving salient information from ongoing conversations. Building on this foundation, we further propose an enhanced variant that leverages graph-based memory representations to capture complex relational structures among conversational elements. Through comprehensive evaluations on LOCOMO benchmark, we systematically compare our approaches against six baseline categories: (i) established memory-augmented systems, (ii) retrieval-augmented generation (RAG) with varying chunk sizes and k-values, (iii) a full-context approach that processes the entire conversation history, (iv) an open-source memory solution, (v) a proprietary model system, and (vi) a dedicated memory management platform. Empirical results show that our methods consistently outperform all existing memory systems across four question categories: single-hop, temporal, multi-hop, and open-domain. Notably, Mem0 achieves 26% relative improvements in the LLM-as-a-Judge metric over OpenAI, while Mem0 with graph memory achieves around 2% higher overall score than the base configuration. Beyond accuracy gains, we also markedly reduce computational overhead compared to full-context method. In particular, Mem0 attains a 91% lower p95 latency and saves more than 90% token cost, offering a compelling balance between advanced reasoning capabilities and practical deployment constraints. Our findings highlight critical role of structured, persistent memory mechanisms for long-term conversational coherence, paving the way for more reliable and efficient LLM-driven AI agents.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-04-28T01:46:35Z</published>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Prateek Chhikara</name>
+    </author>
+    <author>
+      <name>Dev Khant</name>
+    </author>
+    <author>
+      <name>Saket Aryan</name>
+    </author>
+    <author>
+      <name>Taranjeet Singh</name>
+    </author>
+    <author>
+      <name>Deshraj Yadav</name>
+    </author>
+  </entry>
+</feed>

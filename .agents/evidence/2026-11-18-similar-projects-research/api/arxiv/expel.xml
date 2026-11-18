@@ -1,0 +1,42 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/wRBfkO1BWV5oKLINlmFgqtQwzpY</id>
+  <title>arXiv Query: search_query=ti:"ExpeL: LLM Agents Are Experiential Learners"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-18T01:23:17Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22ExpeL:+LLM+Agents+Are+Experiential+Learners%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2308.10144v3</id>
+    <title>ExpeL: LLM Agents Are Experiential Learners</title>
+    <updated>2024-12-20T06:14:53Z</updated>
+    <link href="https://arxiv.org/abs/2308.10144v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2308.10144v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The recent surge in research interest in applying large language models (LLMs) to decision-making tasks has flourished by leveraging the extensive world knowledge embedded in LLMs. While there is a growing demand to tailor LLMs for custom decision-making tasks, finetuning them for specific tasks is resource-intensive and may diminish the model's generalization capabilities. Moreover, state-of-the-art language models like GPT-4 and Claude are primarily accessible through API calls, with their parametric weights remaining proprietary and unavailable to the public. This scenario emphasizes the growing need for new methodologies that allow learning from agent experiences without requiring parametric updates. To address these problems, we introduce the Experiential Learning (ExpeL) agent. Our agent autonomously gathers experiences and extracts knowledge using natural language from a collection of training tasks. At inference, the agent recalls its extracted insights and past experiences to make informed decisions. Our empirical results highlight the robust learning efficacy of the ExpeL agent, indicating a consistent enhancement in its performance as it accumulates experiences. We further explore the emerging capabilities and transfer learning potential of the ExpeL agent through qualitative observations and additional experiments.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-08-20T03:03:34Z</published>
+    <arxiv:comment>Accepted by the 38th Annual AAAI Conference on Artificial Intelligence (AAAI-24)</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Andrew Zhao</name>
+    </author>
+    <author>
+      <name>Daniel Huang</name>
+    </author>
+    <author>
+      <name>Quentin Xu</name>
+    </author>
+    <author>
+      <name>Matthieu Lin</name>
+    </author>
+    <author>
+      <name>Yong-Jin Liu</name>
+    </author>
+    <author>
+      <name>Gao Huang</name>
+    </author>
+  </entry>
+</feed>

@@ -1,0 +1,70 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/mfu631Ct1RBkAy1liUr1+KRNiaY</id>
+  <title>arXiv Query: search_query=ti:"ACON"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-18T01:23:31Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22ACON%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>2</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2211.09330v3</id>
+    <title>ACon$^2$: Adaptive Conformal Consensus for Provable Blockchain Oracles</title>
+    <updated>2023-03-07T17:20:45Z</updated>
+    <link href="https://arxiv.org/abs/2211.09330v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2211.09330v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Blockchains with smart contracts are distributed ledger systems that achieve block-state consistency among distributed nodes by only allowing deterministic operations of smart contracts. However, the power of smart contracts is enabled by interacting with stochastic off-chain data, which in turn opens the possibility to undermine the block-state consistency. To address this issue, an oracle smart contract is used to provide a single consistent source of external data; but, simultaneously, this introduces a single point of failure, which is called the oracle problem. To address the oracle problem, we propose an adaptive conformal consensus (ACon$^2$) algorithm that derives a consensus set of data from multiple oracle contracts via the recent advance in online uncertainty quantification learning. Interesting, the consensus set provides a desired correctness guarantee under distribution shift and Byzantine adversaries. We demonstrate the efficacy of the proposed algorithm on two price datasets and an Ethereum case study. In particular, the Solidity implementation of the proposed algorithm shows the potential practicality of the proposed algorithm, implying that online machine learning algorithms are applicable to address security issues in blockchains.</summary>
+    <category term="cs.CR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-11-17T04:37:24Z</published>
+    <arxiv:comment>Accepted to USENIX Security 2023</arxiv:comment>
+    <arxiv:primary_category term="cs.CR"/>
+    <author>
+      <name>Sangdon Park</name>
+    </author>
+    <author>
+      <name>Osbert Bastani</name>
+    </author>
+    <author>
+      <name>Taesoo Kim</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2510.00615v3</id>
+    <title>ACON: Optimizing Context Compression for Long-horizon LLM Agents</title>
+    <updated>2026-06-01T07:41:52Z</updated>
+    <link href="https://arxiv.org/abs/2510.00615v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2510.00615v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large language models (LLMs) are increasingly deployed as agents in dynamic real-world environments, where success depends on maintaining precise records of actions and observations. However, the resulting unbounded context growth in long-horizon agentic tasks makes two critical bottlenecks: prohibitive inference memory costs and reasoning degradation due to irrelevant information. Existing compression methods fail to fully address this, often relying on brittle heuristics or requiring parameter updates impractical for proprietary or large-scale LLMs. We introduce Agent Context Optimization (ACON), a unified framework that optimally compresses both observations and history into concise, informative representations. Distinct from prior works, ACON employs an optimization in natural language space: it iteratively refines compression guidelines based on failure analysis of the agent, ensuring critical state information is preserved without model fine-tuning. To further minimize computational overhead, we distill the optimized compressor into smaller models. Experiments on AppWorld, OfficeBench, and Multi-objective QA demonstrate that ACON reduces peak token usage by 26-54% while improving task success over existing compression baselines. Notably, it enables smaller LMs to function effectively as long-horizon agents, achieving up to 46% performance improvement by mitigating context distraction. Our code is available at https://github.com/microsoft/acon.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-10-01T07:43:49Z</published>
+    <arxiv:comment>ICML 2026</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Minki Kang</name>
+    </author>
+    <author>
+      <name>Wei-Ning Chen</name>
+    </author>
+    <author>
+      <name>Dongge Han</name>
+    </author>
+    <author>
+      <name>Huseyin A. Inan</name>
+    </author>
+    <author>
+      <name>Lukas Wutschitz</name>
+    </author>
+    <author>
+      <name>Yanzhi Chen</name>
+    </author>
+    <author>
+      <name>Robert Sim</name>
+    </author>
+    <author>
+      <name>Saravan Rajmohan</name>
+    </author>
+  </entry>
+</feed>

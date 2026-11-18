@@ -1,0 +1,7 @@
+cc-memory-md	https://code.claude.com/docs/en/memory.md	md
+cc-context-window-md	https://code.claude.com/docs/en/context-window.md	md
+cc-sessions-md	https://code.claude.com/docs/en/sessions.md	md
+cc-hooks-md	https://code.claude.com/docs/en/hooks.md	md
+cc-skills-md	https://code.claude.com/docs/en/skills.md	md
+copilot-instructions	https://raw.githubusercontent.com/github/docs/main/content/copilot/how-tos/configure-custom-instructions/add-repository-instructions.md	md
+openhands-microagents	https://raw.githubusercontent.com/All-Hands-AI/OpenHands/main/docs/usage/prompting/microagents-overview.mdx	mdx

@@ -1,0 +1,74 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/fKhFtwaXgv9Azuyy2knZfjtZoEQ</id>
+  <title>arXiv Query: search_query=ti:"ReasoningBank"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-18T01:23:03Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22ReasoningBank%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2509.25140v2</id>
+    <title>ReasoningBank: Scaling Agent Self-Evolving with Reasoning Memory</title>
+    <updated>2026-03-16T20:49:28Z</updated>
+    <link href="https://arxiv.org/abs/2509.25140v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2509.25140v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>With the growing adoption of large language model agents in persistent real-world roles, they naturally encounter continuous streams of tasks. A key limitation, however, is their failure to learn from the accumulated interaction history, forcing them to discard valuable insights and repeat past errors. We propose ReasoningBank, a novel memory framework that distills generalizable reasoning strategies from an agent's self-judged successful and failed experiences. At test time, an agent retrieves relevant memories from ReasoningBank to inform its interaction and then integrates new learnings back, enabling it to become more capable over time. Building on this powerful experience learner, we further introduce memory-aware test-time scaling (MaTTS), which accelerates and diversifies this learning process by scaling up the agent's interaction experience. By allocating more compute to each task, the agent generates abundant, diverse experiences that provide rich contrastive signals for synthesizing higher-quality memory. The better memory in turn guides more effective scaling, establishing a powerful synergy between memory and test-time scaling. Across web browsing and software engineering benchmarks, ReasoningBank consistently outperforms existing memory mechanisms that store raw trajectories or only successful task routines, improving both effectiveness and efficiency; MaTTS further amplifies these gains. These findings establish memory-driven experience scaling as a new scaling dimension, enabling agents to self-evolve with emergent behaviors naturally arise. Our code can be found at https://github.com/google-research/reasoning-bank.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-09-29T17:51:03Z</published>
+    <arxiv:comment>Accepted to ICLR 2026; Code: https://github.com/google-research/reasoning-bank</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Siru Ouyang</name>
+    </author>
+    <author>
+      <name>Jun Yan</name>
+    </author>
+    <author>
+      <name>I-Hung Hsu</name>
+    </author>
+    <author>
+      <name>Yanfei Chen</name>
+    </author>
+    <author>
+      <name>Ke Jiang</name>
+    </author>
+    <author>
+      <name>Zifeng Wang</name>
+    </author>
+    <author>
+      <name>Rujun Han</name>
+    </author>
+    <author>
+      <name>Long T. Le</name>
+    </author>
+    <author>
+      <name>Samira Daruki</name>
+    </author>
+    <author>
+      <name>Xiangru Tang</name>
+    </author>
+    <author>
+      <name>Vishy Tirumalashetty</name>
+    </author>
+    <author>
+      <name>George Lee</name>
+    </author>
+    <author>
+      <name>Mahsan Rofouei</name>
+    </author>
+    <author>
+      <name>Hangfei Lin</name>
+    </author>
+    <author>
+      <name>Jiawei Han</name>
+    </author>
+    <author>
+      <name>Chen-Yu Lee</name>
+    </author>
+    <author>
+      <name>Tomas Pfister</name>
+    </author>
+  </entry>
+</feed>

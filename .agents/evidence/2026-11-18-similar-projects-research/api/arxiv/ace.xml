@@ -1,0 +1,123 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/1ksK6vwDKOg18IweJABXIdVGSjQ</id>
+  <title>arXiv Query: search_query=ti:"Agentic Context Engineering"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-11-18T01:22:59Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22Agentic+Context+Engineering%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>5</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2608.01269v2</id>
+    <title>ACE-GraphRAG: Agentic Context Engineering for Hierarchical GraphRAG</title>
+    <updated>2026-08-04T03:31:36Z</updated>
+    <link href="https://arxiv.org/abs/2608.01269v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2608.01269v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Hierarchical Graph Retrieval-Augmented Generation (GraphRAG) organizes corpus knowledge at multiple levels of granularity, yet fixed context construction may fail to translate these multi-resolution representations into a context suited to the current query. We identify this mismatch as the representation--inference gap. We propose Agentic Context Engineering for Hierarchical GraphRAG (ACE-GraphRAG), an inference-time context policy layer that supplements and adapts the initial context for generation. ACE-GraphRAG formulates context construction as a policy over gap-aware refinement, retrieval branches, and task-conditioned adaptation. Parallel Differential Retrieval acquires supplementary evidence from depth-oriented factual and breadth-oriented semantic branches. These evidence increments are consolidated with the initial context while preserving provenance and abstraction levels. Full-ACE applies the full policy uniformly within each task family, whereas Adaptive-ACE selects task- and topology-specific policies for individual queries. We evaluate ACE-GraphRAG on HotpotQA, 2WikiMultiHopQA, and four UltraDomain subsets across multi-hop QA and query-focused summarization. Full-ACE outperforms the evaluated RAG and GraphRAG baselines across both task families, while Adaptive-ACE further improves multi-hop QA and is preferred over Full-ACE on all four UltraDomain subsets. Ablation and topology analyses support treating context construction as a query- and task-dependent inference policy rather than a fixed procedure.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-08-02T14:22:31Z</published>
+    <arxiv:comment>Withdrawn because the manuscript was posted prematurely before completion of the required internal review and release authorization</arxiv:comment>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Yongfeng Huang</name>
+    </author>
+    <author>
+      <name>Yuren Lai</name>
+    </author>
+    <author>
+      <name>Ruiying Chen</name>
+    </author>
+    <author>
+      <name>Haoyu Huang</name>
+    </author>
+    <author>
+      <name>Mingming Zhao</name>
+    </author>
+    <author>
+      <name>James Cheng</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2511.22850v1</id>
+    <title>Resolving Evidence Sparsity: Agentic Context Engineering for Long-Document Understanding</title>
+    <updated>2025-11-28T03:09:40Z</updated>
+    <link href="https://arxiv.org/abs/2511.22850v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2511.22850v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Document understanding is a long standing practical task. Vision Language Models (VLMs) have gradually become a primary approach in this domain, demonstrating effective performance on single page tasks. However, their effectiveness diminishes when handling long documents. In such scenarios, clues are often scattered across multiple pages and modalities, and redundancy from lengthy inputs can impair the models judgment. While retrieval augmented generation mitigates this issue by filtering for question relevant content, the retrieved results still contain substantial redundancy. To address these limitations, we propose SLEUTH, a multi agent framework. Concretely, SLEUTH orchestrates a retriever and four collaborative agents in a coarse to fine process. The framework identifies key textual and visual clues within the retrieved pages, filters for salient visual evidence such as tables and charts, and analyzes the query to devise a reasoning strategy. It ultimately synthesizes a distilled, evidence dense multimodal context to generate the final prediction. SLEUTH is model agnostic and scalable. When paired with advanced VLM backbones, it consistently improves performance on multiple long document benchmarks, achieving state of the art results. Ablation studies verify each modules effectiveness and confirm the benefits of our hierarchical refinement paradigm.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-11-28T03:09:40Z</published>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Keliang Liu</name>
+    </author>
+    <author>
+      <name>Zizhi Chen</name>
+    </author>
+    <author>
+      <name>Mingcheng Li</name>
+    </author>
+    <author>
+      <name>Jingqun Tang</name>
+    </author>
+    <author>
+      <name>Dingkang Yang</name>
+    </author>
+    <author>
+      <name>Lihua Zhang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2510.04618v3</id>
+    <title>Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models</title>
+    <updated>2026-03-29T09:18:02Z</updated>
+    <link href="https://arxiv.org/abs/2510.04618v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2510.04618v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large language model (LLM) applications such as agents and domain-specific reasoning increasingly rely on context adaptation: modifying inputs with instructions, strategies, or evidence, rather than weight updates. Prior approaches improve usability but often suffer from brevity bias, which drops domain insights for concise summaries, and from context collapse, where iterative rewriting erodes details over time. We introduce ACE (Agentic Context Engineering), a framework that treats contexts as evolving playbooks that accumulate, refine, and organize strategies through a modular process of generation, reflection, and curation. ACE prevents collapse with structured, incremental updates that preserve detailed knowledge and scale with long-context models. Across agent and domain-specific benchmarks, ACE optimizes contexts both offline (e.g., system prompts) and online (e.g., agent memory), consistently outperforming strong baselines: +10.6% on agents and +8.6% on finance, while significantly reducing adaptation latency and rollout cost. Notably, ACE could adapt effectively without labeled supervision and instead by leveraging natural execution feedback. On the AppWorld leaderboard, ACE matches the top-ranked production-level agent on the overall average and surpasses it on the harder test-challenge split, despite using a smaller open-source model. These results show that comprehensive, evolving contexts enable scalable, efficient, and self-improving LLM systems with low overhead.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-10-06T09:30:18Z</published>
+    <arxiv:comment>ICLR 2026; 32 pages</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Qizheng Zhang</name>
+    </author>
+    <author>
+      <name>Changran Hu</name>
+    </author>
+    <author>
+      <name>Shubhangi Upasani</name>
+    </author>
+    <author>
+      <name>Boyuan Ma</name>
+    </author>
+    <author>
+      <name>Fenglu Hong</name>
+    </author>
+    <author>
+      <name>Vamsidhar Kamanuru</name>
+    </author>
+    <author>
+      <name>Jay Rainton</name>
+    </author>
+    <author>
+      <name>Chen Wu</name>
+    </author>
+    <author>
+      <name>Mengmeng Ji</name>
+    </author>
+    <author>
+      <name>Hanchen Li</name>
+    </author>
+    <author>
+      <name>Urmish Thakker</name>
+    </author>
+    <author>
+      <name>James Zou</name>
+    </author>
+    <author>
+      <name>Kunle Olukotun</name>
+    </author>
+  </entry>
+</feed>

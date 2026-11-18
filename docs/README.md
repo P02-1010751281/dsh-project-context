@@ -16,6 +16,7 @@
 | [handoff-candidates-b-c.md](./handoff-candidates-b-c.md) | 交接触发点 / 子会话标题三条路线的取舍；其中 (c) 仍待拍板，故留在本目录 |
 | [harness/](./harness/README.md) | 各宿主接口的采用与未采用登记（dsh / pi / codex / integration） |
 | [sibling-repos.md](./sibling-repos.md) | 同族仓库对照（dsh / pi / codex），以及只读勘查的规矩 |
+| [research/2026-11-18-similar-projects.md](./research/2026-11-18-similar-projects.md) | 同类系统与组件级相似物调研；原始证据在 `.agents/evidence/2026-11-18-similar-projects-research/` |
 | [repo-metadata.md](./repo-metadata.md) | GitHub About / Topics 文案 |
 | [upstream-pi-triage.md](./upstream-pi-triage.md) | pi 上游逐提交比对档案（每次 pass 的裁定都在这） |
 | [upstream-issue-client-send-path.md](./upstream-issue-client-send-path.md) | 上游 issue 草稿：宿主重启后标签页静默无法发送 |

@@ -1,0 +1,21 @@
+######## dsh-project-context
+7c939696239dfae2ee6a6e0f0056d2da655be9e1
+main
+2026-11-12T21:23:13+08:00 docs(memory): record the retirement round in the z8-acceptance task context
+tracked_files=546
+readme_sha256=429d7c458b7f16ebdf0255e123553fc7f6b8b41c8edff4f0c3b08ebfdb118ccd readme_bytes=11194
+tag_latest=v0.4.3
+######## pi-project-context
+e631c9991010ba13b314f062afb19b17d24286c2
+master
+2026-10-20T17:21:12+08:00 docs(release): record v0.4.14 release evidence
+tracked_files=577
+readme_sha256=80f3f4edc1ee1223fc6e2a0e20c62bda6bc52334cfa5733fd2ccb51b1bbb5879 readme_bytes=3269
+tag_latest=v0.4.14
+######## codex-project-context
+374c593d1eb92209fb7d1b0790e2954cc4f04449
+master
+2026-10-20T18:27:07+08:00 fix: refuse stale consolidation replies and detect torn memory reads
+tracked_files=16
+readme_sha256=33ccb8bcf04b11d96f9afadeb6c2e3d21bc24467d13440ea3c522fc0be060a45 readme_bytes=9850
+tag_latest=

@@ -1,0 +1,14 @@
+cc-memory	https://code.claude.com/docs/en/memory	html
+cc-hooks	https://docs.anthropic.com/en/docs/claude-code/hooks	html
+cc-skills	https://docs.anthropic.com/en/docs/claude-code/skills	html
+cursor-memories	https://cursor.com/docs/context/memories	html
+windsurf-memories	https://docs.windsurf.com/windsurf/cascade/memories	html
+cline-memory-bank	https://docs.cline.bot/prompting/cline-memory-bank	html
+aider-conventions-doc	https://aider.chat/docs/usage/conventions.html	html
+basic-memory-docs	https://docs.basicmemory.com/	html
+letta-docs	https://docs.letta.com/	html
+mem0-types	https://docs.mem0.ai/core-concepts/memory-types	html
+zep-concepts	https://help.getzep.com/concepts	html
+langmem	https://langchain-ai.github.io/langmem/	html
+anthropic-context-eng	https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents	html
+chroma-context-rot	https://research.trychroma.com/context-rot	html

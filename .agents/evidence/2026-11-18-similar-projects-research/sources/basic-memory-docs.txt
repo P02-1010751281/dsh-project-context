@@ -1,0 +1,148 @@
+Basic Memory - Basic Memory
+
+Search…
+⌘Ctrlk
+
+Search…
+⌘Ctrlk
+
+Welcome
+Start Here
+
+What is Basic Memory
+Quickstart: Cloud
+Quickstart: Local
+What's New
+
+Basic Memory 1.0
+Basic Memory v0.24
+Upgrade to v0.24
+Comments and Suggestions
+Pocketbook (Interactive MCP App)
+Introducing Teams
+Changelog
+Cloud
+
+Basic Memory Cloud
+Web App
+Note Editor
+Cloud Sync Guide
+Cloud Snapshots
+Themes
+API Keys
+Shared Notes
+Restore Lost Content
+File History
+Cloud CLI
+Local & Cloud Routing
+Comments and Suggestions
+Pocketbook (Interactive MCP App)
+Wiki
+Live Notes
+Comark Components
+Usage and Credits
+Browser Agents (WebMCP)
+Workspaces and Members
+
+Shared Workspaces
+Members and Roles
+Plans and Billing
+Team Projects
+Joining a Team Workspace
+Copy Content Between Workspaces
+Agents
+
+About Agents
+Add and Run Agents
+Review Agent Runs
+Partners
+
+Partner Program
+Customer Provisioning
+Customer SSO
+Billing
+Team and Audit
+Local
+
+Local install
+Getting Started
+CLI basics
+MCP tools (local)
+User Guide
+Postgres and Milvus
+Concepts
+
+Using Basic Memory with Built-in AI Memory
+Knowledge Format
+Projects and folders
+Observations and relations
+Memory URLs
+Schema System
+Semantic Search
+Metadata Search
+Documents and PDFs
+Integrations
+
+Connect AI tools
+Claude Desktop
+Claude Code
+OpenAI Codex
+ChatGPT
+Google Gemini
+OpenClaw Plugin
+Hermes Plugin
+Cursor
+VS Code
+Obsidian
+Agent Skills
+Harness Capture
+Tau Extension
+Pi Package
+How-to
+
+Code Project Documentation
+Organizing Notes for Writing
+Research & Learning
+Note Taking
+Personal Knowledge Management
+Reference
+
+CLI Reference
+MCP Tools Reference
+AI Assistant Guide
+Technical Information
+Troubleshooting
+Configuration
+Docker
+Migrating to 1.0
+AI-Friendly Documentation
+
+Welcome
+
+Copy page
+Real memory for your AI. A knowledge base you own.
+
+Basic Memory is real memory for your AI — a knowledge base you own. Built-in AI memory is small, vendor-owned, and usually invisible. Basic Memory is large, structured, and inspectable: a knowledge graph written in plain Markdown. Open it in any editor, hand it to any AI tool, and keep it forever.
+New in 1.0: a wiki for every project, live notes, documents as searchable notes, and Basic Memory agents (beta). See Basic Memory 1.0. Upgrading the local package? Read Upgrade to v0.24 and Migrating to 1.0.
+
+Edit this pageorReport an issue
+
+What is Basic Memory
+An overview of what Basic Memory is and how it works.
+
+On this page
+
+On this page
+
+Pick your path
+Go deeper
+
+Contact Us
+Contact Support
+Discord
+GitHub
+X / Twitter
+LinkedIn
+Reddit
+
+ Copyright © 2026

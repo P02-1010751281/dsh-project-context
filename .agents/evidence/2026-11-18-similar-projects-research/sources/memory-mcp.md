@@ -1,0 +1,427 @@
+# Knowledge Graph Memory Server
+
+A basic implementation of persistent memory using a local knowledge graph. This lets Claude remember information about the user across chats.
+
+Published on npm as [`@modelcontextprotocol/server-memory`](https://www.npmjs.com/package/@modelcontextprotocol/server-memory).
+
+## Core Concepts
+
+### Entities
+Entities are the primary nodes in the knowledge graph. Each entity has:
+- A unique name (identifier)
+- An entity type (e.g., "person", "organization", "event")
+- A list of observations
+
+Example:
+```json
+{
+  "name": "John_Smith",
+  "entityType": "person",
+  "observations": ["Speaks fluent Spanish"]
+}
+```
+
+### Relations
+Relations define directed connections between entities. They are always stored in active voice and describe how entities interact or relate to each other.
+
+Example:
+```json
+{
+  "from": "John_Smith",
+  "to": "Anthropic",
+  "relationType": "works_at"
+}
+```
+### Observations
+Observations are discrete pieces of information about an entity. They are:
+
+- Stored as strings
+- Attached to specific entities
+- Can be added or removed independently
+- Should be atomic (one fact per observation)
+
+Example:
+```json
+{
+  "entityName": "John_Smith",
+  "observations": [
+    "Speaks fluent Spanish",
+    "Graduated in 2019",
+    "Prefers morning meetings"
+  ]
+}
+```
+
+## API
+
+### Tools
+- **create_entities**
+  - Create multiple new entities in the knowledge graph
+  - Input: `entities` (array of objects)
+    - Each object contains:
+      - `name` (string): Entity identifier
+      - `entityType` (string): Type classification
+      - `observations` (string[]): Associated observations
+  - Ignores entities with existing names (and repeats of a name earlier in the same call); their observations are not added
+  - Returns the created entities. When any were skipped, the structured result also lists their names in `skipped`, and a second text item says which were skipped (use `add_observations` to extend an existing entity)
+
+- **create_relations**
+  - Create multiple new relations between entities
+  - Input: `relations` (array of objects)
+    - Each object contains:
+      - `from` (string): Source entity name
+      - `to` (string): Target entity name
+      - `relationType` (string): Relationship type in active voice
+  - Skips duplicate relations
+  - Fails if either the source or target entity doesn't exist
+
+- **add_observations**
+  - Add new observations to existing entities
+  - Input: `observations` (array of objects)
+    - Each object contains:
+      - `entityName` (string): Target entity
+      - `contents` (string[]): New observations to add
+  - Returns added observations per entity
+  - Fails if entity doesn't exist
+
+- **delete_entities**
+  - Remove whole entities, with all their observations
+  - Input: `entityNames` (string[])
+  - Cascading deletion of every relation that points to or from a deleted entity
+  - To remove a link between two entities and keep both, use `delete_relations`; to remove facts from an entity, use `delete_observations`
+  - No error if an entity doesn't exist; the response reports which names were not found
+
+- **delete_observations**
+  - Remove specific observations from entities
+  - Input: `deletions` (array of objects)
+    - Each object contains:
+      - `entityName` (string): Target entity
+      - `observations` (string[]): Observations to remove
+  - No error if an observation doesn't exist; the response reports how many were deleted
+
+- **delete_relations**
+  - Remove specific relations from the graph, keeping the entities they connect (to remove an entity itself, use `delete_entities`)
+  - Input: `relations` (array of objects)
+    - Each object contains:
+      - `from` (string): Source entity name
+      - `to` (string): Target entity name
+      - `relationType` (string): Relationship type
+  - A relation is deleted only when `from`, `to` and `relationType` all match a stored one exactly; read the stored `relationType` with `open_nodes` (or `search_nodes`) first if unsure
+  - No error if a relation doesn't exist; the response reports how many were deleted
+
+- **read_graph**
+  - Read the entire knowledge graph
+  - Optional input:
+    - `entityTypes` (string[], at least one): return only entities of these types, and the relations that touch one of them
+    - `observationLimit` (integer, 0 or more): see below
+  - Returns complete graph structure with all entities and relations
+  - With `observationLimit`, each entity carries at most that many observations (the first ones, in the order they were added) and an `observationCount` with its total. `observationLimit: 0` returns names, types and counts only: a cheap overview of a large graph, from which `open_nodes` reads the entities you need in full
+
+- **search_nodes**
+  - Search for nodes based on query
+  - Input: `query` (string, at most 2048 characters; a longer query is rejected)
+  - Searches across:
+    - Entity names
+    - Entity types
+    - Observation content
+  - Returns matching entities and their relations
+  - Optional input:
+    - `limit` (integer, 1 or more): return at most this many matches (the first, in stored order), with the relations that touch them
+    - `observationLimit` (integer, 0 or more): as for `read_graph`
+
+- **open_nodes**
+  - Retrieve specific nodes by name
+  - Input: `names` (string[])
+  - Returns:
+    - Requested entities
+    - Relations between requested entities
+  - Silently skips non-existent nodes
+  - Optional input: `observationLimit` (integer, 0 or more), as for `read_graph`
+
+### Resources
+
+- **knowledge-graph** (`memory://knowledge-graph`)
+  - The full knowledge graph as a readable MCP Resource
+  - MIME type: `application/json`
+  - Returns the same shape as `read_graph` (entities and relations)
+  - Mutation tools (`create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_observations`, `delete_relations`) emit `notifications/resources/updated` for this URI, so subscribed clients see live changes
+  - How a client subscribes depends on its protocol version: a 2026-07-28 client names the URI in the `resourceSubscriptions` of its `subscriptions/listen` request and gets the updates on that stream; a 2025-era client calls `resources/subscribe`
+
+## Protocol versions
+
+The server serves both protocol eras on stdio from the same process. The client's first message picks the era of the connection: a 2026-07-28 client opens with `server/discover` and sends its protocol version, identity and capabilities with each request, and a 2025-era client opens with the `initialize` handshake. The tools and the resource are the same on both.
+
+## Requirements
+
+Node.js 24 or later, when the server runs through `npx` or from source.
+
+# Usage with Claude Desktop
+
+### Setup
+
+Add this to your claude_desktop_config.json:
+
+#### Docker
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "docker",
+      "args": ["run", "-i", "-v", "claude-memory:/app/dist", "--rm", "mcp/memory"]
+    }
+  }
+}
+```
+
+#### NPX
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  }
+}
+```
+
+On Windows, use `cmd /c` to launch `npx`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  }
+}
+```
+
+#### NPX with custom setting
+
+The server can be configured using the following environment variables:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "/path/to/custom/memory.jsonl"
+      }
+    }
+  }
+}
+```
+
+On Windows, use:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "/path/to/custom/memory.jsonl"
+      }
+    }
+  }
+}
+```
+
+- `MEMORY_FILE_PATH`: Path to the memory storage JSONL file (default: `memory.jsonl` in the server directory). A leading `~` expands to your home directory; a relative path resolves against the server directory. Set it to an absolute path you own; see [Choosing where the graph is stored](#choosing-where-the-graph-is-stored).
+
+When `MEMORY_FILE_PATH` is not set and the server directory still holds a legacy `memory.json` but no `memory.jsonl`, the server renames `memory.json` to `memory.jsonl` at startup. If that rename fails, the server exits with an error naming both paths and the cause, rather than starting on an empty graph; fix the cause (a permission problem, say) and restart, or set `MEMORY_FILE_PATH` to choose a file explicitly.
+
+#### Choosing where the graph is stored
+
+**Set `MEMORY_FILE_PATH` to an absolute path you own**, such as `~/memory.jsonl`, as in the configuration above. The default `memory.jsonl` sits in the server's own directory, next to its code. Under `npx` or an npm install, that directory is inside a `node_modules` tree, which npm manages as its own: reinstalling or updating the server, or clearing the npx cache, can delete the file and the knowledge graph in it. A relative `MEMORY_FILE_PATH` resolves against that same directory, so it has the same problem.
+
+- When the memory file it resolves is inside a `node_modules` directory, the server prints a warning on stderr at startup naming the file; most clients show a server's stderr in its log. Move the file to the new path when you set the variable, or the server starts on an empty graph.
+- The directory must already exist: the server creates the memory file, not the directories above it.
+- The default stays where it is so that existing graphs keep loading. The [Docker](#docker) setup above keeps it in a named volume mounted over `/app/dist`, so the graph there survives restarts and draws no warning.
+
+Saves are atomic. Every write tool writes the whole graph to a temporary file in the same directory and renames it over the memory file, so a server stopped or killed mid-save leaves the previous graph intact rather than a half-written file. The file's permission bits are kept across the rename. Writes from several processes are serialized by a lock, described next.
+
+#### Sharing one memory file between clients
+
+Each MCP client starts its own server process, so two clients using the same `MEMORY_FILE_PATH` (or both using the default) are two processes writing one file. Every write tool takes an exclusive lock file, `<memory file>.lock`, next to the memory file while it reads, changes and saves the graph, so writes from different processes take turns and none is lost. The lock file exists only while a write is in progress, so the directory holding the memory file must be writable (it already must be, for the atomic save).
+
+- A lock left behind by a server that crashed mid-write is removed automatically: at once if its process is known to have exited on the same machine, otherwise once it has gone 30 seconds without being refreshed (a server holding the lock refreshes it every 15 seconds while it works). Only one waiting server breaks a stale lock at a time, guarded by a momentary `<memory file>.lock.break` file.
+- A write that cannot get the lock within 60 seconds fails with a tool error rather than overwriting the file.
+- The lock relies on exclusive file creation, which local filesystems provide; a network filesystem that does not honour it cannot be shared safely this way.
+
+# VS Code Installation Instructions
+
+For quick installation, use one of the one-click installation buttons below:
+
+[![Install with NPX in VS Code](https://img.shields.io/badge/VS_Code-NPM-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=memory&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40modelcontextprotocol%2Fserver-memory%22%5D%7D) [![Install with NPX in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-NPM-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=memory&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40modelcontextprotocol%2Fserver-memory%22%5D%7D&quality=insiders)
+
+[![Install with Docker in VS Code](https://img.shields.io/badge/VS_Code-Docker-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=memory&config=%7B%22command%22%3A%22docker%22%2C%22args%22%3A%5B%22run%22%2C%22-i%22%2C%22-v%22%2C%22claude-memory%3A%2Fapp%2Fdist%22%2C%22--rm%22%2C%22mcp%2Fmemory%22%5D%7D) [![Install with Docker in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Docker-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=memory&config=%7B%22command%22%3A%22docker%22%2C%22args%22%3A%5B%22run%22%2C%22-i%22%2C%22-v%22%2C%22claude-memory%3A%2Fapp%2Fdist%22%2C%22--rm%22%2C%22mcp%2Fmemory%22%5D%7D&quality=insiders)
+
+For manual installation, you can configure the MCP server using one of these methods:
+
+**Method 1: User Configuration (Recommended)**
+Add the configuration to your user-level MCP configuration file. Open the Command Palette (`Ctrl + Shift + P`) and run `MCP: Open User Configuration`. This will open your user `mcp.json` file where you can add the server configuration.
+
+**Method 2: Workspace Configuration**
+Alternatively, you can add the configuration to a file called `.vscode/mcp.json` in your workspace. This will allow you to share the configuration with others.
+
+> For more details about MCP configuration in VS Code, see the [official VS Code MCP documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers).
+
+#### NPX
+
+```json
+{
+  "servers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  }
+}
+```
+
+On Windows, use:
+
+```json
+{
+  "servers": {
+    "memory": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  }
+}
+```
+
+#### Docker
+
+```json
+{
+  "servers": {
+    "memory": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "-v",
+        "claude-memory:/app/dist",
+        "--rm",
+        "mcp/memory"
+      ]
+    }
+  }
+}
+```
+
+### System Prompt
+
+The prompt for utilizing memory depends on the use case. Changing the prompt will help the model determine the frequency and types of memories created.
+
+Here is an example prompt for chat personalization. You could use this prompt in the "Custom Instructions" field of a [Claude.ai Project](https://www.anthropic.com/news/projects). 
+
+```
+Follow these steps for each interaction:
+
+1. User Identification:
+   - You should assume that you are interacting with default_user
+   - If you have not identified default_user, proactively try to do so.
+
+2. Memory Retrieval:
+   - Always begin your chat by saying only "Remembering..." and retrieve all relevant information from your knowledge graph
+   - Always refer to your knowledge graph as your "memory"
+
+3. Memory
+   - While conversing with the user, be attentive to any new information that falls into these categories:
+     a) Basic Identity (age, gender, location, job title, education level, etc.)
+     b) Behaviors (interests, habits, etc.)
+     c) Preferences (communication style, preferred language, etc.)
+     d) Goals (goals, targets, aspirations, etc.)
+     e) Relationships (personal and professional relationships up to 3 degrees of separation)
+
+4. Memory Update:
+   - If any new information was gathered during the interaction, update your memory as follows:
+     a) Create entities for recurring organizations, people, and significant events
+     b) Connect them to the current entities using relations
+     c) Store facts about them as observations
+```
+
+## Building
+
+Docker:
+
+```sh
+docker build -t mcp/memory -f src/memory/Dockerfile . 
+```
+
+### Upgrading a Docker install
+
+The [Docker](#docker) setup mounts the named volume `claude-memory` over `/app/dist`, the image's code directory, so the volume holds the server's code (`index.js`, `version.js`) next to your `memory.jsonl`. Docker copies an image's files into a named volume only while the volume is empty. Once the volume holds your graph, a newer image never reaches it: the container keeps running the code from the image that first filled the volume, which may not even start against the newer image's dependencies. Deleting `index.js` from the volume does not help; it leaves `/app/dist` with no entry point.
+
+To upgrade, build or pull the new `mcp/memory` image, quit the MCP clients that start it, then replace the code in the volume with the new image's, keeping `memory.jsonl`:
+
+```sh
+docker run --rm -v claude-memory:/volume --user root --entrypoint sh mcp/memory \
+  -c 'rm -f /volume/*.js && cp /app/dist/*.js /volume/ && chown -R node:node /volume'
+```
+
+The volume is mounted at `/volume` rather than `/app/dist`, so the image's own `/app/dist` stays visible to copy from. Only the `.js` files are replaced; `memory.jsonl` (or a legacy `memory.json`) is left as it is. Repeat this after every image update.
+
+The image runs the server as the unprivileged `node` user, not root, so it must own the volume to save the graph. A volume an older image created, which ran as root, is owned by root, and without the `chown` above the server fails to save with `EACCES`. That is why this step runs as `--user root` and ends by giving the volume to `node`.
+
+#### Alternative: keep the graph in a volume of its own
+
+Mounting a volume on a directory of its own and pointing `MEMORY_FILE_PATH` at it keeps the code out of the volume, so a new image takes effect with no copying step:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "docker",
+      "args": ["run", "-i", "-v", "claude-memory-data:/data", "-e", "MEMORY_FILE_PATH=/data/memory.jsonl", "--rm", "mcp/memory"]
+    }
+  }
+}
+```
+
+To move an existing graph from the `claude-memory` volume into the new one, quit the MCP clients that start the server, then run:
+
+```sh
+docker run --rm -v claude-memory:/old -v claude-memory-data:/data \
+  --entrypoint cp mcp/memory /old/memory.jsonl /data/memory.jsonl
+```
+
+If the old volume holds only a legacy `memory.json`, copy `/old/memory.json` to `/data/memory.jsonl` instead. Once the server has started on the new volume with your graph, you can remove the old volume with `docker volume rm claude-memory`.
+
+## License
+
+This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.

@@ -1,0 +1,323 @@
+
+
+ Specification - Agent Skills
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+Use this file to discover all available pages before exploring further.
+Skip to main content
+
+Assistant
+
+Responses are generated using AI and may contain mistakes.
+
+Agent Skills now has an official Discord server. See the announcement for details.
+
+Agent Skills home page
+Agent Skills
+
+Search...⌘KAsk Assistant⌘I
+
+agentskills/agentskills
+
+agentskills/agentskills
+
+Search...
+Navigation
+
+Specification
+
+Overview
+
+Specification
+
+Client Showcase
+
+For skill creators
+
+Quickstart
+
+Best practices
+
+Optimizing descriptions
+
+Evaluating skills
+
+Using scripts
+
+For client implementors
+
+Adding skills support
+
+On this page
+Back to top
+Directory structure
+SKILL.md format
+Frontmatter
+name field
+description field
+license field
+compatibility field
+metadata field
+allowed-tools field
+Body content
+Optional directories
+scripts/
+references/
+assets/
+Progressive disclosure
+File references
+Validation
+
+Specification
+
+Copy pageCopy page
+
+The complete format specification for Agent Skills.
+
+Copy pageCopy page
+
+Directory structure
+
+A skill is a directory containing, at minimum, a SKILL.md file:
+
+skill-name/
+├── SKILL.md # Required: metadata + instructions
+├── scripts/ # Optional: executable code
+├── references/ # Optional: documentation
+├── assets/ # Optional: templates, resources
+└── ... # Any additional files or directories
+
+SKILL.md format
+
+The SKILL.md file must contain YAML frontmatter followed by Markdown content.
+
+Frontmatter
+
+ Field Required Constraints
+ name Yes Max 64 characters. Lowercase letters, numbers, and hyphens only. Must not start or end with a hyphen.
+ description Yes Max 1024 characters. Non-empty. Describes what the skill does and when to use it.
+ license No License name or reference to a bundled license file.
+ compatibility No Max 500 characters. Indicates environment requirements (intended product, system packages, network access, etc.).
+ metadata No Arbitrary key-value mapping for additional metadata (a map from string keys to string values).
+ allowed-tools No Space-separated string of pre-approved tools the skill may use. (Experimental)
+
+Minimal example:
+
+SKILL.md
+
+---
+name: skill-name
+description: A description of what this skill does and when to use it.
+---
+
+Example with optional fields:
+
+SKILL.md
+
+---
+name: pdf-processing
+description: Extract PDF text, fill forms, merge files. Use when handling PDFs.
+license: Apache-2.0
+metadata:
+ author: example-org
+ version: "1.0"
+---
+
+name field
+
+The required name field:
+
+Must be 1-64 characters
+
+May only contain unicode lowercase alphanumeric characters (a-z, 0-9) and hyphens (-)
+
+Must not start or end with a hyphen (-)
+
+Must not contain consecutive hyphens (--)
+
+Must match the parent directory name
+
+Valid examples:
+
+name: pdf-processing
+
+name: data-analysis
+
+name: code-review
+
+Invalid examples:
+
+name: PDF-Processing # uppercase not allowed
+
+name: -pdf # cannot start with hyphen
+
+name: pdf--processing # consecutive hyphens not allowed
+
+description field
+
+The required description field:
+
+Must be 1-1024 characters
+
+Should describe both what the skill does and when to use it
+
+Should include specific keywords that help agents identify relevant tasks
+
+Good example:
+
+description: Extracts text and tables from PDF files, fills PDF forms, and merges multiple PDFs. Use when working with PDF documents or when the user mentions PDFs, forms, or document extraction.
+
+Poor example:
+
+description: Helps with PDFs.
+
+license field
+
+The optional license field:
+
+Specifies the license applied to the skill
+
+We recommend keeping it short (either the name of a license or the name of a bundled license file)
+
+Example:
+
+license: Proprietary. LICENSE.txt has complete terms
+
+compatibility field
+
+The optional compatibility field:
+
+Must be 1-500 characters if provided
+
+Should only be included if your skill has specific environment requirements
+
+Can indicate intended product, required system packages, network access needs, etc.
+
+Examples:
+
+compatibility: Designed for Claude Code (or similar products)
+
+compatibility: Requires git, docker, jq, and access to the internet
+
+compatibility: Requires Python 3.14+ and uv
+
+Most skills do not need the compatibility field.
+
+metadata field
+
+The optional metadata field:
+
+A map from string keys to string values
+
+Clients can use this to store additional properties not defined by the Agent Skills spec
+
+We recommend making your key names reasonably unique to avoid accidental conflicts
+
+Example:
+
+metadata:
+ author: example-org
+ version: "1.0"
+
+allowed-tools field
+
+The optional allowed-tools field:
+
+A space-separated string of tools that are pre-approved to run
+
+Experimental. Support for this field may vary between agent implementations
+
+Example:
+
+allowed-tools: Bash(git:*) Bash(jq:*) Read
+
+Body content
+
+The Markdown body after the frontmatter contains the skill instructions. There are no format restrictions. Write whatever helps agents perform the task effectively.
+Recommended sections:
+
+Step-by-step instructions
+
+Examples of inputs and outputs
+
+Common edge cases
+
+Note that the agent will load this entire file once it’s decided to activate a skill. Consider splitting longer SKILL.md content into referenced files.
+
+Optional directories
+
+A skill directory may contain any files and directories beyond the required SKILL.md. The conventions below are recommendations for organizing common types of content.
+
+scripts/
+
+Contains executable code that agents can run. Scripts should:
+
+Be self-contained or clearly document dependencies
+
+Include helpful error messages
+
+Handle edge cases gracefully
+
+Supported languages depend on the agent implementation. Common options include Python, Bash, and JavaScript.
+
+references/
+
+Contains additional documentation that agents can read when needed:
+
+REFERENCE.md - Detailed technical reference
+
+FORMS.md - Form templates or structured data formats
+
+Domain-specific files (finance.md, legal.md, etc.)
+
+Keep individual reference files focused. Agents load these on demand, so smaller files mean less use of context.
+
+assets/
+
+Contains static resources:
+
+Templates (document templates, configuration templates)
+
+Images (diagrams, examples)
+
+Data files (lookup tables, schemas)
+
+Progressive disclosure
+
+Agents load skills progressively, pulling in more detail only as a task calls for it. Skills should be structured to take advantage of this:
+
+Metadata (~100 tokens): The name and description fields are loaded at startup for all skills
+
+Instructions (< 5000 tokens recommended): The full SKILL.md body is loaded when the skill is activated
+
+Resources (as needed): Files (e.g. those in scripts/, references/, or assets/) are loaded only when required
+
+Keep your main SKILL.md under 500 lines. Move detailed reference material to separate files.
+
+File references
+
+When referencing other files in your skill, use relative paths from the skill root:
+
+SKILL.md
+
+See [the reference guide](references/REFERENCE.md) for details.
+
+Run the extraction script:
+scripts/extract.py
+
+Keep file references one level deep from SKILL.md. Avoid deeply nested reference chains.
+
+Validation
+
+Use the skills-ref reference library to validate your skills:
+
+skills-ref validate ./my-skill
+
+This checks that your SKILL.md frontmatter is valid and follows all naming conventions.
+Overview
+Client Showcase
+
+ {"docsConfig":{"theme":"mint","$schema":"https://mintlify.com/docs.json","name":"Agent Skills","colors":{"primary":"#7f7f7f","light":"#bfbfbf","dark":"#404040"},"favicon":"https://mintcdn.com/agent-skills/T2VNvrX8aOSdN9Eu/favicon.svg?fit=max\u0026auto=format\u0026n=T2VNvrX8aOSdN9Eu\u0026q=85\u0026s=a4959d2f3e201f3c9a3e59b2eda7dc71","navbar":{"primary":{"type":"github","href":"https://github.com/agentskills/agentskills"}},"banner":{"content":"Agent Skills now has an official [Discord server](https://discord.gg/MKPE9g8aUy). See the [announcement](https://github.com/agentskills/agentskills/discussions/273) for details.","dismissible":true},"contextual":{"options":["copy","view","chatgpt","claude","perplexity","mcp","cursor","vscode"],"display":"header"},"styling":{"latex":false},"navigation":{"pages":[]}},"deployment":{"deploymentMetadataValue":{"subdomain":"agent-skills","hasAudioNarration":false,"actualSubdomain":"agent-skills","customDomains":["agentskills.io"],"gitSource":{"type":"github","owner":"agentskills","repo":"agentskills","deployBranch":"main","contentDirectory":"docs","isPrivate":false,"mountPath":"","label":""},"entitlements":{"AI_CHAT":{"status":"ENABLED"},"REMOVE_BRANDING":{"status":"ENABLED"},"CONTEXTUAL_FEEDBACK":{"status":"ENABLED"},"CODE_SNIPPET_FEEDBACK":{"status":"ENABLED"},"WEB_MCP":{"status":"ENABLED"},"NARRATION":{"status":"ENABLED"}},"buildId":"6aeb8bbb1f412820293910a4","clientVersion":"0.0.4177","searchFilterCounts":[{"language":"default","tag":"For skill creators","count":5},{"language":"default","tag":"For client implementors","count":1}]},"assistantConfig":{"enableAskAiButton":false,"enableStarterQuestions":false,"enableAskAiSearchBar":true},"basePath":"","hasChatPermissions":true,"hasWebMcpPermissions":true,"toggles":[{"name":"kill-isr","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"custom-rbac-roles","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"agent-mintlify-slack","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"agent-integrations-settings","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"rbac-expansion","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"automations-pr-grouping","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"custom-prefix","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"analytics-v7","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"user-flows-analytics","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"no-publish-flow","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"workos-onboarding","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"snapshot-serving-live","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"stripTemperatureMiddleware","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"support-platform-pylon-zendesk","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"snapshot-serving","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"instant-rollback","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"granular-notifications-server","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"granular-notifications","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"automations-fable","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"fixed-ai-action-pricing","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"automation-resolve-merge-conflict","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"scoped-publishing","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"mintql","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"page-level-analytics","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"editor-version-history-v2","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"billing-page-v2","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"full-page-search","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"workspace-projects","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"assistant-v5","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"fork-pr-previews","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"revalidation-jwt","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"workos-sso-scim","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"hobby-abuse-scan","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"dashboard-inbox","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"workos-signup","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"turbopuffer-dual-write","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"workos-enabled","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"approve-review-flow","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"editor-metadata","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"sso-setup-deadline-banner","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"turbopuffer-serve","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"live-agents","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false},{"name":"starter-pricing","enabled":true,"variant":{"name":"control","enabled":true,"payload":{"type":"string","value":"control"},"feature_enabled":true},"impressionData":false},{"name":"llms-txt-v2","enabled":true,"variant":{"name":"disabled","enabled":false,"feature_enabled":true},"impressionData":false}],"googleFontsInlined":false},"customCss":[{"filePath":"style.css","content":"#content-area{--font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;h5 {\n font-weight: 500;\n }\n\n h6 {\n font-weight: 400;\n }}#enable-section-numbers{display:none}body:has(#enable-section-numbers){#content-area,\n #table-of-contents {\n counter-reset: h2-counter h3-counter h4-counter h5-counter h6-counter;\n }\n\n #content-area h2[id],\n #table-of-contents li[data-depth=\"0\"] {\n counter-set: h3-counter h4-counter h5-counter h6-counter;\n }\n\n #content-area h3[id],\n #table-of-contents li[data-depth=\"1\"] {\n counter-set: h4-counter h5-counter h6-counter;\n }\n\n #content-area h4[id],\n #table-of-contents li[data-depth=\"2\"] {\n counter-set: h5-counter h6-counter;\n }\n\n #content-area h5[id],\n #content-area h5,\n #table-of-contents li[data-depth=\"3\"] {\n counter-set: h6-counter;\n }\n\n #content-area h2[id]::before,\n #table-of-contents li[data-depth=\"0\"] a::before {\n counter-increment: h2-counter;\n content: counter(h2-counter) \". \";\n }\n\n #content-area h3[id]::before,\n #table-of-contents li[data-depth=\"1\"] a::before {\n counter-increment: h3-counter;\n content: counter(h2-counter) \".\" counter(h3-counter) \" \";\n }\n\n #content-area h4[id]::before,\n #table-of-contents li[data-depth=\"2\"] a::before {\n counter-increment: h4-counter;\n content: counter(h2-counter) \".\" counter(h3-counter) \".\" counter(h4-counter)\n \" \";\n }\n\n #content-area h5[id]::before,\n #content-area h5::before,\n #table-of-contents li[data-depth=\"3\"] a::before {\n counter-increment: h5-counter;\n content: counter(h2-counter) \".\" counter(h3-counter) \".\" counter(h4-counter)\n \".\" counter(h5-counter) \" \";\n }\n\n #content-area h6[id]::before,\n #content-area h6::before,\n #table-of-contents li[data-depth=\"4\"] a::before {\n counter-increment: h6-counter;\n content: counter(h2-counter) \".\" counter(h3-counter) \".\" counter(h4-counter)\n \".\" counter(h5-counter) \".\" counter(h6-counter) \" \";\n }}.logo-carousel{overflow:hidden;width:100%}.logo-carousel-track{display:flex;align-items:center;width:max-content;gap:3rem;will-change:transform}@keyframes logo-scroll{from{transform:translateX(0)}to{transform:translateX(calc(-50% - 1.5rem))}}@media (prefers-reduced-motion: reduce){.logo-carousel-track{animation:none}}#footer{flex-wrap:wrap}.legal-notice{flex-basis:100%;margin-top:1rem;font-size:0.875rem;opacity:0.7}.legal-notice a{text-decoration:underline}"}],"page":{"pagePath":"specification","slug":"/specification","pageMetadata":{"title":"Specification","description":"The complete format specification for Agent Skills.","href":"/specification"},"description":{"compiledSource":"\"use strict\";\nconst {jsx: _jsx} = arguments[0];\nconst {useMDXComponents: _provideComponents} = arguments[0];\nfunction _createMdxContent(props) {\n const _components = {\n p: \"p\",\n ..._provideComponents(),\n ...props.components\n };\n return _jsx(_components.p, {\n children: \"The complete format specification for Agent Skills.\"\n });\n}\nfunction MDXContent(props = {}) {\n const {wrapper: MDXLayout} = {\n ..._provideComponents(),\n ...props.components\n };\n return MDXLayout ? _jsx(MDXLayout, {\n ...props,\n children: _jsx(_createMdxContent, {\n ...props\n })\n }) : _createMdxContent(props);\n}\nreturn {\n default: MDXContent\n};\n","frontmatter":{},"scope":{}},"pageType":"default","mdx":{"mdxSource":{"compiledSource":"\"use strict\";const{Fragment:_Fragment,jsx:_jsx,jsxs:_jsxs}=arguments[0];const{useMDXComponents:_provideComponents}=arguments[0];function _createMdxContent(props){const _components={a:`a`,code:`code`,em:`em`,li:`li`,ol:`ol`,p:`p`,pre:`pre`,span:`span`,strong:`strong`,tbody:`tbody`,td:`td`,th:`th`,thead:`thead`,tr:`tr`,ul:`ul`,..._provideComponents(),...props.components},{Card,CodeBlock,Heading,Note,Table}=_components;if(!Card)_missingMdxReference(`Card`,true);if(!CodeBlock)_missingMdxReference(`CodeBlock`,true);if(!Heading)_missingMdxReference(`Heading`,true);if(!Note)_missingMdxReference(`Note`,true);if(!Table)_missingMdxReference(`Table`,true);return _jsxs(_Fragment,{children:[_jsx(Heading,{level:`2`,id:`directory-structure`,children:`Directory structure`}),`\n`,_jsxs(_components.p,{children:[`A skill is a directory containing, at minimum, a `,_jsx(_components.code,{children:`SKILL.md`}),` file:`]}),`\n`,_jsx(CodeBlock,{numberOfLines:`7`,language:`text`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`text`,children:_jsxs(_components.code,{language:`text`,numberOfLines:`7`,children:[_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{children:`skill-name/`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{children:`├── SKILL.md # Required: metadata + instructions`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{children:`├── scripts/ # Optional: executable code`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{children:`├── references/ # Optional: documentation`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{children:`├── assets/ # Optional: templates, resources`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{children:`└── ... # Any additional files or directories`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{})})]})})}),`\n`,_jsxs(Heading,{level:`2`,id:`skill-md-format`,children:[_jsx(_components.code,{children:`SKILL.md`}),` format`]}),`\n`,_jsxs(_components.p,{children:[`The `,_jsx(_components.code,{children:`SKILL.md`}),` file must contain YAML frontmatter followed by Markdown content.`]}),`\n`,_jsx(Heading,{level:`3`,id:`frontmatter`,children:`Frontmatter`}),`\n`,_jsxs(Table,{children:[_jsx(_components.thead,{children:_jsxs(_components.tr,{children:[_jsx(_components.th,{children:`Field`}),_jsx(_components.th,{children:`Required`}),_jsx(_components.th,{children:`Constraints`})]})}),_jsxs(_components.tbody,{children:[_jsxs(_components.tr,{children:[_jsx(_components.td,{children:_jsx(_components.code,{children:`name`})}),_jsx(_components.td,{children:`Yes`}),_jsx(_components.td,{children:`Max 64 characters. Lowercase letters, numbers, and hyphens only. Must not start or end with a hyphen.`})]}),_jsxs(_components.tr,{children:[_jsx(_components.td,{children:_jsx(_components.code,{children:`description`})}),_jsx(_components.td,{children:`Yes`}),_jsx(_components.td,{children:`Max 1024 characters. Non-empty. Describes what the skill does and when to use it.`})]}),_jsxs(_components.tr,{children:[_jsx(_components.td,{children:_jsx(_components.code,{children:`license`})}),_jsx(_components.td,{children:`No`}),_jsx(_components.td,{children:`License name or reference to a bundled license file.`})]}),_jsxs(_components.tr,{children:[_jsx(_components.td,{children:_jsx(_components.code,{children:`compatibility`})}),_jsx(_components.td,{children:`No`}),_jsx(_components.td,{children:`Max 500 characters. Indicates environment requirements (intended product, system packages, network access, etc.).`})]}),_jsxs(_components.tr,{children:[_jsx(_components.td,{children:_jsx(_components.code,{children:`metadata`})}),_jsx(_components.td,{children:`No`}),_jsx(_components.td,{children:`Arbitrary key-value mapping for additional metadata (a map from string keys to string values).`})]}),_jsxs(_components.tr,{children:[_jsx(_components.td,{children:_jsx(_components.code,{children:`allowed-tools`})}),_jsx(_components.td,{children:`No`}),_jsx(_components.td,{children:`Space-separated string of pre-approved tools the skill may use. (Experimental)`})]})]})]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Minimal example:`})}),_jsx(CodeBlock,{filename:`SKILL.md`,numberOfLines:`4`,language:`markdown`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`markdown`,children:_jsxs(_components.code,{language:`markdown`,numberOfLines:`4`,children:[_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`---`})}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`skill-name`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`description`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`A description of what this skill does and when to use it.`})]}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`---`})}),`\n`]})})}),_jsx(_components.p,{children:_jsx(_components.strong,{children:`Example with optional fields:`})}),_jsx(CodeBlock,{filename:`SKILL.md`,numberOfLines:`8`,language:`markdown`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`markdown`,children:_jsxs(_components.code,{language:`markdown`,numberOfLines:`8`,children:[_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`---`})}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`pdf-processing`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`description`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Extract PDF text, fill forms, merge files. Use when handling PDFs.`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`license`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Apache-2.0`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`metadata`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`:`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:` author`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`example-org`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:` version`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`\"1.0\"`})]}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`---`})}),`\n`]})})})]}),`\n`,_jsxs(Heading,{level:`4`,id:`name-field`,children:[_jsx(_components.code,{children:`name`}),` field`]}),`\n`,_jsxs(_components.p,{children:[`The required `,_jsx(_components.code,{children:`name`}),` field:`]}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Must be 1-64 characters`}),`\n`,_jsxs(_components.li,{children:[`May only contain unicode lowercase alphanumeric characters (`,_jsx(_components.code,{children:`a-z`}),`, `,_jsx(_components.code,{children:`0-9`}),`) and hyphens (`,_jsx(_components.code,{children:`-`}),`)`]}),`\n`,_jsxs(_components.li,{children:[`Must not start or end with a hyphen (`,_jsx(_components.code,{children:`-`}),`)`]}),`\n`,_jsxs(_components.li,{children:[`Must not contain consecutive hyphens (`,_jsx(_components.code,{children:`--`}),`)`]}),`\n`,_jsx(_components.li,{children:`Must match the parent directory name`}),`\n`]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Valid examples:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`pdf-processing`})]}),`\n`]})})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`data-analysis`})]}),`\n`]})})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`code-review`})]}),`\n`]})})}),_jsx(_components.p,{children:_jsx(_components.strong,{children:`Invalid examples:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`PDF-Processing`}),_jsx(_components.span,{style:{color:`#6E7781`,\"--shiki-dark\":`#6A9955`},children:` # uppercase not allowed`})]}),`\n`]})})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`-pdf`}),_jsx(_components.span,{style:{color:`#6E7781`,\"--shiki-dark\":`#6A9955`},children:` # cannot start with hyphen`})]}),`\n`]})})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`name`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`pdf--processing`}),_jsx(_components.span,{style:{color:`#6E7781`,\"--shiki-dark\":`#6A9955`},children:` # consecutive hyphens not allowed`})]}),`\n`]})})})]}),`\n`,_jsxs(Heading,{level:`4`,id:`description-field`,children:[_jsx(_components.code,{children:`description`}),` field`]}),`\n`,_jsxs(_components.p,{children:[`The required `,_jsx(_components.code,{children:`description`}),` field:`]}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Must be 1-1024 characters`}),`\n`,_jsx(_components.li,{children:`Should describe both what the skill does and when to use it`}),`\n`,_jsx(_components.li,{children:`Should include specific keywords that help agents identify relevant tasks`}),`\n`]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Good example:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`description`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Extracts text and tables from PDF files, fills PDF forms, and merges multiple PDFs. Use when working with PDF documents or when the user mentions PDFs, forms, or document extraction.`})]}),`\n`]})})}),_jsx(_components.p,{children:_jsx(_components.strong,{children:`Poor example:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`description`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Helps with PDFs.`})]}),`\n`]})})})]}),`\n`,_jsxs(Heading,{level:`4`,id:`license-field`,children:[_jsx(_components.code,{children:`license`}),` field`]}),`\n`,_jsxs(_components.p,{children:[`The optional `,_jsx(_components.code,{children:`license`}),` field:`]}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Specifies the license applied to the skill`}),`\n`,_jsx(_components.li,{children:`We recommend keeping it short (either the name of a license or the name of a bundled license file)`}),`\n`]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Example:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`license`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Proprietary. LICENSE.txt has complete terms`})]}),`\n`]})})})]}),`\n`,_jsxs(Heading,{level:`4`,id:`compatibility-field`,children:[_jsx(_components.code,{children:`compatibility`}),` field`]}),`\n`,_jsxs(_components.p,{children:[`The optional `,_jsx(_components.code,{children:`compatibility`}),` field:`]}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Must be 1-500 characters if provided`}),`\n`,_jsx(_components.li,{children:`Should only be included if your skill has specific environment requirements`}),`\n`,_jsx(_components.li,{children:`Can indicate intended product, required system packages, network access needs, etc.`}),`\n`]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Examples:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`compatibility`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Designed for Claude Code (or similar products)`})]}),`\n`]})})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`compatibility`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Requires git, docker, jq, and access to the internet`})]}),`\n`]})})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`compatibility`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Requires Python 3.14+ and uv`})]}),`\n`]})})})]}),`\n`,_jsx(Note,{children:_jsxs(_components.p,{children:[`Most skills do not need the `,_jsx(_components.code,{children:`compatibility`}),` field.`]})}),`\n`,_jsxs(Heading,{level:`4`,id:`metadata-field`,children:[_jsx(_components.code,{children:`metadata`}),` field`]}),`\n`,_jsxs(_components.p,{children:[`The optional `,_jsx(_components.code,{children:`metadata`}),` field:`]}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`A map from string keys to string values`}),`\n`,_jsx(_components.li,{children:`Clients can use this to store additional properties not defined by the Agent Skills spec`}),`\n`,_jsx(_components.li,{children:`We recommend making your key names reasonably unique to avoid accidental conflicts`}),`\n`]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Example:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`3`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`3`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`metadata`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`:`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:` author`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`example-org`})]}),`\n`,_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:` version`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`\"1.0\"`})]}),`\n`]})})})]}),`\n`,_jsxs(Heading,{level:`4`,id:`allowed-tools-field`,children:[_jsx(_components.code,{children:`allowed-tools`}),` field`]}),`\n`,_jsxs(_components.p,{children:[`The optional `,_jsx(_components.code,{children:`allowed-tools`}),` field:`]}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`A space-separated string of tools that are pre-approved to run`}),`\n`,_jsx(_components.li,{children:`Experimental. Support for this field may vary between agent implementations`}),`\n`]}),`\n`,_jsxs(Card,{children:[_jsx(_components.p,{children:_jsx(_components.strong,{children:`Example:`})}),_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`yaml`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`yaml`,children:_jsxs(_components.code,{language:`yaml`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#116329`,\"--shiki-dark\":`#569CD6`},children:`allowed-tools`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`: `}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`Bash(git:*) Bash(jq:*) Read`})]}),`\n`]})})})]}),`\n`,_jsx(Heading,{level:`3`,id:`body-content`,children:`Body content`}),`\n`,_jsx(_components.p,{children:`The Markdown body after the frontmatter contains the skill instructions. There are no format restrictions. Write whatever helps agents perform the task effectively.`}),`\n`,_jsx(_components.p,{children:`Recommended sections:`}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Step-by-step instructions`}),`\n`,_jsx(_components.li,{children:`Examples of inputs and outputs`}),`\n`,_jsx(_components.li,{children:`Common edge cases`}),`\n`]}),`\n`,_jsxs(_components.p,{children:[`Note that the agent will load this entire file once it’s decided to activate a skill. Consider splitting longer `,_jsx(_components.code,{children:`SKILL.md`}),` content into referenced files.`]}),`\n`,_jsx(Heading,{level:`2`,id:`optional-directories`,children:`Optional directories`}),`\n`,_jsxs(_components.p,{children:[`A skill directory may contain any files and directories beyond the required `,_jsx(_components.code,{children:`SKILL.md`}),`. The conventions below are recommendations for organizing common types of content.`]}),`\n`,_jsx(Heading,{level:`3`,id:`scripts/`,children:_jsx(_components.code,{children:`scripts/`})}),`\n`,_jsx(_components.p,{children:`Contains executable code that agents can run. Scripts should:`}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Be self-contained or clearly document dependencies`}),`\n`,_jsx(_components.li,{children:`Include helpful error messages`}),`\n`,_jsx(_components.li,{children:`Handle edge cases gracefully`}),`\n`]}),`\n`,_jsx(_components.p,{children:`Supported languages depend on the agent implementation. Common options include Python, Bash, and JavaScript.`}),`\n`,_jsx(Heading,{level:`3`,id:`references/`,children:_jsx(_components.code,{children:`references/`})}),`\n`,_jsx(_components.p,{children:`Contains additional documentation that agents can read when needed:`}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsxs(_components.li,{children:[_jsx(_components.code,{children:`REFERENCE.md`}),` - Detailed technical reference`]}),`\n`,_jsxs(_components.li,{children:[_jsx(_components.code,{children:`FORMS.md`}),` - Form templates or structured data formats`]}),`\n`,_jsxs(_components.li,{children:[`Domain-specific files (`,_jsx(_components.code,{children:`finance.md`}),`, `,_jsx(_components.code,{children:`legal.md`}),`, etc.)`]}),`\n`]}),`\n`,_jsxs(_components.p,{children:[`Keep individual `,_jsx(_components.a,{href:`#file-references`,children:`reference files`}),` focused. Agents load these on demand, so smaller files mean less use of context.`]}),`\n`,_jsx(Heading,{level:`3`,id:`assets/`,children:_jsx(_components.code,{children:`assets/`})}),`\n`,_jsx(_components.p,{children:`Contains static resources:`}),`\n`,_jsxs(_components.ul,{children:[`\n`,_jsx(_components.li,{children:`Templates (document templates, configuration templates)`}),`\n`,_jsx(_components.li,{children:`Images (diagrams, examples)`}),`\n`,_jsx(_components.li,{children:`Data files (lookup tables, schemas)`}),`\n`]}),`\n`,_jsx(Heading,{level:`2`,id:`progressive-disclosure`,children:`Progressive disclosure`}),`\n`,_jsxs(_components.p,{children:[`Agents load skills `,_jsx(_components.em,{children:`progressively`}),`, pulling in more detail only as a task calls for it. Skills should be structured to take advantage of this:`]}),`\n`,_jsxs(_components.ol,{children:[`\n`,_jsxs(_components.li,{children:[_jsx(_components.strong,{children:`Metadata`}),` (~100 tokens): The `,_jsx(_components.code,{children:`name`}),` and `,_jsx(_components.code,{children:`description`}),` fields are loaded at startup for all skills`]}),`\n`,_jsxs(_components.li,{children:[_jsx(_components.strong,{children:`Instructions`}),` (\u003c 5000 tokens recommended): The full `,_jsx(_components.code,{children:`SKILL.md`}),` body is loaded when the skill is activated`]}),`\n`,_jsxs(_components.li,{children:[_jsx(_components.strong,{children:`Resources`}),` (as needed): Files (e.g. those in `,_jsx(_components.code,{children:`scripts/`}),`, `,_jsx(_components.code,{children:`references/`}),`, or `,_jsx(_components.code,{children:`assets/`}),`) are loaded only when required`]}),`\n`]}),`\n`,_jsxs(_components.p,{children:[`Keep your main `,_jsx(_components.code,{children:`SKILL.md`}),` under 500 lines. Move detailed reference material to separate files.`]}),`\n`,_jsx(Heading,{level:`2`,id:`file-references`,children:`File references`}),`\n`,_jsx(_components.p,{children:`When referencing other files in your skill, use relative paths from the skill root:`}),`\n`,_jsx(CodeBlock,{filename:`SKILL.md`,numberOfLines:`4`,language:`markdown`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`markdown`,children:_jsxs(_components.code,{language:`markdown`,numberOfLines:`4`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`See [`}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:`the reference guide`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`](`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-light-text-decoration\":`underline`,\"--shiki-dark\":`#D4D4D4`,\"--shiki-dark-text-decoration\":`underline`},children:`references/REFERENCE.md`}),_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`) for details.`})]}),`\n`,_jsx(_components.span,{className:`line`}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`Run the extraction script:`})}),`\n`,_jsx(_components.span,{className:`line`,children:_jsx(_components.span,{style:{color:`#1F2328`,\"--shiki-dark\":`#D4D4D4`},children:`scripts/extract.py`})}),`\n`]})})}),`\n`,_jsxs(_components.p,{children:[`Keep file references one level deep from `,_jsx(_components.code,{children:`SKILL.md`}),`. Avoid deeply nested reference chains.`]}),`\n`,_jsx(Heading,{level:`2`,id:`validation`,children:`Validation`}),`\n`,_jsxs(_components.p,{children:[`Use the `,_jsx(_components.a,{href:`https://github.com/agentskills/agentskills/tree/main/skills-ref`,children:`skills-ref`}),` reference library to validate your skills:`]}),`\n`,_jsx(CodeBlock,{filename:``,numberOfLines:`1`,language:`shellscript`,children:_jsx(_components.pre,{className:`shiki shiki-themes github-light-default dark-plus`,style:{backgroundColor:`#ffffff`,\"--shiki-dark-bg\":`#0B0C0E`,color:`#1f2328`,\"--shiki-dark\":`#D4D4D4`},language:`shellscript`,children:_jsxs(_components.code,{language:`shellscript`,numberOfLines:`1`,children:[_jsxs(_components.span,{className:`line`,children:[_jsx(_components.span,{style:{color:`#953800`,\"--shiki-dark\":`#DCDCAA`},children:`skills-ref`}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:` validate`}),_jsx(_components.span,{style:{color:`#0A3069`,\"--shiki-dark\":`#CE9178`},children:` ./my-skill`})]}),`\n`]})})}),`\n`,_jsxs(_components.p,{children:[`This checks that your `,_jsx(_components.code,{children:`SKILL.md`}),` frontmatter is valid and follows all naming conventions.`]})]})}function MDXContent(props={}){const{wrapper:MDXLayout}={..._provideComponents(),...props.components};return MDXLayout?_jsx(MDXLayout,{...props,children:_jsx(_createMdxContent,{...props})}):_createMdxContent(props)}return{default:MDXContent};function _missingMdxReference(id,component){throw new Error(`Expected `+(component?`component`:`object`)+\" `\"+id+\"` to be defined: you likely forgot to import, pass, or provide it.\")}","frontmatter":{},"scope":{"config":{},"pageMetadata":{"title":"Specification","description":"The complete format specification for Agent Skills.","href":"/specification"}}},"mdxSourceWithNoJs":null},"mdxExtracts":{"tableOfContents":[{"title":"Directory structure","slug":"directory-structure","depth":2,"children":[]},{"title":"SKILL.md format","slug":"skill-md-format","depth":2,"children":[{"title":"Frontmatter","slug":"frontmatter","depth":3,"children":[]},{"title":"name field","slug":"name-field","depth":4,"children":[]},{"title":"description field","slug":"description-field","depth":4,"children":[]},{"title":"license field","slug":"license-field","depth":4,"children":[]},{"title":"compatibility field","slug":"compatibility-field","depth":4,"children":[]},{"title":"metadata field","slug":"metadata-field","depth":4,"children":[]},{"title":"allowed-tools field","slug":"allowed-tools-field","depth":4,"children":[]},{"title":"Body content","slug":"body-content","depth":3,"children":[]}]},{"title":"Optional directories","slug":"optional-directories","depth":2,"children":[{"title":"scripts/","slug":"scripts/","depth":3,"children":[]},{"title":"references/","slug":"references/","depth":3,"children":[]},{"title":"assets/","slug":"assets/","depth":3,"children":[]}]},{"title":"Progressive disclosure","slug":"progressive-disclosure","depth":2,"children":[]},{"title":"File references","slug":"file-references","depth":2,"children":[]},{"title":"Validation","slug":"validation","depth":2,"children":[]}],"codeExamples":{}},"jsLinks":["/_mintlify/custom/agent-skills/7fae006f6fa9d1d6/footer.js"],"subdomain":"agent-skills","siteName":"Agent Skills","title":"Specification - Agent Skills","navMaps":{"firstHrefInVersion":{},"firstHrefInLanguage":{}},"lastModified":"2026-08-04T22:53:14.470Z","originalFileLocation":"specification.mdx"},"headHtml":"\u003cscript data-mint-head>(function(){var d=document.documentElement,p=null;if(!p){try{p=localStorage.getItem(\"isDarkMode\")}catch(e){}if(p==='true')p='dark';else if(p==='false')p='light';if(p!=='light'\u0026\u0026p!=='dark'\u0026\u0026p!=='system')p=\"system\"}var r=p==='system'?(matchMedia(\"(prefers-color-scheme: dark)\").matches?'dark':'light'):p;d.classList.remove(r==='dark'?'light':'dark');d.classList.add(r);d.setAttribute(\"data-theme-preference\",p)})();\u003c/script>\u003cmeta data-mint-head name=\"description\" content=\"The complete format specification for Agent Skills.\">\u003cmeta data-mint-head name=\"application-name\" content=\"Agent Skills\">\u003cmeta data-mint-head name=\"generator\" content=\"Mintlify\">\u003clink data-mint-head rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon/android-chrome-192x192.png\" media=\"(prefers-color-scheme: light)\">\u003clink data-mint-head rel=\"apple-touch-icon\" type=\"image/png\" sizes=\"180x180\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon/apple-touch-icon.png\">\u003clink data-mint-head rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon/favicon-16x16.png\" media=\"(prefers-color-scheme: light)\">\u003clink data-mint-head rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon/favicon-32x32.png\" media=\"(prefers-color-scheme: light)\">\u003clink data-mint-head rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon/favicon.ico\" media=\"(prefers-color-scheme: light)\">\u003clink data-mint-head rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon-dark/android-chrome-192x192.png\" media=\"(prefers-color-scheme: dark)\">\u003clink data-mint-head rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon-dark/favicon-16x16.png\" media=\"(prefers-color-scheme: dark)\">\u003clink data-mint-head rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon-dark/favicon-32x32.png\" media=\"(prefers-color-scheme: dark)\">\u003clink data-mint-head rel=\"shortcut icon\" type=\"image/x-icon\" href=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon-dark/favicon.ico\" media=\"(prefers-color-scheme: dark)\">\u003cmeta data-mint-head property=\"og:title\" content=\"Specification - Agent Skills\">\u003cmeta data-mint-head property=\"og:description\" content=\"The complete format specification for Agent Skills.\">\u003cmeta data-mint-head property=\"og:site_name\" content=\"Agent Skills\">\u003cmeta data-mint-head property=\"og:url\" content=\"https://agentskills.io/specification\">\u003cmeta data-mint-head property=\"og:type\" content=\"website\">\u003cmeta data-mint-head property=\"og:image\" content=\"https://agent-skills.mintlify.site/_mintlify/api/og/v2?division=Documentation\u0026amp;title=Specification\u0026amp;description=The+complete+format+specification+for+Agent+Skills.\u0026amp;theme=b9f8a0d87828be5d18fb4302\u0026amp;signature=1246520713745aebf4401e57468c448ff4654c7ccf9f762738decb6616a60786\">\u003cmeta data-mint-head property=\"og:image:width\" content=\"1200\">\u003cmeta data-mint-head property=\"og:image:height\" content=\"630\">\u003cmeta data-mint-head name=\"twitter:card\" content=\"summary_large_image\">\u003cmeta data-mint-head name=\"twitter:title\" content=\"Specification - Agent Skills\">\u003cmeta data-mint-head name=\"twitter:description\" content=\"The complete format specification for Agent Skills.\">\u003cmeta data-mint-head name=\"twitter:image\" content=\"https://agent-skills.mintlify.site/_mintlify/api/og/v2?division=Documentation\u0026amp;title=Specification\u0026amp;description=The+complete+format+specification+for+Agent+Skills.\u0026amp;theme=b9f8a0d87828be5d18fb4302\u0026amp;signature=1246520713745aebf4401e57468c448ff4654c7ccf9f762738decb6616a60786\">\u003cmeta data-mint-head name=\"twitter:image:width\" content=\"1200\">\u003cmeta data-mint-head name=\"twitter:image:height\" content=\"630\">\u003cmeta data-mint-head name=\"msapplication-config\" content=\"/mintlify-assets/_mintlify/favicons/agent-skills/YI_e806pMNwgtBx4/_generated/favicon/browserconfig.xml\">\u003cmeta data-mint-head name=\"apple-mobile-web-app-title\" content=\"Agent Skills\">\u003cmeta data-mint-head name=\"msapplication-TileColor\" content=\"#7f7f7f\">\u003clink data-mint-head rel=\"canonical\" href=\"https://agentskills.io/specification\">\u003clink data-mint-head rel=\"alternate\" type=\"application/xml\" href=\"/sitemap.xml\">\u003clink data-mint-head rel=\"alternate\" type=\"text/markdown\" href=\"/specification.md\">\u003cscript data-mint-head type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"Organization\",\"@id\":\"https://agentskills.io/#organization\",\"name\":\"Agent Skills\",\"url\":\"https://agentskills.io\"},{\"@type\":\"WebSite\",\"@id\":\"https://agentskills.io#website\",\"name\":\"Agent Skills\",\"url\":\"https://agentskills.io\",\"publisher\":{\"@id\":\"https://agentskills.io/#organization\"}},{\"@type\":\"WebPage\",\"@id\":\"https://agentskills.io/specification#webpage\",\"url\":\"https://agentskills.io/specification\",\"name\":\"Specification\",\"description\":\"The complete format specification for Agent Skills.\",\"dateModified\":\"2026-08-04T22:53:14.470Z\",\"isPartOf\":{\"@id\":\"https://agentskills.io#website\"}},{\"@type\":[\"Article\",\"TechArticle\"],\"@id\":\"https://agentskills.io/specification#article\",\"headline\":\"Specification\",\"name\":\"Specification\",\"description\":\"The complete format specification for Agent Skills.\",\"url\":\"https://agentskills.io/specification\",\"mainEntityOfPage\":{\"@id\":\"https://agentskills.io/specification#webpage\"},\"dateModified\":\"2026-08-04T22:53:14.470Z\",\"publisher\":{\"@id\":\"https://agentskills.io/#organization\"},\"isPartOf\":{\"@id\":\"https://agentskills.io#website\"}}]}\u003c/script>","agentPointerHref":"/specification.md","siteName":"Agent Skills","nav":{"global":null,"pages":[{"title":"Agent Skills Overview","sidebarTitle":"Overview","description":"A standardized way to give AI agents new capabilities and expertise.","href":"/home"},{"title":"Specification","href":"/specification"},{"title":"Client Showcase","description":"Agent products that support the Agent Skills format.","href":"/clients"},{"group":"For skill creators","pages":[{"title":"Quickstart","href":"/skill-creation/quickstart"},{"title":"Best practices for skill creators","sidebarTitle":"Best practices","href":"/skill-creation/best-practices"},{"title":"Optimizing skill descriptions","sidebarTitle":"Optimizing descriptions","href":"/skill-creation/optimizing-descriptions"},{"title":"Evaluating skill output quality","sidebarTitle":"Evaluating skills","href":"/skill-creation/evaluating-skills"},{"title":"Using scripts in skills","sidebarTitle":"Using scripts","href":"/skill-creation/using-scripts"}]},{"group":"For client implementors","pages":[{"title":"How to add skills support to your agent","sidebarTitle":"Adding skills support","href":"/client-implementation/adding-skills-support"}]}]},"basePath":"","title":"Specification - Agent Skills","deploymentId":"dpl_HhUetB7eHHDAmK9T1Teip38TgFx9","buildId":"dpl_HhUetB7eHHDAmK9T1Teip38TgFx9","dynamics":["10e4515597"],"chunks":["BannerMarkdown-BjdIPj1P.js","dist-C5gjFYHe.js","lib-DuNMoZ05.js","lib-B8HbPgcC.js","katex-YMM-FMeD.js","html-void-elements-mCSPHezU.js","marked.esm-CZWythHk.js"]}
+
