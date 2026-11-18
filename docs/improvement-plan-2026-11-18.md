@@ -3,6 +3,9 @@
 > 依据：[同类系统调研](./research/2026-11-18-similar-projects.md)、[压缩 vs 交接](./compaction-vs-handoff.md)
 >（同日规格）、以及本仓库现有不变量。本文只写方案，不改 `src/`；每一批落地前仍要单独出
 > spec、跑门禁、做变异轮。
+>
+> 进度：W1-C（压缩感知）已落地——`src/project-handoff/compaction.ts` + `/handoff status` 压缩行，
+> 10 条用例、4 个有效变异、全量 627 绿。其余批次未开工。
 
 ## 0. 北极星与硬约束
 
@@ -212,7 +215,7 @@ journal 统计；测试 `test/logic.test.mjs` 或新 `test/memory-status.test.mj
 |---|---|---|---|
 | W1-A | `/context find` | 无 | 命令 + 测试 + README |
 | W1-B | `/memory` 状态扩写 | 无 | 回执 + 测试 |
-| W1-C | `compactionStats` + status 行 | 无 | 纯函数 + status + 测试 |
+| W1-C | `compactionStats` + status 行 | 无 | ✅ 已落地：纯函数 + status + 10 条测试 + 变异轮 |
 
 三批都无新配置键、无写路径、无模型调用；可并行开发，但按 A→B→C 合并以减少冲突。
 
@@ -270,8 +273,8 @@ journal 统计；测试 `test/logic.test.mjs` 或新 `test/memory-status.test.mj
 
 ## 8. 第一批的落地顺序（建议）
 
-1. 写 `docs/compaction-vs-handoff.md`（规格，含交叉点与探针清单）。
-2. W1-C（压缩感知）先做：纯函数 + status 行，风险最低，立刻让 `/handoff status` 有压缩证据。
-3. W1-B（`/memory` 状态）第二：只读、只加数字。
-4. W1-A（`/context find`）第三：改动面最大，先出检索语义 spec 再写代码。
-5. 三批合并后跑一次全量门禁 + 变异轮，再决定 W2 的 G2/D3。
+1. ✅ 写 `docs/compaction-vs-handoff.md`（规格，含交叉点与探针清单）。
+2. ✅ W1-C（压缩感知）：纯函数 + status 行，已落地；风险最低，`/handoff status` 现在有压缩证据。
+3. W1-B（`/memory` 状态）下一个：只读、只加数字。
+4. W1-A（`/context find`）最后：改动面最大，先出检索语义 spec 再写代码。
+5. Wave 1 三批合并后跑一次全量门禁 + 变异轮，再决定 W2 的 G2/D3。

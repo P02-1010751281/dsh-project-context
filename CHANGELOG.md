@@ -10,6 +10,15 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（批次 W1-C：`/handoff status` 报宿主的压缩历史）**
+
+- 新增 `src/project-handoff/compaction.ts`：从会话的 durable 日志只读折叠 `compaction/summary|end|prune`（`start` 只用于认类型），得到 `summarized`/`pruned`/`failed`/`reclaimedTokens` 与最近一次成功/失败。标题数字是 `summarized + pruned`——只有真正回收了上下文的动作才算一次压缩；成功的 `end` 不再重复计一遍，带 `error` 的 `end` 单列 `failed` 且不计入。
+- 事件类型由 `@deepseek-ai/dsh-compaction/types` 声明，本包**不**依赖它（那会把压缩服务拉进一个以「不碰压缩」为边界的插件），所以按 `session-index.ts` 读 `session/title` 的方式结构化读取。认识前缀但不认识的 `compaction/*` 类型、缺 `compactionId` 的 `summary`/`end`、非数组事件源一律 `unavailable`（`malformed`/`unreadable`），**不当 0**：未来宿主加一种压缩事件时，静默少数比具名缺口更糟。
+- `/handoff status` 新增一行，紧跟占用组（`context`/阈值行）之后，且在路由或 meter 不可用时**仍然输出**——那正是用户打开回执的场景。两种语言的措辞与规格见 `docs/compaction-vs-handoff.md` §3–4（该文状态已从「规格」改为「第 3、4 节已落地」）。
+- 约束：不注册压缩后端、不碰 `agent/pre-step`/`ctx.compaction`、不改阈值、不写盘、不新增配置键；只读 `session.snapshotEvents()`。
+- 验证：`pnpm typecheck` 0、`pnpm test` **617 → 627**（`test/handoff-compaction.test.mjs` 10 条）、`pnpm build` ok、`lib/client.js` 不变（37349）。变异轮 4 个有效变异各自只红目标用例（删 id 去重 → 重放用例；未知类型静默跳过 → 防御用例；缺失金额读作 0 → 字段缺失用例；把行挪回「有路由才输出」→ 无 meter 用例）；第 5 个变异因 `TS2339` 编译失败，按纪律不计入。
+- 生效条件：宿主代码，需重启。
+
 **project-memory（批次 Z8f：条目 id 由四位十六进制压到三位）**
 
 - 变更（用户 2026-11-12 决定）：`MEMORY.md` 条目尾标从 `（29f8）` 缩到 `（29f）`，每条省 1 个字符——本机 146 条的文档因此多出 146 字符余量（压到 44,908/45,000 时只剩 92）。id 空间从 65536 降到 4096，派生方式没变（正文 sha256 前缀），同一文档内的碰撞仍由既有盐循环解决：碰撞只让后一个条目换一个加盐 id，绝不会出现两条同 id。
