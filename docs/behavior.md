@@ -74,7 +74,9 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
   能命中「会话交接」——这是记录过的退化，不是隐藏的模糊匹配。
 - **引用是原文行**：`path:line` 指向文件里的那一行，摘要只折叠空白并裁剪，不改写 Markdown 标记，
   否则回执就成了对所引行的转述。
-- **预算**：Top 8、整块 8 KB；超额写明「还有 N 条」，不静默截断。
+- **预算**：Top 8、整块 8 KB、同一文档最多 3 条——最后这一条是本仓库自己的归档逼出来的：`session.md` 是
+  每个事件的 pretty-JSON，一份转写就能占满整个 Top 8，把同样命中的记忆条目挤掉；被限额留下的行仍然
+  计入「还有 N 条」。
 - **导出**：`/context export` 的正文与 `MEMORY.md` 同源；`--write` 只写 `.agents/memory/EXPORT.md`
   （原子写），**从不触碰**项目自己的 `AGENTS.md`——那是用户的文件，生成物覆盖它是一次回执无法
   描述的行为。

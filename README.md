@@ -46,7 +46,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | 命令 | 行为 |
 |---|---|
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径，以及本会话绑定的任务 |
-| `/context find <query>` | 只读检索 `.agents/memory`：记忆条目、CONTEXT.md、任务文档、每个会话的元数据，以及最近 20 个会话的 `HANDOFF.md` / `session.md`；输出 Top 8，带 `path:line` 与原文行。排序＝整串 > 全词 > 任一词，同分新到旧；英文按词边界（`cat` 不命中 `catalog`），中文按相邻 bigram 兜底。不调模型、不建索引、不写盘 |
+| `/context find <query>` | 只读检索 `.agents/memory`：记忆条目、CONTEXT.md、任务文档、每个会话的元数据，以及最近 20 个会话的 `HANDOFF.md` / `session.md`；输出 Top 8（同一文档最多 3 条），带 `path:line` 与原文行。排序＝整串 > 全词 > 任一词，同分新到旧；英文按词边界（`cat` 不命中 `catalog`），中文按相邻 bigram 兜底。不调模型、不建索引、不写盘 |
 | `/context export [--write]` | 打印 `AGENTS.md` 兼容的四节摘要（Project / Invariants / Pitfalls + 指针）；`--write` 只写 `.agents/memory/EXPORT.md`，**永不改项目自己的 `AGENTS.md`**；同一份记忆重复导出字节稳定 |
 | `/context task` | 列出任务（slug / 状态 / 标题 / 绑定会话数 / 未完成 todo 数 / 最近活动）；`/context task <slug>` 绑定；`new` 新建并绑定；`none` 解绑；`archive` / `activate` 改状态 |
 | `/memory update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |

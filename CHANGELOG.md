@@ -15,6 +15,7 @@
 - 新增 `/context find <query>`：检索 `MEMORY.md` 条目、`CONTEXT.md`、`tasks/*.md`、每个会话的 `meta.json`，以及最近 20 个会话的 `HANDOFF.md` / `session.md`；输出 Top 8，带 `path:line` 与原文行，整块 8 KB 预算，超额写「还有 N 条」。
 - 排序与匹配是粗而可复核的：整串 3 / 全词 2 / 任一词 1，同分新到旧；英文**按词边界**（`cat` 不命中 `catalog`——这一条落地时先写错成「子串命中优先」，被本批用例打红后改的），CJK 用相邻 bigram 兜底。摘要保留原文的 Markdown 标记：回执引的是文件里的那一行，不是对它的转述。
 - 只读是机械钉住的：用例在查询前后逐文件比字节（`treeSnapshot`），任何缓存文件、journal 行或索引写入都会让它红。
+- 同一文档最多 3 条命中：在本仓库上实测，`handoff threshold` 命中 5,498 行、226 份文档，未设限时回执是同一个 `session.md` 的八行；限额后记忆条目回到前面，被留下的行仍计入「还有 N 条」。
 - 核心/外层分离：`search.ts`（纯）＋ `search-source.ts`（唯一知道 `.agents/memory` 布局的地方）。
 - 验证：`pnpm typecheck` 0、`pnpm test` **632 → 644**（+12）、`pnpm build` ok、`lib/client.js` 不变。
 
