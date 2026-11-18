@@ -73,29 +73,48 @@
 | `compaction/end` | `compactionId`, `turn` | `sourceCommandId`, `error` | 结束；`error` 存在即失败 |
 | `compaction/prune` | `shadowedRange`, `shadowedSeqs`, `shadowedTokenCount` | — | 无模型的 prune |
 
-### 3.2 纯函数 `compactionStats(events)`（已实现）
+### 3.2 核心与 shim（已实现）
+
+两个文件，一只 shim（`SH-10`）：
+
+| 文件 | 角色 | 知道什么 |
+|---|---|---|
+| `src/project-handoff/compaction.ts` | **core**，纯 | `CompactionRecord` DTO、折叠、回执行；不 import `@deepseek-ai/*`，不接 `ctx`/`Session`/`fs` |
+| `src/project-handoff/compaction-events.ts` | **shim**，`SH-10` | 唯一知道 `compaction/*` 四种宿主形状的地方；`unknown → CompactionFeed`，认不出的形状在这里变成 `unavailable` |
 
 ```ts
-type CompactionStats =
-  | { available: true; summarized: number; pruned: number; failed: number; reclaimedTokens: number;
-      lastSuccess?: { shadowedTokens?: number; provider?: string; model?: string }; lastError?: string }
-  | { available: false; reason: "unreadable" | "malformed" }
+type CompactionRecord =
+  | { kind: "start" }
+  | { kind: "summary"; id: string; shadowedTokens?: number; provider?: string; model?: string }
+  | { kind: "end"; id: string; error?: string }
+  | { kind: "prune"; shadowedTokens?: number }
+
+type CompactionFeed =
+  | { kind: "records"; records: readonly CompactionRecord[] }
+  | { kind: "unavailable"; reason: "unreadable" | "malformed" }
+
+function foldCompactions(records): { summarized; pruned; failed; reclaimedTokens; lastSuccess?; lastError? }
+function compactionStatusLine(feed: CompactionFeed, language): string
 ```
 
-规则（与 `src/project-handoff/compaction.ts` 一致）：
+规则（与实现一致）：
 
-- `summarized` 数**不同的** `compaction/summary` id——重放的同一条记录仍是同一次压缩；
-  `pruned` 数 `compaction/prune` 事件（它没有 id，因为 prune 不是一次事务）。
+- `summarized` 数**不同的** `summary` id——重放的同一条记录仍是同一次压缩；
+  `pruned` 数 prune 记录（它没有 id，因为 prune 不是一次事务）。
 - 标题数字 `N = summarized + pruned`：只有真正回收了上下文的动作才算一次压缩。
-  成功的 `compaction/end` 不再单独计一遍——它的 summary 已经计过。
-- `failed` 数**带 `error` 的** `compaction/end` id；失败的尝试不回收任何东西，所以不进 `N`。
+  成功的 `end` 不再单独计一遍——它的 summary 已经计过。
+- `failed` 数**带 `error`** 的 `end` id；失败的尝试不回收任何东西，所以不进 `N`。
+  空白 error 不构成「有原因」，不计入失败。
 - `reclaimedTokens` 只累加**日志里写出来的** `shadowedTokenCount`；字段缺失就是缺失，
   不读作 0，也不影响其余计数。
-- 事件数组不是数组 → `unreadable`；认识前缀但不认识的 `compaction/*` 类型、或
-  `summary`/`end` 没有 `compactionId` → `malformed`。两者都**不得当 0**：未来宿主新增一种
-  压缩事件时，静默少数比具名缺口更糟。
+- 事件源不是数组 → `unreadable`；认识前缀但不认识的 `compaction/*` 类型、或
+  `summary`/`end` 没有 `compactionId`、`data` 不是对象 → `malformed`。两者都**不得当 0**：
+  未来宿主新增一种压缩事件时，静默少数比具名缺口更糟。
 - 不从事件推断「压缩后占用」：那需要当时的 `tokenMeter` 快照，日志里没有；只报
   `shadowedTokenCount` 与当前 `context` 行。
+
+拆成两半的理由是**拆除面**：宿主形状变了只改 shim，核心的折叠与措辞仍可用普通 DTO 测；
+将来按 `SH-10` 的拆除条件把 shim 换成类型导入时，核心一行都不用动。
 
 ## 4. `/handoff status` 压缩行（已实现）
 
@@ -126,21 +145,32 @@ zh 回执用同一组事实的中文措辞（`压缩 N 次（摘要 S 次、prun
 2. **不新增触发**：交接仍只在 `turn/end`；压缩事件只进 status。
 3. **用户杠杆已存在**：把 `handoffThreshold` 设成 `0.8` 或 `800k`，交接就退化为「压缩兜不住时」，
    不需要新配置键；文档要写明代价（157K→800K 的质量衰减）。
-4. **兜底未证不做**：插件调用 `compactNow` 需要 `ManualCompactAgentContext`（`agent.runMaintenance`）；
-   没有探针证明插件能拿到它，就不得写「handoff 被 defer 时自动压缩」。
+4. **兜底：可行，但未裁定**。第 6 节的探针已证明插件能拿到 `Agent` 并直接调 `compactNow`，
+   但 `turn/end` 那一刻驱动器仍持有 agent（`busy`），只有 `agent/status = idle` 或命令处理器可行；
+   实测还没做，所以仍不写「handoff 被 defer 时自动压缩」。
 5. **第三方后端兼容**：只要对方仍发 `compaction/*`，本统计就有效；不依赖 `compaction-basic` 的内部。
 
-## 6. `compactNow` 可调用性探针清单（先证后写）
+## 6. `compactNow` 可调用性（2026-11-18 已探，源码级）
 
-1. `ctx.get("compaction")` 在插件上下文里是否返回服务（未 inject 时是否 `undefined`）？
-2. 插件能否从 `session` 取到 agent（`ctx.agents.get(session.id)` 或等价）？
-3. 该 agent 是否暴露 `runMaintenance`，能否构造 `ManualCompactAgentContext`？
-4. 在 `turn/end`（agent 刚 idle）调用 `compactNow` 是成功、`busy`、还是 `changed`？
-5. 调用产生的 `compaction/start` 是否带 `turn:null` 且无 `sourceCommandId`？会不会被误读成自动压缩？
-6. 失败路径（无 route、摘要失败、commit 失败）各返回哪个 `ManualCompactionErrorCode`？
-7. 调用是否改变 `turn/end` 之后立刻到来的新 prompt 的顺序（FIFO/唤醒）？
+来源：store 里的 `dsh-desktop-0.2.2-rc.3` 检出（`/nix/store/xbbn6inj2q64j88gsmjrljqkh1m572sy-dsh-desktop-0.2.2-rc.3/lib/dsh-desktop/repo/`）。
+全部结论都是**读声明与实现**得到的，不是从调用路径猜的。
 
-只有 1–4 全部通过，才谈「兜底」；否则结论写「宿主 0.8W 自动压缩就是兜底」。
+| # | 问题 | 结论 | 依据 |
+|---|---|---|---|
+| 1 | `ctx.get("compaction")` 在插件上下文里是否返回服务？ | **返回**（未声明时 `undefined`，不抛） | `Context.compaction: CompactionEngine` 由 `compaction/src/index.ts` 声明；`compaction-basic` 提供实现 |
+| 2 | 插件能否从 session 取到 agent？ | **能**：`ctx.agents.get(session.id): Agent \| undefined` 是公开方法 | `core/agent/src/index.ts` 的 `AgentRegistry.get`，`agents` 就是服务名 |
+| 3 | `Agent` 是否满足 `ManualCompactAgentContext`？ | **满足**：`session`、`options: AgentOptions`（`provider?`/`model?`）、`runMaintenance` 都在 | `runtime-types.ts` 的 `interface Agent`；`AgentOptions` 的字段是 `{provider?, model?, reasoningEffort?, maxTokens?}`，结构上是 `ManualCompactAgentContext` 要求的超集 |
+| 4 | 插件要自己构造 maintenance 上下文吗？ | **不要**：`compaction-basic.compactNow` 内部就 `agent.runMaintenance(...)`；调用方只传一个**空闲**的 `Agent` | `compaction-basic/src/index.ts` 的 `override compactNow` |
+| 5 | 在 `turn/end` 调用会怎样？ | **`busy`**：`turn/end` 在驱动器的 `finally` 里追加，而 `setPhase({kind:"idle"})` 在 `kick()` 的 `finally`、**晚于**整轮循环；`runMaintenance` 在 `phase.kind !== "idle"` 时同步抛错 | `agent-loop/src/agent.ts`：`session.append('turn/end', …)`（`turn()` 的 finally）与 `kick()` finally 的 `setPhase({kind:'idle'})` |
+| 6 | 那哪个时机可行？ | **`agent/status = idle`**：`setPhase` 在状态变化时发这个事件，此时 phase 已是 idle；命令处理器里的 `invocation.agent` 也是 idle 的 `Agent` | 同上；宿主自己的 `/compact` 就是 `ctx.compaction.compactNow(invocation.agent, invocation.signal, invocation.commandId)` |
+| 7 | 产生的 `compaction/start` 会不会被误读成自动压缩？ | `turn: null` 标示非自动路径（手动/插件触发），与 `/compact` 同形；`sourceCommandId` 只有命令路径才带 | `compaction/src/types.ts` 的 `compaction/start` 注释 |
+
+**所以「兜底」在技术上不是空想**，但两个边界要先说清：
+
+1. **不能在 `turn/end` 做**：那一刻驱动器仍持有 agent，`runMaintenance` 同步拒绝（`busy`）。可行的时机是紧接着的 `agent/status = idle`（本插件已经监听这个事件做归档）。
+2. **要不要做仍未裁定**（D3）：技术上可行 ≠ 应该做。它会带来一次额外的摘要模型调用、一条 `compaction/*` 事务，以及「交接被 defer 时先压缩」这种新的行为组合；在用户没有明确要求之前，本仓库只保留观测（第 3、4 节）。
+
+**仍未证的**：`agent/status = idle` 监听器里调用 `compactNow` 的**实测**是否稳定（本探针只读源码，没有在真实宿主上开火）。若要做兜底，第一步是把这个实测补上，按「探针先于承诺」的纪律。
 
 ## 7. 验收（第 3、4 节已落地，W1-C）
 

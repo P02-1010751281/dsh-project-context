@@ -10,6 +10,50 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context（W1-A：`/context find` 只读检索）**
+
+- 新增 `/context find <query>`：检索 `MEMORY.md` 条目、`CONTEXT.md`、`tasks/*.md`、每个会话的 `meta.json`，以及最近 20 个会话的 `HANDOFF.md` / `session.md`；输出 Top 8，带 `path:line` 与原文行，整块 8 KB 预算，超额写「还有 N 条」。
+- 排序与匹配是粗而可复核的：整串 3 / 全词 2 / 任一词 1，同分新到旧；英文**按词边界**（`cat` 不命中 `catalog`——这一条落地时先写错成「子串命中优先」，被本批用例打红后改的），CJK 用相邻 bigram 兜底。摘要保留原文的 Markdown 标记：回执引的是文件里的那一行，不是对它的转述。
+- 只读是机械钉住的：用例在查询前后逐文件比字节（`treeSnapshot`），任何缓存文件、journal 行或索引写入都会让它红。
+- 核心/外层分离：`search.ts`（纯）＋ `search-source.ts`（唯一知道 `.agents/memory` 布局的地方）。
+- 验证：`pnpm typecheck` 0、`pnpm test` **632 → 644**（+12）、`pnpm build` ok、`lib/client.js` 不变。
+
+**project-context（W2-F：`/context task` 列表补数字；W3：`/context export`）**
+
+- 任务列表行从 `slug · 状态 · 标题` 扩为再带 `sessions N · open todos M · last seen <date>`：会话数来自 `session-logs/*/meta.json` 的 `task` 绑定，未完成项来自任务文档的 `- [todo]` 行，最近活动取两者较新者。核心 `task-usage.ts` 纯函数，读盘在 `task-usage-source.ts`。
+- 新增 `/context export [--write]`：打印 `AGENTS.md` 兼容的四节摘要（Project / Invariants / Pitfalls + 指针），`--write` 只原子写 `.agents/memory/EXPORT.md`；**永不改项目自己的 `AGENTS.md`**，重复导出字节稳定。
+- 验证同上批：同一分支、同一轮门禁。
+
+**project-memory（W1-B：裸 `/memory` 报可复算的现状）**
+
+- 裸 `/memory` 现在报：字符数 / `maxMemoryChars`（含百分比）、四节条目数、journal 行数与字节、备份数、归档会话数、`errors.log` 行数。四节条目经 `sectionsFromMarkdown` 解析，**文档不是四节形状时写「无法解析」而不是 0**；capped / damaged / poisoned / unreadable 的既有警告语义不变。
+- 不报「上一次整理的结果」：该值没有持久化，编一个出来就是伪造证据——这一条同时写进了 `docs/behavior.md`。
+- 核心 `status-report.ts`（DTO → 字符串）＋ `status-source.ts`（读盘并归一）；`memoryStatusReply` 只做组合。改动波及 `test/logic.test.mjs` 里既有的精确字符串断言（同一批更新）。
+- 验证：`pnpm test` **+10**（`test/memory-status.test.mjs` 覆盖空 / 有 journal / 有备份 / 有归档四态与 capped 警告），合并后全量 **674**。
+
+**project-handoff（W2-D：交接回执补种子的三个数字）**
+
+- `/handoff status` 对**本进程刚创建**的续接会话多报一行：尾料消息数、文件清单条数、未答问题的处置（`answered` / `deferred` / `nothing`）。
+- 数字不重算：`tailMessages` 在切分处计数（`handoffSplit` 的产物），文件数从 `HANDOFF.md` 与种子共用的索引字符串里数，问题处置来自与 `handoffCarry` 同一次 `readSessionInputs`。空尾料打印 `0` 而不是省略。
+- 回执记在**子会话** id 下：被替换的父会话只保留 `already handed off`，不会显示别人的数字；录用发生在种子与文档落地之后，所以被拒绝或瞬态失败的尝试不留回执。进程内存，与 `handedOff` 同性质，`HANDOFF.md` 才是持久副本。
+- 验证：`pnpm test` **632 → 645**（+13）；其中一个用例最初写错了预期（把「defer」当成 reject 的 `HandoffDeferred`，实际是静默 skip），按实现改正的是用例而不是代码。
+
+**project-autolearn（W2-E：采纳证据与机械冲突检查）**
+
+- 采纳（`/autolearn approve`）在晋升的 `SKILL.md` 写可选 frontmatter：`derived_from: autolearn` + 被核对的 session id 列表；正文与既有解析不变，老的手写技能（无此段）照旧可用，`autolearn-generated` 标记的语义一个字节都没动。
+- `/autolearn list` 与采纳回执显示证据条数与 id 的显著前缀（先剥掉 `session-`，否则每条都印同样的八个字符）。
+- 机械冲突检查：候选正文里的反引号 token（路径 / `path:line` / 命令）与既有技能、`MEMORY.md` 比对，重叠即报；只报不拦、不做语义判断、不调模型——假阴性的代价只是少一条建议，假阳性会让读者学会忽略这份报告。
+- 核心 `evidence.ts`（纯）＋ `evidence-source.ts`（skills 目录布局）。
+- 验证：`pnpm test` **632 → 639**（+7）。
+
+**repo（W1-C 收尾：压缩折叠与 dsh 事件 shim 解耦；SH-10 登记）**
+
+- `src/project-handoff/compaction.ts` 现在只认 `CompactionRecord` DTO 并折叠 / 渲染；`compaction-events.ts` 是唯一知道 `compaction/*` 四种宿主形状的文件（`SH-10`）。宿主形状变了只改后者，核心不再需要会话夹具即可测。
+- `docs/harness/integration.md`：`compaction/*` 从「不接（无可用钩子）」改为「不接钩子；只读日志」，并登记 `SH-10` 与拆除条件（把 `@deepseek-ai/dsh-compaction` 加为 type-only devDependency，照 `SH-1` 的判据）。
+- `docs/compaction-vs-handoff.md` §6 的探针清单换成**源码级结论**：插件能拿到 `Agent` 并直接调 `compactNow`（`compaction-basic` 自己调 `runMaintenance`），但 `turn/end` 那一刻驱动器仍持有 agent（`busy`），可行时机是紧接着的 `agent/status = idle` 或命令处理器；**实测仍未做**，所以兜底依然不写。
+- 验证：`pnpm test` **627 → 632**（+5：核心与 shim 分开测），合并后全量 **674**。
+- 合并后的跨批次变异轮（4 个有效变异，均从 `/tmp` 哈希副本恢复并重建）：把词边界换回子串 → 只红 `cat`/`catalog` 一条；把 `unparseable` 改成 0 条 → 只红不透明文档一条；把回执键从子会话换成父会话 → 红掉子会话键那一组（4 条，同一契约）；让 frontmatter 永不写入 → 红掉证据写入那一组（3 条，同一契约）。另有一个变异因 `TS6133`（删掉词边界后 `containsWord` 无人引用）编译失败，按纪律剔除后改写重跑。
+
 **project-handoff（批次 W1-C：`/handoff status` 报宿主的压缩历史）**
 
 - 新增 `src/project-handoff/compaction.ts`：从会话的 durable 日志只读折叠 `compaction/summary|end|prune`（`start` 只用于认类型），得到 `summarized`/`pruned`/`failed`/`reclaimedTokens` 与最近一次成功/失败。标题数字是 `summarized + pruned`——只有真正回收了上下文的动作才算一次压缩；成功的 `end` 不再重复计一遍，带 `error` 的 `end` 单列 `failed` 且不计入。

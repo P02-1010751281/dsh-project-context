@@ -46,17 +46,19 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | 命令 | 行为 |
 |---|---|
 | `/context` | 显示 CONTEXT.md、会话日志与索引路径，以及本会话绑定的任务 |
-| `/context task` | 列出任务（slug / 状态 / 标题）；`/context task <slug>` 绑定；`new` 新建并绑定；`none` 解绑；`archive` / `activate` 改状态 |
+| `/context find <query>` | 只读检索 `.agents/memory`：记忆条目、CONTEXT.md、任务文档、每个会话的元数据，以及最近 20 个会话的 `HANDOFF.md` / `session.md`；输出 Top 8，带 `path:line` 与原文行。排序＝整串 > 全词 > 任一词，同分新到旧；英文按词边界（`cat` 不命中 `catalog`），中文按相邻 bigram 兜底。不调模型、不建索引、不写盘 |
+| `/context export [--write]` | 打印 `AGENTS.md` 兼容的四节摘要（Project / Invariants / Pitfalls + 指针）；`--write` 只写 `.agents/memory/EXPORT.md`，**永不改项目自己的 `AGENTS.md`**；同一份记忆重复导出字节稳定 |
+| `/context task` | 列出任务（slug / 状态 / 标题 / 绑定会话数 / 未完成 todo 数 / 最近活动）；`/context task <slug>` 绑定；`new` 新建并绑定；`none` 解绑；`archive` / `activate` 改状态 |
 | `/memory update` | 立即整理一次（②）：更新 MEMORY.md 与 CONTEXT.md；回执按实际结果区分已更新 / 被截断 / 无新内容 / 被去重 / 失败 |
 | `/session-log` | 只读：显示会话日志目录与索引路径，并提示用 `/session-log write` 立即写出 |
 | `/session-log write` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/session-log tree` | 只读：把 `session-logs/<id>/meta.json` 的 `parentId` 读成缩进树（交接链），标 `kind`、日期、标题、任务与「父会话不在存档」；子代理档案不计入，行数上限 500 |
-| `/memory` | 显示项目记忆路径与状态 |
+| `/memory` | 显示项目记忆的状态：字符数 / 上限（含百分比）、四节条目数（文档不是四节形状时明说「无法解析」而不是报 0）、journal 行数与字节、备份数、归档会话数、`errors.log` 行数；capped / damaged / poisoned / unreadable 的警告原样保留 |
 | `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
-| `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>` |
+| `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>`。采纳后 `SKILL.md` 带 `derived_from: autolearn` 与被核对的 session id（frontmatter，可选）；`list` 与采纳回执显示证据条数与 id 前缀，并机械比对关键 token（反引号词 / 路径 / 命令）与既有技能、`MEMORY.md` 的重叠 |
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**） |
-| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错 |
+| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错；另报宿主压缩历史（次数 / 摘要与 prune 分计 / 最近回收 token / 是否失败），以及本进程刚做的交接**种子的三个数字**（尾料消息数、文件数、未答问题处置） |
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` / `threshold 400k` | 切自适应；给窗口比例或绝对 token 数则切固定阈值 —— 三种拼写写进同一个键 `handoffThreshold`（`40` / `40%` 是比例，`400k` / `400000` 是 token 数）。绝对数超过窗口容量 `W − 4000` 时截断并在回执里写明；低于物理下限时拒绝，建议沿用你当前的写法。裸 `auto` 与裸比例已退役，不再生效 |
 | `/handoff budget summary 64k` / `budget recent 20k` | 目标请求量（只用于回执，不移动触发点）/ 逐字保留的近端对话（`budget recent 0` = 不带尾料）；summary 被护栏压掉时 `/handoff status` 点名 |
@@ -116,6 +118,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 - `archiveEnabled: false` 时不发生任何自动写入；`/session-log write` 是文档化的逃生口。
 - 自动交接只在 `turn/end` 评估、没有定时器；有后台子代理在跑时**延后**，手动 `/handoff now` 则
   **拒绝并点名**。
+- **压缩归宿主，交接归本插件**：dsh 自带同会话压缩（`thresholdRatio 0.8`、保留最近约 16%），本插件不实现、不接管、不抢 `agent/pre-step`；我们只在 `/handoff status` 里只读报出压缩历史。想让压缩先发生，把 `handoffThreshold` 设成 `0.8` / `800k` 即可，代价是 157K→800K 区间要接受质量衰减（见 [docs/compaction-vs-handoff.md](./docs/compaction-vs-handoff.md)）。
 - 各阶段的闸门、产物与理由：见 [docs/behavior.md](./docs/behavior.md)。
 - 改 `src/` 后要 `pnpm build` **并重启承载插件的那个 host**；只看提交或构建时间不能判定已生效，
   要对进程启动时间。

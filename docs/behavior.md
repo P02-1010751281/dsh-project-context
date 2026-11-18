@@ -62,6 +62,28 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
 - 实测规模参考：21 个 zip / 586,909 个事件 → 13s 导入，约 1.1GB（`session-logs/` 自带
   `.gitignore`，不随项目入库）。
 
+## 检索与导出（只读，跨 ①②）
+
+`/context find`、`/context export` 与裸 `/memory` 都是只读面：不写盘、不调用模型、不建持久索引。
+
+- **检索语料**：`MEMORY.md` 的每个 `- ` 条目、`CONTEXT.md` 的小节与 Open tasks、`tasks/*.md`、
+  `session-logs/*/meta.json`（标题 / 任务 / kind / 日期），以及最近 20 个会话的 `HANDOFF.md` 与
+  `session.md`。更早的会话只索引元数据——一次查询的读取量因此有上限，归档不会越查越慢。
+- **排序是粗的，而且是可复核的**：整串命中 3、全部词命中 2、任一词命中 1；同分按新到旧、再按路径、
+  再按行号。英文按词边界匹配（`cat` 不命中 `catalog`）；CJK 用相邻 bigram 兜底，所以「交接会话」
+  能命中「会话交接」——这是记录过的退化，不是隐藏的模糊匹配。
+- **引用是原文行**：`path:line` 指向文件里的那一行，摘要只折叠空白并裁剪，不改写 Markdown 标记，
+  否则回执就成了对所引行的转述。
+- **预算**：Top 8、整块 8 KB；超额写明「还有 N 条」，不静默截断。
+- **导出**：`/context export` 的正文与 `MEMORY.md` 同源；`--write` 只写 `.agents/memory/EXPORT.md`
+  （原子写），**从不触碰**项目自己的 `AGENTS.md`——那是用户的文件，生成物覆盖它是一次回执无法
+  描述的行为。
+- **任务列表的数字**：绑定会话数来自 `session-logs/*/meta.json`，未完成 todo 数来自任务文档里的
+  `- [todo]` 行，最近活动取两者较新者；它们都是文件事实，不从 `taskViews` 的对象反推。
+- **`/memory` 裸命令**：字符数 / 上限（含百分比）、四节条目数、journal 行数与字节、备份数、归档会话数、
+  `errors.log` 行数——每一项都能由文件系统复算。文档不是四节形状时写「无法解析」而不是 0；
+  **不报**「上一次整理的结果」（该值没有持久化，编一个出来就是伪造证据）。
+
 ## 说明
 
 - ② 由 `project-memory` 独占：idle / disposed 触发，`session/flush`

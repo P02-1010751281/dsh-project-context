@@ -37,7 +37,7 @@
 | `ctx.get` | **接** | 未声明服务返回 `undefined`，不抛——这是可选 feature 的承重行为 |
 | `sessionProjections.snapshot` | **接** | `contextBreakdown` 是 floor 的唯一来源，见 [dsh.md](dsh.md) §3.3 |
 | `tools/pre-execute` | **不接** | 能力存在（`PreToolDecision` = `allow\|deny\|cancel\|ask`），但我们四个插件都没有「否决一次工具调用」的需求。**登记为不接，防止下次误认为已接** |
-| `compaction/*` | **不接（无可用钩子）** | dsh 只有 `compaction/summary-error`，**没有压缩前钩子**。压缩由 dsh 自己的服务驱动，不经过我们的事件面——pi 的 `session_before_compact`、codex 的 `PreCompact` 在 dsh 没有对应物 |
+| `compaction/*` | **不接钩子；只读日志** | dsh 只有 `compaction/summary-error`，**没有压缩前钩子**（pi 的 `session_before_compact`、codex 的 `PreCompact` 在 dsh 没有对应物），所以压缩仍由宿主服务驱动。自 2026-11-18（W1-C）起我们从**会话日志**只读折叠 `compaction/summary\|end\|prune` 给 `/handoff status` 用——读的是已经落盘的 durable 事件，不是注册任何钩子；事件形状的镜像登记为 `SH-10` |
 | `workflow/*`、`goal/*`、`schedule/*`、`fs/*`、`cordis/*`、`hmr/*` 等 | **不接** | 与项目级持久上下文的四件事无关；接进来只增加随上游漂移的面 |
 | `llm/stream` / `agent/request` / `agent/pre-step` | **不接** | 我们要的是「调用一次辅助模型」，不是「拦截每一次请求」 |
 
@@ -52,12 +52,13 @@
 
 ## 3. shim 决定
 
-### 3.1 是真 shim 的（2 条，都在 dsh 侧）
+### 3.1 是真 shim 的（3 条，都在 dsh 侧）
 
 | ID | 位置 | 抹平什么 | 决定 | 拆除条件 |
 |---|---|---|---|---|
 | `SH-2` | 各处 `ctx.get("name")`（11 个服务） | 服务未声明；`ctx.foo` 未注入会抛，`ctx.get` 只返回 `undefined` | **留** | 对应服务进入我们的 `inject` 声明 |
 | `SH-3` | `isTopLevel(session)` 闸门 | `SessionHeader.origin` 只有闭字面量 `'subagent'`，没有「顶层」正向标记 | **留** | 上游提供显式顶层判据 |
+| `SH-10` | `src/project-handoff/compaction-events.ts` | `compaction/*` 的四种 payload 由 `@deepseek-ai/dsh-compaction` 通过 module augmentation 声明，本包**不**依赖那个包（依赖它等于把压缩服务拉进一个以「不碰压缩」为边界的插件），于是按 `session-index.ts` 读 `session/title` 的方式结构化读取 | **留** | 把该包作为 type-only devDependency 加到锁定线、且调用面可编译（照 `SH-1` 的判据）；届时删掉 `compaction-events.ts` 里的形状知识 |
 
 ### 3.2 `SH-1` 已拆除（2026-11-05 落地）
 
