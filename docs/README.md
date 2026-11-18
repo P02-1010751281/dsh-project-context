@@ -17,6 +17,8 @@
 | [harness/](./harness/README.md) | 各宿主接口的采用与未采用登记（dsh / pi / codex / integration） |
 | [sibling-repos.md](./sibling-repos.md) | 同族仓库对照（dsh / pi / codex），以及只读勘查的规矩 |
 | [research/2026-11-18-similar-projects.md](./research/2026-11-18-similar-projects.md) | 同类系统与组件级相似物调研；原始证据在 `.agents/evidence/2026-11-18-similar-projects-research/` |
+| [compaction-vs-handoff.md](./compaction-vs-handoff.md) | 压缩与交接的边界、阈值交叉点、`/handoff status` 压缩行规格与 `compactNow` 探针清单 |
+| [improvement-plan-2026-11-18.md](./improvement-plan-2026-11-18.md) | 调研后的分波改进方案（检索、状态、压缩感知、技能、任务、导出）与五项待拍板 |
 | [repo-metadata.md](./repo-metadata.md) | GitHub About / Topics 文案 |
 | [upstream-pi-triage.md](./upstream-pi-triage.md) | pi 上游逐提交比对档案（每次 pass 的裁定都在这） |
 | [upstream-issue-client-send-path.md](./upstream-issue-client-send-path.md) | 上游 issue 草稿：宿主重启后标签页静默无法发送 |
