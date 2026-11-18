@@ -1,29 +1,32 @@
 # Project Context
 
-Last updated: 2026-11-11T06:16:25.938Z
+Last updated: 2026-11-18T01:59:48.533Z
 
 ## Summary
 
-本会话（session-4c23d245，父会话 5f3fb68a，任务 z8-acceptance）收掉 Z8 的两项遗留，并把 id 记账的约束补硬。① 回归误报（批次 Z8d 前半）：`removedSectionEntries` 逐字比较新旧条目，而 Z2 的 id 盖章会在计划与回写之间变化，于是把未改动条目报成删除——errors.log 里 107 条，实测 96 条只差 id、11 条真改写；修法是两侧先 `stripEntryTid` 再归一化，守卫仍只报告、不阻断，Project/Index 仍排除，`batch Z8d` 用例在 4000 字符 cap 下复现该不对称。② id 机制（用户裁定 A）：`retireWithinBudget` 改部分盖章——带 id 渲染不干净、不带 id 干净时，按 Invariants → Pitfalls → Project → Index 用剩余字符盖多少算多少，两份都脏才保留全部 id，没有任何条目盖得上才 `stamped:false`。修这一版时复核又揪出三个真问题并已修：正文 + 6 超过 800 单条上限的条目会拖垮整个前缀（现在直接跳过，只推迟自己）；id 派生曾用 sidecar 播种，导致未盖章条目撞到自己的旧 id 换盐、年龄重置（现在纯正文派生）；`entries.json` 的裁剪改用 `keepIds`（文档拥有的全部 id，含未盖章条目），推迟盖章不再重置年龄。写这段时在 `fe5dfed` 的文档上测得：44,589 字符 / 140 条（17/64/44/15），cap 45,000，剩 411 → 68 个 id；随后一次自动 pass 已把该文档重写为 44,997 字符 / 131 个 id，本轮又压到 44,825（175 剩余），所以数字只是测量快照，引用前现读。门禁：typecheck 0、`pnpm test` 609/609、build ok（lib/client.js 38274）。宿主 pid 71971 启动 10:41:56 早于全部 src 提交，**需要重启才生效**。
+本会话在同一天先交付了同类系统调研（报告 `docs/research/2026-11-18-similar-projects.md` 547 行 + 证据包 `.agents/evidence/2026-11-18-similar-projects-research/` 76 文件 18 MB，一次提交 `3b6f9d6`，152 文件），用户同意后追问「同会话压缩会不会更好」。 针对该问题直接读了 dsh 源码（`packages/compaction/*`，`packages/boot`、`packages/client` 中的引用面）与本仓库 `src/project-handoff/conversation.ts`、`docs/handoff-candidates-b-c.md`，用实测/源码核对得出三层结论：①dsh 宿主自带 `@deepseek-ai/dsh-compaction`，`compaction-basic` 默认 `thresholdRatio 0.8`（再与剩余容量取小）、`retainRatio 0.16`、自动触发在 `agent/pre-step`、溢出在 `agent/request-error` 重试、手动 `/compact` 走 `compactNow`（要求 agent 空闲），改写是 durable surface replace（`compaction/start|summary|end` 遮蔽旧节点，工具配对保持），因此自建压缩器是重复实现且会与宿主抢同一 waterfall；②我们的 handoff 解决的是会话边界问题，且 `conversation.ts` 明确从 append-origin 日志取尾料，压缩遮蔽不影响种子完整性，两者可共存；③用默认策略估算的交叉点约 436K（128K/200K/400K 窗口压缩先到，500K/1M 窗口膝线先到），所以 1M 窗口上「157K 交接 vs 800K 压缩」是目标函数选择而非机制优劣。 给出的建议是分层而非二选一：压缩归宿主、交接归我们、补一个压缩感知的只读观测（`compaction/start|summary|end` 是 session event，可在 `/handoff status` 与注入行报「已压缩 N 次、压缩后仍高于膝线」）、handoff 被 `defer` 或子代理挡住时作为兜底（但插件能否调用 `ctx.compaction.compactNow` 未证，须先探针）、以及告诉用户已有杠杆（把 `handoffThreshold` 设到 0.8 / 800k 即可让 handoff 退化为兜底）。末轮已提议把这些落成 `docs/compaction-vs-handoff.md`（只写规格不动 `src/`），用户尚未答复。
 
 ## Key points
 
-- Z7 已由真实交接证明：本会话 meta 带 `task: "z8-acceptance"`、`kind: "handoff"`、`parentId: session-5f3fb68a…`，父会话 meta 也带同一个 task——绑定随交接继承，不是只有测试钉住。
-- 回归误报的根因与修法：`removedSectionEntries` 现在比较前两侧都 `stripEntryTid` 再 `normalizeMemoryEntry`；报告仍不阻断、Project/Index 仍排除。真实一对文档的实测是报 107、其中 96 条只差 id、11 条真改写。
-- 部分盖章规则：带 id 渲染干净 → 全量；不带 id 干净而带 id 不干净 → 按 Invariants → Pitfalls → Project → Index 用剩余字符盖多少算多少；两份都脏 → 保留全部 id；零条目可盖 → `stamped:false`（新语义：真的零个 id 落地）。
-- 边界约束一：正文 + 6 字符超过 800 单条上限的条目直接跳过。否则一条近上限条目会让每个包含它的前缀被渲染器拒绝，预算一路降到 0，旁边装得下的条目一个 id 都没有（`a near-cap entry postpones only itself` 钉住）。
-- 边界约束二：id 派生不再用 `entries.json` 播种。把 sidecar 已有 id 当作「被占用」会让未盖章条目撞到自己的旧 id、换盐换 id，年龄必然重置（`the pass keeps the clock of an entry its partial stamp could not mark` 钉住）。
-- 年龄裁剪：`entries.json` 的 `keep` 改用 `keepIds`（文档拥有的全部 id，含未盖章但仍在文档里的条目），所以推迟盖章不重置年龄；`stamped:false` 时同样只裁掉真正离开文档的 id。
-- 变异矩阵：预算归零 → 部分盖章用例红；优先级反转 → 只有优先级用例红；`keepIds` 退化成 carried ids → 单元 + 端到端时钟用例红；id 派生退回 sidecar 播种 → 端到端时钟用例红；去掉近上限过滤 → 只有边界用例红。
-- 门禁本次实跑：`pnpm typecheck` 0 错、`pnpm test` 609 / 609 pass、`pnpm build` ok（`lib/client.js` 38274 bytes），0 个变异标记残留。
-- 数字是快照：`MEMORY.md` 在 `fe5dfed` 时 44,589 字符 / 140 条 / 68 个 id，14:21 的自动 pass 重写为 44,997 字符 / 131 个 id，本轮校正后又压到 44,825 字符；引用前现读 `renderMemoryDocument`。
-- 生效判据：宿主 pid 71971 启动于 10:41:56，最后一条 `src/` 提交晚于它，所以本批尚未生效；重启后下一次 pass 才会部分盖章。
+- dsh 自带同会话压缩：`packages/compaction/compaction-basic/src/config.ts` 的 `thresholdRatio 0.8`、`retainRatio 0.16`，压力再与「窗口 − 预留 − 65536」取小；自动触发 `agent/pre-step`，溢出 `agent/request-error` 重试，手动 `/compact` → `compactNow`（需空闲 agent、需 `agent.runMaintenance`）。
+- 压缩是 durable surface replace：`compaction/start|summary|end` 事件 + 遮蔽被压缩 span，不是删消息；工具调用与结果保持配对（`compaction/src/tool-pairing.ts`），客户端有 `CompactionNodeView` 渲染。
+- 本项目 handoff 与压缩不是同一问题：压缩缓解窗口压力（摘要替换历史、保留最近约 16%），handoff 换会话边界（原文尾料 + 文件清单 + 未答问题 + 门控 + 退休旧会话、批次 J 起零模型调用）。
+- `src/project-handoff/conversation.ts` 从 append-origin 日志读取尾料与文件索引，明确注释「不能依赖压缩后模型可见的 surface」，因此压缩遮蔽任何 span 都不影响交接种子的完整性。
+- 按默认策略估算的分界点约 436K：≤400K 窗口压缩先发生（handoff 常到不了膝线），500K/1M 窗口膝线先到（我们在压缩线之前交接）。
+- 1M 窗口两种取向：157K 交接 = 每轮质量优先但切会话多；800K 压缩 = 连续性与成本优先但需承认 160K→800K 区间的质量衰减，且反复压缩会遇 ACE 的 context collapse。
+- 已有用户杠杆、无需新键：把 `handoffThreshold` 设成 `0.8` 或 `800k` 即可让 handoff 退化为兜底，文档需写明代价。
+- 压缩感知属于纯观测（监听本来就是 session event 的三类压缩事件），不改触发时机，是最便宜的补强；插件侧兜底调用 `compactNow` 未探针验证，不得先承诺。
+- `docs/handoff-candidates-b-c.md` 的既有判定仍成立：用户 2026-10-07 的约束「不能丢东西」把触发点钉回 `turn/end`，`step/end` 与 `agent/pre-step` 触发都必须停掉在飞的那一轮、丢掉它的答案，故不做。
+- 上一批调研的交付与复验已收尾：`manifest=76` 无哈希不匹配、CSV 数据行 36、链接 6 条无坏链、密钥扫描干净，证据包 18 MB 随 `3b6f9d6` 进入 Git。
 
 ## Open tasks
 
-- 重启宿主（用户）：重启后触发一次整理 pass，确认 `MEMORY.md` 的 id 按优先级出现（条数现读渲染器）、`errors.log` 无新的 `memory regression:` 行。
-- 决定是否补做方案 D（3-hex id）：A 已让 id 不再吞事实，D 只增加余量并会重置现有年龄，默认不做。
-- 观察 `context-injection.test.mjs` 的偶发失败是否在无并发写入时复现（旧项，仍未定性）。
-- 被误留的旧会话 session-88ada514 需在客户端手动归档；已归档的 c35a7f0f / 3a51f066 需按用户判断取消归档（旧项）。
+- 用户是否要把分层建议落成 `docs/compaction-vs-handoff.md`（只写规格：交叉点计算、`/handoff status` 压缩行规格、`compactNow` 可调用性探针清单，不动 `src/`）——已提议，待拍板。
+- 若推进压缩感知：先用探针证明插件能否在空闲 agent 上调用 `ctx.compaction.compactNow`，再谈兜底；未证不得写入承诺。
+- P0 补强（只读检索面、`/memory status` 类状态面板、交接回执可视化）仍未拍板，需用户定范围。
+- Z8d 部分盖章需宿主重启后才生效（用户执行），重启后触发一次整理 pass 并确认 `errors.log` 无新的 `memory regression:` 行。
+- 方案 D（3-hex 条目 id）仍默认不做，等用户在看到调研结论后再定。
+- `context-injection.test.mjs` 偶发失败未定性（旧项，需在无并发写入时复现）。
+- 调研报告标注的站点漂移项（Cursor memories、Windsurf→Devin、Codex 文档迁移）未闭合，若要对外发布需补一轮复核。
 
-<!-- latest-session-title: 批次 Z8d 收口：回归误报 + 部分盖章 + 约束补硬 -->
+<!-- latest-session-title: 同会话压缩 vs handoff：宿主压缩机制核对与分工建议 -->
