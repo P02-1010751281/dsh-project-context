@@ -107,25 +107,18 @@ journal 统计；测试 `test/logic.test.mjs` 或新 `test/memory-status.test.mj
 
 **不做**：读 `errors.log` 正文、解析上次 pass 结果、引入状态文件。
 
-### C. 压缩感知（P0，W1，只读）
+### C. 压缩感知（P0，W1，只读）—— 已落地
 
-**问题**：dsh 压缩是活的，但用户和回执都看不到「这个会话压缩过几次、最近一次压缩后还多满」。
+按 [compaction-vs-handoff.md](./compaction-vs-handoff.md) §3–4 的细化规格实现（`src/project-handoff/compaction.ts`
+＋ `command.ts` 的 status 行）。与本节最初草稿的三处差别，都是落地时才发现草稿会数错：
 
-**做法**：
-1. 新增纯函数 `compactionStats(events)`：折叠 `compaction/start|summary|end`，返回
-   `{count, lastAtSeq, lastSummaryTokens?, lastEndSeq}`；payload 形状不匹配时返回
-   `{available:false}`，**不得当 0**。
-2. `/handoff status` 增加一行：`compactions N (last seq X, summary Y tokens)`；没有事件时
-   `no compaction recorded`。
-3. 只在 status（和将来的回执）用；不改触发、不改注入、不碰 `ctx.compaction`。
+- 标题数字取 `summarized + pruned`（只有真正回收了上下文的动作才算一次压缩）；成功的
+  `compaction/end` 不再重复计一遍，带 `error` 的 `end` 单列 `failed` 且不计入。
+- `lastSuccess` 与 `lastError` 分开：一次失败不会抹掉「最近一次回收了多少」。
+- 认识前缀但不认识的 `compaction/*` 类型报 `unavailable`（`malformed`），不静默跳过——未来宿主
+  新增一种压缩事件时，静默少数比具名缺口更糟。
 
-**改动面**：`src/project-handoff/compaction-stats.ts`（新）；`command.ts` 的 `statusText`；
-`test/handoff-decide.test.mjs` 或新 `test/compaction-stats.test.mjs`。
-
-**验收**：
-- 合成事件 0/1/3 次；乱序/缺 `summary`/未知 payload → `unavailable`；
-- 计数与 `session.snapshotEvents()` 逐条一致；重启后从日志折叠仍一致；
-- 触发路径零改动（变异：删掉 status 行，只有 status 用例红）。
+验收（10 条用例 + 4 个有效变异 + 全量 627 绿）记在该文 §7。
 
 ### D. 交接回执（P1，W2）
 
