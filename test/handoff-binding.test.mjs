@@ -128,6 +128,7 @@ async function runHandoff(root, options = {}) {
 	const split = {
 		older: "较早的对话",
 		tail: "## user\n把 release 收尾",
+		tailMessages: 1,
 		languageMessages: [{ role: "user", sourceKind: "user", text: "把 release 收尾" }],
 		trimmedTail: false,
 	};

@@ -22,9 +22,10 @@ import { compactionStatusLine } from "./compaction.js";
 import { readCompactionFeed } from "./compaction-events.js";
 import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { performHandoff } from "./perform.js";
+import { seedReceiptLine } from "./receipt.js";
 import { isHandoffRouteError, routeFailureReceipt, withRouteFailure } from "./route-failure.js";
 import { type SessionControllerLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
-import { handedOff, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
+import { handedOff, handoffReceipts, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
 import { resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "./threshold.js";
 
 /**
@@ -183,6 +184,12 @@ export async function statusText(
 	// history is a fact about this session even when the route or the meter is what is broken — that
 	// is exactly the receipt a user opens while handoff is not firing.
 	parts.push(compactionStatusLine(readCompactionFeed(session.snapshotEvents()), language));
+	// This session's own seed, when this process performed the handoff that created it. Recorded by the
+	// transaction that wrote the artifacts, so the numbers are the seed's, not a second estimate; a
+	// session that was not seeded here has no entry and prints no line (the parent keeps only
+	// `already handed off`, further down).
+	const seed = handoffReceipts.get(String(session.id));
+	if (seed !== undefined) parts.push(seedReceiptLine(seed, language));
 	const thresholdSetting = config.handoffThreshold;
 	parts.push(thresholdSetting.mode === "auto"
 		? `adaptive target ${config.handoffBudgetSummaryTokens}`

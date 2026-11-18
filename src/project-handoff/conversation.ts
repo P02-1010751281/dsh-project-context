@@ -313,6 +313,31 @@ export function handoffCarry(session: Session, pendingEnabled: boolean): Handoff
 	return pendingEnabled && question !== undefined ? { pending: question.text } : {};
 }
 
+/** How the question that was open at a handoff was disposed of. */
+export type QuestionDisposition = "answered" | "deferred" | "nothing";
+
+/**
+ * What happened to the question still open when this handoff ran — the receipt's third seed number.
+ *
+ * Deliberately not read off {@link HandoffCarry}: that object answers "what does the seed carry",
+ * which is a different fact. Under `handoffPendingQuestion: defer` a manual `/handoff now` carries
+ * nothing at all, yet the question is still open and the receipt must say so rather than report "no
+ * question". Both readings come from one {@link readSessionInputs} pass, so the two can differ only
+ * about what travelled, never about which question was newest or which input came last.
+ *
+ *  - `answered`: the user's own last input came after the question (an `ask_user_question` answer, or
+ *    a typed message), so the continuation has their answer in the tail or in its decision block;
+ *  - `deferred`: the question is still the newest thing in the conversation — the answer is still with
+ *    the user, whether or not the seed chose to carry the question;
+ *  - `nothing`: no assistant text ever asked a question, so there was nothing to dispose of.
+ * @param session - the session being handed off.
+ */
+export function questionDisposition(session: Session): QuestionDisposition {
+	const { question, decisionIndex } = readSessionInputs(session);
+	if (question === undefined) return "nothing";
+	return decisionIndex > question.index ? "answered" : "deferred";
+}
+
 /**
  * Characters of the parent's own input kept in the child's title.
  *
@@ -496,6 +521,15 @@ export interface HandoffSplit {
 	older: string;
 	/** The recent tail carried verbatim; stale continuation prompts are already marked. */
 	tail: string;
+	/**
+	 * How many messages that tail holds, counted where the cut was made.
+	 *
+	 * It travels with the split because the rendered `tail` cannot answer it: a message's own text can
+	 * contain the very separators a re-scan would look for, and re-splitting at render time would be a
+	 * second opinion about an artifact written once. `0` is the "nothing was carried" case
+	 * (`handoffBudgetRecentTokens: 0`), a fact the receipt must print rather than omit.
+	 */
+	tailMessages: number;
 	/** Raw user messages of both parts, for `auto` language resolution. */
 	languageMessages: HandoffLanguageMessage[];
 	/**
@@ -548,6 +582,7 @@ export function handoffSplit(session: Session, keepChars: number): HandoffSplit 
 	return {
 		older: truncateMiddle(olderSections.map((section) => section.rendered).join("\n\n"), MAX_CONVERSATION_CHARS),
 		tail: tailSections.map(replaySection).join("\n\n"),
+		tailMessages: tailSections.length,
 		languageMessages: languageMessagesOf([...olderSections, ...tailSections]),
 		trimmedTail: tailSections.some((section) => section.clipped === true),
 	};

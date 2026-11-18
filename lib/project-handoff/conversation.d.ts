@@ -79,6 +79,25 @@ interface HandoffCarry {
  * nothing at all, rather than the superseded input under a "do not ask again" closing.
  */
 export declare function handoffCarry(session: Session, pendingEnabled: boolean): HandoffCarry;
+/** How the question that was open at a handoff was disposed of. */
+export type QuestionDisposition = "answered" | "deferred" | "nothing";
+/**
+ * What happened to the question still open when this handoff ran — the receipt's third seed number.
+ *
+ * Deliberately not read off {@link HandoffCarry}: that object answers "what does the seed carry",
+ * which is a different fact. Under `handoffPendingQuestion: defer` a manual `/handoff now` carries
+ * nothing at all, yet the question is still open and the receipt must say so rather than report "no
+ * question". Both readings come from one {@link readSessionInputs} pass, so the two can differ only
+ * about what travelled, never about which question was newest or which input came last.
+ *
+ *  - `answered`: the user's own last input came after the question (an `ask_user_question` answer, or
+ *    a typed message), so the continuation has their answer in the tail or in its decision block;
+ *  - `deferred`: the question is still the newest thing in the conversation — the answer is still with
+ *    the user, whether or not the seed chose to carry the question;
+ *  - `nothing`: no assistant text ever asked a question, so there was nothing to dispose of.
+ * @param session - the session being handed off.
+ */
+export declare function questionDisposition(session: Session): QuestionDisposition;
 /**
  * The label a handoff puts after `HANDOFF_TITLE_PREFIX`, or the parent's short id when it has none.
  *
@@ -183,6 +202,15 @@ export interface HandoffSplit {
     older: string;
     /** The recent tail carried verbatim; stale continuation prompts are already marked. */
     tail: string;
+    /**
+     * How many messages that tail holds, counted where the cut was made.
+     *
+     * It travels with the split because the rendered `tail` cannot answer it: a message's own text can
+     * contain the very separators a re-scan would look for, and re-splitting at render time would be a
+     * second opinion about an artifact written once. `0` is the "nothing was carried" case
+     * (`handoffBudgetRecentTokens: 0`), a fact the receipt must print rather than omit.
+     */
+    tailMessages: number;
     /** Raw user messages of both parts, for `auto` language resolution. */
     languageMessages: HandoffLanguageMessage[];
     /**
