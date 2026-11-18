@@ -2,6 +2,7 @@
  * The per-session process memory: which sessions were handed off or are in flight, the failure
  * backoff and the skip/deferral log throttles.
  */
+import { type SeedReceipt } from "./receipt.js";
 /** Per-session backoff after a failed automatic handoff. */
 export declare const FAILURE_BACKOFF_MS: number;
 /** How often one session may log "nothing older to drop": the skip repeats on every idle. */
@@ -9,6 +10,19 @@ export declare const SKIP_LOG_INTERVAL_MS: number;
 /** Sessions this process already handed off, and sessions with a handoff in flight. */
 export declare const handedOff: Set<string>;
 export declare const inFlight: Set<string>;
+/**
+ * What each continuation was seeded with, keyed by the **child** session id.
+ *
+ * Keyed by the child on purpose. A handoff retires the session it replaced, so the receipt is read in
+ * the continuation — the only session still talking to the user. Nothing reads across the parent link:
+ * a session this process did not seed has no entry and prints no seed line, which is how "the parent
+ * keeps `already handed off`" and "the child reports its own seed" stay two different statements.
+ *
+ * Process memory, exactly like {@link handedOff}: a restart forgets it and the next `/handoff status`
+ * simply omits the line. The durable copy of the same facts is `HANDOFF.md` plus the seed itself, so
+ * the loss is a receipt's worth of convenience, never evidence.
+ */
+export declare const handoffReceipts: Map<string, SeedReceipt>;
 /**
  * The newest `turn/end` that arrived while an attempt was in flight. The listener drops it (the
  * running attempt owns the session), but a turn/end that closed a *settled* turn is the one chance

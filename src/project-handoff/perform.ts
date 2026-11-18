@@ -16,10 +16,11 @@ import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { abandonChild, carryModelSelection, carryPermissionPreset, createChildSession, scheduleRetirement, seedChildSession } from "./child.js";
 import { type HandoffBinding, bindHandoffChild, discardHandoffBinding } from "./binding.js";
 import { transientIfRetryable } from "./classify.js";
-import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, handoffLabel, handoffSplit, resolveHandoffLanguage } from "./conversation.js";
+import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, handoffLabel, handoffSplit, questionDisposition, resolveHandoffLanguage } from "./conversation.js";
 import { assertSessionSettled, turnOpenNow } from "./guard.js";
+import { countFileIndex } from "./receipt.js";
 import { type SessionControllerLike } from "./runtime.js";
-import { handedOff } from "./state.js";
+import { handedOff, handoffReceipts } from "./state.js";
 import { continuation, renderHandoff } from "./summary.js";
 
 /**
@@ -129,7 +130,7 @@ export async function performHandoff(
 	assertSessionSettled(session, triggerSeq);
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
-	const { older, tail, languageMessages, trimmedTail } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
+	const { older, tail, languageMessages, trimmedTail, tailMessages } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	assertHandoffDroppable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
 	// The file index is read here, before the child exists, and travels in both artifacts.
@@ -147,6 +148,10 @@ export async function performHandoff(
 	const pointers = { log: logFile, index: indexFile };
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
 	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail, trimmedTail });
+	// Read in the same synchronous step the seed was rendered from, and from the same `readSessionInputs`
+	// pass `handoffCarry` uses: the receipt and the seed can differ about what the seed *carried*, never
+	// about which question was open or which input came last.
+	const question = questionDisposition(session);
 
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
@@ -236,6 +241,12 @@ export async function performHandoff(
 	// handoff is durable in HANDOFF.md, the session archive and the index.
 	ctx.logger.info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
 	handedOff.add(String(session.id));
+	// The receipt belongs to the **child**: after this the parent is retired, and `/handoff status` is
+	// read in the continuation. It is recorded here, after the seed and the document landed, so a
+	// refused or transiently failed attempt leaves no receipt to read as "already handed off" — the
+	// numbers themselves are the artifacts' own (`tailMessages` from the split that was rendered,
+	// `files` counted from the index string both artifacts carry, `question` from the carry).
+	handoffReceipts.set(childId, { tailMessages, files: countFileIndex(files), question });
 	// The continuation is seeded and marked, so retire the session it replaced: a handoff forks, so
 	// without this the old session stays live and, being active, sits above its own continuation in the
 	// workspace list. Archiving with `stopActivity` would stop a turn that is still rendering the
