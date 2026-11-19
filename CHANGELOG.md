@@ -51,7 +51,7 @@
 
 - `src/project-handoff/compaction.ts` 现在只认 `CompactionRecord` DTO 并折叠 / 渲染；`compaction-events.ts` 是唯一知道 `compaction/*` 四种宿主形状的文件（`SH-10`）。宿主形状变了只改后者，核心不再需要会话夹具即可测。
 - `docs/harness/integration.md`：`compaction/*` 从「不接（无可用钩子）」改为「不接钩子；只读日志」，并登记 `SH-10` 与拆除条件（把 `@deepseek-ai/dsh-compaction` 加为 type-only devDependency，照 `SH-1` 的判据）。
-- `docs/compaction-vs-handoff.md` §6 的探针清单换成**源码级结论**：插件能拿到 `Agent` 并直接调 `compactNow`（`compaction-basic` 自己调 `runMaintenance`），但 `turn/end` 那一刻驱动器仍持有 agent（`busy`），可行时机是紧接着的 `agent/status = idle` 或命令处理器；**实测仍未做**，所以兜底依然不写。
+- `docs/compaction-vs-handoff.md` §6 的探针清单换成**源码级结论**：插件能拿到 `Agent` 并直接调 `compactNow`（`compaction-basic` 自己调 `runMaintenance`），但 `turn/end` 那一刻驱动器仍持有 agent（`busy`），可行时机是紧接着的 `agent/status = idle` 或命令处理器；**实测仍未做**。§9 追加同日裁定：**不实现自动兜底**（推翻「交接零模型调用」的契约、在被 defer 的最不该时刻改写视图、要六面新键与一条新兼容面、未实测且有退休竞态），重开条件写在那一节。
 - 验证：`pnpm test` **627 → 632**（+5：核心与 shim 分开测），合并后全量 **674**。
 - 合并后的跨批次变异轮（4 个有效变异，均从 `/tmp` 哈希副本恢复并重建）：把词边界换回子串 → 只红 `cat`/`catalog` 一条；把 `unparseable` 改成 0 条 → 只红不透明文档一条；把回执键从子会话换成父会话 → 红掉子会话键那一组（4 条，同一契约）；让 frontmatter 永不写入 → 红掉证据写入那一组（3 条，同一契约）。另有一个变异因 `TS6133`（删掉词边界后 `containsWord` 无人引用）编译失败，按纪律剔除后改写重跑。
 
