@@ -1,0 +1,4 @@
+2026-11-19T23:13Z	web_fetch	https://r.jina.ai/https://github.com/aoci-spec/aoci-code	SSRF blocked: r.jina.ai resolves to 198.18.3.7 (host transparent-proxy fake-ip); bash curl to raw.githubusercontent.com used instead
+2026-11-19T23:14Z	web_fetch	https://github.com/aoci-spec/aoci-code	SSRF blocked: github.com resolves to 198.18.0.9;同一内容改由 raw.githubusercontent.com 取得
+2026-11-19T23:16Z	http	http://export.arxiv.org/api/query?id_list=2605.02421	empty body (0 bytes), no HTTP status; arXiv abs/html pages used for metadata instead
+2026-11-19T23:12Z	research-tool	" 	AOCI agent context "	research tool returned 12 timestamp-converter pages (acronym collision); discarded, not used as evidence

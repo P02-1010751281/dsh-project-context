@@ -1,0 +1,8 @@
+2026-11-19T23:17:23+08:00	aoci-code-readme	200	78252	e95693ada802abc009fe36840b9753125c2c751ab9c4acabec81385e61e37403	https://raw.githubusercontent.com/aoci-spec/aoci-code/3b43f7dea6142507066aa73924768887c6370d97/README.md
+2026-11-19T23:17:23+08:00	dsh-aoci-readme	200	15142	b188274dc58596eb2646cdc657e9447b8f586e1e689552640e9204cbdccea723	https://raw.githubusercontent.com/Fourteenth-Night/dsh-aoci/cf026a7e4840e0a7a55b2f7014a948bffbc527f5/README.md
+2026-11-19T23:17:23+08:00	volumes-spec-v1	200	53934	cf8aab2c52dda82f7988046a1e3ec15015d3819537006d638bb3a506ebcebb68	https://raw.githubusercontent.com/aoci-spec/aoci-code/3b43f7dea6142507066aa73924768887c6370d97/spec/public/aoci-cognition-volumes-v1.txt
+2026-11-19T23:17:23+08:00	org-repos	200	19540	eab7faca01fc014b72839c3e8072a2ab41a8df4ad1185ed62bd455e03496d800	https://api.github.com/orgs/aoci-spec/repos?per_page=100
+2026-11-19T23:17:23+08:00	releases	200	175618	9ce93377b9d224ff7463bf7593578f4d88425aeef89fdb40d82a8fe763757bd1	https://api.github.com/repos/aoci-spec/aoci-code/releases?per_page=3
+2026-11-19T23:17:23+08:00	arxiv-abs	200	42625	02c93ee543e3b1f17efe842a2dfdd185b119afb842db1525b8c8d08a071ac054	https://arxiv.org/abs/2605.02421
+2026-11-19T23:17:23+08:00	arxiv-html	200	308561	c1204a0bf3ee79136e7982a882152265a7b3810de5cfb9cc0b31b66a17e6661c	https://arxiv.org/html/2605.02421
+2026-11-19T23:17:23+08:00	arxiv-html-txt	200	79108	ccb8ae73c13f3c92f0b08f4e97070a700a89e522e2da0fbc6c6093e8f367051d	local html2txt of arxiv-html (not independent)

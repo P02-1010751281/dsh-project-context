@@ -1,0 +1,977 @@
+ 
+ AOCI: Symbolic-Semantic Indexing for Practical Repository-Scale Code Understanding with LLMs 
+ Skip to main content 
+ Report GitHub Issue 
+ × 
+ Title: 
+ Content selection saved. Describe the issue below: 
+ Description: 
+ Submit without GitHub 
+ Submit in GitHub 
+ Why HTML? 
+ Report Issue 
+ Back to Abstract 
+ Download PDF 
+ Contents 
+ Reading mode 
+ Colour theme 
+ Abstract. 
+ 1 Introduction 
+ 2 Background and Motivation 
+ 2.1 Why Scaling Context Does Not Scale Understanding 
+ 2.2 The Missing File-Level Intent Layer 
+ 2.3 Capability Boundaries of Existing Repository Context Methods 
+ 3 Design of the AOCI Protocol 
+ 3.1 Dual-Layer Encoding Design 
+ 3.2 Database Schema Indexing 
+ 3.3 File-Level Independence and Incremental Maintenance 
+ 3.4 Example Index Entries 
+ 4 Evaluation Design 
+ 4.1 Research Questions and Evaluation Setup 
+ 4.2 Academic Benchmark and Ablation Study 
+ 4.3 Industrial Benchmark 
+ 5 Experimental Results and Analysis 
+ 5.1 RQ1: Comparison Between AOCI and Alternative Context Representations 
+ 5.2 RQ2: Industrial Benchmark Evaluation 
+ 5.3 RQ3: Ablation Analysis of AOCI Encoding Components 
+ 6 Discussion 
+ 7 Threats to Validity 
+ 8 Conclusion 
+ Acknowledgements 
+ References 
+ License: CC BY 4.0
+arXiv:2605.02421v1 [cs.SE] 04 May 2026 
+ AOCI: Symbolic-Semantic Indexing for Practical Repository-Scale Code Understanding with LLMs 
+ DOI:  10.1145/nnnnnnn.nnnnnnn Conference:  The 41st IEEE/ACM International Conference on Automated Software Engineering; October 12–16, 2026; Munich, Germany CCS:  Software and its engineering System description languages CCS:  Computing methodologies Knowledge representation and reasoning CCS:  Software and its engineering Software maintenance tools 
+ Jinshi Liu
+ Affiliation:  Xingyun Zhixue (Beijing) Technology Co., Ltd. , Beijing , China 
+ email: liujinshi@xingyuncl.com 
+ , 
+ Hanying Zuo
+ Affiliation:  Xingyun Zhixue (Beijing) Technology Co., Ltd. , Beijing , China 
+ email: zuohanying@xingyuncl.com 
+ , 
+ Congyin Cao
+ Affiliation:  AI Application and Innovation Lab, School of New Media, Peking University , Beijing , China 
+ email: 19913809590@163.com 
+ , 
+ Anran Zhang
+ Affiliation:  AI Application and Innovation Lab, School of New Media, Peking University , Beijing , China 
+ email: 2401112445@stu.pku.edu.cn 
+ , 
+ Yixuan Liu
+ Affiliation:  AI Application and Innovation Lab, School of New Media, Peking University , Beijing , China 
+ email: 2401112441@stu.pku.edu.cn 
+ and 
+ Xinzhou Xie
+ Note:  Corresponding author.
+ Affiliation:  AI Application and Innovation Lab, School of New Media, Peking University , Beijing , China 
+ email: xzxie@pku.edu.cn 
+ 2026 
+ Abstract. 
+ Large language models struggle with understanding codebases beyond a
+certain scale—repositories with hundreds of thousands of lines of code.
+Existing methods—retrieval, summarization, agent exploration—each
+construct a different view at query time. The view varies between runs, and what persists is typically
+ad-hoc rather than systematic. 
+ This paper introduces AOCI (AI-Oriented Code Indexing): a
+symbolic-semantic repository representation—a structured blueprint that an LLM can read in a single pass to gain a complete repository-level picture of the system’s architecture, dependencies, and key design decisions before any task. An AOCI index consists of encoding rules followed by entries, with
+one entry per code unit (file or database table). Each entry
+pairs a symbolic tag with semantic content. The symbolic component
+provides architectural coordinates; the semantic component carries
+function, dependencies, and constraints. Together they form a
+consistent, stable representation of the entire system. 
+ Index maintenance is incremental: when code changes, only affected
+entries are regenerated under protocol rules. The AOCI Platform
+automates this process, keeping the blueprint aligned with the code. 
+ We evaluated AOCI on four projects across three LLMs and six context
+conditions (2,160 evaluations). AOCI outperforms all deployable baselines and ranks second only to the Oracle upper bound in overall accuracy. On 19 industrial tasks across five systems, AOCI
+produced zero final-state defects, while three mainstream agent-based
+tools introduced defects in 12 tasks and consumed 4–130 × \times more tokens
+( p < 0.001 p<0.001 ). The advantage grows with task complexity. 
+ Keywords:  Repository-scale code understanding, Large language models, Symbolic-semantic indexing, Context representation, AI-assisted software engineering, Knowledge representation
+ 1. Introduction 
+ Large language models (LLMs) have shown great potential in coding  ( Chen et al., 2021 ; Feng et al., 2020 ; Wang et al., 2021 ; Hou et al., 2024 ; Fan et al., 2023 ) . But when we used them to code a larger system, with more than a hundred thousand lines of code, they often failed. This often comes down to a dilemma. To understand the whole system and decide the right place to change, the LLM needs either to read the whole codebase or to guess which files to read. The first option faces a fundamental limit: even with million-token context windows, there is too much code irrelevant to the core system logic, and that causes the LLM’s attention to scatter and hurts understanding  ( Jimenez et al., 2024 ) . The second option is more commonly adopted. LLM-based coding tools today typically use retrieval-based methods to find related files, but these methods cannot find all the related files precisely, and the result is a wide range of failures — for example, it adds the wrong tables, APIs, or functions; it assumes things that don’t exist and uses fields that were never there  ( Liu et al., 2025a ; Tian et al., 2025 ) . The real problems are more varied than this short list. 
+ To further explore the mainstream approaches researchers have used to help LLMs understand a whole repository, we saw the dilemma firsthand. We have tried syntax-oriented extraction  ( Gauthier, 2023 ) — this approach keeps information such as function signatures and class hierarchies, but it cannot help LLMs understand our business logic clearly. We have tried natural-language summarization  ( Oskooei et al., 2025 ) — it blurs the system structure and causes more defects. We have tried agent-based dynamic exploration  ( Zhang et al., 2024b ; Yang et al., 2024 ; Wang et al., 2025a ; Zhang et al., 2024a ; Tao et al., 2024 ; Chen et al., 2025b ) that lets LLMs automatically fetch context and generate code on demand — however, this comes at a high token cost, and the returns drop quickly on complex business systems  ( Yang et al., 2024 ; Ma et al., 2025 ) . 
+ Looking at these three lines of work together, we noticed something they all share. As our codebase grew past a hundred thousand lines, the question we ran into was no longer “how do we compress what fits into the next prompt” — it was “how does the LLM keep a complete and accurate understanding of our system, run after run.” All three approaches we had tried did attempt some kind of system view, in their own way: retrieval gave us a directory tree of the matched files; the summarizer sometimes wrote a paragraph about how a module fits into the whole; the agent built up its own picture by clicking through files. But the output depended on what the LLM happened to generate that day — in what shape, at what level of detail. The next run on the same repository looked different. Without a fixed format that says how the system should be encoded and how an LLM should decode it back, no two views of the same codebase agreed. We needed a layer the existing methods did not provide: a stable, LLM-readable blueprint of the entire system — its architecture, dependencies, and key design decisions — that the LLM reads once before any task and that is updated incrementally as the code evolves. That is the layer AOCI (AI-Oriented Code Indexing) fills. 
+ An AOCI index is a structured file that can describe an entire repository with just hundreds of lines. Beginning with the encoding rules, an AOCI index mainly consists of entries, and each entry independently represents a source file or a database table. Each entry has two parts. The first part is a multi-dimensional symbolic tag, which carries structural information. The second part is a compact semantic description, covering function, relations, and interface. Since the rules and the content sit in the same file, it is convenient for an LLM to understand the whole system in a single read. Because the entries are mutually independent, changing one file does not require rebuilding the whole index. 
+ A protocol on its own is not enough — for this stable layer to actually exist in production, we need to keep it consistent with the code it describes. So we built an AOCI Platform on top of the protocol. The platform takes care of index generation, consistency checking, and version management, which makes the stable layer maintainable across the lifetime of a real system. One important property: the LLM can generate the index itself, so building an index does not require manual authoring from scratch. 
+ All of this is only worth it if AOCI holds up under real testing, so we tested it both ways. On the academic side, four projects, three frontier LLMs, six context conditions — AOCI came out best among everything we could actually deploy. On the industrial side, we ran AOCI through 19 end-to-end tasks on five industrial systems (Go backend, Node.js backend, covering education, legal, and finance). To make sure the evaluation itself was honest, we added an ablation study, brought in a separate adjudication pipeline, and added explicit mitigations for pretraining contamination on public repositories. Section 5 reports the detailed results. 
+ The main contributions of this paper are: 
+ 1. Protocol. AOCI is a symbolic-semantic indexing protocol for LLMs. It fills a layer that prior work skipped: a stable, LLM-readable view of the whole system that does not change between runs. 
+ 2. Platform. On top of the protocol, AOCI Platform keeps the stable layer in sync with the code as the code evolves. We have been using it on our production systems. 
+ 3. Evidence. A multi-level evaluation shows the stable layer actually works in practice: 2,160 academic evaluations, 19 end-to-end industrial tasks across five real industrial systems, an ablation that isolates each encoding component, and explicit mitigations against pretraining contamination on public repositories. 
+ 2. Background and Motivation 
+ 2.1. Why Scaling Context Does Not Scale Understanding 
+ Modern LLMs support context windows of 1M or even 10M tokens  ( Gemini Team, Google, 2024 ) , yet repository-scale code understanding has not improved accordingly. The natural assumption is that a bigger window should help — if the model can read more files, it should understand the system better. In practice, the opposite often happens. 
+ Hong et al.  ( Hong et al., 2025 ) documented this effect across 18 frontier models under the name Context Rot : as input length grows, model performance degrades rather than improves. Earlier results on SWE-bench  ( Jimenez et al., 2024 ) had already shown the same pattern — enlarging the context budget from 13K to 50K tokens reduced Claude 2’s resolution rate from 1.96% to 1.22%. Subsequent work confirmed that this degradation persists even when all task-relevant evidence is present in the context  ( Du et al., 2025 ; Chen et al., 2025a ) , and that LLMs are easily distracted by irrelevant content mixed in with relevant code  ( Shi et al., 2023 ) . Agentless  ( Xia et al., 2025 ) further showed that structured skeleton representations outperform full-file injection at repository scale, suggesting that how information is presented matters more than how much is included. 
+ The reason is not hard to see. Real-world repositories are mostly low-entropy content — imports, boilerplate, formatting, type annotations — that carries little architectural meaning but consumes attention. The high-entropy information that actually matters — which module owns which responsibility, how modules depend on each other, what design decisions constrain the implementation — is scattered across files and never stated explicitly. LLMs exhibit position-decay effects in long contexts, making distant but important information harder to use for cross-file reasoning  ( Liu et al., 2024a ; Kuratov et al., 2024 ) , and insufficient or noisy repository context drives code hallucinations such as project-context conflicts  ( Liu et al., 2025a ; Tian et al., 2025 ) . Recent benchmarks on cross-file reasoning  ( Ding et al., 2023 ; Liu et al., 2024b ; Deng et al., 2024 ) and repository-scale tasks  ( Yu et al., 2024 ; Li et al., 2024 ; Zhang et al., 2025 ) have made these failures measurable. 
+ Taken together, these findings point to a problem that cannot be solved by longer context alone. What the LLM lacks is not more code, but a complete picture of the system — its structure, its intent, and its constraints — in a form that fits the way attention mechanisms work. Moreover, the primary audience of code-related artifacts is shifting from human developers to language models  ( Nam et al., 2024 ) , which means the representation must be designed for LLM consumption rather than human readability. This raises a concrete question: do existing software documentation and code representation schemes provide such a layer? 
+ 2.2. The Missing File-Level Intent Layer 
+ Existing software documentation mainly operates at two levels: function-level artifacts, such as comments and API descriptions, and project-level artifacts, such as design documents and architectural overviews. What is largely missing between them is a file-level intent layer — a structured representation that captures each file’s business role, key dependencies, importance, and position within the repository architecture. 
+ Function-level documentation describes what a function does; project-level documentation describes what the system is for. Neither captures the information most needed for repository-scale reasoning: how files relate to each other, which ones are architecturally critical, and what design constraints govern their implementation. While function-level code summarization has been extensively studied  ( Ahmad et al., 2020 ; LeClair et al., 2020 ) , analogous systematic effort has not extended to the file level. Oskooei et al.  ( Oskooei et al., 2025 ) build file-, directory-, and repository-level summaries but without a fixed schema that can be maintained incrementally, while Agentless  ( Xia et al., 2025 ) relies on directory-tree structure rather than project documentation during file localization. In industry, tools like Claude Code recommend manually maintained project knowledge files to preserve context across sessions — a workaround that confirms the need but lacks the structure to scale. Recent research automates repository-level documentation generation  ( Luo et al., 2025 ; Sun et al., 2025 ) , but the outputs target human readability rather than LLM attention. 
+ Historically, this layer was not overlooked by accident — it was rationally skipped. Human developers fill this gap through mental models built up over months of working with a codebase, supplemented by IDE navigation and on-demand debugging. Maintaining an explicit file-level intent index would have cost more than it saved, because the only audience was humans who could already recover this information themselves. The AI era reverses this logic on three fronts simultaneously. First, the audience shifts from humans to LLMs, which have no mental model and no cross-session memory. Second, the maintainer shifts from humans to LLMs themselves, which can generate and update index entries under a fixed protocol. Third, the payoff changes from marginal to decisive — without this layer, LLM performance on repository-scale tasks degrades sharply, as shown in Section  2.1 . 
+ A file-level intent layer built for LLMs must therefore satisfy constraints absent from human-oriented documentation: a fixed encoding protocol that the LLM can parse unambiguously, high-density semantic elements that convey business logic without injecting raw code, and entry-level independence so that each file’s representation can be read, updated, or replaced without affecting the rest. Section 3 introduces the protocol designed on this basis. 
+ 2.3. Capability Boundaries of Existing Repository Context Methods 
+ To assess existing repository-context methods, Table  1 compares them along six dimensions covering both technical capability and deployment constraints. The results show a clear pattern of complementarity. Syntax extraction is deterministic and incrementally maintainable but weak in business semantics. Natural-language summarization helps localization but is harder to keep synchronized with evolving code. Sparse retrieval is fast and deterministic but lacks global architectural coverage. Agent-based exploration improves localization and semantic acquisition at the cost of determinism and reproducibility. These methods therefore exhibit structural trade-offs rather than isolated weaknesses. 
+ These trade-offs are not limited to information selection — deciding what code enters the context. Each method also makes implicit choices about information representation: retrieval returns raw code fragments, summarization produces free-form text, agents assemble context on the fly. But none of them provides a representation that is simultaneously stable across runs, globally complete, and incrementally maintainable, as the pattern in Table  1 confirms. Prior work on retrieval  ( Robertson and Zaragoza, 2009 ; Jimenez et al., 2024 ) , iterative retrieval-augmented generation  ( Lewis et al., 2020 ; Zhang et al., 2023 ; Wu et al., 2024 ; Jiang et al., 2025 ; Bi et al., 2024 ) , repository-structure-based composition  ( Shrivastava et al., 2023 ; Agrawal et al., 2023 ; Xia et al., 2025 ; Cheng et al., 2024 ; Wang et al., 2025b ) , and graph-based representations  ( Ma et al., 2025 ; Ouyang et al., 2025 ; Liu et al., 2025b ; Liu et al., 2025c ) has advanced both dimensions, yet the file-level intent layer identified in Section  2.2 remains unfilled. This gap motivates a protocol that jointly addresses stability, coverage, and maintainability. 
+ Table 1. Comparison of Repository-Level Code Context Methods 
+ Dimension 
+ Syntax Extraction 
+ NL Summary 
+ Sparse Retrieval 
+ Agent Exploration 
+ AOCI 
+ Representative methods 
+ RepoMap  ( Gauthier, 2023 ) 
+ Hierarchical Summary  ( Oskooei et al., 2025 ) 
+ BM25  ( Robertson and Zaragoza, 2009 ) 
+ SWE-agent  ( Yang et al., 2024 ) , AutoCodeRover  ( Zhang et al., 2024b ) , Claude Code 
+ This work 
+ Business semantic preservation 
+ – 
+ + 
+ + 
+ + 
+ + 
+ Precise file localization 
+ + 
+ ++ 
+ + 
+ ++ 
+ ++ 
+ Global architecture coverage 
+ + 
+ + 
+ – 
+ + 
+ ++ 
+ Determinism and reproducibility 
+ ++ 
+ ++ 
+ ++ 
+ – 
+ ++ 
+ Incremental maintenance 
+ ++ 
+ – 
+ ++ 
+ – 
+ ++ 
+ Context transparency and editability 
+ – 
+ – 
+ – 
+ – 
+ ++ 
+ Note: ++ indicates full support, + indicates partial support, and – indicates weak or no support. Sparse retrieval and agent exploration follow on-demand acquisition paradigms; therefore, their scores on the “global architecture coverage” dimension reflect method characteristics rather than method defects. Semantic compression in AOCI inevitably loses some implementation detail; this trade-off is quantified in Section 5. 
+ 3. Design of the AOCI Protocol 
+ A file-level intent layer for LLMs needs three things: a fixed encoding protocol, high-density semantic elements, and entry-level independence. AOCI is a symbolic-semantic indexing protocol that addresses all three. It couples discrete symbolic tags with continuous semantic descriptions to give an LLM a complete architectural view of a repository under a limited token budget, while keeping each entry independently maintainable. 
+ AOCI supports two complementary modes. In code-to-index , an LLM reads an existing repository and generates structured indexes that provide a system-level cognitive map. In index-first , developers describe requirements in natural language, and an LLM produces a complete system index as an architectural blueprint for later implementation. Because architecture can be reviewed and revised at the index level before code generation, the review object is reduced from tens of thousands of lines of code to a few hundred lines of structured index content. Figure  1 shows the overall AOCI architecture, and Figure  2 illustrates the index-first workflow. 
+ Figure 1. AOCI indexing pipeline overview. Overview of the AOCI indexing pipeline: source repository on the left, the dual-layer encoding module in the middle converting files into discrete tags and continuous semantic descriptions, and the resulting plain-text index file on the right that is injected into the LLM context window. 
+ 3.1. Dual-Layer Encoding Design 
+ Figure 2. Index-first development workflow. The index-first development workflow: natural-language requirements are transformed by an LLM into a complete AOCI index serving as an architectural blueprint, which is reviewed and revised at the index level before code generation. 
+ An AOCI index consists of a header section and a sequence of per-file entries . The header declares the project-level architectural overview, technology stack, and the tag taxonomy shared by all subsequent entries. Because each project develops its own business domain vocabulary, the header is defined per project. For backend entries in the AOCI Platform, for example, the A dimension dictionary contains Handler/Service/Repository/Model/Middleware/Router, the B dimension uses 30+ business module codes such as Core/Auth/Org/Role/Credits, and the dictionary further specifies an importance-scaled length budget where C=9 files are allocated 80 to 150 tokens and C ≤ \leq 3 files are compressed to 20 to 40 tokens. 
+ Each per-file entry adopts a dual-layer encoding structure consisting of a discrete tag layer and a continuous semantic layer , unified into a single-line plain-text format: 
+ filename[ABCDE-tag]: F:function | R:relations | A:API | S:synopsis 
+ The content inside the brackets corresponds to the discrete tag layer; the content after the colon corresponds to the continuous semantic layer, with four elements separated by vertical bars. This single-line format allows a Transformer, during token-by-token processing, to first establish structural coordinates through the filename and tag anchors, and then acquire business content through the subsequent semantic elements. 
+ The discrete tag layer consists of five orthogonal dimensions that assign each file a compact architectural coordinate. Dimension A marks the vertical architectural layer (e.g., handler, service, DAO, model, middleware, or router), enabling a layered system view. Dimension B marks the business module, providing horizontal partitioning of the domain space. Dimension C encodes file importance using a six-level non-uniform scale ( 9 , 8 , 7 , 5 , 3 , 1 ), which preserves finer distinctions among core files while compressing peripheral ones. Dimension D optionally records technical characteristics, such as JWT, RBAC, transactions, and encryption. Dimension E marks code scale using four levels based on line count. Concatenating these dimensions yields a compact tag string; for example, WA9JM denotes a medium-sized core middleware file in the authentication module with JWT-related features. 
+ The continuous semantic layer contains four structured elements. Element F summarizes the file’s business role, providing the missing file-level intent absent from traditional documentation. Element R lists major related files to capture dependencies. Element A records exposed APIs or interfaces. Element S compresses high-entropy implementation details into dense keywords, preserving design decisions such as rate limiting, fallback logic, and encryption schemes. Together, these elements form a compact semantic representation
+of a file, with core files typically under 200 tokens and
+peripheral files compressed to under 50. 
+ The two layers are designed to complement Transformer self-attention  ( Vaswani et al., 2017 ; Xiao et al., 2024 ) : the tag layer provides structured anchors for narrowing candidate files without full semantic scanning, while the semantic layer supplies business and design details. Because both layers are encoded within the same entry, AOCI supports localization and comprehension in a single forward pass — delivering the stability, coverage, and entry-level independence that the file-level intent layer requires. 
+ 3.2. Database Schema Indexing 
+ Code indexes primarily cover architectural information at the level of business logic, whereas complete system understanding also requires a structured representation of the data model. To this end, AOCI further extends its encoding scheme to the database layer by generating one index entry for each table and adopting a four-dimensional tag structure. Its basic form is as follows: 
+ table_name[domain-table_type-scale_estimate-features]: 
+ field-level description 
+ Here, the content inside the brackets corresponds to the table-level tags, while the remaining content consists of comma-separated field-level descriptions. The domain dimension marks the functional area to which a table belongs, such as user, points, indexing, or auditing. The table-type dimension distinguishes roles such as primary tables, association tables, log tables, and configuration tables. The scale-estimate dimension categorizes tables according to their expected data volume, thereby providing the model with a prior signal about scale. The features dimension records structural properties through multiple markers, such as JSONB fields, unique constraints, soft deletion, foreign keys, and GUID-based identification. 
+ As an example, consider the user table in the AOCI Platform: 
+ users[U-M-M-GUID]: user primary table,
+ uuid/username/email unique, password_hash bcrypt, status,
+ is_superadmin, preferences JSONB, soft delete 
+ The tag U-M-M-GUID follows a dimension-by-dimension decoding scheme analogous to Section 3.1, with dashes separating the four dimensions. 
+ 3.3. File-Level Independence and Incremental Maintenance 
+ Each AOCI index entry is independent, relying only on its source
+file without referencing other entries. Inter-file dependencies
+are captured by explicit filename references in the R element,
+not through embedding index content across entries. Thus, for a
+change set of k k modified files, only the k k corresponding
+entries are regenerated— O ⁡ ( 1 ) O(1) per changed file, independent
+of total repository size. Because R records filename-level
+relationships rather than version-pinned interfaces, entries for
+unchanged files remain valid. 
+ Global dependencies are reconstructed at runtime through the
+Transformer’s self-attention over R-element cues, avoiding a
+precomputed static graph. Tasks requiring precise call-chain
+tracing may still need the source code, as R captures
+file-level relationships rather than function-level invocations. 
+ 3.4. Example Index Entries 
+ Listing 1 presents three per-file entries from the AOCI Platform project, covering three representative file categories—middleware, data access, and configuration. Complete indexes for all five industrial systems are available in the Zenodo artifact package. 
+ Listing 1. Three per-file AOCI index entries from AOCI Platform 
+ auth.go[WA9JM]: F:JWT authentication middleware | 
+ R:pkg/jwt,model/user | A:- | 
+ S:extract Bearer token from Authorization 
+ header, parse and verify JWT, inject 
+ user_id and is_superadmin into gin.Context, 
+ expiration check, refresh logic, 
+ API key fallback authentication, 
+ match key_prefix and query SHA256 
+ org_repo.go[PO9NTM]: F:organizational data access | 
+ R:model/org | A:- | 
+ S:CreateWithClosure, four-step atomic 
+ transaction, closure-table JOIN query for 
+ GetTree, closure-table query for 
+ GetAncestors, MoveNode subtree closure- 
+ relation reconstruction, Delete cascading cleanup 
+ config.yaml[CC9T]: F:main configuration | 
+ R:internal/config/config.go | A:- | 
+ S:DB/Redis/JWT/encryption keys/rate 
+ limiting/LLM proxy/CORS 
+ The three tag strings ( WA9JM , PO9NTM , CC9T ) decode against the backend schema into middleware, data-access, and configuration categories. The S element preserves high-entropy design decisions
+that neither syntax extraction nor natural-language
+summarization captures—for instance, the API-key fallback in auth.go , closure-table primitives in org_repo.go , and key parameter domains in config.yaml . 
+ Beyond this single project, AOCI has been consistently applied across all five industrial systems with distinct technology stacks (Node.js+React, Go+Gin+Vue 3, Go+React+TypeScript), spanning backend layers (handlers, services, repositories, middleware, routers), frontend layers (pages, components, hooks, stores), configuration files, and database schemas. Full index artifacts and aggregate statistics are provided in the Zenodo artifact package and form the basis of the industrial evaluation in Section  5.2 . 
+ 4. Evaluation Design 
+ AOCI is evaluated through two complementary benchmarks: an academic benchmark and an industrial benchmark . The former assesses representation quality by comparing six context conditions for LLM-based code understanding, while the latter evaluates end-to-end effectiveness against three mainstream agent-based tools in real production systems. 
+ 4.1. Research Questions and Evaluation Setup 
+ The evaluation is organized around three research questions. 
+ RQ1: How does AOCI compare with alternative context representation methods in helping LLMs understand repository architecture? 
+ RQ2: How does AOCI compare with mainstream agent-based tools on real end-to-end development tasks? 
+ RQ3: How much does each encoding component of AOCI contribute to the overall effectiveness? 
+ Test Projects. 
+The four academic benchmark projects follow a dual-selection strategy balancing quality control and diversity. P1 and P2 are in-house production systems whose code-quality baselines are independently established through standardized engineering verification, with details given in Table  2 . P3 and P4 are external GitHub projects selected for technology-stack diversity and screened for pretraining contamination, with mitigations discussed in Section  7 . The four test projects in RQ1 are P1 to P4, while the five industrial systems in RQ2 are S1 to S5. S1 and S2 correspond to P1 and P2 in industrial settings, and S3, S4, and S5 are independent systems introduced in Table  5 . The RQ3 ablation study uses P1. 
+ Table 2. Project Metadata and Quality Verification 
+ Project 
+ Tech Stack 
+ Code Size 
+ Source Type 
+ Quality Verification 
+ P1: ai-xingyuncl 
+ Node.js + React 
+ 147,656 LOC / 586 files 
+ In-house production system 
+ SonarQube 2A; 0 bugs / 0 vulns; Quality Gate pass; 539 tests 100% pass. 
+ P2: edu-pkuailab 
+ Go + Vue 3 
+ Backend: 44,610 LOC / 200 Go files; frontend: 89 files 
+ In-house production system 
+ SonarQube 4A; 595 tests 100% pass; 14,085 QPS stress; 12 sec-pen checks pass. 
+ P3: dory 
+ TypeScript + Next.js 
+ 58,135 LOC / 568 files 
+ Third-party open-source 
+ GitHub independent open-source project. 
+ P4: koalaqa 
+ Go + React + TypeScript 
+ 128,293 LOC / 707 files 
+ Third-party open-source 
+ GitHub independent open-source project. 
+ • 
+ Note: For P1 and P2, code-size and quality indicators are obtained from SonarQube Community Edition reports, automated tests, stress testing, and security penetration records. P3 is sourced from https://github.com/dorylab/dory , and P4 from https://github.com/chaitin/KoalaQA . LOC is measured with cloc , excluding dependency directories, build artifacts, and generated test files. Quad-A refers to A-grade ratings on the four core SonarQube quality dimensions (Reliability, Security, Maintainability, Coverage); “2A” denotes two A ratings, “sec-pen” denotes security penetration. 
+ Question Design. 
+Each project is associated with 30 architecture-understanding questions, evenly divided into three categories by information-retrieval type. The taxonomy is adapted from the repository-level code-understanding framework of SWE-QA  ( Peng et al., 2025 ) , merging its original four categories into three by combining Why into How since both require cross-file reasoning at repository scale. Where evaluates file localization by asking for the implementation file path of a given functionality. What evaluates dependency enumeration by asking for all files, fields, or modules related to a functionality. How evaluates cross-module interaction understanding by asking for the full process through which a mechanism is triggered across multiple files or modules. All questions derive from actual source-code implementations, and ground-truth answers are verified with server-side grep , independent of any index representation. What and How questions must involve at least two source files, Where questions must require cross-module reasoning beyond filename inference, and all ground-truth answers must reflect project-specific implementation decisions rather than general programming knowledge. 
+ Scoring. 
+Scoring methods vary by category. Where uses exact path matching. What uses F1, the harmonic mean of precision and recall  ( Manning et al., 2008 ) over correctly predicted entities. How uses LLM-as-Judge  ( Zheng et al., 2023 ; Gu et al., 2025 ) with Claude Opus 4.6 assigning an integer score from 1 to 5 based on coverage and accuracy relative to the ground truth. To reduce self-preference bias  ( Panickssery et al., 2024 ) , the judge and evaluated models are kept in different families where possible, with CoReQA  ( Chen et al., 2025a ) reporting a bias within ± 5.5 % \pm 5.5\% . Defect identification for the industrial benchmark follows the separate adjudication pipeline described below. 
+ Table 3. Context Conditions for the Academic Benchmark 
+ Cond. 
+ Method 
+ Source 
+ Description 
+ A 
+ AOCI Index 
+ This work 
+ Complete AOCI structured index, injected as pure text 
+ B 
+ RepoMap 
+ Aider  ( Gauthier, 2023 ) 
+ Tree-sitter-based syntax skeleton extracting signatures and class structures 
+ C 
+ Hierarchical Summary 
+ Oskooei et al.  ( Oskooei et al., 2025 ) 
+ Hierarchically aggregated file-level NL summaries 
+ D 
+ Raw Code 
+ Long-context baseline 
+ Source code ranked by file size and injected into the context window up to 200K tokens 
+ E1 
+ BM25 Retrieval 
+ SWE-bench  ( Jimenez et al., 2024 ) 
+ Sparse retrieval of Top- K K files based on question keywords 
+ E2 
+ Oracle Upper Bound 
+ SWE-bench  ( Jimenez et al., 2024 ) 
+ Direct access to files relevant to the ground-truth answer; theoretical upper bound 
+ 4.2. Academic Benchmark and Ablation Study 
+ Academic Benchmark. 
+The academic benchmark defines six context conditions covering the major technical paths for repository-scale code understanding. Table  3 summarizes the method source and content description of each. Conditions A–D follow a global-injection setting, where preprocessed information is injected into the context window in a single pass, while conditions E1 and E2 follow an on-demand retrieval setting, where relevant content is selected dynamically per question. The 200K setting for Condition D is chosen to cover 25%–40% of source files while staying below the threshold where performance degrades, as shown in Section  2.1 , representing a favorable upper-bound estimate for raw-code injection. Condition E2 serves as a theoretical upper bound for benchmarking the gap between AOCI and perfect information supply. All conditions use the same LLMs and question set, differing only in injected content and representation. Evaluating 30 questions with three LLMs across four projects yields 2,160 model calls. 
+ Table 4. Ablation Variants 
+ Variant 
+ Description 
+ Goal 
+ Original AOCI 
+ Complete AOCI index 
+ Baseline 
+ wo-ABCDE 
+ Remove the entire [ABCDE] tag, keep FRAS 
+ Role of the tag layer as a whole 
+ wo-ABCD † \dagger 
+ Remove [ABCD], keep only the E (size) dimension 
+ Signal carried by size alone 
+ NL-rewrite 
+ Rewrite full AOCI index into coherent natural-language paragraphs 
+ Structured vs. free text 
+ wo-R 
+ Remove the R element (inter-file relations), keep others 
+ Explicit dependency cues 
+ wo-S 
+ Remove the S element (high-entropy design decisions), keep others 
+ High-entropy implementation details 
+ wo-FRAS 
+ Remove all F/R/A/S continuous semantic elements, keep only the tag 
+ Value of the semantic layer as a whole 
+ † \dagger 
+ For wo-ABCD, 8 entries (2.6% of 307 code entries) originally without an E dimension are treated as having no valid tag and have their bracketed tag fully removed, equivalent to the wo-ABCDE treatment on those entries. This keeps the “size-only” semantics of wo-ABCD strictly pure. Full regeneration rules and a verification script are provided in the Zenodo artifact package. 
+ Ablation Study. 
+The ablation study uses project P1 with the same 30 questions and scoring protocol as the academic benchmark. Each variant changes one encoding component while keeping the others fixed. NL-rewrite preserves semantic content but replaces structured indexing with natural-language paragraphs, isolating the effect of representational form. Three models are evaluated across all variants, yielding 540 comparative evaluations. 
+ Table 5. Industrial Benchmark Systems and Tasks 
+ ID 
+ System 
+ Tech Stack 
+ # LoC 
+ # Tasks 
+ Task Types 
+ S1 (=P1) 
+ AI Practice Platform 
+ Node.js + React 
+ 148K 
+ 3 
+ Frontend changes, state persistence, frontend–backend linkage, SQL 
+ S2 (=P2) 
+ AI Education Platform 
+ Go + Gin + Vue 3 
+ 82K 
+ 3 
+ State-machine extension, data-link synchronization, cross-module authorization 
+ S3 
+ TE-DNA 2.0 
+ Go + React 
+ 56K 
+ 7 
+ Frontend refactoring, frontend–backend linkage, schema-sensitive operations, API contract adaptation 
+ S4 
+ LegalMind 
+ Go + React 19 + TypeScript 
+ 42K 
+ 3 
+ Frontend components, backend cross-cutting auditing, V-shaped cross-task integration 
+ S5 
+ AI Hedge Fund Pro 
+ Go + React + TypeScript 
+ 39K 
+ 3 
+ Data-source routing, frontend–backend linkage, complex interactive foldable panels 
+ Note: S1 and S2 are developed by the same operator. S2 underwent its own technology-stack migration to Go + Gin + Vue 3 in 3–4 days, with the AOCI index serving as the architectural anchor across the language boundary. 
+ 4.3. Industrial Benchmark 
+ The industrial benchmark compares AOCI with three mainstream agent-based tools, namely Claude Code, Cursor, and OpenCode, on end-to-end development tasks across five industrial systems built with different technology stacks. Four operators independently executed a total of 19 tasks (with per-operator loads of 6, 7, 3, and 3). Each system was developed end-to-end by a single operator, with S1–S2 sharing the same operator. Table  5 summarizes the system and task configurations. 
+ All four settings use Claude Sonnet 4.6 as the underlying model. The only varying factor is the context acquisition strategy. AOCI uses precomputed structured indexes, whereas the three agent-based tools acquire context through runtime dynamic exploration under their default tool configurations. Development tasks are selected from each system’s backlog to cover a range of complexities. Each task is completed by the same operator under all four settings, and comparisons are based on modified files, defects, token consumption, and completion time. 
+ All four operators are members of the author team. To mitigate evaluation bias, defect identification across all 19 tasks is performed by a separate adjudication pipeline using Claude Opus 4.6  ( Chiang and Lee, 2023 ) , preloaded with the full system index, which inspects the final-state code of each setting in separate sessions without participating in task execution. Beyond per-task results reported in Section  5.2 , S1 and S2 have maintained SonarQube Quad-A ratings throughout eight months of continuous development, with 0 bugs, 0 vulnerabilities, and a cumulative 1,134 automated test cases passed. Systems S3, S4, and S5 also pass SonarQube Quad-A verification
+on dedicated audit runs, with partial reports provided in the
+Zenodo artifact package. These indicators reflect cumulative
+system health across all development activities and are not
+claims about any single task output. 
+ 5. Experimental Results and Analysis 
+ 5.1. RQ1: Comparison Between AOCI and Alternative Context Representations 
+ Table  6 summarizes the cross-model overall scores across the four projects under all six conditions. Each Finding below focuses on patterns that hold consistently across all three models. Per-model breakdowns are provided in the Zenodo artifact package. 
+ Table 6. Cross-Model Mean Overall Scores Across Four Projects 
+ Project 
+ D* (Raw 200K) 
+ E1* (BM25) 
+ B* (RepoMap) 
+ C* (NL Summary) 
+ E2* (Oracle) 
+ A* (AOCI) 
+ P1 ai-xingyuncl 
+ 26.98 
+ 36.69 
+ 39.00 
+ 35.05 
+ 92.64 
+ 71.07 
+ P2 edu-pkuailab 
+ 45.98 
+ 42.03 
+ 38.27 
+ 51.55 
+ 91.32 
+ 70.11 
+ P3 dory 
+ 37.15 
+ 23.68 
+ 31.78 
+ 30.51 
+ 95.85 
+ 53.53 
+ P4 koalaqa 
+ 41.71 
+ 35.30 
+ 30.54 
+ 25.42 
+ 80.45 
+ 65.26 
+ Avg. 
+ 37.95 
+ 34.42 
+ 34.90 
+ 35.63 
+ 90.06 
+ 65.00 
+ Note: The overall score is obtained by first averaging the model-specific scores over the three dimensions ( Where , What , and How ) and then averaging across models. The project-level means reported in the main text are computed from the original server-side experimental records; values shown in this table are rounded to two decimal places. Per-dimension and per-model breakdowns are provided in the Zenodo artifact package. The A* column and the Avg. row are emphasized for comparison. 
+ Finding A. Where performance is close to the Oracle upper bound. 
+On file-localization tasks, AOCI achieves a cross-project mean of 97.67%, only 0.66 percentage points below Oracle E2 (98.33%) and over 31 points above every other deployable baseline. This means AOCI’s structured representation already contains enough information for the LLM to find the right file — the problem the file-level intent layer in Section  2.2 was designed to solve. 
+ Finding B. The advantage on What narrows, and a reversal appears on P3 dory . 
+On dependency-enumeration tasks, AOCI achieves a cross-project mean F1 of 45.65%, exceeding Condition D by only 7.24 percentage points, a substantially smaller margin than on Where . On P3 dory , Condition D outperforms AOCI by 10.52 points consistently across all three models. P3 is an AI-driven SQL workspace whose What questions frequently require verbatim identifier listing (e.g., SQL-field enumeration), which AOCI’s semantic compression aggregates rather than preserves verbatim. This marks where the trade-off sits: cross-file dependencies are well captured, but per-identifier enumeration is lossy. 
+ Finding C. AOCI achieves a stronger trade-off between accuracy and token cost. 
+AOCI achieves 65.00% Overall with 1.48M tokens, ranking second only to Oracle and consistently outperforming every deployable baseline. Relative to raw-code injection D, AOCI attains 1.71 × \times the score at 20.25% of the token budget. The remaining gap to Oracle concentrates on What and How , consistent with Findings A and B. Unlike the other conditions, this accuracy is deterministic — the same index produces the same result on every run. 
+ Table 7. Overall Comparison Across 19 Industrial Tasks 
+ Method 
+ Total Tokens 
+ Total Time 
+ Total Turns 
+ Functional 
+ Functional 
+ Architecture 
+ Code 
+ Cost 
+ (M) 
+ (S1–S2) 
+ (S1–S2) 
+ Bugs 
+ Omissions 
+ Violations 
+ Residuals 
+ (USD) 
+ AOCI 
+ 4.29 
+ 15 min 50 s 
+ 13 
+ 0 
+ 0 
+ 0 
+ 0 
+ $ ∼ \sim 9 
+ Claude Code 
+ 41.49 
+ 21 min 46 s 
+ 162 
+ 8 
+ 4 
+ 1 
+ 0 
+ $ ∼ \sim 133 
+ Cursor 
+ 50.77 
+ 25 min 50 s 
+ 205 
+ 9 
+ 0 
+ 3 
+ 0 
+ $ ∼ \sim 164 
+ OpenCode 
+ 47.38 
+ 27 min 40 s 
+ 199 
+ 6 
+ 2 
+ 1 
+ 5 
+ $ ∼ \sim 152 
+ Note: 
+Total Tokens are reported in millions and aggregated over all 19 tasks.
+Total Time and Total Turns are aggregated over the 6 tasks from S1–S2; per-task records for all 19 tasks are provided in the Zenodo artifact package.
+Token usage for AOCI is estimated from input text length, since the web-based LLM interface does not expose exact token counts. The three agent-based tools report exact API call logs.
+For AOCI, Total Turns counts user–model dialogue turns. For agent-based tools, it counts tool invocation rounds.
+Defects across all 19 tasks are identified by a separate adjudication pipeline using Claude Opus 4.6, preloaded with the full system index, which inspects the final-state code of each setting in separate sessions without participating in task execution. The complete defect list is provided in the Zenodo artifact package.
+Cost is converted using the public pricing of Sonnet 4.6. 
+ 5.2. RQ2: Industrial Benchmark Evaluation 
+ Table  7 summarizes the 19-task comparison. All tools use Claude Sonnet 4.6 with temperature = 0.1 , and each task is executed once. AOCI introduces zero final-state defects across all 19 tasks. The three agent-based tools introduce defects in 12 tasks, totaling 39 defects. A Fisher’s exact test on task-level defect occurrence yields p < 0.001 p<0.001 . 
+ Finding A. The 39 agent-introduced defects are not random — they cluster into recurring patterns that reproduce across technology stacks. 
+We observed four categories. (1)  Multi-path query omission : a data model is accessed through multiple independent code paths, and the agent modifies some but misses others. In S1 (Node.js), all three agents found only 2 of 4 SQL queries that needed a new field. In S2 (Go), two agents missed the same field across 4  SELECT statements — and Go’s static type system did not catch it, because the missing field silently takes a zero value. The same bug pattern, independently reproduced across two languages. (2)  Cross-module refresh omission : in S1, agents modified a data source but did not propagate the update to dependent views, so users saw stale counts until they manually refreshed. (3)  Interface-contract guessing : in S3, two agents independently defined API parameters as string[] when the backend expected an object array — the permission save silently failed. (4)  Schema incompatibility : in S3, one agent produced INSERT statements referencing nonexistent columns (deployment crash), and another created a parallel table (data split). These are not bugs in any particular tool. They are consequences of exploring a repository at runtime without a global map. AOCI avoids them because the map already exists before the task begins. 
+ Finding B. The token-cost advantage grows with task complexity. 
+Per-task token ratios range from 4 × \times to 130 × \times . On S3’s seven tasks spanning four complexity levels, the ratio grows from 9.4 × \times on simple single-file changes to 11.1 × \times on medium tasks, 30.7 × \times on cross-module tasks, and 64 × \times on schema-sensitive operations. S4 shows the same pattern: 15 × \times on a single-file task, rising to 129 × \times on a task that required understanding two prior tasks’ outputs simultaneously. The reason is straightforward: agent exploration cost grows with the number of files and dependencies the task touches, while AOCI’s index cost is fixed. 
+ Finding C. Global context prevents architectural debt and cross-task regressions, not only functional bugs. 
+The agent tools did not just introduce bugs — they introduced two additional classes of problems that a global view would have prevented. First, architectural debt : in S2, one agent added a semantically redundant database column because it misread the design intent of an existing field, introducing a permanent schema inconsistency — we confirmed the column was absent from the production database. In S3, two agents produced schema-incompatible code for an existing permissions table: one caused a deployment crash, the other created a parallel table with split data. Second, cross-task regression : in S4, two agents modified a central routing file and silently dropped all parameter changes made in a prior task, reverting seven handler constructor signatures. AOCI avoids these because its index records field-level schema, design intent, and the results of prior tasks before code generation begins. S2 also serves as a cross-stack portability case: it was reimplemented from Node.js to Go in 3–4 days, with the AOCI index as the architectural anchor across the language boundary. Among the five systems, S1, S2, and S3 are in production, with S2 serving over 100,000 registered users. 
+ 5.3. RQ3: Ablation Analysis of AOCI Encoding Components 
+ This subsection conducts a component-wise ablation on project P1 ai-xingyuncl , selected for its mid-range complexity. Each variant is evaluated on the same 30 questions by three frontier models independently, yielding 540 primary calls and 180 How -question judging calls. Two-sided Wilcoxon signed-rank tests with Bonferroni correction are applied across variants; Table  8 reports the cross-model means and test results. 
+ Table 8. Comparison of Seven Ablation Variants on Cross-Model Means for Project P1 
+ Variant 
+ Where (%) 
+ What (%) 
+ How (%) 
+ Overall (%) 
+ Δ \Delta Overall 
+ p p (Wilcoxon) 
+ Per-Question Tokens 
+ Original AOCI 
+ 100.00 
+ 45.88 
+ 74.67 
+ 73.52 
+ Reference 
+ Reference 
+ 45,949 
+ wo-ABCDE 
+ 100.00 
+ 44.00 
+ 77.33 
+ 73.78 
+ +0.26 
+ 0.500 n.s. 
+ 44,290 
+ wo-ABCD 
+ 96.67 
+ 42.04 
+ 73.33 
+ 70.68 
+ -2.84 
+ 0.073 n.s. 
+ 44,408 
+ NL-rewrite 
+ 93.33 
+ 39.87 
+ 70.67 
+ 67.96 
+ -5.56 
+ 0.026 † \dagger 
+ 60,289 
+ wo-R 
+ 100.00 
+ 25.35 
+ 72.00 
+ 65.78 
+ -7.74 
+ 0.002 ** 
+ 42,479 
+ wo-S 
+ 92.00 
+ 27.03 
+ 41.33 
+ 53.45 
+ -20.07 
+ < 0.001 <0.001 *** 
+ 22,653 
+ wo-FRAS 
+ 68.67 
+ 8.97 
+ 29.33 
+ 35.66 
+ -37.86 
+ < 0.001 <0.001 *** 
+ 12,299 
+ Note: 
+ Overall is obtained by averaging the cross-model means over the three dimensions Where , What , and How .
+ Δ \Delta Overall denotes the difference relative to the original AOCI condition.
+The p p (Wilcoxon) column reports the two-sided paired test result after combining the three models ( N = 90 N=90 ).
+Significance symbols are defined as follows: *** p < 0.001 p<0.001 , ** p < 0.01 p<0.01 , * p < 0.05 p<0.05 , and † \dagger not passing the Bonferroni-corrected threshold α = 0.00833 \alpha=0.00833 .
+The Per-Question Tokens column reports the cross-model mean number of prompt tokens and is used to compare compression efficiency.
+Exact per-model results are provided in the Zenodo artifact package.
+The variants correspond to different component removals: wo-ABCDE and wo-ABCD test the discrete tag layer; wo-R , wo-S , and wo-FRAS test the continuous semantic layer; NL-rewrite tests the structured representational form. 
+ Finding A. The S element carries the most critical information in the AOCI index. 
+Removing S reduces Overall from 73.52% to 53.45% ( Δ = − 20.07 \Delta=-20.07 , Wilcoxon p < 0.001 p<0.001 ), with the How score dropping from 74.67% to 41.33% — the largest single-component degradation. S is where the high-entropy design decisions live: rate-limiting strategies, fallback mechanisms, encryption schemes, transactional procedures. These are exactly the details that syntax extraction and natural-language summarization do not preserve (Table  1 ). Without S, the remaining structural cues are not enough for implementation reasoning. Further removing F, R, and A ( wo-FRAS ) lowers Overall to 35.66%, close to Condition D on P1 (26.98%, Table  6 ). 
+ Finding B. Structured encoding is more token-efficient than equivalent natural-language prose. 
+The NL-rewrite variant converts the full AOCI index into coherent paragraphs with 100% identifier retention. Overall drops from 73.52% to 67.96% ( Δ = − 5.56 \Delta=-5.56 , Wilcoxon p = 0.026 p=0.026 , not passing Bonferroni threshold), while tokens per question increase by 31.2%. The natural-language form scores lower on all three dimensions at higher token cost, though the rewritten text is 49.8% longer, making token overhead a confound. 
+ Finding C. The R element has a strong, dimension-specific effect on dependency enumeration. 
+Removing R reduces Overall from 73.52% to 65.78% (Wilcoxon p = 0.002 p=0.002 , passing the Bonferroni threshold). The effect concentrates on What , which drops from 45.88% to 25.35%, while Where stays at 100.00% and How declines only marginally. 
+ Finding D. The discrete tag layer does not yield a uniform aggregate gain, but exhibits model-family heterogeneity. 
+Removing the ABCDE tag layer leaves Overall nearly unchanged from 73.52% to 73.78% with Wilcoxon p = 0.500 p=0.500 , but the aggregate masks directional differences across models. Per-model tests show a positive effect on Sonnet, a negative effect on GPT, and no significant effect on Gemini ( p = 0.016 , 0.010 , 0.965 p=0.016,0.010,0.965 ). The QA benchmark measures architectural understanding through Where/What/How questions, but the tag layer is designed for a different set of functions: architectural-layer navigation, importance-based prioritization, and incremental maintenance routing. These functions are directly exercised in end-to-end development (Section  5.2 ), where the full AOCI index — tags included — produced zero defects across 19 tasks. 
+ 6. Discussion 
+ The experimental results show a consistent pattern across both benchmarks. On architectural understanding, AOCI reaches near-Oracle file localization but falls short on verbatim dependency enumeration, where raw code retains literal identifiers that AOCI’s semantic compression compresses into higher-level descriptions. The ablation confirms that most of AOCI’s value comes from the FRAS semantic layer — especially S, which carries the high-entropy design decisions that no other representation preserves. 
+ The industrial benchmark reveals something different from what the academic numbers show. All three agent-based tools produced similar kinds of errors across different systems  ( He et al., 2025 ) — missing cross-module side effects, silent regressions in files they did not visit, residual code from abandoned attempts. These are not bugs in any particular tool; they are consequences of exploring a repository at runtime without a global map. AOCI avoids this class of errors because the map already exists before the task begins. The advantage grows with task complexity: on simple single-file changes the token savings are modest, but on schema-sensitive and cross-module tasks the ratio exceeds 100 × \times . 
+ Three practical lessons emerged from eight months of deployment. First, a stable repository view matters more than a larger context window — the same index, reused across dozens of tasks, eliminated the run-to-run variance that agent tools exhibited. Second, AOCI and agent-based tools work at different layers rather than competing head-to-head; a natural next step is to use AOCI as the global context layer beneath an agent pipeline. Third, platform support for incremental maintenance is not optional — without automated generation, consistency checking, and version management, index–code divergence would erode the stability that makes the whole approach work. 
+ These results support the premise in Section  2.2 : the file-level intent layer that was rationally absent from human-oriented documentation becomes a prerequisite once the audience shifts to LLMs. AOCI’s contribution is not a better retrieval algorithm or a smarter agent, but the layer itself — stable, versioned, and designed for how LLMs actually read code. 
+ 7. Threats to Validity 
+ The LLM-as-Judge scoring of How questions uses Claude Opus 4.6, which belongs to the same family as Claude Sonnet 4.6 and may introduce self-preference bias  ( Panickssery et al., 2024 ) . To mitigate this, the Opus scores are aligned with independent human scoring on all 10 How questions of P1 under Condition A, with 8 of 10 showing exact agreement and all 10 within one point, yielding a Spearman correlation of ρ = 0.90 \rho=0.90 at p < 0.001 p<0.001 . While absolute How scores may be influenced by bias, the relative rankings and significance conclusions are unlikely to be materially affected. 
+ Non-blind execution in the industrial benchmark is another threat: the same operators who developed the systems also executed the four-setting comparison. To mitigate this, defect identification is delegated to a separate adjudication pipeline using Claude Opus 4.6, as described in Section  4.3 . The main experiments use single-sample evaluations with temperature = 0.1 ; most conditions exhibit substantial score differences, reducing the risk that single-sample variance affects comparative conclusions. 
+ The evaluated projects concentrate on Web technology stacks — Node.js, Go, and TypeScript — and frontend–backend scenarios, which raises generalizability concerns. This is partially addressed by applying AOCI to OpenClaw, a large open-source TypeScript codebase, with pull requests generated under AOCI-guided development submitted upstream, passing CI, and receiving maintainer review. Broader practitioner replication and non-Web technology stacks remain future work. 
+ Residual pretraining contamination in public repositories  ( Sainz et al., 2023 ) is reduced through pre-screening and post-hoc checks, but a more thorough exclusion requires non-public closed-source test sets. AOCI’s token count is estimated from dialogue structure whereas agent-based tools use exact API logs, introducing measurement heterogeneity; the large cross-tool token ratios of 4 × \times to 130 × \times make comparative conclusions robust to this difference. File-level indexing granularity may be insufficient when a single file contains methods with divergent behaviors, suggesting method-level or finer-grained indexing as a future extension. 
+ 8. Conclusion 
+ This paper proposes AOCI, a symbolic-semantic indexing protocol that fills a layer largely absent from existing software documentation: a stable, LLM-readable representation of file-level intent across an entire repository. Across four projects, three frontier models, and six context conditions, AOCI ranks consistently first in overall accuracy among all deployable non-oracle methods, with its file-localization accuracy reaching 97.67%, only 0.66 percentage points below the Oracle upper bound. In the industrial benchmark, AOCI leaves no final-state defects across 19 end-to-end development tasks while consuming substantially fewer tokens than mainstream agent-based tools. The ablation study shows that most of AOCI’s informational value comes from the continuous semantic layer, with the S element carrying the largest share, while the discrete tag layer serves architectural navigation and risk classification functions that fall outside the QA benchmark’s measurement scope but are exercised in end-to-end development. These results support a broader observation: what LLMs lack for repository-scale understanding is not more code or longer context, but a complete and stable picture of the system — and structured symbolic-semantic indexing provides a practical way to supply it. Main limitations include the concentration on Web technology stacks and the single-project ablation, with further details discussed in Section  7 . Future directions include hybrid designs that combine AOCI’s precomputed global view with runtime agent exploration, finer-grained indexing below the file level, and controlled closed-source test sets to further mitigate pretraining contamination. 
+ Data Availability Statement 
+ The artifact package is available at https://doi.org/10.5281/zenodo.19677251 . It includes: (i) experimental data and scoring scripts needed to reproduce all reported results; (ii) complete AOCI index snapshots for all five industrial systems, comprising approximately 1,276 entries compressing over 370K LOC across distinct technology stacks; and (iii) the ABCDE/FRAS tag dictionaries used in each system. Some raw industrial source code cannot be released due to confidentiality constraints; for such materials, index snapshots and derived evaluation records are provided. 
+ Competing Interests 
+ The authors have filed patent applications related to the AOCI protocol with the China National Intellectual Property Administration. The AOCI Platform is developed and maintained by Xingyun Zhixue (Beijing) Technology Co., Ltd., where some of the authors hold positions. 
+ Acknowledgements. 
+This work was supported by the National Natural Science Foundation of China Key Program Research on the Management Theory and Policy of New Media Development (Grant No. 71633001). The authors also thank the AI Application and Innovation Lab, School of New Media, Peking University.
+ Use of Generative AI 
+ The authors used large language models (including Claude and GPT-series models) to assist with language polishing and copy-editing. All research ideas, protocol design, system implementation, experimental design, data collection, and analysis are the authors’ own original work. 
+ References 
+ Agrawal et al. (2023) 
+ L. A. Agrawal, A. Kanade, N. Goyal, S. K. Lahiri, and S. K. Rajamani 
+ Guiding language models of code with global context using monitors .
+ In Advances in Neural Information Processing Systems ,
+ Cited by: §2.3 .
+ Ahmad et al. (2020) 
+ W. U. Ahmad, S. Chakraborty, B. Ray, and K. Chang 
+ A transformer-based approach for source code summarization .
+ In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics ,
+ pp. 4998–5007 .
+ Cited by: §2.2 .
+ Bi et al. (2024) 
+ B. Bi, S. Liu, Y. Wang, L. Mei, and X. Cheng 
+ Iterative retrieval-augmented generation .
+ In Findings of the Association for Computational Linguistics: ACL 2024 ,
+ Cited by: §2.3 .
+ Chen et al. (2025a) 
+ J. Chen, K. Zhao, J. Liu, C. Peng, J. Liu, H. Zhu, P. Gao, P. Yang, and S. Deng 
+ CoreQA: uncovering potentials of language models in code repository question answering .
+ arXiv preprint arXiv:2501.03447 .
+ Cited by: §2.1 ,
+ §4.1 .
+ Chen et al. (2021) 
+ M. Chen, J. Tworek, H. Jun, Q. Yuan, H. P. D. O. Pinto, J. Kaplan, H. Edwards, Y. Burda, N. Joseph, G. Brockman, et al. 
+ Evaluating large language models trained on code .
+ arXiv preprint arXiv:2107.03374 .
+ Cited by: §1 .
+ Chen et al. (2025b) 
+ Z. Chen, R. Tang, G. Deng, F. Wu, J. Wu, Z. Jiang, V. Prasanna, A. Cohan, and X. Wang 
+ LocAgent: graph-guided LLM agents for code localization .
+ In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,
+ pp. 8697–8727 .
+ Cited by: §1 .
+ Cheng et al. (2024) 
+ W. Cheng, Y. Wu, and W. Hu 
+ Dataflow-guided retrieval augmentation for repository-level code completion .
+ In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,
+ pp. 7957–7977 .
+ Cited by: §2.3 .
+ Chiang and Lee (2023) 
+ C. Chiang and H. Lee 
+ Can large language models be an alternative to human evaluations? .
+ In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,
+ pp. 15607–15631 .
+ Cited by: §4.3 .
+ Deng et al. (2024) 
+ K. Deng, J. Zhu, J. Ren, Z. Liu, S. Zheng, J. Zhao, J. Liu, B. Yang, W. Chai, B. Yu, F. Tian, and B. Zheng 
+ R2C2-Coder: enhancing and benchmarking real-world repository-level code completion abilities of code large language models .
+ In Findings of the Association for Computational Linguistics: ACL 2024 ,
+ Cited by: §2.1 .
+ Ding et al. (2023) 
+ Y. Ding, Z. Wang, W. Ahmad, H. Ding, M. Tan, N. Jain, M. K. Ramanathan, R. Nallapati, P. Bhatia, D. Roth, and B. Xiang 
+ CrossCodeEval: a diverse and multilingual benchmark for cross-file code completion .
+ In Advances in Neural Information Processing Systems ,
+ Cited by: §2.1 .
+ Du et al. (2025) 
+ Y. Du, M. Tian, S. Ronanki, S. Rongali, S. Bodapati, A. Galstyan, A. Wells, R. Schwartz, E. A. Huerta, and H. Peng 
+ Context length alone hurts llm performance despite perfect retrieval .
+ arXiv preprint arXiv:2510.05381 .
+ Cited by: §2.1 .
+ Fan et al. (2023) 
+ A. Fan, B. Gokkaya, M. Harman, M. Lyubarskii, S. Sengupta, S. Yoo, and J. M. Zhang 
+ Large language models for software engineering: survey and open problems .
+ In 2023 IEEE/ACM International Conference on Software Engineering: Future of Software Engineering (ICSE-FoSE) ,
+ pp. 31–53 .
+ Cited by: §1 .
+ Feng et al. (2020) 
+ Z. Feng, D. Guo, D. Tang, N. Duan, X. Feng, M. Gong, L. Shou, B. Qin, T. Liu, D. Jiang, and M. Zhou 
+ CodeBERT: a pre-trained model for programming and natural languages .
+ In Findings of the Association for Computational Linguistics: EMNLP 2020 ,
+ pp. 1536–1547 .
+ Cited by: §1 .
+ Gauthier (2023) 
+ P. Gauthier Building a better repository map with tree-sitter (Website)
+ External Links: Link 
+ Cited by: §1 ,
+ Table 1 ,
+ Table 3 .
+ Gemini Team, Google (2024) 
+ Gemini Team, Google 
+ Gemini 1.5: unlocking multimodal understanding across millions of tokens of context .
+ Technical Report 
+ Google DeepMind .
+ Cited by: §2.1 .
+ Gu et al. (2025) 
+ J. Gu, X. Jiang, Z. Shi, H. Tan, X. Zhai, C. Xu, W. Li, Y. Shen, S. Ma, H. Liu, S. Wang, K. Zhang, Y. Wang, W. Gao, L. Ni, and J. Guo 
+ A survey on LLM-as-a-judge .
+ In Findings of the Association for Computational Linguistics: ACL 2025 ,
+ Cited by: §4.1 .
+ He et al. (2025) 
+ J. He, C. Treude, and D. Lo 
+ LLM-based multi-agent systems for software engineering: literature review, vision, and the road ahead .
+ ACM Transactions on Software Engineering and Methodology .
+ Cited by: §6 .
+ Hong et al. (2025) 
+ K. Hong, A. Troynikov, and J. Huber 
+ Context rot: how increasing input tokens impacts llm performance .
+ Technical report 
+ Chroma .
+ Cited by: §2.1 .
+ Hou et al. (2024) 
+ X. Hou, Y. Zhao, Y. Liu, Z. Yang, K. Wang, L. Li, X. Luo, D. Lo, J. Grundy, and H. Wang 
+ Large language models for software engineering: a systematic literature review .
+ ACM Transactions on Software Engineering and Methodology 33 ( 8 ), pp. 1–79 .
+ Cited by: §1 .
+ Jiang et al. (2025) 
+ Z. Jiang, X. Ma, and W. Chen 
+ LongRAG: enhancing retrieval-augmented generation with long-context LLMs .
+ In International Conference on Learning Representations ,
+ Cited by: §2.3 .
+ Jimenez et al. (2024) 
+ C. E. Jimenez, J. Yang, A. Wettig, S. Yao, K. Pei, O. Press, and K. Narasimhan 
+ SWE-bench: can language models resolve real-world GitHub issues? .
+ In The Twelfth International Conference on Learning Representations (ICLR) ,
+ Cited by: §1 ,
+ §2.1 ,
+ §2.3 ,
+ Table 3 ,
+ Table 3 .
+ Kuratov et al. (2024) 
+ Y. Kuratov, A. Bulatov, P. Anokhin, I. Rodkin, D. Sorokin, A. Sorokin, and M. Burtsev 
+ BABILong: testing the limits of LLMs with long context reasoning-in-a-haystack .
+ In Advances in Neural Information Processing Systems ,
+ Cited by: §2.1 .
+ LeClair et al. (2020) 
+ A. LeClair, S. Haque, L. Wu, and C. McMillan 
+ Improved code summarization via a graph neural network .
+ In Proceedings of the 28th International Conference on Program Comprehension ,
+ pp. 184–195 .
+ Cited by: §2.2 .
+ Lewis et al. (2020) 
+ P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küttler, M. Lewis, W. Yih, T. Rocktäschel, et al. 
+ Retrieval-augmented generation for knowledge-intensive nlp tasks .
+ Advances in neural information processing systems 33 , pp. 9459–9474 .
+ Cited by: §2.3 .
+ Li et al. (2024) 
+ J. Li, G. Li, Y. Zhao, Y. Li, H. Liu, H. Zhu, L. Wang, K. Liu, Z. Fang, L. Wang, J. Ding, X. Zhang, Y. Zhu, Y. Dong, Z. Jin, B. Li, F. Huang, Y. Li, B. Gu, and M. Yang 
+ DevEval: a manually-annotated code generation benchmark aligned with real-world code repositories .
+ In Findings of the Association for Computational Linguistics: ACL 2024 ,
+ pp. 3603–3614 .
+ Cited by: §2.1 .
+ Liu et al. (2025a) 
+ F. Liu, Y. Liu, L. Shi, H. Huang, R. Wang, Z. Yang, L. Zhang, Z. Li, and Y. Ma 
+ Exploring and evaluating hallucinations in LLM-powered code generation .
+ In Proceedings of the 34th ACM SIGSOFT International Symposium on Software Testing and Analysis ,
+ Cited by: §1 ,
+ §2.1 .
+ Liu et al. (2025b) 
+ H. Liu, S. Wang, Z. Tan, Y. Xiao, M. Ye, S. Wang, S. Wang, Z. Qin, H. Tan, F. Wang, and P. Di 
+ Code graph model (CGM): a graph-integrated large language model for repository-level software engineering tasks .
+ In International Conference on Learning Representations ,
+ Cited by: §2.3 .
+ Liu et al. (2024a) 
+ N. F. Liu, K. Lin, J. Hewitt, A. Paranjape, M. Bevilacqua, F. Petroni, and P. Liang 
+ Lost in the middle: how language models use long contexts .
+ Transactions of the Association for Computational Linguistics 12 , pp. 157–173 .
+ Cited by: §2.1 .
+ Liu et al. (2024b) 
+ T. Liu, C. Xu, and J. McAuley 
+ RepoBench: benchmarking repository-level code auto-completion systems .
+ In International Conference on Learning Representations ,
+ Cited by: §2.1 .
+ Liu et al. (2025c) 
+ X. Liu, B. Lan, Z. Hu, Y. Liu, Z. Zhang, W. Zhou, F. Wang, and M. Shieh 
+ CodeXGraph: bridging large language models and code repositories via code graph databases .
+ In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics (Volume 1: Long Papers) ,
+ Cited by: §2.3 .
+ Luo et al. (2025) 
+ Q. Luo, Y. Ye, S. Liang, Z. Zhang, Y. Qin, Y. Lu, Y. Wu, X. Cong, Y. Lin, Y. Zhang, X. Che, Z. Liu, and M. Sun 
+ RepoAgent: an LLM-powered open-source framework for repository-level code documentation generation .
+ In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics ,
+ Cited by: §2.2 .
+ Ma et al. (2025) 
+ Y. Ma, Q. Yang, R. Cao, B. Li, F. Huang, and Y. Li 
+ Alibaba lingmaagent: improving automated issue resolution via comprehensive repository exploration .
+ In Proceedings of the 33rd ACM International Conference on the Foundations of Software Engineering ,
+ pp. 238–249 .
+ Cited by: §1 ,
+ §2.3 .
+ Manning et al. (2008) 
+ C. D. Manning, P. Raghavan, and H. Schütze 
+ Introduction to information retrieval .
+ Cambridge University Press .
+ Cited by: §4.1 .
+ Nam et al. (2024) 
+ D. Nam, A. Macvean, V. Hellendoorn, B. Vasilescu, and B. Myers 
+ Using an LLM to help with code understanding .
+ In Proceedings of the 46th IEEE/ACM International Conference on Software Engineering ,
+ pp. 1–13 .
+ Cited by: §2.1 .
+ Oskooei et al. (2025) 
+ A. R. Oskooei, S. Yukcu, M. C. Bozoglan, and M. S. Aktas 
+ Repository-level code understanding by llms via hierarchical summarization: improving code search and bug localization .
+ In International Conference on Computational Science and Its Applications ,
+ pp. 88–105 .
+ Cited by: §1 ,
+ §2.2 ,
+ Table 1 ,
+ Table 3 .
+ Ouyang et al. (2025) 
+ S. Ouyang, W. Yu, K. Ma, Z. Xiao, Z. Zhang, M. Jia, J. Han, H. Zhang, and D. Yu 
+ RepoGraph: enhancing AI software engineering with repository-level code graph .
+ In International Conference on Learning Representations ,
+ pp. 30361–30384 .
+ Cited by: §2.3 .
+ Panickssery et al. (2024) 
+ A. Panickssery, S. R. Bowman, and S. Feng 
+ LLM evaluators recognize and favor their own generations .
+ In Advances in Neural Information Processing Systems ,
+ Cited by: §4.1 ,
+ §7 .
+ Peng et al. (2025) 
+ W. Peng, Y. Shi, Y. Wang, X. Zhang, B. Shen, and X. Gu 
+ Swe-qa: can language models answer repository-level code questions? .
+ arXiv preprint arXiv:2509.14635 .
+ Cited by: §4.1 .
+ Robertson and Zaragoza (2009) 
+ S. Robertson and H. Zaragoza 
+ The probabilistic relevance framework: bm25 and beyond .
+ Vol. 4 , Now Publishers Inc .
+ Cited by: §2.3 ,
+ Table 1 .
+ Sainz et al. (2023) 
+ O. Sainz, J. A. Campos, I. García-Ferrero, J. Etxaniz, O. L. de Lacalle, and E. Agirre 
+ NLP evaluation in trouble: on the need to measure LLM data contamination for each benchmark .
+ In Findings of the Association for Computational Linguistics: EMNLP 2023 ,
+ pp. 10776–10787 .
+ Cited by: §7 .
+ Shi et al. (2023) 
+ F. Shi, X. Chen, K. Misra, N. Scales, D. Dohan, E. H. Chi, N. Schärli, and D. Zhou 
+ Large language models can be easily distracted by irrelevant context .
+ In Proceedings of the 40th International Conference on Machine Learning ,
+ pp. 31210–31227 .
+ Cited by: §2.1 .
+ Shrivastava et al. (2023) 
+ D. Shrivastava, H. Larochelle, and D. Tarlow 
+ Repository-level prompt generation for large language models of code .
+ In Proceedings of the 40th International Conference on Machine Learning ,
+ pp. 31693–31715 .
+ Cited by: §2.3 .
+ Sun et al. (2025) 
+ W. Sun, Y. Miao, Y. Li, H. Zhang, C. Fang, Y. Liu, G. Deng, Y. Liu, and Z. Chen 
+ Source code summarization in the era of large language models .
+ In Proceedings of the 47th IEEE/ACM International Conference on Software Engineering ,
+ Cited by: §2.2 .
+ Tao et al. (2024) 
+ W. Tao, Y. Zhou, Y. Wang, W. Zhang, H. Zhang, and Y. Cheng 
+ MAGIS: LLM-based multi-agent framework for GitHub issue resolution .
+ In Advances in Neural Information Processing Systems ,
+ Vol. 37 .
+ Cited by: §1 .
+ Tian et al. (2025) 
+ Y. Tian, W. Yan, Q. Yang, X. Zhao, Q. Chen, W. Wang, Z. Luo, L. Ma, and D. Song 
+ CodeHalu: investigating code hallucinations in LLMs via execution-based verification .
+ In Proceedings of the AAAI Conference on Artificial Intelligence ,
+ Cited by: §1 ,
+ §2.1 .
+ Vaswani et al. (2017) 
+ A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin 
+ Attention is all you need .
+ Advances in neural information processing systems 30 .
+ Cited by: §3.1 .
+ Wang et al. (2025a) 
+ X. Wang, B. Li, Y. Song, F. F. Xu, X. Tang, M. Zhuge, J. Pan, Y. Song, B. Li, J. Singh, H. H. Tran, F. Li, R. Ma, M. Zheng, B. Qian, Y. Shao, N. Muennighoff, Y. Zhang, B. Hui, J. Lin, R. Brennan, H. Peng, H. Ji, and G. Neubig 
+ OpenHands: an open platform for AI software developers as generalist agents .
+ In International Conference on Learning Representations ,
+ pp. 64910–64947 .
+ Cited by: §1 .
+ Wang et al. (2025b) 
+ Y. Wang, Y. Wang, D. Guo, J. Chen, R. Zhang, Y. Ma, and Z. Zheng 
+ RLCoder: reinforcement learning for repository-level code completion .
+ In Proceedings of the 47th IEEE/ACM International Conference on Software Engineering ,
+ Cited by: §2.3 .
+ Wang et al. (2021) 
+ Y. Wang, W. Wang, S. Joty, and S. C.H. Hoi 
+ CodeT5: identifier-aware unified pre-trained encoder-decoder models for code understanding and generation .
+ In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing ,
+ pp. 8696–8708 .
+ Cited by: §1 .
+ Wu et al. (2024) 
+ D. Wu, W. U. Ahmad, D. Zhang, M. K. Ramanathan, and X. Ma 
+ Repoformer: selective retrieval for repository-level code completion .
+ In Proceedings of the 41st International Conference on Machine Learning ,
+ pp. 53848–53871 .
+ Cited by: §2.3 .
+ Xia et al. (2025) 
+ C. S. Xia, Y. Deng, S. Dunn, and L. Zhang 
+ Agentless: demystifying LLM-based software engineering agents .
+ In Proceedings of the 33rd ACM International Conference on the Foundations of Software Engineering (FSE) ,
+ Cited by: §2.1 ,
+ §2.2 ,
+ §2.3 .
+ Xiao et al. (2024) 
+ G. Xiao, Y. Tian, B. Chen, S. Han, and M. Lewis 
+ Efficient streaming language models with attention sinks .
+ In The Twelfth International Conference on Learning Representations ,
+ Cited by: §3.1 .
+ Yang et al. (2024) 
+ J. Yang, C. E. Jimenez, A. Wettig, K. Lieret, S. Yao, K. Narasimhan, and O. Press 
+ Swe-agent: agent-computer interfaces enable automated software engineering .
+ Advances in Neural Information Processing Systems 37 , pp. 50528–50652 .
+ Cited by: §1 ,
+ Table 1 .
+ Yu et al. (2024) 
+ H. Yu, B. Shen, D. Ran, J. Zhang, Q. Zhang, Y. Ma, G. Liang, Y. Li, Q. Wang, and T. Xie 
+ CoderEval: a benchmark of pragmatic code generation with generative pre-trained models .
+ In Proceedings of the 46th IEEE/ACM International Conference on Software Engineering ,
+ pp. 1–12 .
+ Cited by: §2.1 .
+ Zhang et al. (2023) 
+ F. Zhang, B. Chen, Y. Zhang, J. Keung, J. Liu, D. Zan, Y. Mao, J. Lou, and W. Chen 
+ RepoCoder: repository-level code completion through iterative retrieval and generation .
+ In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing ,
+ pp. 2471–2484 .
+ Cited by: §2.3 .
+ Zhang et al. (2024a) 
+ K. Zhang, J. Li, G. Li, X. Shi, and Z. Jin 
+ CodeAgent: enhancing code generation with tool-integrated agent systems for real-world repo-level coding challenges .
+ In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,
+ pp. 13643–13658 .
+ Cited by: §1 .
+ Zhang et al. (2025) 
+ L. Zhang, S. Xiang, P. Xing, B. Zhang, J. Cao, L. Wu, X. Ding, J. Wang, B. Liu, J. Lei, R. Liu, and Y. Wu 
+ SWE-bench-Live: a live benchmark for issue resolving in real-world software engineering .
+ In Advances in Neural Information Processing Systems ,
+ Cited by: §2.1 .
+ Zhang et al. (2024b) 
+ Y. Zhang, H. Ruan, Z. Fan, and A. Roychoudhury 
+ Autocoderover: autonomous program improvement .
+ In Proceedings of the 33rd ACM SIGSOFT International Symposium on Software Testing and Analysis ,
+ pp. 1592–1604 .
+ Cited by: §1 ,
+ Table 1 .
+ Zheng et al. (2023) 
+ L. Zheng, W. Chiang, Y. Sheng, S. Zhuang, Z. Wu, Y. Zhuang, Z. Lin, Z. Li, D. Li, E. Xing, et al. 
+ Judging llm-as-a-judge with mt-bench and chatbot arena .
+ Advances in neural information processing systems 36 , pp. 46595–46623 .
+ Cited by: §4.1 .
+ Experimental support, please
+ view the build logs 
+ for errors. Generated by
+ L
+ A 
+ T
+ E 
+ xml 
+ .
+ Instructions for reporting errors 
+ We are continuing to improve HTML versions of papers, and your feedback helps enhance accessibility and mobile
+ support. To report errors in the HTML that will help us improve conversion and rendering, choose any of the
+ methods listed below: 
+ Click the "Report Issue" ( 
+ ) button, located in the page header. 
+ Tip: You can select the relevant text first, to include it in your report. 
+ Our team has already identified the following issues . We appreciate your time reviewing and reporting rendering errors we
+ may not have found yet. Your efforts will help us improve the HTML versions for all readers, because disability
+ should not be a barrier to accessing research. Thank you for your continued support in championing open access for
+ all. 
+ Have a free development cycle? Help support accessibility at arXiv! Our collaborators at LaTeXML maintain a list of packages that need conversion , and welcome developer contributions . 
+ We gratefully acknowledge support from our major funders ,
+ member institutions , ,
+ and all contributors.
+ About · 
+ Help · 
+ Contact · 
+ Subscribe · 
+ Copyright · 
+ Privacy · 
+ Accessibility · 
+ Operational Status (opens in new tab) 

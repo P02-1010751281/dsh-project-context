@@ -1,0 +1,842 @@
+AOCI Cognition Volumes v1 (candidate read and minimal consistency-update contract)
+
+Status: R72.2 candidate. Volumes v1 reads remain the foundation. The
+existing update path additionally supports model-authored multi-object Code,
+Database, and mixed Code+Database batches backed by current source or accepted
+saved Database Evidence and the existing governance transaction. It does not
+define migration, ordinary Root/Meta writes, Volume creation/deletion, or a
+parallel multi-Volume transaction system. Parallel current batches of one
+logical plan are specified in their own section below and implemented from
+0.2.0-rc1.
+
+1. Layout selection
+
+The configured index path remains the only discovery entry. The first logical
+line selects the layout:
+
+  #AOCI-ROOT-MANIFEST: 1
+
+Only this exact, case-sensitive marker selects volumes-v1. An aoci.txt without
+the marker is legacy-monolithic. A line beginning #AOCI-ROOT-MANIFEST but not
+equal to the marker is a damaged Root and fails closed; it is never reparsed as
+Legacy. The loader does not glob aoci.*.txt and does not infer a layout from
+files found on disk.
+
+A UTF-8 BOM before the marker and CRLF line endings are accepted on read. They
+remain part of the raw-byte hash. The narrow update preserves the existing file
+editing semantics; no general Volume writer is defined.
+
+2. Root declarations
+
+Each present Volume is declared exactly once in aoci.txt:
+
+  #Volume: id=meta kind=meta path=aoci.meta.txt format=meta-v1 depends=-
+  #Volume: id=code kind=code path=aoci.code.txt format=object-fras-v2 depends=meta
+  #Volume: id=database kind=database path=aoci.database.txt format=table-fras-v2 depends=meta
+
+Existing five-field declarations remain compatible and mean state=enabled.
+New D2 Bootstrap roots use the canonical six-field declaration:
+
+  #Volume: id=meta kind=meta path=aoci.meta.txt format=meta-v1 depends=- state=enabled
+
+The sixth field is ordered and accepts enabled or disabled. State declares
+topology, not health. Meta must be enabled. A disabled object Volume is not
+loaded into an active scope. D2-B creates only enabled descriptors; later
+lifecycle Apply remains outside this version.
+
+meta is mandatory. code and database are independently optional. Paths are
+canonical, normalized repository-relative paths. Absolute paths, drive paths,
+UNC paths, traversal, duplicate ids, and case-folded duplicate paths fail
+closed. A declared file must be a regular file and not a symbolic link.
+
+The states are distinct:
+
+- undeclared: absent, legal, and no file is created;
+- declared and structurally valid: present, including a marker-only empty
+  object Volume with object_count=0;
+- declared but missing or invalid: invalid and the CognitionSet fails closed;
+- fixed-name file present but undeclared: unmanaged candidate warning; its
+  bytes and objects are not cognition.
+
+3. Asset authority
+
+aoci.txt is Repository Cognition Root and the only discovery entry. It owns
+project identity, positioning, system overview, primary technologies,
+cross-domain architecture, repository-wide boundaries, high-value negative
+space, layout declarations, dependencies, format version, and Locale. It must
+not contain ordinary code/database Entries, tag dictionaries, dynamic hashes,
+counts, alignment state, receipts, sessions, timestamps, Git identity,
+credentials, DSNs, or environment data. Its `#Locale` line is the project
+Locale and must agree with the configured `locale`: `config set locale`
+replaces that one line through the CLI transaction the CLI runtime contract
+describes, without touching any other Volume, and a disagreement is the
+governance finding `root_locale_mismatch`, repaired by that same command.
+Locale is prospective: existing objects keep the language they were authored
+in, and only objects created or updated afterwards use the new Locale.
+
+aoci.meta.txt begins with #AOCI-META-VOLUME: 1. It is the only Volume authority
+for Repository Cognition Object v2, canonical FRAS, S admission, density
+discipline, code/database tag dictionaries, E scale, calibration examples,
+repository ontology, and necessary Spec references. It must not contain
+business Entries, layout declarations, runtime state, CLI/MCP state machines,
+Maintain/Guide/Apply rules, credentials, or independently copied machine
+defaults. The init S quota declaration is rendered directly from machinecontract
+and remains one machine-owned fact rather than a separately maintained copy.
+
+The official Volume-first init Meta is a complete formal generic authoring
+authority, not a placeholder awaiting project-specific Root/Meta semantic
+authoring. “Ready” means that its object protocol, compact tag grammar,
+A/B/C/optional-D/E dictionaries, S quota authority, relation identity contract,
+and legal calibration Entry are complete and machine-parseable. It does not
+mean that project Code semantics already exist. Root remains the structural
+repository entry and ordinary project semantics may initially reside entirely
+in model-authored Code objects. No extra Root/Meta authoring phase is required
+or defined before the first Code batch.
+
+The official starter Meta provides fixed, general-purpose expanded A and B
+vocabularies for Code and Database, the complete C range 1 through 9, no D
+dictionary, and the existing E L/M/S/T scale. D remains part of the compact
+grammar only when the current formal Meta declares it. G in the starter B
+vocabulary is selected only for genuinely cross-domain objects. Z in either
+starter A or B is selected only when the bound evidence is understood and none
+of the named categories applies; it must not hide missing or insufficient
+evidence, and classification gaps are not written into S. These starter
+defaults apply only to a new Volume-first init. Existing repositories keep
+their current formal Meta and Entries without automatic migration or retagging.
+
+ParseTags is the single lexical tag splitter. New object authoring emits the
+compact A+B+C+[D]+E physical form; with the official starter Code dictionary,
+EG7T is one legal example. Dotted tags remain read compatibility for existing
+Legacy Entries and are not a second authoring form. The scoped Meta dictionary
+parser and the ordinary Entry, candidate, loaded Volume, and projected Volume
+validators all decide the same parsed A/B/C/optional-D/E values. Missing,
+unparseable, duplicate, or internally conflicting enabled-object dictionaries
+make Meta unusable; validators never widen conflicts by unioning meanings.
+
+aoci.code.txt begins with #AOCI-CODE-VOLUME: 1. It contains only code directory
+sections and file Entries using existing code semantics. aoci.database.txt
+begins with #AOCI-DATABASE-VOLUME: 1. It contains only database namespace
+sections and table Entries. Neither object Volume repeats Root or Meta.
+
+Every managed object has exactly one ownership class: Root-owned, Meta-owned,
+Code-owned, or Database-owned. The canonical formal-asset registry classifies
+`aoci.txt` as Root-owned and each declared fixed Volume path by its registered
+kind. A canonical `database://` identity is Database-owned; every other
+managed repository object is Code-owned. Classification is based only on
+canonical identity and the fixed registry, never on model semantics. Migration,
+Bootstrap candidate validation, and daily Volume governance use this same
+classifier. In particular, a Code Entry for `aoci.txt` is an ownership
+conflict even though the Root file remains structurally valid.
+
+4. CognitionSet and identity
+
+All read consumers use one CognitionSet representation. Legacy is adapted into
+that representation; call sites do not independently guess the layout.
+
+Each present asset SHA-256 is computed over its exact raw bytes. Scope and
+composite identities use aoci-length-framed-v1: every field is encoded as an
+eight-byte big-endian length followed by its bytes. The encoded facts include
+identity type, layout mode/version, ordered slot, Volume id, kind, path, format
+version, asset state, and content hash. Raw string concatenation is forbidden.
+
+The fixed order is Root, Meta, Code, Database. Composite identity covers the
+complete layout and explicitly distinguishes absent from present-empty. Scope
+identity covers the requested dependency closure and the requested scope type.
+Consequently Code changes invalidate code/all but not database/project;
+Database changes invalidate database/all but not code/project; Meta and Root
+changes invalidate every object scope. Composite identity is reported on all
+receipts but partial-scope reliability is decided by scope identity.
+
+5. Overview scope
+
+The existing aoci_overview tool accepts the optional scope values all, project,
+meta, code, and database. No tool is added. Volumes defaults to all. Legacy
+calls without scope retain their input shape and receipt-v1 contract.
+
+- project and meta each deliver Root + Meta;
+- code delivers Root + Meta + Code;
+- database delivers Root + Meta + Database;
+- all delivers Root + Meta + every declared valid object Volume.
+
+An undeclared requested object Volume returns success with asset_state=absent,
+scope_available=false, no fabricated body, and unreliable scope cognition.
+Root+Meta with no object Volume remains a valid all scope.
+
+Only check_only=true returns a compact checkpoint assessment without formal
+cognition bytes. Every ordinary explicit call returns the complete available
+scope even when a matching receipt already exists or no refresh reason is
+pending. Dirty or Stale formal cognition is returned with unreliable receipt
+flags. Active recovery, an invalid dependency closure, or a formal asset that
+changes during assembly stops delivery without returning mixed bytes.
+
+The existing token ceiling applies to the whole dependency-closed delivery.
+If any required bytes are omitted, model_scope_cognition_reliable is false. It
+is true only after a complete available and governance-current scope body is
+delivered. The full flag is true only for a complete current all delivery. A
+Dirty delivery, fallback, or absent scope never produces a reliable receipt.
+
+6. Receipt v2
+
+Volumes returns receipt version 2 with layout_mode, requested_scope,
+effective_scope, scope_available, asset_state, root_sha256, meta_sha256,
+delivered_volumes (id, kind, path,
+asset_state, raw hash, object_count), scope_object_count, scope_identity,
+composite_identity, model_scope_cognition_reliable,
+model_full_cognition_reliable, refresh_generation, and
+pending_refresh_reasons. Repository root, MCP service identity, state, owner,
+and refresh event identity remain present. Legacy receipt version 1 is
+unchanged. delivered_volumes lists only Volume bytes actually included in the
+response; it is empty for absent scopes and token fallback.
+
+7. Shared daily governance facts
+
+Volumes Verify, Check, Guide, and no-argument Maintain consume one private,
+deterministic read-only assessment over the current CognitionSet, managed
+scope, safe business-source inventory, existing Baseline and Database Binding,
+accepted saved Database Evidence, cognition budget, relations, and current
+transaction/recovery state. The assessment is not a new public protocol
+family, Baseline, or authority. Given identical formal bytes, Baseline,
+configuration, and Evidence, all four consumers must agree on layout, enabled
+domains, structural validity, governance alignment, object/source/binding
+counts, drift, Evidence and Binding state, budget, pending work, blockers, and
+the one next required action. It always reports network_accessed=false.
+
+Root+Meta, Root+Meta+Code, Root+Meta+Database, and
+Root+Meta+Code+Database are complete legal layouts. Undeclared Code or
+Database is not_applicable and contributes no Missing, Unbaselined, Evidence,
+or Binding debt. An enabled Database domain requires current accepted saved
+Evidence and current bindings; AOCI never connects to obtain them.
+
+Volume Verify distinguishes structure_valid from governance_aligned and never
+advances Baseline, Binding, or Evidence. Volume Check returns ok=true and
+exit_code=0 only when every enabled domain is aligned and no scope, observe,
+budget, transaction, recovery, or third-party blocker remains. Guide collapses
+the same facts into exactly aligned, authoring_required, evidence_required, or
+blocked. It does not create a state for each finding and does not write formal
+state.
+
+Whenever authoring is required, Volume Guide and ordinary no-argument Maintain
+use one runtime assembler to deliver the exact current formal Meta bytes (the
+same authority returned by aoci_header) plus a complete contract for every
+affected domain. authoring_meta is always the unmodified aoci.meta.txt raw text;
+runtime instructions never append to it or impersonate a Meta migration. This
+also applies when a valid older formal Meta predates the current calibration
+examples. Missing, unparseable, duplicate, or conflicting required dictionary
+facts retain the asset-level stopped result instead of guessed instructions.
+
+The Code contract contains compact A+B+C+[D]+E, every current dictionary axis,
+effective S admission and quotas, comma-delimited exact canonical R identities,
+the - placeholder, code:path/to/file.go, and one complete legal Code Entry. The
+Database contract contains its current dictionary, table F/R/A/S rules,
+database://source/namespace/table identities, and one complete Database Entry
+validated by the formal Database parser and validator. Code-only returns Code;
+Database-only returns Database; a mixed result returns Code then Database once.
+The Database candidate retains its accepted Evidence version, Evidence SHA,
+candidate_id, and batch_id. No extra scope=database call is a precondition for
+the ordinary path.
+
+No-argument Maintain is the ordinary Volume path. It automatically selects
+Code, Database, both, or aligned from the shared facts; explicit scope remains
+an advanced compatibility diagnostic. Maintain returns the complete model
+authoring targets and exact Review, Write, and Guard closure, but no generated
+tag or F/R/A/S and no formal write. Relations may expand Review and Guard only.
+Orphans are explicit removal candidates and are never silently deleted.
+
+Maintain also accepts the additive optional input intent=cognition_optimization
+with an optional object_refs filter of canonical code: references. It is valid
+only for an aligned Volumes v1 Code layout with no budget violation: Maintain
+then selects already-aligned Code Entries for explicit model review by
+deterministic Entry cost and C-band budget facts, transports the current
+complete Entries, and records resumable checkpoint progress. Review order is
+budget overage first, then Entries at or above the machine high-importance
+C value whose S is "-", then C and Entry cost; each candidate carries a
+selection_reason, and s_absent_high_importance is a structural fact about the
+Entry, never a judgement that an S is owed. The program still
+generates no semantics, truncates nothing, and lowers no C value; review
+batches close through the existing Update, Baseline, and Recovery authorities,
+an all-no-change batch advances with zero formal writes, and an altered replay
+of a completed batch fails before Apply. Ordinary no-argument Maintain
+behavior is unchanged, and no MCP tool is added.
+
+8. Other reads and writes
+
+aoci_header returns the Legacy Header in Legacy mode. In Volumes it returns
+Meta and identifies Root; Root overview is not presented as a tag dictionary.
+aoci_search accepts scope and searches only object Volumes in that scope.
+Volume results include volume_id and canonical object identity.
+aoci_get_entries retains paths/dir for Legacy and Code, and adds volume_id plus
+object_refs for canonical Volume objects. A table name is never represented as
+a repository file path.
+
+For authoring, a logical plan is the complete set of currently actionable
+targets under one Managed Scope and Composite preimage. It may exceed one batch
+and is not an atomic-write boundary. Maintain deterministically issues one
+current machine batch of at most the team batch size — the configuration key
+`code_cognition_batch_entries`, machine default 50, never above the wire
+ceiling EntriesBatchMaxItems=200 — cut earlier where the Code part of the
+response would exceed the team transport budget
+`maintain_transport_budget_bytes` (machine default 24 KiB, inclusive range
+16 KiB through 192 KiB; the batch always carries at least one candidate;
+Database candidates keep their own `database_cognition_batch_evidence_bytes`
+bound) or where its source would pass 20,000 lines of reading (a machine
+constant; a larger file travels alone, and a candidate whose line count is not
+known never cuts) — and reports
+logical_plan, batch_identity, total_targets, max_entries,
+transport_budget_bytes, source_lines, source_lines_budget, included, remaining,
+continuation_required, Composite and Scope identities, exact candidates,
+source or Evidence bindings, and next_action. "Complete candidate set" means
+all candidates in that current machine-issued batch. It never means that one
+request must contain the entire logical plan or Whole-Index, and it never
+authorizes the Host to take an arbitrary slice of Maintain output.
+
+Code candidates may carry additive file_lines and expected_e evidence in ordinary
+Maintain and cognition_optimization. file_lines is a non-negative integer counted
+from the same byte stream whose SHA-256 equals the candidate source_sha256;
+unreadable or changed bytes omit both fields. expected_e contains the sorted
+bands from the Meta code dictionary that contain this line count, including
+shared boundaries. Missing numeric thresholds or a dictionary gap omit expected_e.
+A counted empty file reports file_lines=0. Database candidates omit these fields.
+The transport budget reserves their bytes before cutting a batch. These fields
+do not enter persisted receipts or identity preimages, generate semantics, change
+selection priority, or replace source revalidation, CAS, and Recovery at Apply.
+
+source_lines is the sum of file_lines over the batch's Code candidates: what the
+batch asks the model to read. source_lines_budget is the bound the batch was cut
+under. Both are additive, omitted when no Code candidate was counted, and outside
+every identity. Reading depth has one wording, in the runtime rules and in the
+batch instructions alike: a file too large to read whole is read for its
+structure and the parts that decide its behaviour, and an Entry states only what
+that reading showed. The machine reports the volume; it never judges the reading.
+
+Each current batch is an independent atomic Apply. A successful Apply advances
+the formal Volume and Baseline to a new preimage. If remaining is nonzero, the
+Host calls no-argument Maintain again and receives the next complete current
+batch. The batch is sized so the model authors it inline as one
+aoci_update_entry call; a Maintain response keeps its candidates, plans, and
+receipts complete while per-item governance enumerations (findings, drift
+lists, the review closure) carry a leading sample plus complete counts under
+`list_truncation` / `review_total`, and the four per-asset governance records
+(`root`, `meta`, `code`, `database`) stay off the wire, since
+`cognition_receipt` and `code_plan` carry those identities, so the response
+fits ordinary Host tool-result windows regardless of repository size. Verify
+and Check keep reporting every item and every record. Missing, Stale, or
+Unbaselined targets keep Guide and Maintain
+authoring_required; neither may report Whole-Index aligned until remaining and
+all governance debt are zero. Source, Scope, Composite, or candidate-receipt
+drift invalidates only the outstanding batch. Earlier successful batches stay
+formal and are neither regenerated nor replayed.
+
+The authoring contract travels once per process. `authoring_meta` (the exact
+Meta bytes) and `instructions` are the same text on every round of one
+logical plan, and on the default budget they cost a quarter of each response.
+A server process sends them on the first candidate-carrying response of each
+refresh generation; the next such response carries `instructions_ref`
+instead: the SHA-256 of the contract text, `delivered_in_generation`, and
+`recall_input` naming the input that brings the contract back. A Host that no
+longer holds the text passes `include_instructions: true` on its next
+`aoci_maintain` and receives the complete contract again; a completed
+context-compaction reload advances the refresh generation, so the Maintain
+after it carries the contract without any flag. What a response adds beyond
+the contract (the optimization review note) rides in `instructions` either
+way. The transport budget reserves the contract only on the rounds that carry
+it, so a later round of the same process may issue more candidates of the
+same ordered targets than the first; the Guide and the `scan` estimate
+project the first round's shape. A batch is still decided by the repository
+state alone: calling Maintain again on an unchanged repository issues the
+same targets in the same order, and a batch already applied is never issued
+again.
+
+The Apply that brings the last current batch to aligned carries its terminal
+proof in an additive `terminal_proof` object (`terminal-proof/v1`): the
+governance result, `aligned`, `structure_valid`, `check_passed` (Aggregate
+Check's verdict), `guide_complete` and `guide_next_action` (the Guide's), the
+composite identity, and the actionable findings, all computed once from the
+governance fact set Verify, Check, and Guide share. Verify, Check, and Guide
+need not run after it: the task's cognition closing ends with that result.
+The shared facts rule over the Apply's own inspector: an Apply whose facts
+still see a blocker answers `aligned=false` with the blocker's remediation,
+never an aligned proof. The CLI commands remain for CI and for a person.
+
+Results that hand the next step to the CLI carry the commands to run: a
+blocked Maintain names a blocker the Host can clear itself (baseline_missing,
+observed_pending, scope_change_required, cognition_budget_exceeded); an
+evidence_required Maintain needs a fresh snapshot and its acceptance. None
+of those actions exists on the nine-tool surface, so each such result carries
+an additive optional next_commands array holding the runnable spellings. For
+scope_change_required these include scope status and scope activate; activation
+applies safe changes or returns a preview and approval commands without a
+formal write when human approval is required. The spellings
+compose from one set of machine-owned command suffixes shared with the CLI
+Guide's blocked remediation, so the two surfaces cannot spell one command two
+ways, and each is prefixed by the running server's own absolute executable
+path and by --repo naming the repository root that server was started for,
+both quoted for the host shell: the MCP binary is whatever path the Host
+configuration names and need not be on PATH, and the Host's shell need not
+stand in the repository, since a session often starts above or beside it.
+When the path or the root cannot be quoted the field is omitted rather than
+filled with a bare aoci or a command that would resolve another tree.
+Placeholders such as {agent}, {policy_file}, {source}, and {snapshot_sha} (the
+source_snapshot_sha256 the snapshot returned, which the acceptance binds) are
+the Host's to fill.
+Continuation batches, Optimization, and repair_required carry no
+next_commands; a Legacy layout's read-only stop carries the migration commands;
+and orphan removal needs none because a Code orphan goes as a `removals` item
+of the update batch and a Database orphan through aoci_remove_entry, both
+already on the surface. The array is advisory: it changes no state,
+next_action remains the machine decision, and a Host that ignores it loses
+nothing the CLI Guide does not already say.
+
+When observed_pending is the only blocking finding, Guide keeps blocked with
+next_action review_observed_evidence, and so does a Maintain that has no
+batch to issue or whose authorization posture needs a person for the
+acknowledgement: the Agent reads scope status, reviews every reported
+ObservedNew/ObservedChanged/ObservedRemoved path and its affected evidence,
+and only then acknowledges the exact set under the existing authorization
+policy. When the posture lets the model acknowledge and Maintain has a batch
+to issue, the review rides with the batch instead: Maintain answers
+authoring_required with the batch and the observe_review listing, whose
+confirm_request names aoci_update_entry, and the batch confirms the listing
+through its own observe_review {review_digest, reviewed_by}, recorded by the
+same Scope transaction before the Entries are planned and reported beside the
+outcome as observe_review {status, review_digest, acknowledged,
+acknowledged_paths, transaction_id}. A digest the current list no longer has
+is the zero-write repair finding observe_review_stale with the current listing
+in observe_review_current; nothing pending is a no-op. Approval, drift, CAS,
+Recovery, and other safety boundaries still apply, and the final Apply's
+terminal_proof closes the work. Acknowledgement alone neither creates Entries
+nor completes indexing.
+
+Other blocking findings take precedence over this review action, including
+unknown findings; no observe acknowledgement shortcut is issued over them.
+Guide and Maintain serialize next_action, instructions, commands/next_commands,
+and stop facts before large findings, governance, or candidate lists. Ordinary Maintain's
+authoring_batch.next_action always equals its top-level next_action, including
+withheld and aligned empty batches. These presentation and continuation rules
+change no write permission, approval mechanism, or governance result.
+
+A Code orphan, an Entry whose file is gone or left the Index role, is
+authoring work, not a stop. Maintain lists it under orphan_remove_candidates
+beside the batch it issues, and the batch drops it through the additive
+`removals` array of aoci_update_entry (each item the repository-relative
+path, with or without its `code:` prefix), in the same transaction as the
+Entries it writes; when nothing is left to author, Maintain answers
+remove_orphans_in_update_batch and one call with removals alone closes them.
+A removal is admitted only for an orphan the shared governance facts report
+now, the proof aoci_remove_entry demands: naming a live Entry is the
+repair_required finding removal_target_not_orphan, an unindexed path
+removal_target_missing, both with zero writes. aoci_remove_entry still
+removes one Code orphan on its own; a Database orphan still goes through it.
+
+A blocked Maintain names its blocker in next_action. When
+orphan_remove_candidates holds a Database orphan the value is
+explicit_orphan_remove_or_resolve_blocker; otherwise it is the first of
+close_pending_recovery, scan_to_establish_baseline,
+restore_formal_assets_from_one_commit, activate_scope_change, and
+resolve_cognition_budget whose finding is present, and resolve_blocker when
+none is. restore_formal_assets_from_one_commit names an object Volume the
+Baseline records with other bytes, which is what a merge of two branches
+that each maintained the index leaves when one side's Baseline is taken
+alone: its `*_volume_unbaselined` finding carries
+`cause=changed_after_baseline`, reported beside a pending Scope Change too,
+since activation refuses over the drifted bytes. While it is the named
+blocker, and only then, next_commands leads with one
+`git -C <root> checkout {commit} -- <Root> <Meta> <enabled Volumes>
+.aoci/baseline.json`, where `{commit}` is the Host's to fill with the side
+whose index is kept (HEAD or MERGE_HEAD while the merge is open, a parent of
+the merge commit after it). The paths are those the current Root enables: a
+commit that lacks one of them (its Root enables no Database Volume, say)
+makes git refuse the whole checkout and write nothing, and the Host names
+the other side. A commit whose Root enables a Volume the current Root does
+not restores a Root that declares a file the command did not list; the next
+Maintain answers `declared_volume_missing` naming it, and the Host checks
+that file out from the same commit. The next Maintain returns every source that commit's
+Entries do not describe. The Guide's stop carries the same command. A
+Baseline that does not parse, as one holding merge conflict markers, answers
+`volumes_governance_baseline_invalid` with the same command as its next step. Observe-only blocking uses review_observed_evidence as defined
+above, superseding the earlier acknowledge_observed_evidence spelling. A Host
+acting on the token alone never removes orphans that the result did not list.
+
+Root overview. The Root carries two lines a model authors: `#Project:`, what
+the system is and does, and `#Global-Invariants:`, the constraints that hold
+across it. init writes a name and `-`. While `#Global-Invariants:` is
+unauthored (absent, empty, or `-`), the Code Volume holds an Entry, and
+governance is aligned, an aligned Maintain and the final Apply carry
+root_overview: root_sha256, the two current values, project_max_chars (200),
+global_invariants_max_chars (600), and instructions. The field is advisory
+and never enters alignment, terminal_proof, or any identity. The Host model
+answers through aoci_update_entry root_overview {project, global_invariants,
+root_sha256}, which stands alone (Entries, removals, or observe_review beside
+it are bad_args). Each value is one line within its limit and not `-`; `none`
+is an authored value. A value that is not, or a root_sha256 that is not the
+current Root's, is repair_required with zero writes; a repository that is not
+aligned is stopped with root_overview_requires_aligned_index. The write
+replaces those two lines and nothing else, moves the Baseline record of the
+Root with it when the Baseline records the Root, and answers the same
+terminal_proof a final Apply does plus root_overview_result. The same values
+submitted again answer already_applied. The write is its own receipted
+transaction, `.aoci/transactions/root-overview.json`, never part of the
+Entries batch: a write cut short is rolled forward by the next aoci_maintain
+or aoci_update_entry, whose result then carries root_overview_recovered (it
+closed that receipt) and root_overview_formal_writes (it changed a formal
+asset, with formal_writes_started true) whatever became of its own request;
+every root_overview response carries both. A repository with no such receipt
+is never judged by these rules. The
+roll-forward checks before it writes: another pending receipt, a `.aoci` or
+`.aoci/transactions` that is not a real directory, a receipt that names any
+file but the Root, and bytes in the Root or the Baseline that are neither the
+receipt's preimage nor its postimage each stop it with both files and the
+receipt as they were; both files are read once more before the receipt is
+closed. No invitation is made while the Root's bytes are not the ones the
+Baseline records, since the write would refuse them
+(root_overview_root_not_at_baseline). No Entry, Volume, or Scope fact changes.
+
+A Maintain that lists pending Observe evidence, blocked by it or issuing the
+batch beside it, carries observe_review: the pending evidence as path,
+change (new, changed, or removed), and the sha256 of the current bytes,
+which a removed item omits; total; review_digest, an opaque digest binding
+the complete list; and confirm_request, the exact call that confirms it, an
+aoci_maintain intent when the review stops the batch and the batch's own
+aoci_update_entry observe_review when it rides with it. A list
+longer than the transport list limit shows its leading items with
+truncated=true and carries no confirm_request, and the intent refuses it as
+observe_review_list_exceeds_mcp_listing: the Scope transaction acknowledges
+only the complete set and a Host confirms only what it was shown, so that
+list goes through scope status and scope acknowledge.
+aoci_maintain with intent=observe_review and observe_review {review_digest,
+reviewed_by} recomputes the list before anything else. A digest the current
+list does not have answers status=stale with the current listing and
+next_action review_current_observe_evidence, and writes nothing; no pending
+evidence answers not_pending. A current digest runs the Scope transaction
+scope acknowledge runs over exactly the listed paths, after proving that the
+preview fingerprints equal the listed bytes, and answers acknowledged with
+formal_writes_started=true, the confirmed review_digest, acknowledged and
+acknowledged_paths, and next_action
+call_no_argument_aoci_maintain_for_current_machine_batch; when the
+acknowledgement leaves the repository aligned (a change to Observe evidence
+alone), it answers next_action none with the terminal_proof a final Apply
+carries, so that closing needs no further call. An authorization
+posture that needs a person saves the preview under .aoci/scope-change/ and
+answers human_approval_required with preview_file, the host_dialog_request
+when the team channel admits the dialog, and the terminal approve and apply
+commands; next_action is request_human_approval. A pending Scope Change is
+refused as observe_review_requires_active_policy.
+
+The existing aoci_update_entry tool accepts one complete current machine batch with
+multiple Code creates/updates, multiple Database creates/updates, or both in
+one already declared CognitionSet. Code uses path and current source SHA.
+Database uses canonical object_ref plus its candidate receipt and is never
+represented as a repository file path. Existing single-object and C3 inputs
+remain compatible. No new MCP tool is added. AOCI derives the internal Change
+Envelope from the complete current batch and current CognitionSet. Code
+machine batches add code_batch_id and per-target candidate_id to the existing
+path/source_sha256 binding. For a Code batch,
+aoci_update_entry.code_batch_id is exactly code_plan.batch_id, the one batch
+identity of every Code candidate in the response. Since 0.2.0 a Code candidate
+carries no batch_id field of its own: it repeated that identity once per
+candidate, an eighth of every candidate on the default budget; a reader of
+candidates[].batch_id for Code reads code_plan.batch_id instead. A Database
+candidate keeps batch_id equal to database_plan.batch_id.
+authoring_batch.batch_identity identifies the shared cross-domain authoring
+envelope and is never a Code or Database write batch id.
+
+Candidate validation has one machine-facing Repair Finding schema shared by
+single-entry CLI Preview, batch Preview/Stage, Impact, MCP update, Auto
+finalization, and the final pre-Apply validation. Each Finding contains the
+1-based candidate_index, repository path, canonical_object_identity, domain,
+field, rule_code, expected, actual, cause, and safe_repair_action. The stable
+machine field is F, R, A, S, or the exact non-FRAS field that failed; status
+tokens, field tokens, and rule_code are not localized. expected and actual are
+stable machine values such as max_items=6 and item_count=7, not prose.
+
+candidate_index has exactly one meaning: the candidate's 1-based position in
+the complete user-submitted array before canonical identity resolution, Code
+or Database partitioning, Volume or write-set selection, deterministic
+identity sorting, Impact analysis, Finding sorting, retry_scope construction,
+or valid/invalid separation. It is not a Domain-local position, sorted
+position, retry_scope position, Finding-list position, or zero-based index.
+Every production batch candidate carries this immutable original position into
+Impact; internal sorting may change processing order but must not recreate or
+renumber candidate_index. Duplicate identities retain the original position
+of each submitted occurrence rather than being collapsed or path-looked-up.
+
+All independently repairable candidate errors in the complete batch are
+returned by the first attempt, ordered by domain, path, field, rule_code, then
+original candidate index. The result is status=repair_required with attempted,
+applied=0, remaining, formal_writes_started=false, finding_count, findings,
+preserve_other_candidates=true, retry_scope, and next_action. The action is to
+repair only the listed candidates, preserve every other candidate, and
+resubmit the same complete batch without asking the user to continue. The
+program never shortens, deletes, or rewrites model-authored F/R/A/S.
+
+A copied, non-empty Code path, candidate_id, or source_sha256 that differs from
+the current receipt is a pre-write repair finding when that receipt and original
+candidate position are unambiguous. It reports the exact 1-based candidate
+index, path, failed binding field, expected machine value, and submitted value.
+Likewise, a wrong top-level code_batch_id is repairable only when the complete
+submitted candidate bindings uniquely identify one current receipt; its action
+changes only code_batch_id and preserves all Entries. A missing, stale,
+ambiguous, incomplete, or otherwise unprovable receipt remains stopped. Actual
+source, Scope, Composite, CAS, or Recovery drift is never reclassified as a
+copied-field repair.
+
+When current Meta is valid but a candidate tag uses invalid syntax or an
+undeclared A/B/C/D/E value, the result is candidate-level repair_required. The
+shared Repair Finding identifies the original candidate position, exact path,
+canonical object identity, domain=code or database, field=tag, the current Meta
+contract, actual parsed tag facts, offending axis, and a retry_scope containing
+only affected canonical identities. Every invalid candidate is returned in the
+shared deterministic order and the complete batch remains zero-write.
+
+ParseTags remains the tolerant read lexer. Existing dotted formal Entries can
+still be loaded, verified, migrated, and updated when their Tag bytes do not
+change. A newly created Volume Entry, or an update that actually changes Tag,
+must use compact A+B+C+[D]+E. Dotted authoring returns repair_required with
+field=tag, the original candidate facts, a non-empty canonical retry_scope,
+applied=0, and formal_writes_started=false.
+
+Existing bare R names also remain readable for compatibility. A newly created
+Volume Entry, or an update that actually changes R, accepts only `-`, exact
+`code:<repository-relative-path>`, or exact
+`database://<source>/<namespace>/<table>` identities. Multiple identities use
+the existing comma separator. A unique basename is never silently rewritten
+or accepted as code:<path>; it returns repair_required with field=R,
+expected=canonical_object_identity, actual equal to the raw relation, the
+original candidate facts, and zero formal writes.
+
+When the Meta dictionary itself is missing, unparseable, duplicated, or
+internally conflicting, the result is asset-level stopped rather than a fake
+candidate Finding. It identifies affected_asset=aoci.meta.txt,
+field=tag_dictionary, exact expected/actual/cause facts, and the single safe
+Meta/Header repair action. candidate_index=0, empty candidate paths, and empty
+candidate retry identities are forbidden on this path. Guide remains in its
+existing blocked state with next_action=repair_meta_tag_dictionary and never
+asks the Host to resubmit an unchanged Code batch or perform a generic replan.
+The Legacy read-only stop and unrelated stopped findings retain their existing
+string form. Structured candidate findings retain code, object_ref, and message as
+compatibility aliases while rule_code and the exact machine facts are
+authoritative.
+
+Every retry_scope element is the corresponding Repair Finding's
+canonical_object_identity, never its repository path or another display
+identity. A Code object uses code:<repository-relative-path>, for example
+code:internal/cognition/impact.go. A Database object uses its complete
+database:// canonical identity, for example
+database://primary/public/users. Mixed-domain retry scopes may contain both
+forms. Repeated Findings or duplicate candidate occurrences for the same
+canonical object contribute that identity once; their individual Findings
+still retain their original candidate_index values.
+
+Plan expiry, source or Evidence drift, CAS conflict, pending Recovery,
+third-party conflict, a formal-write failure, post-write audit failure, and
+other safety-boundary failures are not candidate repair. They retain stopped
+or their existing hard failure classification and existing proof evidence.
+Projected validation must complete before any formal write; a rejected normal
+candidate batch leaves Index, Volumes, Baseline, Binding, and successful
+Application state unchanged.
+
+Only model candidates add a Volume to Write. R is model-authored semantics, not
+a machine constraint: AOCI never checks one Entry's relations against another
+Entry. A relation that names an object which does not exist, is not managed, is
+scheduled for a later batch, or matches several objects by bare name is accepted
+and persisted exactly as written. It is never repaired, dropped, rewritten, or
+turned into a Finding, and it never blocks, replans, or reorders a batch.
+Relations that do resolve to a managed object add that object to Review and may
+add its Volume to Guard; that projection is a convenience and never generates or
+rewrites another Entry. Whole-system understanding is established by the model
+reading the Whole-Index, not by any machine-computed relation graph. What the
+machine does enforce for each Entry is its own form and budget: FRAS structure,
+tag dictionary, the C-driven S quota, per-field length and item limits, canonical
+identity, and source binding. Allowed Write Sets remain [code],
+[database], and [code,database]. Root and Meta are Guard-only after Bootstrap;
+layout and Volume create/delete/rename/lifecycle changes still fail closed.
+
+Before Apply, projected Code and Database bytes are validated through the same
+Volume marker, object, FRAS-v2, boundary, scoped Meta dictionary, identity, and
+relation rules as the loader and Impact Resolver. The existing Entries write
+lock then guards one governed batch. Dependency-closure CAS requires exact Root
+and Meta hashes, exact hashes for related guarded Volumes, and exact planned
+preimages for write targets. A target postimage is accepted only when an
+existing recovery receipt proves its preimage/postimage transition.
+
+Targets use the fixed Code-then-Database order. Every candidate is applied and
+validated in memory before formal replacement. The existing AtomicWriteCAS is
+invoked at most once for Code, at most once for Database, and at most once for
+the combined Baseline/Database Binding postimage. If no target was replaced,
+failure leaves zero formal changes. If one target is visible and a later target
+or Baseline step fails, success is forbidden and the existing Entries recovery
+path retains a version-4 receipt with each affected Volume id, path, exact
+preimage bytes, and postimage plus the Baseline preimage identity.
+Retrying the identical evidence-bound candidate rolls forward remaining bytes,
+advances the unchanged Baseline map, records the existing Ledger/governance
+evidence, archives recovery, and is idempotent.
+
+When policy selects rollback before Baseline advancement, and source/Evidence,
+Root, Meta, non-write guards, Baseline, and every participant are still proven
+preimage or transaction postimage, AOCI restores changed Volumes in reverse
+order with the existing AtomicWriteCAS and archives the receipt. Unknown or
+third-party bytes hard-block; rollback never guesses. Receipt or Ledger failure
+after Baseline advancement resumes the same transaction instead of rolling
+back an unproven Baseline.
+
+Code source_sha256 binds the current source file. The compatible C3 Database
+path uses source_sha256 for the raw Database Volume preimage only. D1 instead
+uses batch_id/candidate_id to bind both the raw Volume preimage and each target
+table_evidence_sha256 without asking the model to copy those hashes. The model
+remains the sole author of tag and F/R/A/S semantics; the program performs no
+generation, completion, truncation, or rewriting. The binding, batching,
+offline Maintain, and status contract is
+aoci-database-cognition-authoring-v1.txt.
+
+The existing aoci_remove_entry also accepts an explicit Code or Database
+Volume orphan identity, and the update batch's removals use the same proof
+for Code orphans. Ordinary orphan removal re-proves orphan state from
+shared governance facts; R references from other Entries never block it, and
+any dangling annotation they leave behind stays model-owned until the model's
+next Whole-Index read. It guards Root/Meta/Volumes/Evidence and
+exact preimages, never deletes source files or database objects, and uses the
+existing CAS, Baseline, Ledger, lock, and Entries recovery path. Maintain never
+invokes it implicitly.
+
+Each new Volume removal records a distinct Ledger transaction identity in its
+version-2 recovery receipt; retries reuse that identity. Version-1 receipts
+remain readable: recovery reuses matching terminal events and separates
+different image histories; conflicting same-image events still fail closed.
+Older binaries reject version-2 receipts; complete recovery with the newer
+binary before downgrading.
+
+A batch that carries only removals is identified by its paths. When an
+earlier removal of the same paths has completed and one of them carries an
+Entry again, the batch is a new removal with its own receipt and Ledger
+identity; with no such Entry the earlier receipt answers it as a replay.
+
+An ownership conflict is governed orphan state. Verify, Check, and Guide expose
+the same machine finding with `code`, `cause`, `expected_owner`, `actual_owner`,
+`affected_path`, and `safe_repair_action`. For a Root-owned `aoci.txt` Entry in
+Code, the safe action is the existing explicit `aoci_remove_entry` operation
+on `code:aoci.txt`. That operation removes only the incorrect Code Volume
+Entry. It must not delete or rewrite the Root file, any source file, or any
+Database object. This is the only machine-initiated Entry removal: the current
+machine finding must prove different expected and actual owners, the expected
+formal owner must exist, structure must be valid, Recovery and third-party
+conflict facts must be clear, and the exact safe action must name the target.
+The existing transaction then writes only the incorrect Domain Volume and its
+Baseline postimage while guarding Root, Meta, every declared object Volume,
+saved Evidence, and exact preimages. Success reports the removed Entry,
+preserved owner, and true source/database unchanged facts.
+
+The Change Envelope, Guard Set, write order, and recovery evidence are internal
+and are not rendered to the Agent. Normal MCP output identifies only the
+affected Volume or Volumes and alignment state. A Legacy layout enters none of
+this write path: since 0.2.0 it is read-only and answers
+legacy_read_only_migrate_required until Migration. No second Maintain, Guide,
+Apply, Baseline, Ledger, or Recovery system is introduced.
+
+## Parallel current batches (L4)
+
+Status: implemented in 0.2.0-rc1 (specified for 0.2.0). A server that does
+not list the `parallel_batches` capability in its capability manifest issues
+exactly one current batch per Maintain as the section above describes, and a
+Host must not send the request fields below to it. Nothing in this section
+changes a persisted identity, a Baseline receipt, or the bytes a repository
+with the default configuration produces.
+
+Motivation. A first build of a large repository is hundreds of current
+batches, and each is strictly sequential: Apply, then no-argument Maintain,
+then the next batch. The machine side of a round is now a fraction of a
+second; the model's authoring of one batch is the round. With N Hosts (or N
+agents of one Host) authoring N batches of one logical plan at once, the wall
+clock of a first build divides by N while every existing authority is kept:
+each batch is still machine-issued, still one atomic Apply, still bound to
+source digests, candidate ids, and the governed-batch lock.
+
+Configuration. `code_cognition_parallel_batches` is a team-owned integer, the
+number of current batches one logical plan may have outstanding at once.
+Absent or 1 is today's behaviour, byte for byte. The wire ceiling is 4. It is
+a shared authoring contract like `code_cognition_batch_entries`, so the local
+layer cannot change it, and it enters no policy, scope, or authorization
+identity, so changing it is not a Scope Change.
+
+Issuance. No-argument Maintain under N > 1 cuts up to N sibling batches from
+the logical plan in the deterministic order sequential Maintains would have
+used, every sibling against the same plan preimage: the Code Volume digest,
+the Composite identity, and the Scope identity at issuance. Sibling target
+sets are disjoint by construction; each sibling has its own `batch_id` and
+every sibling records the one `logical_plan`. The response delivers the first
+sibling as today's complete current batch, within the transport budget, and
+lists the others under `code_plan.siblings` as issued, not delivered: each
+with `batch_id`, its target paths, `included`, and `state` (`issued`,
+`delivered`, `applied`, `invalidated`). A Host obtains a sibling's complete
+candidates with `aoci_maintain` carrying that `batch_id`; the response is a
+complete current batch sized by the same transport budget, marked
+`sibling_of` the logical plan, and its `next_action` is
+`author_complete_current_machine_batch`. A Host never slices Maintain output;
+a sibling is the machine's cut, delivered whole.
+
+Apply. `aoci_update_entry` with the `code_batch_id` of any issued sibling is
+accepted in any order. The preimage rule is relaxed exactly this far: the Code
+Volume's current digest must be the plan preimage or a postimage an applied
+sibling of the same logical plan recorded. The server proves that before it
+projects anything: it replays the applied siblings' receipts, in receipt
+order, onto the plan preimage bytes and requires the result to equal the
+current Volume byte for byte. The machine retains the plan preimage bytes
+under `.aoci` as a runtime asset for the plan's lifetime; they enter no
+identity and are dropped when the plan completes or is invalidated. A current Volume the replay cannot reproduce
+was changed by something other than a sibling, and the batch fails closed
+with `code_candidate_volume_preimage_stale` and the replan hint, as today.
+Candidates then revalidate as today (path, `source_sha256`, `candidate_id`,
+canonical object identity); an object's position is resolved by identity in
+the current Volume, never by a byte offset or an ordinal captured at
+issuance, since an earlier sibling may have inserted before it. The Envelope
+and the postimage are computed at Apply against the current Volume, not at
+issuance, and the receipt records the logical plan, the batch id, the sibling
+set applied before it, and exact pre and post digests. The Baseline advances
+per Apply as it does for a sequential batch. The final Volume bytes may
+depend on the order siblings applied in: the editor appends a new Entry after
+the last Entry of its section and a new section at the end, so two orders
+can leave the same Entry set in different line orders. Both are formal; this
+is why the preimage rule replays receipts instead of comparing a predicted
+digest, and why a sibling's postimage is never computed at issuance.
+
+Invalidation. A change to the Code Volume that is not a sibling's Apply
+(a manual edit, `aoci_remove_entry`, optimization, migration), or any change
+of the Scope or Composite identity, invalidates every outstanding sibling;
+their delivery answers `state=invalidated` and no-argument Maintain plans
+afresh. Source drift of one target invalidates only the sibling that holds it,
+exactly as it invalidates today's outstanding batch; the others stay issued.
+Applied siblings are formal and are neither regenerated nor replayed, as
+earlier successful batches are today.
+
+Concurrency. Two Applies arriving together serialize on the existing
+governed-batch lock; the second sees the first's postimage as its preimage
+and proceeds under the rule above. No second lock, transaction, Ledger, or
+Recovery path exists; a failure mid-Apply recovers as a single batch does.
+
+Completion. `remaining` counts targets outside every issued sibling; the
+Apply after which `remaining` is zero and no sibling is outstanding carries
+`terminal_proof`, and Guide reports aligned only then. Hosts may run siblings sequentially with one
+agent, which is just today's flow with the batches issued ahead of time.
+
+Conformance the implementation must ship: default configuration output is
+byte-identical to this version's; N=2 issues disjoint targets under one plan
+preimage; sibling delivery by `batch_id` returns the issued targets and
+nothing else; applying A then B and B then A both reach aligned with the
+same Entry set; an edit to the Volume between siblings replans the
+outstanding ones and keeps the applied one formal; two Applies at once
+serialize and both succeed; source drift of one target invalidates one
+sibling only; a server without the capability refuses the request fields.
+
+## R73 derived System Cognition
+
+R73 preserves the same Volume and governance authorities while adding the
+read-only contracts in `aoci-system-cognition-runtime-v1.txt`. Lineage,
+database-to-code impact, evolution, and the narrow relation projection are
+rebuilt from the current CognitionSet and Baseline bindings. They are not
+Volumes, are never declared by Root, have no persisted state, and cannot enter
+Apply or Recovery.
+
+Managed Scope and formal Volume fingerprints continue sharing the compatible
+Baseline v1 `files` map, but their write ownership is disjoint. Scope Change
+preserves already enrolled formal Volume fingerprints and guards their live
+bytes; it cannot enroll or rebaseline a formal Volume. This prevents a
+single-domain Scope update from producing `code_volume_unbaselined` or
+`database_volume_unbaselined` for unchanged formal assets.
