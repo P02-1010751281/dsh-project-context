@@ -1,0 +1,16 @@
+aoci version 0.2.0-rc2 (commit 51ca8c2286e7a3eff2fcedc22099951d43264494, built 2026-11-17T17:10:23Z)
+
+AOCI 初始化完成 @ /tmp/aoci-probe2
+  - .aoci/.gitignore 已生成(运行时默认忽略,正式资产白名单放行)
+  - 已写入 .gitattributes，使任何平台的检出都保持 LF 行尾
+  - automation.mode 已设为 auto(新仓默认;init 本次仍不调用模型)
+  - Scope Proposal: git_tracked=759 new_source=0 index=752 observe=1 exclude=6 safety_excluded=3 estimated_whole_index_tokens=84520 human_decisions=3 largest_directories=.agents/evidence/2026-11-18-similar-projects-research/sources (index 98, observe 0, exclude 0); lib/project-handoff (index 50, observe 0, exclude 0); test (index 45, observe 0, exclude 0); lib/project-memory (index 42, observe 0, exclude 0); lib/shared (index 42, observe 0, exclude 0)
+  - aoci.txt, aoci.meta.txt, aoci.code.txt 骨架已生成(不自动伪造项目条目)
+  - config.json 已就位
+  - AGENTS.md 已追加 aoci 区块(原有内容未动)
+  - 探测到 agent 环境: claude, codex(可用 aoci init --agent <名称> 接入)
+  - 752 个 index 文件需要写条目：按当前批次设置约 21 轮 Maintain（每轮最多 50 条、响应预算 24 KiB）
+  - 四个 Agent 会话可以同时写：aoci config set code_cognition_parallel_batches 4 后每个约 15 轮，每次 Maintain 都会列出要分发的兄弟批次
+  - 想少写一些，就在首次 scan 之前排除目录；之后再缩范围属于受治理的 Scope Change。示例：aoci --repo /tmp/aoci-probe2 scope rule add <name> --action exclude --pattern <dir> --pattern-kind directory --reason "<why>"
+下一步: aoci scan 建立基线;agent 会话内先调 aoci_rules。
+完整索引: aoci index agent guide --agent <codex|claude|cursor|opencode> --json；automation.mode=auto；auto 严格按当前 Guide 阶段连续执行；每个 aoci_update_entry 批次在内部完成校验、Diff、P-23 与原子 Apply；任何写入批次applied后都按当前Guide返回的后续命令继续；remaining非零时继续Maintain；最终批次remaining=0时结果自带terminal_proof，任务即收尾；repair_required 时只修失败条目并重提同一完整批次，不要求用户继续；stopped写入尝试只在现有证据可证明时自动重新Plan、Resume或Rollback，只有审批/外部动作边界、不可证明Recovery、第三方冲突或其他真实安全故障才停止用户任务。

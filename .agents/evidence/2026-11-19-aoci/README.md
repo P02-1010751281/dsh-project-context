@@ -15,6 +15,7 @@
 | `aoci-paper-2605.02421.txt` | 上一条的本地 html2txt 副本，便于 grep；**不是独立证据** | — |
 | `org-repos.json` | GitHub org 仓库清单 API 原始响应（星数、语言、推送时间） | 抓取于 2026-11-19T23:16+08:00 |
 | `releases.json` | `aoci-code` 最近三个 release 的资产清单（linux/darwin/windows、SHA256SUMS、sigstore） | 同上 |
+| `probe/` | **实测输出**（2026-11-19，本仓库克隆 + `linux_amd64` 二进制 0.2.0-rc2）：init/scan/status/verify/score/header、MCP `tools/list` 与 `aoci_rules`/`aoci_overview` 载荷、`git status` | 见 §实测 |
 | `manifest.tsv` | 每个成功抓取文件的时间、slug、HTTP、字节、完整 SHA-256、URL | — |
 | `verify.sh` | 逐行核对 `manifest.tsv` 的字节数与完整 SHA-256；当前 8/8 通过 | — |
 | `failures.tsv` | 失败的抓取（SSRF 拦截、arXiv API 空响应、research 工具的撞词噪声），保留失败本身 | — |
@@ -28,9 +29,21 @@
 - arXiv 元数据取自 abs 页的 `citation_*` meta 标签；`export.arxiv.org` API 返回空体（已记录），
   未作为证据使用。
 
+## 实测（2026-11-19，与文档不同等级的证据）
+
+方法：下载 `aoci_0.2.0-rc2_linux_amd64.tar.gz` 并用同 release 的 `SHA256SUMS` 校验通过；把仓库
+`git clone` 到 `/tmp/aoci-probe2`（不碰工作区）；依次跑 `init --locale zh-CN`、`scan`、`status`、
+`verify`、`index score --json`、`index header`；再用 stdio JSON-RPC 探 MCP 的 `tools/list` 与三个读工具。
+原始输出逐字保存在 `probe/`。
+
+**边界**：只跑了确定性半边（初始化、基线、校验、查询）。条目本身由模型撰写，本次**没有**写任何
+Entry，所以这批证据说明的是「治理脚手架与成本」，**不是**「FRAS 语义质量」。副作用都在 `/tmp` 克隆里：
+`AGENTS.md` 被追加 aoci 区块（原内容保留并留 backup）、新增 `.gitattributes`（强制 LF）、`.aoci/` 约 524 KB。
+
 ## 证据等级（引用前必读）
 
-1. 本包全部机制描述来自**作者方文档**（README、规范、论文），没有一条是我实测得到的行为。
+1. 机制描述仍来自**作者方文档**（README、规范、论文）；§实测 只覆盖确定性半边（初始化、基线、校验、
+   查询、MCP 工具面），**FRAS 语义质量没有实测**，不要按前者给后者背书。
 2. 论文的 19 个工业任务对比**不是盲测**：论文 Threats to Validity 自述"同一批开发者也执行了对比"，
    缺陷判定交给独立流水线（Claude Opus 4.6）缓解。
 3. 论文脚注自述 AOCI 的 token 数是**按输入文本长度估算**（Web 界面不暴露精确计数），

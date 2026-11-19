@@ -1,0 +1,6 @@
+仓库 /tmp/aoci-probe2
+索引条目 0 | 基线 757 文件(更新于 2026-11-19T15:22:16Z)
+治理：authoring_required —— missing 744、stale 0、orphan 0、unbaselined 0、其他 0；aoci verify 会列出路径和下一步
+尚未运行过 verify
+report 待办: 0
+最近操作: 2026-11-19T15:22:16.878267634Z scan

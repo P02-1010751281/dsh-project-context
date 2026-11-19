@@ -1,0 +1,658 @@
+{
+ "server": {
+  "name": "aoci-code",
+  "version": "0.2.0-rc2"
+ },
+ "tools": [
+  {
+   "description": "读取指定Entry：仓库路径或目录；Volumes v1还接受volume_id与规范object_refs（含database://表身份），并为每条结果返回Volume身份。仅用于局部不确定、Overview正文不完整或用户明确点名的条目；不要用少量Entry代替完整Overview。不会修改正式索引或Baseline，但可能追加本地审计记录。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "dir": {
+      "description": "要整段读取的目录相对路径（与paths二选一）",
+      "type": "string"
+     },
+     "object_refs": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "Volumes v1规范对象引用，例如database://source/namespace/table"
+     },
+     "paths": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "要读取条目的文件相对路径列表（与dir二选一）"
+     },
+     "volume_id": {
+      "description": "Volumes v1对象卷：code或database",
+      "enum": [
+       "code",
+       "database"
+      ],
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "name": "aoci_get_entries"
+  },
+  {
+   "description": "读取项目规则与共享对象规则、标签字典与校准示例。Legacy返回Header；Volumes v1返回Meta并明确Root身份，绝不把Root项目概览冒充字典。仅在规则尚不可靠或需要单独核对时调用。不会修改正式索引或Baseline，但可能追加本地审计记录。",
+   "inputSchema": {
+    "type": "object"
+   },
+   "name": "aoci_header"
+  },
+  {
+   "description": "受管理内容达到最终稳定状态后，领取下一个机器签发的当前完整创作批次。repair_required或stopped必须完整处理；纯只读任务、不稳定中间态或已经aligned时都不要再次调用。刷新待处理时，先由最后一次Apply的terminal_proof证明aligned。新仓或不完整索引必须使用当前Guide，本工具不能替代该流程。Volumes v1普通路径省略scope。大型logical_plan按团队传输预算截成最多max_entries个候选，并报告included、remaining与continuation_required：通过aoci_update_entry提交该完整批次（code_batch_id即code_plan.batch_id），remaining非零时再次调用。可证明的format-only可能前移Baseline，调用可能追加本地Ledger审计记录；Maintain不创作Tag或F/R/A/S，不连接数据库，不改变Scope，也不因transport上限缩减覆盖。显式scope=database只读取已保存的Canonical Evidence，不包含任何程序生成的标签或FRAS字段，Database Volume缺失时稳定返回database_volume_absent，且不创建Root、Meta或Database Volume。intent=cognition_optimization仅Volumes v1 Code可用，可选object_refs，返回aligned Entry的绑定审查候选：提交完整替换Entry或原样完整Entry，禁止字段Patch；程序绝不生成语义或S、不压缩Entry文本、不降低C。intent=human_approval配合approval_request，为一项待批变更（暂停的Scope Change预览，或已准备好的onboarding审批）在宿主里弹出对话框请人决定，只记录对方的回答；变更由它返回的命令应用。intent=observe_review配合observe_review，按review_digest确认被挡住的Maintain列出的observe证据，走与scope acknowledge相同的Scope事务。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "approval_request": {
+      "additionalProperties": false,
+      "description": "只与intent=human_approval同用：kind=scope_change配合暂停的scope activate保存的preview_file，或kind=onboarding指当前onboarding会话已准备好的审批",
+      "properties": {
+       "kind": {
+        "enum": [
+         "scope_change",
+         "onboarding"
+        ],
+        "type": "string"
+       },
+       "preview_file": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind"
+      ],
+      "type": "object"
+     },
+     "batch_id": {
+      "description": "交付当前并行计划（code_plan.siblings）里这个 batch_id 的兄弟批作为完整当前批次；仅在 code_cognition_parallel_batches > 1 时",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     "include_instructions": {
+      "description": "即使本进程已发送过，也在本次应答携带完整创作契约（instructions与authoring_meta）；后续轮次改答instructions_ref",
+      "type": "boolean"
+     },
+     "intent": {
+      "description": "cognition_optimization：对aligned的Volumes v1 Code Entry做绑定审查；human_approval：在宿主对话框里请人批准approval_request指定的待批变更；observe_review：确认被挡住的Maintain列出的observe证据；普通Maintain省略",
+      "enum": [
+       "cognition_optimization",
+       "human_approval",
+       "observe_review"
+      ],
+      "type": "string"
+     },
+     "object_refs": {
+      "description": "限制cognition_optimization候选的code:<仓库相对路径>引用；只能与该intent同用",
+      "items": {
+       "pattern": "^code:.+",
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "observe_review": {
+      "additionalProperties": false,
+      "description": "只与intent=observe_review同用：被挡住的Maintain在observe_review里发布的review_digest，以及复核人",
+      "properties": {
+       "review_digest": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       "reviewed_by": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "review_digest",
+       "reviewed_by"
+      ],
+      "type": "object"
+     },
+     "scope": {
+      "description": "高级诊断scope；普通路径省略，由共享治理决定",
+      "enum": [
+       "code",
+       "database",
+       "all"
+      ],
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "name": "aoci_maintain"
+  },
+  {
+   "_meta": {
+    "anthropic/maxResultSizeChars": 200000
+   },
+   "description": "交付完整正式Whole-Index的原始字节，不生成目录清单；Volumes v1可选scope：all、project、meta、code或database。正文装得下overview_delivery.chunk_tokens时一次交付，否则按overview-chunk-receipt/v1分块：continuation_required=true时原样提交next_cursor自动继续到completed=true，不得询问用户，不得用aoci_search或aoci_get_entries补缺块，每块单独一次工具调用，遇缺块、重复或乱序即停止；被Host截断的那一块用同一cursor重取一次。之后提交host_delivery_confirmation与一次model-cognition-attestation/v1，原样回绑Challenge的index_sha256、entry_sequence_sha256与entry_count，按最后一块的attestation_prompt作答；challenge_answers每项只含ordinal、object_identity、tag与core_f。完整流程见aoci_rules。check_only=true只返回checkpoint事实；cognition_state_version=cognition-state/v2增加model_cognition_usable、strict_attestation_verified、governance_aligned与current_system_cognition_reliable。本服务器见过被压缩打断的压缩后重载时返回delivery_mode=capacity_stop（host_context_capacity_exceeded）：不要重试，按source-bound继续。Dirty认知照常交付但标为不可靠，由aoci_maintain治理；未决Recovery失败关闭。不会修改正式索引或Baseline，但可能追加本地审计记录。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "check_only": {
+      "description": "只返回checkpoint事实，不交付正文",
+      "type": "boolean"
+     },
+     "cognition_receipt": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object"
+       }
+      ],
+      "description": "此前响应返回的cognition_receipt，原样回传"
+     },
+     "cognition_state_version": {
+      "const": "cognition-state/v2",
+      "description": "cognition-state/v2增加相互独立的认知状态字段",
+      "type": "string"
+     },
+     "cursor": {
+      "description": "上一块返回的next_cursor，原样使用",
+      "type": "string"
+     },
+     "delta_since": {
+      "description": "仅限 Volumes all：当前持有认知的那次交付的 scope_identity；探针通过后只交付此后变化的对象",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     "host_delivery_confirmation": {
+      "additionalProperties": false,
+      "properties": {
+       "body_bytes": {
+        "type": "integer"
+       },
+       "body_sha256": {
+        "type": "string"
+       },
+       "end_marker_observed": {
+        "type": "boolean"
+       },
+       "version": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "version",
+       "body_sha256",
+       "body_bytes",
+       "end_marker_observed"
+      ],
+      "type": "object"
+     },
+     "model_cognition_attestation": {
+      "additionalProperties": false,
+      "description": "完整链结束后只提交一次：原样回绑Challenge的index_sha256、entry_sequence_sha256与entry_count，并按最后一块的attestation_prompt作答",
+      "properties": {
+       "challenge_answers": {
+        "items": {
+         "additionalProperties": false,
+         "properties": {
+          "core_f": {
+           "maxLength": 16384,
+           "type": "string"
+          },
+          "object_identity": {
+           "maxLength": 4096,
+           "type": "string"
+          },
+          "ordinal": {
+           "minimum": 1,
+           "type": "integer"
+          },
+          "tag": {
+           "maxLength": 256,
+           "type": "string"
+          }
+         },
+         "required": [
+          "ordinal",
+          "object_identity",
+          "tag",
+          "core_f"
+         ],
+         "type": "object"
+        },
+        "maxItems": 12,
+        "type": "array"
+       },
+       "challenge_digest": {
+        "maxLength": 128,
+        "type": "string"
+       },
+       "confidence_percent": {
+        "maximum": 100,
+        "minimum": 0,
+        "type": "number"
+       },
+       "coverage_percent": {
+        "maximum": 100,
+        "minimum": 0,
+        "type": "number"
+       },
+       "entry_count": {
+        "minimum": 0,
+        "type": "integer"
+       },
+       "entry_sequence_sha256": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       "index_sha256": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       "reported_entry_count": {
+        "minimum": 0,
+        "type": "integer"
+       },
+       "reported_estimated_tokens": {
+        "minimum": 0,
+        "type": "integer"
+       },
+       "system_mastery_percent": {
+        "maximum": 100,
+        "minimum": 0,
+        "type": "number"
+       },
+       "truncation_detected": {
+        "type": "boolean"
+       },
+       "uncertainty_reasons": {
+        "items": {
+         "maxLength": 1024,
+         "type": "string"
+        },
+        "maxItems": 64,
+        "type": "array"
+       },
+       "unseen_sections": {
+        "items": {
+         "maxLength": 1024,
+         "type": "string"
+        },
+        "maxItems": 64,
+        "type": "array"
+       },
+       "version": {
+        "const": "model-cognition-attestation/v1",
+        "type": "string"
+       }
+      },
+      "required": [
+       "version",
+       "index_sha256",
+       "entry_sequence_sha256",
+       "entry_count",
+       "challenge_digest",
+       "reported_entry_count",
+       "reported_estimated_tokens",
+       "coverage_percent",
+       "system_mastery_percent",
+       "confidence_percent",
+       "truncation_detected",
+       "unseen_sections",
+       "uncertainty_reasons",
+       "challenge_answers"
+      ],
+      "type": "object"
+     },
+     "model_cognition_state": {
+      "description": "宿主对当前完整认知的判断：valid、uncertain或invalid",
+      "type": "string"
+     },
+     "probe": {
+      "description": "仅限check_only：请求两题记忆探针",
+      "type": "boolean"
+     },
+     "probe_answers": {
+      "description": "仅限check_only：凭记忆回答刚签发的探针",
+      "type": "object"
+     },
+     "refresh_event_id": {
+      "description": "声明refresh_reasons时必填的幂等键",
+      "type": "string"
+     },
+     "refresh_reasons": {
+      "description": "宿主声明的context_compaction和/或phase_transition；semantic_threshold由机器计算",
+      "items": {
+       "enum": [
+        "context_compaction",
+        "phase_transition"
+       ],
+       "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+     },
+     "scope": {
+      "description": "all、project、meta、code或database；Volumes v1默认all",
+      "enum": [
+       "all",
+       "project",
+       "meta",
+       "code",
+       "database"
+      ],
+      "type": "string"
+     },
+     "scope_covered": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "boolean"
+       }
+      ],
+      "description": "当前任务是否仍在已建立的认知范围内"
+     },
+     "stable_checkpoint": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "boolean"
+       }
+      ],
+      "description": "修改与必要检查是否已到达稳定检查点"
+     }
+    },
+    "type": "object"
+   },
+   "name": "aoci_overview"
+  },
+  {
+   "description": "仅用于治理返回的显式孤儿Entry候选，以code:<path>或canonical database://身份指定；重新证明孤儿状态，其他Entry的R引用绝不阻止删除。Root、Meta、各Volume、Evidence与Baseline受Guard保护，不删除其他任何对象；存在Recovery或第三方字节时拒绝；Legacy布局返回legacy_read_only_migrate_required。删除非孤儿是本工具之外的维护者裁决（自0.2.0起aoci_report不再登记）；不得通过删除工作区对象制造孤儿，也不得删除数据库对象来制造孤儿。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "path": {
+      "description": "治理返回的显式Orphan身份：code:<path>或database:// object_ref",
+      "type": "string"
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "type": "object"
+   },
+   "name": "aoci_remove_entry"
+  },
+  {
+   "description": "原用于在证据不足、无法可靠生成或裁决Entry语义时登记待办。自0.2.0起它不再写入，也不修改正式索引或Baseline：Legacy布局返回legacy_read_only_migrate_required，Volumes v1返回volume_read_only；请改由aoci_maintain的findings与Guide承载这类不确定性。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "note": {
+      "description": "为何还无法可靠更新该条目",
+      "type": "string"
+     },
+     "path": {
+      "description": "相关文件的仓库相对路径",
+      "type": "string"
+     }
+    },
+    "required": [
+     "path",
+     "note"
+    ],
+    "type": "object"
+   },
+   "name": "aoci_report"
+  },
+  {
+   "description": "读取当前AOCI会话级运行合同。新的Agent Run没有可靠合同，或合同已不在有效上下文、AOCI服务身份发生变化时调用；同一认知周期不要重复调用。不会修改正式索引或Baseline，但可能追加本地审计记录。",
+   "inputSchema": {
+    "type": "object",
+    "additionalProperties": false
+   },
+   "name": "aoci_rules"
+  },
+  {
+   "description": "按关键词和/或标签搜索Entry；Volumes v1可限定all、project、meta、code或database，并返回volume_id与规范对象身份。用于目标路径未知或用户明确检索；不要用搜索结果代替完整Overview。不会修改正式索引或Baseline，但可能追加本地审计记录。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "keyword": {
+      "description": "大小写不敏感的关键词，匹配条目整行（与tag_filter至少给一个）",
+      "type": "string"
+     },
+     "scope": {
+      "description": "Volumes v1检索scope：all、project、meta、code或database",
+      "enum": [
+       "all",
+       "project",
+       "meta",
+       "code",
+       "database"
+      ],
+      "type": "string"
+     },
+     "tag_filter": {
+      "description": "标签过滤器，如A=Index或C>=7（与keyword至少给一个）",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "name": "aoci_search"
+  },
+  {
+   "description": "通过原子CAS、Baseline/Binding、Ledger与Recovery管线正式写入机器签发的当前完整模型创作Entry批次。entries必须是无参数aoci_maintain返回的当前批次完整候选集合，原样保留每项candidate_id、path与source_sha256，code_batch_id等于code_plan.batch_id（绝不是authoring_batch.batch_identity）；Database候选保留顶层batch_id，不得把Evidence哈希复制到source_sha256。max_entries只限制单次请求而非计划：remaining非零时再次调用aoci_maintain。aoci_maintain在orphan_remove_candidates里列出的Code孤儿条目，用removals在同一批次里删除（路径照列表写），没有要创作的条目时可单独提交；不是孤儿的removal会作为repair_required的Finding返回，不写任何东西。aoci_maintain随批次列出observe_review时，在这里用observe_review {review_digest, reviewed_by}确认：先记录复核，再写入条目；当前清单已没有的digest回答stale，不写任何东西。R是模型创作的语义，机器绝不拿它与其他Entry核对，放心创作。可修拒绝一次返回每条候选的全部确定性Finding（形式、长度、词典与字段token预算，repair_required），含candidate_index、canonical_object_identity、rule_code与safe_repair_action：只修retry_scope并重提同一完整批次。证据不足时不要猜写，也不得提交批次的子集。",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "batch_id": {
+      "description": "aoci_maintain返回的Database批次身份",
+      "type": "string"
+     },
+     "candidate_id": {
+      "type": "string"
+     },
+     "code_batch_id": {
+      "description": "aoci_maintain返回的精确code_plan.batch_id，绝不是authoring_batch.batch_identity",
+      "type": "string"
+     },
+     "entries": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "items": {
+         "additionalProperties": false,
+         "oneOf": [
+          {
+           "not": {
+            "anyOf": [
+             {
+              "required": [
+               "object_ref"
+              ]
+             },
+             {
+              "required": [
+               "candidate_id"
+              ]
+             }
+            ]
+           },
+           "required": [
+            "path",
+            "source_sha256"
+           ]
+          },
+          {
+           "not": {
+            "required": [
+             "object_ref"
+            ]
+           },
+           "required": [
+            "path",
+            "source_sha256",
+            "candidate_id"
+           ]
+          },
+          {
+           "not": {
+            "anyOf": [
+             {
+              "required": [
+               "path"
+              ]
+             },
+             {
+              "required": [
+               "candidate_id"
+              ]
+             }
+            ]
+           },
+           "required": [
+            "object_ref",
+            "source_sha256"
+           ]
+          },
+          {
+           "not": {
+            "anyOf": [
+             {
+              "required": [
+               "path"
+              ]
+             },
+             {
+              "required": [
+               "source_sha256"
+              ]
+             }
+            ]
+           },
+           "required": [
+            "object_ref",
+            "candidate_id"
+           ]
+          }
+         ],
+         "properties": {
+          "candidate_id": {
+           "description": "aoci_maintain返回的候选身份，原样保留",
+           "type": "string"
+          },
+          "new_entry": {
+           "description": "完整单行条目：文件名[标签]: F:... | R:... | A:... | S:...",
+           "type": "string"
+          },
+          "object_ref": {
+           "description": "Database对象的规范身份，代替path",
+           "type": "string"
+          },
+          "path": {
+           "description": "目标文件的仓库相对路径",
+           "type": "string"
+          },
+          "source_sha256": {
+           "description": "aoci_maintain返回的Code源码绑定，原样保留",
+           "type": "string"
+          }
+         },
+         "required": [
+          "new_entry"
+         ],
+         "type": "object"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "机器签发当前批次的完整候选集合"
+     },
+     "new_entry": {
+      "description": "兼容单条模式，配合path或object_ref；优先使用entries",
+      "type": "string"
+     },
+     "object_ref": {
+      "type": "string"
+     },
+     "observe_review": {
+      "additionalProperties": false,
+      "description": "在规划批次之前确认 aoci_maintain 随批次列出的 Observe 证据：它的 review_digest 和复核人；当前清单已没有的 digest 会作为零写入的修复 Finding 返回",
+      "properties": {
+       "review_digest": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       "reviewed_by": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "review_digest",
+       "reviewed_by"
+      ],
+      "type": "object"
+     },
+     "path": {
+      "type": "string"
+     },
+     "removals": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "items": {
+         "additionalProperties": false,
+         "properties": {
+          "path": {
+           "description": "孤儿条目的仓库相对路径，带不带 code: 前缀都可以",
+           "type": "string"
+          }
+         },
+         "required": [
+          "path"
+         ],
+         "type": "object"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "与本批次一并删除的 Code 孤儿条目，按 aoci_maintain 在 orphan_remove_candidates 里列出的写法；没有要创作的条目时可以单独提交"
+     },
+     "source_sha256": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "name": "aoci_update_entry"
+  }
+ ]
+}

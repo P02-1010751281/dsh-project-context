@@ -1,0 +1,40 @@
+AOCI 运行合同（会话级）
+
+AOCI 为模型提供稳定、可版本化、可增量维护的仓库级认知。
+
+权威边界：本合同只规定会话级原则。当前Guide承载当前Plan的执行顺序和安全停点；Schema、Spec与Validator承载机器结构和判据。Prompt只约束模型语义生成。Description、Help、AGENTS与文档不得覆盖机器事实。机器数值、词表与集合只由当前编译版本的internal/machinecontract提供。Fresh Bootstrap中，Host模型创作当前Plan与Guide要求的语义产物；AOCI绝不填写origin=host_model、制造Receipt或生成语义。内部批次不是用户决策；批准、安全、漂移、CAS与Recovery边界继续具有权威。
+
+1. 正常 Agent Run 开始时读取一次 aoci_rules，并请求一次 aoci_overview。continuation_required=true时原样提交next_cursor直到completed=true，不询问用户，也不开始业务任务。每块单独一次工具调用，不得把多块合并进一次脚本输出。缺块、重复、乱序、cursor错误、Index或chunk_tokens变化时停止。Host截断某一块时，用同一cursor重取一次并核对chunk_sha256；仍被截断才停止，提示用户把overview_delivery.chunk_tokens调小再重新开始。Attestation完成前不得用Memory、源码、Spec、aoci.txt、历史会话、scope、search或Entry读取补充Whole-Index认知。随后确认交付，并只提交一次model-cognition-attestation/v1，原样回绑Challenge的index_sha256、entry_sequence_sha256与entry_count；ordinal是只计正式Entry的1-based位置。同一响应的Schema错误可在不改答案的前提下修正一次；对象、Tag或F不匹配即model_attestation=fail且认知吸收为uncertain，不得重试或旁路：它禁止无保留的完整系统认知声明，首次认知时还阻断未绑定的Root/Meta、Migration与系统决策。该结果保留已交付认知的实际scope和状态。system_mastery_percent只自评系统框架，与索引覆盖率分开。成功后只输出：“已完整读取并校验AOCI：<entry_count>/<entry_count>条、约<estimated_tokens> tokens、共<chunk_count>块，Challenge <passed>/<total>、索引覆盖率<coverage_percent>%；我对系统框架的掌握度约<system_mastery_percent>%。”交付故障时只输出：“AOCI完整读取失败：已读取<received>/<total>块，索引覆盖率约<coverage>%；原因是<reason>，当前不能声称已经掌握完整系统框架。”完整响应建立绑定 runtime_repository_root、index_sha256、mcp_service_version 与 cognition_scope 的认知收据；Memory不能替代匹配当前AOCI身份的认知收据。
+
+1a. no_cognition、index_loaded、delivery_verified、cognition_verified与cognition_governed各自附带说明消息；delivery_verified表示已加载且交付已验证，不得说成“没有认知”。
+
+1b. cognition_state_version=cognition-state/v2增加相互独立的delivery_verified、model_cognition_usable、strict_attestation_verified、governance_aligned与current_system_cognition_reliable；严格不匹配本身不说明模型认知不可用。只有current_system_cognition_reliable=true允许无保留地声称当前完整系统认知可靠。valid、uncertain与invalid各属其维度。
+
+2. 可靠的完整Overview直接复用，不重读。checkpoint评估识别三种事实：context_compaction（Host压缩之后）、semantic_threshold（机器计数的语义变化达到cognition_refresh_threshold）、phase_transition（实现转系统测试这类主要阶段边界，不是一个函数、一次测试或一次工具调用）。它们只提供建议，不否决显式请求。通过aoci_overview携带refresh_event_id声明context_compaction或phase_transition；semantic_threshold只由机器计算，多个同时成立的原因合并。
+
+2a. 已知Host压缩后，先前认知不可靠，handoff不携带任何索引语义。继续前，合同已不可靠存在时先读aoci_rules，再用新的refresh_event_id声明context_compaction并发起普通完整aoci_overview（不是check_only，也不是probe）：跟随每个next_cursor、确认交付、认证一次。返回delivery_mode=capacity_stop与host_context_capacity_exceeded时，Whole-Index装不进本Host：不要重试或调小chunk_tokens，按source-bound继续，不作无保留的完整系统认知声明。只有不存在已知压缩时才可使用probe。
+
+2b. checkpoint事实显示语义变化或阻断时，等待受管理对象达到稳定状态，再按第7条维护并证明aligned。结果只有refresh_not_required、refresh_required、refresh_deferred_until_stable或refresh_ready_for_overview；只有 check_only=true 才返回这些事实而不带正文。每次显式调用普通 aoci_overview，只要snapshot一致就完整交付请求scope，无论是否已有receipt；唯一例外是上述容量停止。传输完整、Host确认且治理对齐的Attestation尝试消费合并原因并前移generation：通过记录可靠receipt，partial或fail记录uncertain receipt与delivery_guidance=full_system_claim_disabled_source_bound_task_continuation_allowed，均不循环Overview。Dirty或Stale认知保持其状态；未决Recovery或不一致snapshot失败关闭。
+
+3. 正式索引需要建立或补全时，进入当前AOCI Guide，只执行它返回的命令与安全停点；aoci_maintain只用于已建立索引的增量维护。
+
+4. 认知采用“模型生成、模型读取”：生成或修订Header时调查仓库事实；生成或更新Entry时先读当前Header，再读目标源码、测试、配置及必要关联证据。路径、AST、符号列表、扫描、正则、模板或规则引擎只能辅助定位、校验和写入，不能直接生成、预填、拼接或改写标签、F/R/A/S及Curation裁决。
+
+5. AOCI受管理资产写入边界：用户只限制业务文件范围时，收尾可以更新aoci.txt与Baseline；用户明确禁止修改aoci.txt、.aoci、元数据或任何额外文件时，不得写入，并如实报告剩余不一致。
+
+6. 只读任务不需要调用维护工具。正在运行的版本是cognition_receipt.mcp_service_version；二进制是.mcp.json里的command，不一定在PATH上。
+
+7. 受管理对象变化时，到达本次任务最终稳定状态后，只调用一次 aoci_maintain。结果为aligned=true、status=applied且带refresh_ready_for_overview时，不得重复维护或写入；该结果的terminal_proof就是对齐证明，据此决定下一阶段是否需要完整Overview。format-only不需要新语义。
+
+8. 返回真实 candidates 时，使用当前可靠Header的字典，上下文没有时先调用aoci_header；完整阅读每个受影响对象及其证据，原样保留每项source_sha256、candidate_id与批次身份，通过aoci_update_entry的 entries 批量入口一次提交完整批次。max_entries只限制单次请求；remaining非零时再调用Maintain。不得截取批次，也不得因传输上限缩减Managed Scope。
+
+9. 返回 repair_required 且包含 findings 时，只修复命中的候选并重提同一完整批次。stopped只结束该次尝试：检查failed_step、error 和 recovery；可证明零写入则重新Plan，Intent可证明则Resume，策略要求Rollback则完成后重新Plan；只有证据不足、第三方字节冲突、有界重新Plan仍不收敛、需要审批或外部动作或命中其他安全边界时才停止任务。不得绕过冲突、审批、权限、人工裁决、CAS和安全信号。
+
+10. 语义裁决证据不足时不得猜写。只在当前布局和工具返回状态支持时使用 aoci_report；它不替代Curation、孤儿裁决或故障恢复。维护后再改动受管理对象，维护结果即失效。
+
+11. 专项流程只以当前Guide、工具说明、Prompt与CLI Help为准。错误认知比暂时缺失更有害。
+
+cognition_refresh_threshold: 30
+overview_delivery.chunk_tokens: 7000
+overview_delivery.chunk_tokens_min: 4000
+overview_delivery.chunk_tokens_max: 24000

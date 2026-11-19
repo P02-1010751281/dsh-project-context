@@ -1,0 +1,178 @@
+{
+  "dimensions": [
+    {
+      "name": "format",
+      "total": 0,
+      "bad": 0,
+      "samples": [],
+      "note": "ValidateEntryLine硬拒级违规;全量: aoci index score --dim format"
+    },
+    {
+      "name": "coverage",
+      "total": 753,
+      "bad": 744,
+      "samples": [
+        ".agents/evidence/2026-09-26-settings-card-render/README.md",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/README.md",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/agent-team-pin-cleanup.md",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/mk-client-probe.mjs",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/mk-probe.mjs"
+      ],
+      "note": "实际待补录覆盖缺口，仅统计ActionableMissing;完整原始差集与策展子集见aoci verify;非Pending技术跳过9项不计待补录"
+    },
+    {
+      "name": "freshness",
+      "total": 753,
+      "bad": 744,
+      "samples": [
+        ".agents/evidence/2026-09-26-settings-card-render/README.md",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/README.md",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/agent-team-pin-cleanup.md",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/mk-client-probe.mjs",
+        ".agents/evidence/2026-10-03-dsh-020rc2-api-compat/mk-probe.mjs"
+      ],
+      "note": "未解决治理路径: ActionableMissing+PendingCurationMissing+Orphan+Stale+Unbaselined(按路径去重);LineEndingOnly不计欠账;原始四态与已解释排除见aoci verify"
+    },
+    {
+      "name": "squota",
+      "total": 0,
+      "bad": 0,
+      "samples": [],
+      "note": "S字段超配额(头部S配额声明生效,未声明档回退默认;Warning级策展欠账);全量: aoci index score --dim squota"
+    },
+    {
+      "name": "dict",
+      "total": 0,
+      "bad": 0,
+      "samples": [],
+      "note": "标签符号不在头部字典(Warning级;entries apply场景为硬拒);全量: aoci index score --dim dict"
+    },
+    {
+      "name": "token",
+      "total": 836,
+      "bad": 0,
+      "samples": [],
+      "note": "索引全文token粗估(estimated口径,rune×0.6趋势参考,禁作精确计费)"
+    },
+    {
+      "name": "agent_ready",
+      "total": 3,
+      "bad": 1,
+      "samples": [
+        "索引零条目"
+      ],
+      "note": "agent可用性三要素: 头部字典可用/基线存在/条目非空"
+    },
+    {
+      "name": "escale",
+      "total": 0,
+      "bad": 0,
+      "samples": [],
+      "note": "条目E档位与文件实际行数错配(Warning级);全量: aoci index score --dim escale;.aoci治理运行时资产不参与代码规模判定"
+    },
+    {
+      "name": "tagparse",
+      "total": 0,
+      "bad": 0,
+      "samples": [],
+      "note": "标签结构在场但无法按ABCDE规则解析(Warning级,dict/escale会跳过);全量: aoci index score --dim tagparse"
+    }
+  ],
+  "entry_count": 0,
+  "disk_count": 753,
+  "index_tokens_estimated": 836,
+  "curation_sha256": "",
+  "drift": {
+    "missing": 753,
+    "raw_missing": 753,
+    "orphan": 0,
+    "stale": 0,
+    "unbaselined": 0,
+    "line_ending_only": 0,
+    "actionable_missing": 744,
+    "included_missing": 0,
+    "curation_excluded_missing": 0,
+    "skipped_missing": 9,
+    "pending_curation": 0,
+    "pending_curation_missing": 0,
+    "stale_curation_decisions": 0,
+    "observed_new": 0,
+    "observed_changed": 0,
+    "observed_removed": 0
+  },
+  "managed_scope": {
+    "scope_change_required": false,
+    "observe_review_required": true,
+    "scope_policy_identity": "e0f548d87fe5462c412a1c54409871a60ddf2ae5c30609258ff8739fdfcc8e76",
+    "active_scope_policy_identity": "e0f548d87fe5462c412a1c54409871a60ddf2ae5c30609258ff8739fdfcc8e76",
+    "index_count": 756,
+    "observe_count": 1,
+    "exclude_count": 14,
+    "observed_pending_review": 0
+  },
+  "layout": "volumes-v1",
+  "volumes": [
+    {
+      "id": "root",
+      "kind": "root",
+      "path": "aoci.txt",
+      "asset_state": "present",
+      "sha256": "243c689ef2453955bc923461020e53dba67b62ffcec8659724dd7ff69c449ae2",
+      "object_count": 0
+    },
+    {
+      "id": "meta",
+      "kind": "meta",
+      "path": "aoci.meta.txt",
+      "asset_state": "present",
+      "sha256": "5ccd06dd2198435423141174e4f3eaed7e7645644070e0b5cc2e20dbc889172a",
+      "object_count": 0
+    },
+    {
+      "id": "code",
+      "kind": "code",
+      "path": "aoci.code.txt",
+      "asset_state": "present",
+      "sha256": "12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2",
+      "object_count": 0
+    }
+  ],
+  "budget": {
+    "mode": "enforce",
+    "status": "healthy",
+    "whole_index_tokens": 836,
+    "target_tokens": 200000,
+    "warning_tokens": 300000,
+    "max_tokens": 400000,
+    "violations": 0,
+    "s_coverage": [
+      {
+        "min_c": 1,
+        "max_c": 4,
+        "entries": 0,
+        "s_present": 0
+      },
+      {
+        "min_c": 5,
+        "max_c": 7,
+        "entries": 0,
+        "s_present": 0
+      },
+      {
+        "min_c": 8,
+        "max_c": 8,
+        "entries": 0,
+        "s_present": 0
+      },
+      {
+        "min_c": 9,
+        "max_c": 9,
+        "entries": 0,
+        "s_present": 0
+      }
+    ],
+    "high_importance_entries": 0,
+    "high_importance_s_absent": 0,
+    "high_importance_s_absent_percent": 0
+  }
+}

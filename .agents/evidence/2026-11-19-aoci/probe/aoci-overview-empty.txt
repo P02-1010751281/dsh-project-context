@@ -1,0 +1,83 @@
+AOCI Overview Metadata:
+request_mode: full
+delivery_mode: full
+completed: true
+continuation_required: false
+full_text_included: true
+runtime_repository_root: /tmp/aoci-probe2
+mcp_service_version: 0.2.0-rc2
+index_sha256: 7c63be188d9b59888d886ee8185c0a7eff4a937a037f5efe7366509173b1dd95
+entry_count: 0
+section_count: 0
+estimated_tokens: 836
+index_bytes: 2508
+body_utf8_bytes: 3573
+body_sha256: 6ef8ee09c6ff1b8830eada63e84948cb144e57729df5844dc3a2ec62a82e2979
+server_delivery_complete: true
+delivery_receipt_version: overview-delivery-receipt/v1
+host_delivery_status: host_delivery_unconfirmed
+governance_aligned: false
+cognition_currency: dirty_or_stale
+delivery_guidance: verify_current_source_and_complete_governance
+refresh_generation: 0
+refresh_status: refresh_deferred_until_stable
+cognition_state: invalid
+attestation_contract_version: model-cognition-attestation/v1
+challenge_index_sha256: 7c63be188d9b59888d886ee8185c0a7eff4a937a037f5efe7366509173b1dd95
+challenge_entry_sequence_sha256: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
+challenge_entry_count: 0
+challenge_digest: f9d7650cb0574a88d04c32d094edabdd574a42c01719784a54f776180aee709a
+challenge_ordinals: 
+challenge_count: 0
+cognition_level: 1
+cognition_level_state: index_loaded
+model_full_cognition_reliable: false
+layout_mode: volumes-v1
+requested_scope: all
+effective_scope: all
+scope_available: true
+asset_state: present
+model_scope_cognition_reliable: false
+cognition_receipt_v2: {"asset_state":"present","cognition_scope":"all","cognition_state":"invalid","composite_identity":"735dbb10387c4153e51fe1ce22fb7597a200834cd1b217156880ef83395617ca","delivered_volumes":[{"id":"meta","kind":"meta","path":"aoci.meta.txt","asset_state":"present","sha256":"5ccd06dd2198435423141174e4f3eaed7e7645644070e0b5cc2e20dbc889172a","object_count":0},{"id":"code","kind":"code","path":"aoci.code.txt","asset_state":"present","sha256":"12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2","object_count":0}],"effective_scope":"all","layout_mode":"volumes-v1","mcp_service_version":"0.2.0-rc2","meta_sha256":"5ccd06dd2198435423141174e4f3eaed7e7645644070e0b5cc2e20dbc889172a","model_full_cognition_reliable":false,"model_scope_cognition_reliable":false,"pending_refresh_reasons":["semantic_threshold"],"refresh_generation":0,"requested_scope":"all","root_sha256":"243c689ef2453955bc923461020e53dba67b62ffcec8659724dd7ff69c449ae2","runtime_repository_root":"/tmp/aoci-probe2","scope_available":true,"scope_identity":"7c63be188d9b59888d886ee8185c0a7eff4a937a037f5efe7366509173b1dd95","scope_object_count":0,"state_owner":"host_model","version":2}
+
+<<<AOCI_OVERVIEW_BODY_BEGIN/v1 scope=all>>>
+──────────────────────────────
+AOCI Cognition Asset: id=root kind=root path=aoci.txt sha256=243c689ef2453955bc923461020e53dba67b62ffcec8659724dd7ff69c449ae2 object_count=0
+──────────────────────────────
+#AOCI-ROOT-MANIFEST: 1
+#Format-Version: cognition-volumes/v1
+#Locale: zh-CN
+#Project: aoci-probe2
+#Global-Invariants: -
+#Volume: id=meta kind=meta path=aoci.meta.txt format=meta-v1 depends=- state=enabled
+#Volume: id=code kind=code path=aoci.code.txt format=object-fras-v2 depends=meta state=enabled
+──────────────────────────────
+AOCI Cognition Asset: id=meta kind=meta path=aoci.meta.txt sha256=5ccd06dd2198435423141174e4f3eaed7e7645644070e0b5cc2e20dbc889172a object_count=0
+──────────────────────────────
+#AOCI-META-VOLUME: 1
+#Object-Protocol: repository-cognition-object/v2
+#FRAS-Discipline: 2
+#FRAS-v2-Limits-Authority: machine-contract
+#S-Admission: non-inferable-and-error-preventing
+#S配额: C9-8≤600 C7-4≤200 C3-1≤50
+#Object-Kinds: code=file database=table
+#Canonical-Tag-Authoring: compact A+B+C+[D]+E; dotted形态仅用于读取兼容
+#Code canonical identity example: code:path/to/file.go
+#段根: /<repository> 代表存放本索引的那份检出的仓库根，不是真实路径；===/<repository>/=== 开启根目录，===/<repository>/<dir>/=== 开启相对仓库根的目录 <dir>
+#Code Entry example: file.go[EG7T]: F:运行示例应用 | R:code:config/load.go | A:main | S:配置文件缺失时直接非零退出，不回退到内置默认值
+#[Tag dictionary: code]
+#A Layer: C-共享基础 E-入口边界 A-应用编排 D-领域逻辑 K-算法计算 M-中间件 P-持久化 I-集成适配 R-运行基础 L-库与SDK F-声明配置 O-运维交付 T-测试验证 S-文档规范 X-开发工具 Z-其他
+#B Module: G-跨域通用 U-用户交互 B-核心业务 D-数据状态 I-身份权限 N-网络协议 M-消息事件 S-安全隐私 C-配置策略 O-可观测性 R-可靠性恢复 P-性能资源 W-流程调度 A-分析智能 H-硬件设备 L-本地化 V-构建发布 Q-质量保障 E-扩展插件 Z-其他
+#C Importance: 9-最高 8-很高 7-高 6-较高 5-中等 4-较低 3-低 2-很低 1-最低
+#E Scale: L-大>400 M-中200-400 S-小100-200 T-微<100
+#[Tag dictionary: database]
+#A Layer: E-实体主表 T-事务事实 R-关联映射 M-明细从属 C-参考字典 S-状态存储 H-历史版本 L-日志审计 Q-队列发件 A-聚合投影 K-键值配置 B-文档大对象 Z-其他
+#B Module: G-跨域通用 B-核心业务 I-身份权限 T-组织租户 U-用户体验 F-财务计费 K-内容知识 C-配置策略 W-流程任务 M-消息事件 N-外部集成 S-安全隐私 O-可观测审计 R-可靠性恢复 P-性能资源 A-分析智能 H-硬件设备 L-本地化 V-构建发布 Q-质量测试 E-扩展插件 Z-其他
+#C Importance: 9-最高 8-很高 7-高 6-较高 5-中等 4-较低 3-低 2-很低 1-最低
+#E Scale: L-大>400 M-中200-400 S-小100-200 T-微<100
+──────────────────────────────
+AOCI Cognition Asset: id=code kind=code path=aoci.code.txt sha256=12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2 object_count=0
+──────────────────────────────
+#AOCI-CODE-VOLUME: 1
+<<<AOCI_OVERVIEW_BODY_END/v1 scope=all>>>
+cognition_level_message: 已加载项目认知，但完整交付尚未验证。

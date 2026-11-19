@@ -1,0 +1,9 @@
+ M AGENTS.md
+?? .aoci/
+?? .gitattributes
+?? AGENTS.md.backup.20261119_232216.8b46b54ed44cdc6dbef938230db7b6dd63b7d12dc8aa9d89965e4b704e72e5ff
+?? aoci.code.txt
+?? aoci.meta.txt
+?? aoci.txt
+ AGENTS.md | 104 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 104 insertions(+)

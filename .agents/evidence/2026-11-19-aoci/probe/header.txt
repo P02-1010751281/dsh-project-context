@@ -1,0 +1,17 @@
+打印索引头部或 Volumes 的 Meta 字典(只读)
+
+用法:
+  aoci index header [command]
+
+可用命令:
+  show        输出索引头部原文(规范与标签字典;纯读,不必读取整个索引文件)
+
+参数:
+  -h, --help   显示 header 的帮助
+
+全局参数:
+      --json          以 JSON 机读格式输出
+      --quiet         静默人读输出
+      --repo string   显式指定仓库根目录(覆盖自动定位)
+
+使用 "aoci index header [command] --help" 查看命令详情。

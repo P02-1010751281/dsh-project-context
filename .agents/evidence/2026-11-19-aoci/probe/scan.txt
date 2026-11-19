@@ -1,0 +1,4 @@
+基线已建立: 757 个文件,耗时 338ms
+9 个 index 文件没有模型可读的内容、不需要 Entry(二进制 7、空文件 0、超限 2);aoci verify 以 code_skipped 列出
+744 个 index 文件需要写条目：按当前批次设置约 20 轮 Maintain（每轮最多 50 条、响应预算 24 KiB）
+四个 Agent 会话可以同时写：aoci config set code_cognition_parallel_batches 4 后每个约 15 轮，每次 Maintain 都会列出要分发的兄弟批次

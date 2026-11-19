@@ -1,0 +1,12 @@
+server: {'name': 'aoci-code', 'version': '0.2.0-rc2'}
+tool count: 9
+  aoci_get_entries       desc=  175 schema=  538
+  aoci_header            desc=  130 schema=   18
+  aoci_maintain          desc=  968 schema= 1607
+  aoci_overview          desc=  889 schema= 3672
+  aoci_remove_entry      desc=  278 schema=  184
+  aoci_report            desc=  175 schema=  212
+  aoci_rules             desc=  105 schema=   49
+  aoci_search            desc=  147 schema=  389
+  aoci_update_entry      desc=  795 schema= 2249
+aggregate tool-surface chars: 12699

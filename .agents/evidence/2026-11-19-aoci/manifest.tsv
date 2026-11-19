@@ -6,3 +6,16 @@
 2026-11-19T23:17:23+08:00	arxiv-abs	200	42625	02c93ee543e3b1f17efe842a2dfdd185b119afb842db1525b8c8d08a071ac054	https://arxiv.org/abs/2605.02421
 2026-11-19T23:17:23+08:00	arxiv-html	200	308561	c1204a0bf3ee79136e7982a882152265a7b3810de5cfb9cc0b31b66a17e6661c	https://arxiv.org/html/2605.02421
 2026-11-19T23:17:23+08:00	arxiv-html-txt	200	79108	ccb8ae73c13f3c92f0b08f4e97070a700a89e522e2da0fbc6c6093e8f367051d	local html2txt of arxiv-html (not independent)
+2026-11-19T23:22:44+08:00	probe-init	200	2429	1944d50343c71ed93ce682701e43c6088bede6ac186e1ee1d6fd7518555b0a32	local run: aoci --repo /tmp/aoci-probe2 init --locale zh-CN
+2026-11-19T23:22:44+08:00	probe-scan	200	470	0aa414c28dc496d3b9eab4a8e8c51c4a3f67aae519d5776ab6139cf79e480664	local run: aoci scan
+2026-11-19T23:22:44+08:00	probe-status	200	318	beb7161094f5110901c7b9823c83441e08ea99dbaa5d8e95e6ba2f62a9bfec16	local run: aoci status
+2026-11-19T23:22:44+08:00	probe-verify	200	37987	39a453d1fda33d5d8e901c91b1eb39b57b78959143759310167c3f7b273697aa	local run: aoci verify
+2026-11-19T23:22:44+08:00	probe-score	200	5288	a1f17da4e1f6291d3f8d7b3cc555601d301d929fbd2e83ab5019290235fd61c0	local run: aoci index score --json
+2026-11-19T23:22:44+08:00	probe-header	200	499	a1dcad11bff92d9a5310856cb5481c389379f07a334c501f1520853d5908d279	local run: aoci index header
+2026-11-19T23:22:44+08:00	probe-git-status	200	303	faf4cacf8b32888f3ccd0846dfc3f8835242aa57df9012cfa9cc67a90632f4cf	local run: git status --short after init
+2026-11-19T23:22:44+08:00	probe-mcp-tools-json	200	22668	735fbd9e74f2cac3de442e26ba1b4d84ef9005a46c0ed1de8484ac2452cfbc72	local run: tools/list over stdio MCP
+2026-11-19T23:22:44+08:00	probe-mcp-tools	200	545	6127ad653f6dfb4a3354944d9c06ebd8a63c88df11b74a7ee4c34517d4dba1cf	derived from probe/mcp-tools.json
+2026-11-19T23:22:44+08:00	probe-mcp-sizes	200	156	c5f80e2e8a8377115c03324e0cd64b5d2c5e771bf1469e21063dcc80dc37f91a	local run: tools/call aoci_rules/overview/header
+2026-11-19T23:22:44+08:00	probe-rules	200	8013	805af05f41e92a10cd67dd4bfe085151e481a4914bd88d7f39a0bbef64437cd1	local run: aoci_rules tool result
+2026-11-19T23:22:44+08:00	probe-overview-empty	200	6279	2141d676397f683860b01c26ae19ff6a57a3f58a31a7f1ee9fc2b1f063f885c8	local run: aoci_overview on the un-authored index
+2026-11-19T23:22:44+08:00	probe-release-sums	200	1260	db61e921b9a43870d1d5c569cfa6e72ae6a36bf981c5e7149bacb3d66c4908c9	https://github.com/aoci-spec/aoci-code/releases/download/v0.2.0-rc2/SHA256SUMS

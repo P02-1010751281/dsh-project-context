@@ -15,6 +15,19 @@ map_file() {
 	arxiv-abs) echo "arxiv-2605.02421-abs.html" ;;
 	arxiv-html) echo "arxiv-2605.02421.html" ;;
 	arxiv-html-txt) echo "aoci-paper-2605.02421.txt" ;;
+	probe-init) echo "probe/init.txt" ;;
+	probe-scan) echo "probe/scan.txt" ;;
+	probe-status) echo "probe/status.txt" ;;
+	probe-verify) echo "probe/verify.txt" ;;
+	probe-score) echo "probe/score.json" ;;
+	probe-header) echo "probe/header.txt" ;;
+	probe-git-status) echo "probe/git-status.txt" ;;
+	probe-mcp-tools-json) echo "probe/mcp-tools.json" ;;
+	probe-mcp-tools) echo "probe/mcp-tools.txt" ;;
+	probe-mcp-sizes) echo "probe/mcp-call-sizes.txt" ;;
+	probe-rules) echo "probe/aoci-rules.txt" ;;
+	probe-overview-empty) echo "probe/aoci-overview-empty.txt" ;;
+	probe-release-sums) echo "probe/release-SHA256SUMS.txt" ;;
 	*) return 1 ;;
 	esac
 }
