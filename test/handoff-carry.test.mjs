@@ -135,6 +135,62 @@ test("the wiring passes the split's trimmed flag through to the seed", () => {
 	assert.ok(prompt.includes(SCAFFOLDING.en.continuationTrimmed), "handoffArtifacts must forward trimmedTail");
 });
 
+const NOTICE = {
+	parentId: "session-parent",
+	tailMessages: 12,
+	carriedTokens: 20_000,
+	olderMessages: 143,
+	files: 1,
+	openQuestion: false,
+	log: ARCHIVE.log,
+};
+
+test("the seed tells the person what was carried and what stayed behind", () => {
+	const prompt = continuation("session-parent", FILES, "## user\n重启吧", ARCHIVE, "en", undefined, undefined, false, NOTICE);
+	assert.ok(prompt.startsWith(SCAFFOLDING.en.continuationPrefix), "the notice never displaces the recognized opening");
+	assert.ok(prompt.includes("Carried over: the last 12 message(s) (~20000 tokens) and an index of 1 file(s)"), prompt.slice(0, 400));
+	assert.ok(prompt.includes("The earlier 143 message(s) are **not** in this session"));
+	assert.ok(prompt.includes(ARCHIVE.log), "the transcript path is the one the payload also names");
+	assert.ok(isHandoffContinuationText(prompt), "a seed with the note is still recognized as our own prompt");
+});
+
+test("the notice states a zero tail as zero, not as a missing field", () => {
+	const prompt = continuation("session-parent", FILES, "", ARCHIVE, "en", undefined, undefined, false, { ...NOTICE, tailMessages: 0, carriedTokens: 0, openQuestion: true });
+	assert.ok(prompt.includes("No message was carried over verbatim under the current setting"));
+	assert.ok(prompt.includes("plus the one open question"));
+});
+
+test("a seed rendered without the notice keeps its old shape", () => {
+	assert.ok(!continuation("session-parent", FILES, "## user\n重启吧", ARCHIVE).includes("Note for you"));
+});
+
+test("the notice follows the seed's language", () => {
+	const prompt = continuation("session-parent", FILES, "## user\n重启", ARCHIVE, "zh", undefined, undefined, false, NOTICE);
+	assert.ok(prompt.includes("> 说明（给用户）：这是从会话 session-parent 续接的新会话"));
+	assert.ok(prompt.includes("更早的 143 条消息**不在本会话里**"));
+	assert.ok(isHandoffContinuationText(prompt));
+});
+
+test("the wiring renders the notice from the split the seed actually used", () => {
+	const session = fakeSession([userMessage("a"), userMessage("b"), userMessage("c")]);
+	const split = handoffSplit(session, 13);
+	assert.equal(split.olderMessages, 2, "the fixture must actually drop two messages");
+	assert.equal(split.tailMessages, 1);
+	const { prompt } = handoffArtifacts({
+		session,
+		config: DEFAULT_CONFIG,
+		language: "en",
+		fileOperations: FILES,
+		archive: ARCHIVE,
+		pointers: ARCHIVE,
+		tail: split.tail,
+		trimmedTail: split.trimmedTail,
+		notice: { ...NOTICE, tailMessages: split.tailMessages, olderMessages: split.olderMessages },
+	});
+	assert.ok(prompt.includes("The earlier 2 message(s)"), "the number is the split's own, not a re-count");
+	assert.equal(split.olderMessages + split.tailMessages, 3, "every message is counted exactly once");
+});
+
 test("the statement follows the seed's language", () => {
 	const zhCarried = continuation("session-parent", FILES, "## user\n重启", ARCHIVE, "zh");
 	assert.ok(zhCarried.includes(SCAFFOLDING.zh.continuationCarried));

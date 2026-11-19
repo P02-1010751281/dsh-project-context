@@ -129,6 +129,7 @@ async function runHandoff(root, options = {}) {
 		older: "较早的对话",
 		tail: "## user\n把 release 收尾",
 		tailMessages: 1,
+		olderMessages: 5,
 		languageMessages: [{ role: "user", sourceKind: "user", text: "把 release 收尾" }],
 		trimmedTail: false,
 	};
@@ -148,6 +149,12 @@ test("a bound session's continuation inherits the task, written before the seed 
 
 	assert.equal(state.created, true, "the transaction reached the child creation");
 	assert.equal(state.seeded.length, 1, "the seed was admitted once");
+
+	// The person's own paragraph travels with the real transaction: a handoff that silently left most of
+	// the conversation behind is the friction this closes.
+	const seedText = state.seeded[0].content.map((block) => block.text ?? "").join("");
+	assert.match(seedText, /说明（给用户）/, "the seed speaks to the user, not only to the model");
+	assert.match(seedText, /更早的 5 条消息\*\*不在本会话里\*\*/);
 
 	// The order claim: the child's first request admits its context from this file.
 	assert.equal(state.seedError, undefined, "the metadata existed when the seed was admitted");

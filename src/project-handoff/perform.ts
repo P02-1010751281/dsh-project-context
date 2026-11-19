@@ -22,6 +22,7 @@ import { countFileIndex } from "./receipt.js";
 import { type SessionControllerLike } from "./runtime.js";
 import { handedOff, handoffReceipts } from "./state.js";
 import { continuation, renderHandoff } from "./summary.js";
+import { type ContinuationNotice } from "./language.js";
 
 /**
  * The two language-dependent artifacts of one handoff: the `HANDOFF.md` document and the child's
@@ -42,6 +43,8 @@ export function handoffArtifacts(args: {
 	tail: string;
 	/** True when a carried section was cut at its render cap, so the seed must not say "verbatim". */
 	trimmedTail?: boolean;
+	/** What the seed carries, for the paragraph addressed to the person reading the continuation. */
+	notice?: ContinuationNotice;
 }): { document: string; prompt: string } {
 	const carry = handoffCarry(args.session, args.config.handoffPendingQuestion === "wait");
 	return {
@@ -55,6 +58,7 @@ export function handoffArtifacts(args: {
 			carry.pending,
 			carry.decision,
 			args.trimmedTail === true,
+			args.notice,
 		),
 	};
 }
@@ -130,7 +134,7 @@ export async function performHandoff(
 	assertSessionSettled(session, triggerSeq);
 
 	const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
-	const { older, tail, languageMessages, trimmedTail, tailMessages } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
+	const { older, tail, languageMessages, trimmedTail, tailMessages, olderMessages } = split ?? handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	assertHandoffDroppable(older);
 	const language = resolveHandoffLanguage(languageMessages, config);
 	// The file index is read here, before the child exists, and travels in both artifacts.
@@ -147,11 +151,23 @@ export async function performHandoff(
 	const archive = { log: path.relative(projectRoot, logFile), index: path.relative(projectRoot, indexFile) };
 	const pointers = { log: logFile, index: indexFile };
 	const file = path.join(memoryDir(projectRoot), "HANDOFF.md");
-	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail, trimmedTail });
 	// Read in the same synchronous step the seed was rendered from, and from the same `readSessionInputs`
 	// pass `handoffCarry` uses: the receipt and the seed can differ about what the seed *carried*, never
 	// about which question was open or which input came last.
 	const question = questionDisposition(session);
+	const fileCount = countFileIndex(files);
+	// The seed's human paragraph and the status receipt quote the same counts, from the same split and
+	// the same index string, so the person is told once and never told two different numbers.
+	const notice: ContinuationNotice = {
+		parentId: String(session.id),
+		tailMessages,
+		carriedTokens: Math.round(tail.length / CHARS_PER_TOKEN),
+		olderMessages,
+		files: fileCount,
+		openQuestion: question === "deferred",
+		log: logFile,
+	};
+	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail, trimmedTail, notice });
 
 	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
@@ -246,7 +262,7 @@ export async function performHandoff(
 	// refused or transiently failed attempt leaves no receipt to read as "already handed off" — the
 	// numbers themselves are the artifacts' own (`tailMessages` from the split that was rendered,
 	// `files` counted from the index string both artifacts carry, `question` from the carry).
-	handoffReceipts.set(childId, { tailMessages, files: countFileIndex(files), question });
+	handoffReceipts.set(childId, { tailMessages, files: fileCount, question });
 	// The continuation is seeded and marked, so retire the session it replaced: a handoff forks, so
 	// without this the old session stays live and, being active, sits above its own continuation in the
 	// workspace list. Archiving with `stopActivity` would stop a turn that is still rendering the

@@ -6,7 +6,7 @@
  */
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type UserDecision } from "./conversation.js";
-import { type HandoffLanguage } from "./language.js";
+import { type ContinuationNotice, type HandoffLanguage } from "./language.js";
 /**
  * The archived `HANDOFF.md` document: header, archive pointers and the file index, and nothing
  * generated. The relative pointers are what the document carries — see `perform.ts` for why the
@@ -28,4 +28,4 @@ export declare function renderHandoff(session: Session, fileOperations: string, 
 export declare function continuation(parentId: string, fileOperations: string, tail: string, archive: {
     log: string;
     index: string;
-}, language?: HandoffLanguage, pending?: string, decision?: UserDecision, trimmedTail?: boolean): string;
+}, language?: HandoffLanguage, pending?: string, decision?: UserDecision, trimmedTail?: boolean, notice?: ContinuationNotice): string;

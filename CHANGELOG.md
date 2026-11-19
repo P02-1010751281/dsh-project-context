@@ -10,6 +10,14 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（交接给用户的说明：丢了多少、留在哪）**
+
+- 交接后的新会话，其第一条消息（种子）现在带一段**给用户的说明**，排在 `Handoff from session …` 之后：这是从哪个会话续接的、带过来最近多少条消息（约多少 token）、多少个文件的清单、是否还有未答问题、**更早多少条消息不在本会话里**、归档原文的绝对路径，以及旧会话仍可从侧栏「全部对话（显示已归档）」打开。
+- 数字来自切分本身：`handoffSplit` 新增 `olderMessages`（与 `tailMessages` 同一次切分计数），种子渲染不重算；`carriedTokens` 是尾料字符 / 4 的估值，文案写「约」。旧会话的 `older` 字符串经过 `truncateMiddle`，不能用来回答「丢了多少」，所以说明里引用的是条数而不是被截断后的字符量。
+- 位置是硬约束：`isHandoffContinuationText` 靠 `Handoff from session` / `从会话 ` 开头识别生成消息，说明只能排在其后，否则种子会被计成用户发言（轮数、标题、自动学习闸门全部连锁）。
+- 验证：`pnpm test` **675 → 682**（+7：说明的每个形状、零尾料、语言、`performHandoff` 真实接线、`runManual` 自己切分的那条分支）。变异轮 3 个有效变异：不渲染说明 → 6 条红；`olderMessages` 恒 0 → 2 条红；`openQuestion` 恒 false → 1 条红（正好是断言未答问题的那条）。
+- 生效条件：宿主代码，需重启。
+
 **project-context（W1-A：`/context find` 只读检索）**
 
 - 新增 `/context find <query>`：检索 `MEMORY.md` 条目、`CONTEXT.md`、`tasks/*.md`、每个会话的 `meta.json`，以及最近 20 个会话的 `HANDOFF.md` / `session.md`；输出 Top 8，带 `path:line` 与原文行，整块 8 KB 预算，超额写「还有 N 条」。

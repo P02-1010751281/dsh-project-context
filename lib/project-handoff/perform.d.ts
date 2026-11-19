@@ -10,6 +10,7 @@ import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { type HandoffLanguage } from "./language.js";
 import { type HandoffSplit } from "./conversation.js";
+import { type ContinuationNotice } from "./language.js";
 /**
  * The two language-dependent artifacts of one handoff: the `HANDOFF.md` document and the child's
  * first message. Both carry mechanical parts only — the archive pointers, the file index and the
@@ -35,6 +36,8 @@ export declare function handoffArtifacts(args: {
     tail: string;
     /** True when a carried section was cut at its render cap, so the seed must not say "verbatim". */
     trimmedTail?: boolean;
+    /** What the seed carries, for the paragraph addressed to the person reading the continuation. */
+    notice?: ContinuationNotice;
 }): {
     document: string;
     prompt: string;

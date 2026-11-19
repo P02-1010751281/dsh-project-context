@@ -41,6 +41,29 @@ export declare function resolveLanguage(messages: readonly HandoffLanguageMessag
  * assistant messages around it keep their order.
  */
 export declare const REPLAY_MARKER = "[handoff prompt omitted]";
+/**
+ * What the successor session was seeded with, as the seed's **human** note states it.
+ *
+ * Every number here is counted where the artifact was produced (`handoffSplit`), never re-estimated at
+ * render time: the note exists so a person can see what travelled and what did not, and a number that
+ * disagreed with the split would be the wrong cause this repository refuses.
+ */
+export interface ContinuationNotice {
+    /** The session this one continues. */
+    readonly parentId: string;
+    /** Messages carried verbatim; `0` when the recent budget carried none. */
+    readonly tailMessages: number;
+    /** Rough size of the carried tail (`characters / 4`), which is the repo's only token estimate. */
+    readonly carriedTokens: number;
+    /** Messages dropped from this session and reachable only through the transcript. */
+    readonly olderMessages: number;
+    /** Entries in the file index. */
+    readonly files: number;
+    /** True when the seed also carries a question the user has not answered yet. */
+    readonly openQuestion: boolean;
+    /** Absolute path of the parent's readable transcript. */
+    readonly log: string;
+}
 /** Localized scaffolding for the archived document and the continuation prompt. */
 interface HandoffScaffolding {
     readonly documentTitle: (sessionId: string) => string;
@@ -51,6 +74,15 @@ interface HandoffScaffolding {
     /** Literal opening of the continuation prompt, used to recognize a previous one. */
     readonly continuationPrefix: string;
     readonly continuationPreamble: (parentId: string) => string;
+    /**
+     * The one paragraph addressed to the *person*, not the model.
+     *
+     * Before this existed the seed opened with instructions to the successor and never said what was
+     * left behind, so a handoff looked like a smooth continuation while most of the conversation was
+     * only in the archive. It sits after {@link continuationPrefix} because
+     * `isHandoffContinuationText` recognizes a generated prompt by that opening.
+     */
+    readonly continuationNotice: (notice: ContinuationNotice) => string;
     readonly continuationVerify: string;
     readonly continuationContextNote: string;
     /** Heading that opens the mechanical "previous session details" block. */

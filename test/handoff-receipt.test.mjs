@@ -77,8 +77,9 @@ function fakeHost(state) {
 					get: (id) =>
 						id === childId
 							? {
-									followup: () => {
+									followup: (message) => {
 										state.seeded += 1;
+										state.seed = message;
 										if (state.refuseSeed !== undefined) throw state.refuseSeed;
 									},
 								}
@@ -92,7 +93,7 @@ function fakeHost(state) {
 }
 
 async function handoff(root, messages, config, options = {}) {
-	const state = { seeded: 0, refuseSeed: options.refuseSeed, childId: options.childId };
+	const state = { seeded: 0, seed: undefined, refuseSeed: options.refuseSeed, childId: options.childId };
 	const ctx = fakeHost(state);
 	const session = parentSession(root, messages);
 	const split = options.split ?? handoffSplit(session, options.keep ?? 0);
@@ -136,6 +137,15 @@ test("the split counts the messages it actually carried", () => {
 	const one = handoffSplit(session, 1);
 	assert.equal(one.tailMessages, 1, "the forced one-message floor is one message");
 	assert.equal(one.tail.split("\n\n").length, 1, "the count matches the rendered sections");
+});
+
+test("the seed's own paragraph names the open question it carried", async () => {
+	const root = await tempRoot();
+	const { state } = await handoff(root, [userMessage("把 release 收尾"), QUESTION], CONFIG({ handoffLang: "en" }));
+	assert.equal(state.seeded, 1);
+	const text = state.seed.content.map((block) => block.text ?? "").join("");
+	assert.match(text, /No message was carried over verbatim under the current setting, plus the one open question/);
+	assert.match(text, /The earlier 2 message\(s\) are \*\*not\*\* in this session/);
 });
 
 // --- the three dispositions ---------------------------------------------------------------
@@ -261,6 +271,19 @@ test("a transient failure abandons the attempt and records no seed", async () =>
 	assert.equal(reply.kind, "error", "the attempt is reported as a failure");
 	assert.match(reply.text, /safe to retry/, "a transient cause is named as transient");
 	assert.equal(handoffReceipts.size, before, "a failed attempt leaves no receipt behind");
+});
+
+test("a manual handoff computes its own split and still states the dropped count", async () => {
+	// `runManual` is the production entry and passes no split, so this is the only place the
+	// `split ?? handoffSplit(...)` branch is exercised with real messages.
+	const root = await tempRoot();
+	const state = { seeded: 0, seed: undefined };
+	const ctx = fakeHost(state);
+	const session = parentSession(root, [userMessage("第一步"), userMessage("第二步")]);
+	const reply = await runManual(ctx, session, CONFIG({ handoffBudgetRecentTokens: 0 }), new AbortController().signal);
+	assert.equal(reply.kind, "success");
+	const text = state.seed.content.map((block) => block.text ?? "").join("");
+	assert.match(text, /The earlier 2 message\(s\) are \*\*not\*\* in this session/);
 });
 
 // --- the parent boundary ------------------------------------------------------------------

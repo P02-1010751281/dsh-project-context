@@ -7,7 +7,7 @@
 
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type UserDecision } from "./conversation.js";
-import { type HandoffLanguage, SCAFFOLDING } from "./language.js";
+import { type ContinuationNotice, type HandoffLanguage, SCAFFOLDING } from "./language.js";
 
 /**
  * The archived `HANDOFF.md` document: header, archive pointers and the file index, and nothing
@@ -48,6 +48,7 @@ export function continuation(
 	pending?: string,
 	decision?: UserDecision,
 	trimmedTail = false,
+	notice?: ContinuationNotice,
 ): string {
 	const text = SCAFFOLDING[language];
 	// The markers wrap the mechanical "previous session details" block. `isHandoffContinuationText`
@@ -59,6 +60,10 @@ export function continuation(
 	const carried = tail.length === 0 ? text.continuationNothing : trimmedTail ? text.continuationTrimmed : text.continuationCarried;
 	const parts = [
 		text.continuationPreamble(parentId),
+		// The person's half: the model instructions below never said that most of the conversation stayed
+		// behind, so a handoff read as a seamless continuation. Kept after the prefix line because
+		// `isHandoffContinuationText` recognizes a generated prompt by it.
+		...(notice === undefined ? [] : [text.continuationNotice(notice)]),
 		carried,
 		text.continuationVerify,
 		text.continuationContextNote,

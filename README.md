@@ -57,7 +57,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/memory` | 显示项目记忆的状态：字符数 / 上限（含百分比）、四节条目数（文档不是四节形状时明说「无法解析」而不是报 0）、journal 行数与字节、备份数、归档会话数、`errors.log` 行数；capped / damaged / poisoned / unreadable 的警告原样保留 |
 | `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>`。采纳后 `SKILL.md` 带 `derived_from: autolearn` 与被核对的 session id（frontmatter，可选）；`list` 与采纳回执显示证据条数与 id 前缀，并机械比对关键 token（反引号词 / 路径 / 命令）与既有技能、`MEMORY.md` 的重叠 |
-| `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**） |
+| `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**）。新会话第一条消息里有一段**给用户的说明**：带过来多少条消息 / 多少 token / 几个文件、更早有多少条留在了归档、归档路径，以及旧会话从哪打开——交接不再是一次静默换会话 |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错；另报宿主压缩历史（次数 / 摘要与 prune 分计 / 最近回收 token / 是否失败），以及本进程刚做的交接**种子的三个数字**（尾料消息数、文件数、未答问题处置） |
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` / `threshold 400k` | 切自适应；给窗口比例或绝对 token 数则切固定阈值 —— 三种拼写写进同一个键 `handoffThreshold`（`40` / `40%` 是比例，`400k` / `400000` 是 token 数）。绝对数超过窗口容量 `W − 4000` 时截断并在回执里写明；低于物理下限时拒绝，建议沿用你当前的写法。裸 `auto` 与裸比例已退役，不再生效 |

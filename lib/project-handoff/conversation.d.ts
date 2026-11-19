@@ -211,6 +211,15 @@ export interface HandoffSplit {
      * (`handoffBudgetRecentTokens: 0`), a fact the receipt must print rather than omit.
      */
     tailMessages: number;
+    /**
+     * How many messages the dropped span held, counted at the same cut.
+     *
+     * The rendered `older` string cannot answer it: it is passed through `truncateMiddle`, so it can
+     * report a far smaller span than the conversation actually lost. The seed's human note quotes this
+     * count instead of a token estimate for exactly that reason — the number a reader is shown must be
+     * the number the split dropped.
+     */
+    olderMessages: number;
     /** Raw user messages of both parts, for `auto` language resolution. */
     languageMessages: HandoffLanguageMessage[];
     /**
