@@ -23,6 +23,7 @@
 import { isMemoryTruncated } from "./document.js";
 import { MEMORY_SECTIONS } from "./memory-schema.js";
 import { sectionsFromMarkdown, type MemorySections } from "./sections.js";
+import { type StalenessFacts, stalenessClause } from "./staleness.js";
 
 /**
  * The journal as the adapter measured it.
@@ -66,6 +67,11 @@ export interface MemoryStatusReport {
 	readonly poisoned: boolean;
 	/** Characters this read's cap kept back (the loader's own count, not a length difference). */
 	readonly cappedDroppedChars: number;
+	/**
+	 * Batch V's verdict on the entries' bound source files, or `undefined` when it was not measured
+	 * (an empty document, an opaque one, or a caller that did not ask). Absent is *not* "0 stale".
+	 */
+	readonly staleness?: StalenessFacts;
 	readonly files: MemoryFileFacts;
 }
 
@@ -139,6 +145,8 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	if (!report.unreadable && !empty) {
 		clauses.push(`${document.length}/${report.maxChars} chars (${Math.round((document.length / report.maxChars) * 100)}%)`);
 		clauses.push(sectionsClause(report.document));
+		// Only a document we could parse has entries to judge; the field is absent when nothing measured.
+		if (report.staleness !== undefined) clauses.push(stalenessClause(report.staleness));
 	}
 	clauses.push(journalClause(report.journalPath, report.files.journal));
 	clauses.push(report.files.backups === undefined ? "backups unknown" : plural(report.files.backups, "backup", "backups"));

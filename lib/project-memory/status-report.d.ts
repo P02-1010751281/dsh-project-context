@@ -19,6 +19,7 @@
  * a document it cannot read with certainty is reported as *unparseable*, not as four empty sections,
  * because "0 entries" would read as "this memory is empty" when the truth is "this is not our shape".
  */
+import { type StalenessFacts } from "./staleness.js";
 /**
  * The journal as the adapter measured it.
  *
@@ -64,6 +65,11 @@ export interface MemoryStatusReport {
     readonly poisoned: boolean;
     /** Characters this read's cap kept back (the loader's own count, not a length difference). */
     readonly cappedDroppedChars: number;
+    /**
+     * Batch V's verdict on the entries' bound source files, or `undefined` when it was not measured
+     * (an empty document, an opaque one, or a caller that did not ask). Absent is *not* "0 stale".
+     */
+    readonly staleness?: StalenessFacts;
     readonly files: MemoryFileFacts;
 }
 /**

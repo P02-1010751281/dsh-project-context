@@ -1,56 +1,40 @@
-import { readFileSync, statSync, lstatSync } from "node:fs";
-import path from "node:path";
-import { loadMemory } from "file:///mnt/Data/Projects/dsh-project-context/lib/project-memory/load.js";
-import { sectionsFromMarkdown } from "file:///mnt/Data/Projects/dsh-project-context/lib/project-memory/sections.js";
-import { anchorDriftReasons, stripEntryTid, entryTid } from "file:///mnt/Data/Projects/dsh-project-context/lib/project-memory/retirement.js";
+// Batch V preflight, post-implementation: count what the real binder would bind.
+// Reads the built lib/ (not src/), so it measures the shipped rules.
+import { stat } from "node:fs/promises";
+import { loadMemory } from "../../../lib/project-memory/load.js";
+import { sectionsFromMarkdown } from "../../../lib/project-memory/sections.js";
+import { entryTid } from "../../../lib/project-memory/retirement.js";
+import { bindableAnchors } from "../../../lib/project-memory/staleness-source.js";
 
-const root = process.argv[2] ? new URL(`file://${process.argv[2]}/`).pathname : "/mnt/Data/Projects/dsh-project-context";
-const mem = await loadMemory(root, 45000);
-const secs = sectionsFromMarkdown(mem.text);
-if (!secs) { console.log("UNPARSEABLE"); process.exit(1); }
-
-const ANCHOR_EXTENSIONS = new Set(["ts","tsx","js","jsx","mjs","cjs","mts","cts","json","md","yml","yaml","sh","log","txt","lock","toml","html","css","patch"]);
-const ANCHOR = /(?:^|[\s(（`'"[：:，,])((?:\/|[\w.@+-]+\/)+[\w.@+-]+)(?::(\d+)(?:[–-](\d+))?)?/g;
-
-function anchors(entry) {
-  const out = new Map();
-  ANCHOR.lastIndex = 0; let m;
-  while ((m = ANCHOR.exec(entry)) !== null) {
-    const c = m[1];
-    if (c.includes("{") || c.includes("*")) continue;
-    const dot = (c.split("/").pop() ?? "").lastIndexOf(".");
-    if (dot <= 0) continue;
-    const ext = c.split("/").pop().slice(dot + 1).toLowerCase();
-    if (!ANCHOR_EXTENSIONS.has(ext)) continue;
-    const abs = c.startsWith("/") ? c : path.join(root, c);
-    try { if (!lstatSync(path.dirname(abs)).isDirectory()) continue; } catch { continue; }
-    let st; try { st = statSync(abs); } catch { continue; }
-    if (c.includes("memory.jsonl") || c.includes("errors.log") || c.includes("purge.log")) continue;
-    out.set(c, st.isFile() ? st.size : -1);
-  }
-  return out;
+const root = process.argv[2] ?? "/mnt/Data/Projects/dsh-project-context";
+const sections = sectionsFromMarkdown((await loadMemory(root, 45000)).text);
+let entries = 0, stamped = 0, anchored = 0, anchors = 0;
+const files = new Set();
+for (const key of Object.keys(sections)) {
+	for (const entry of sections[key]) {
+		entries += 1;
+		if (entryTid(entry) === undefined) continue;
+		stamped += 1;
+		const paths = await bindableAnchors(entry, root);
+		if (paths.length === 0) continue;
+		anchored += 1;
+		anchors += paths.length;
+		for (const p of paths) files.add(p);
+	}
 }
-
-let entries = 0, withAnchor = 0, totalAnchors = 0, files = new Set(), multiFile = 0;
-const perEntry = [];
-let drift = 0;
-for (const k of Object.keys(secs)) {
-  for (const e of secs[k]) {
-    entries++;
-    const a = anchors(e);
-    if (a.size > 0) withAnchor++;
-    totalAnchors += a.size;
-    for (const f of a.keys()) files.add(f);
-    if (a.size > 1) multiFile++;
-    perEntry.push(a.size);
-    if (anchorDriftReasons(e, root).length > 0) drift++;
-  }
+let bytes = 0, largest = ["", 0];
+for (const p of files) {
+	const size = (await stat(`${root}/${p}`)).size;
+	bytes += size;
+	if (size > largest[1]) largest = [p, size];
 }
-perEntry.sort((x,y)=>y-x);
 console.log(JSON.stringify({
-  entries, withAnchor, totalAnchors, uniqueFiles: files.size, entriesWithMoreThanOneAnchor: multiFile,
-  topAnchorCounts: perEntry.slice(0,8), anchorsWithZero: perEntry.filter(n=>n===0).length,
-  driftReportedByRealFunction: drift,
+	entries,
+	entriesCarryingAnId: stamped,
+	entriesWithBindableAnchors: anchored,
+	bindableAnchorInstances: anchors,
+	bindableFiles: files.size,
+	totalKB: +(bytes / 1024).toFixed(1),
+	largest: { path: largest[0], kb: +(largest[1] / 1024).toFixed(1) },
+
 }, null, 1));
-const ej = path.join(root, ".agents/memory/entries.json");
-console.log("entries.json bytes:", statSync(ej).size, "ids:", Object.keys(JSON.parse(readFileSync(ej,"utf8")).entries).length);

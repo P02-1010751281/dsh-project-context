@@ -1,20 +1,12 @@
 {
  "entries": 145,
- "withAnchor": 33,
- "totalAnchors": 44,
- "uniqueFiles": 38,
- "entriesWithMoreThanOneAnchor": 7,
- "topAnchorCounts": [
-  4,
-  3,
-  3,
-  2,
-  2,
-  2,
-  2,
-  1
- ],
- "anchorsWithZero": 112,
- "driftReportedByRealFunction": 0
+ "entriesCarryingAnId": 82,
+ "entriesWithBindableAnchors": 12,
+ "bindableAnchorInstances": 12,
+ "bindableFiles": 12,
+ "totalKB": 171.3,
+ "largest": {
+  "path": "src/project-memory/sections.ts",
+  "kb": 32.9
+ }
 }
-entries.json bytes: 3370 ids: 145

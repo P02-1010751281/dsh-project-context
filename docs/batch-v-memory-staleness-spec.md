@@ -28,10 +28,10 @@
 | 项 | 值 | 怎么测的 |
 |---|---:|---|
 | 条目数 | 145 | `sectionsFromMarkdown(loadMemory(...).text)` |
-| 带**可核验**锚点的条目 | 33（44 处） | 与 `anchorDriftReasons` 同一套规则复算 |
-| 可绑定文件 | **34 个**，合计 **1.06 MB**（最大 `test/logic.test.mjs` 370.6 KB） | 逐个 `statSync` |
-| 自引用（`.agents/memory/*`） | 4 | 必须排除：它们每次 pass 都会变 |
-| 仓外路径（`/etc/nixos/…`、`/mnt/…`） | 2 | 不绑，报 `unverifiable` |
+| 带**可核验**锚点的条目 | 27（实现后实测）；其中带 id 可绑定 **12** | `bindableAnchors`（lib）实跑 |
+| 可绑定文件 | **12 个**，合计 **171.3 KB**（最大 `src/project-memory/sections.ts` 32.9 KB） | 实现后 `probe.mjs` 复测 |
+| 自引用（`.agents/memory/*`）/ 生成物（`lib/*`） | 4 / 4 | 必须排除：前者每次 pass 改写，后者每次构建改写 |
+| 仓外路径（`/etc/nixos/…`、`/mnt/…`） | 2 | 不绑（无绑定即不判），不产生假 stale |
 | 当前 `anchor-drift` | 0 | `anchorDriftReasons` 实跑 |
 | `entries.json` | 3,370 B / 145 个 id（≈23 B/id） | `stat` |
 | sidecar 形状 | `{version:1, entries:{tid:"YYYY-MM-DD"}}` | `retirement.ts:529` |
@@ -95,9 +95,11 @@
 
 ### 4.4 呈现
 
-- `/memory` 状态：在字符/条目行之后加一行
-  `stale: N 条（引用的文件在写入后被改过）`；`N = 0` 打印 `0`（零是事实），算不出打印 `unknown`。
-- 整理回执：同一行；`README.md` 与 `docs/behavior.md` 同步。
+- `/memory` 状态：在字符/条目行之后渲染 `stalenessClause`——`N bound entries · stale K: <ids>`；`K = 0`
+  打印 `0`（零是事实），算不出打印 `stale unknown`。
+- 整理回执：**只在本次真的落地了文档、且至少有一条绑定**时追加一句
+  （`Source bindings: …`）。`deduped` / `unchanged` / 各种 refusal 不测量也不报告——它们没有可报的量。
+  `README.md` 与 `docs/behavior.md` 已同步。
 - 只报数字 + 前 3 个 id，不列文件路径（太长，且 `/context find` 已经能查）。
 
 ### 4.5 并发与失败
@@ -176,3 +178,25 @@ python3 -c "import json;d=json.load(open('.agents/memory/entries.json'));print(d
 ```
 
 证据：本轮实测输出见提交说明与 `docs/research/2026-11-19-repo-cognition-index.md` §7（可搬三条的第 1 条）。
+
+---
+
+## 11. 实现记录（2026-11-20）
+
+已按 §9 的六条推荐落地，`src/` 与 `lib/` 同批提交。三处与规格的偏差，都是评审逼出来的：
+
+1. **`lib/` 必须排除**（评审发现）。本仓库有 4 条条目引用 `lib/client.js`；`lib/` 是构建产物，
+   每次客户端构建都会重写，绑定它会让每次 `pnpm build` 产生 4 条假 stale。已加
+   `GENERATED_PREFIXES = ["lib/"]`，与 `.agents/memory/` 同一处判断。
+2. **绑定的可绑定集合比预检小**。145 条里 82 条在读到的文档上带 id（部分盖章），
+   其中 12 条有可绑定锚点、12 个文件、171.3 KB。规格 §2 的 34 是「不看 id」的旧数，已改。
+3. **回执只在落地时报告**（见 §4.4 修订）：`deduped`/`unchanged`/refusal 没有测量，不打印 `stale 0`。
+
+第一次评审还指出「绑定若每轮刷新，特性不可证伪」——规格 §4.2 第 4 条原本就写了保留旧值，
+实现按 first-wins 落地，并补了一条具名用例（第二轮 pass 不清除 stale）。
+
+**变异轮**（6/6 被杀，每个只红其具名用例）：刷新基线 → 「第二轮不清除」；绑生成物 → 自引用/生成物；
+`missing` 当 `stale` → 三态；写盘丢弃未知键 → v1 升级；不透明文档清空绑定 → opaque；未测量打印 0 → 措辞。
+
+**验收**：`pnpm typecheck` 0、`pnpm build` ok（`lib/client.js` 37,349 B 不变）、`pnpm test`
+**695/695**（基线 682，+13）。`src/` 从哈希快照恢复后与快照逐字节一致，`lib/` 0 个变异标记。

@@ -88,7 +88,8 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
   `Handoff from session …` 之后：`isHandoffContinuationText` 靠这个开头把种子识别成生成消息，
   挪到前面会让种子被当成用户发言（影响轮数、标题与自动学习闸门）。数字来自切分本身
   （`handoffSplit` 的 `tailMessages` / `olderMessages`），不在渲染时重算。
-- **`/memory` 裸命令**：字符数 / 上限（含百分比）、四节条目数、journal 行数与字节、备份数、归档会话数、
+- **`/memory` 裸命令**：字符数 / 上限（含百分比）、四节条目数、`stale N`（引用的文件在条目写入后被改过；
+  只标不删，四态 fresh / stale / missing / unverifiable）、journal 行数与字节、备份数、归档会话数、
   `errors.log` 行数——每一项都能由文件系统复算。文档不是四节形状时写「无法解析」而不是 0；
   **不报**「上一次整理的结果」（该值没有持久化，编一个出来就是伪造证据）。
 

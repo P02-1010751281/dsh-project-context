@@ -145,7 +145,8 @@ export declare function readEntryDates(projectRoot: string): Promise<Map<string,
  *
  * Earliest-wins rather than last-wins because the value is an *age*: two hosts that both learn an id
  * would otherwise keep resetting a fact's clock depending on which one wrote last, and an entry could
- * never age out. Runs under the memory lock for the same reason the tombstone file does.
+ * never age out. `keep` is the id set of the document that just landed: an id nothing carries any more
+ * is gone for good, and leaving it would slowly grow a file that is nothing but a clock.
  */
 export declare function recordEntryDates(projectRoot: string, dates: ReadonlyMap<string, string>, keep?: ReadonlySet<string>): Promise<void>;
 /**

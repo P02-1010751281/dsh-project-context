@@ -15,6 +15,7 @@ import type { Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";
+import { type StalenessFacts } from "./staleness.js";
 import { type PruneOutcome } from "./prune.js";
 export declare const name = "project-memory";
 export declare const inject: string[];
@@ -85,6 +86,12 @@ type ConsolidateReport = {
     droppedItems: number;
     /** Entries of the landed memory cut to their section's per-item cap and kept. */
     itemTruncated: number;
+    /**
+     * Batch V's verdict on the source bindings, present only when this pass landed a memory and the
+     * bindings could be measured. A pass that wrote nothing measured nothing, so the field stays
+     * absent rather than reporting a `0` it never earned.
+     */
+    staleness?: StalenessFacts;
     /**
      * Project-relative path of the context half that landed when it was a task document rather than
      * `CONTEXT.md`. The receipt names this file, because "updated CONTEXT.md" would be false for a

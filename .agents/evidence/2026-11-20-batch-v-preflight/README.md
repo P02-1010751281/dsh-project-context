@@ -16,17 +16,18 @@ node classify.mjs   # 锚点分类：可绑定 / 自引用 / 仓外
 
 | 项 | 值 |
 |---|---:|
-| 条目 | 145 |
-| 带可核验锚点 | 33 条 / 44 处 |
-| 可绑定文件 | 34 个，合计 1.06 MB（最大 `test/logic.test.mjs` 370.6 KB） |
-| 自引用（`.agents/memory/*`，必须排除） | 4 |
-| 仓外路径（`/etc/nixos`、`/mnt/…`，记 unverifiable） | 2 |
+| 条目 | 145（其中 82 条在当前文档上带 id） |
+| 可绑定条目 | **12** |
+| 可绑定文件 | **12 个，合计 171.3 KB**（最大 `src/project-memory/sections.ts` 32.9 KB） |
+| 自引用 / 生成物（`.agents/memory/*`、`lib/*`，排除） | 4 / 4 |
+| 仓外路径（`/etc/nixos`、`/mnt/…`，不绑） | 2 |
 | 当前 `anchor-drift` | 0 |
 | `entries.json` | 3,370 B / 145 id |
 
 ## 边界
 
-- `probe.mjs` 里的 ANCHOR 正则与扩展名白名单是 `retirement.ts` 的**复刻**（该常量未导出），
-  所以它算出的「可绑定」是预估值；与真实 `anchorDriftReasons` 的一致性只在一个点上交叉验证过：
-  两者对当前文档都报 **0 drift**。落地时按规格 §4.2 抽成共享 helper，届时这条复刻删除。
+- **实现后已无复刻**：`probe.mjs` 现在直接调用 `lib/project-memory/staleness-source.js` 的
+  `bindableAnchors`，测的就是发布规则；`classify.mjs` 是落地前的旧探针，保留作对照。
+- 数字从 34 变成 12 有两个原因，都是实现时才暴露的：`lib/` 被排除（构建产物），以及
+  **只有带 id 的条目能绑定**（145 条里 82 条带 id）。
 - 输出是单点快照；记忆文档一改，数字就变。

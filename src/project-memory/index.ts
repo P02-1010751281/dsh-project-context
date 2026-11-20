@@ -45,6 +45,8 @@ import {
 import { backupMemoryBeforeWrite, importLegacyMemory, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
 import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
 import { formatMemoryStatus } from "./status-report.js";
+import { bindAndMeasure, measureStaleness } from "./staleness-source.js";
+import { type StalenessFacts, stalenessClause } from "./staleness.js";
 import { readMemoryFileFacts } from "./status-source.js";
 import { appendTombstones } from "./retired.js";
 import { recordEntryDates } from "./retirement.js";
@@ -193,6 +195,12 @@ type ConsolidateReport = {
 	/** Entries of the landed memory cut to their section's per-item cap and kept. */
 	itemTruncated: number;
 	/**
+	 * Batch V's verdict on the source bindings, present only when this pass landed a memory and the
+	 * bindings could be measured. A pass that wrote nothing measured nothing, so the field stays
+	 * absent rather than reporting a `0` it never earned.
+	 */
+	staleness?: StalenessFacts;
+	/**
 	 * Project-relative path of the context half that landed when it was a task document rather than
 	 * `CONTEXT.md`. The receipt names this file, because "updated CONTEXT.md" would be false for a
 	 * bound session — the project-level document was not touched at all.
@@ -329,6 +337,8 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 
 			let memoryKeptStale = false;
 			let memoryWriteDroppedChars = 0;
+			/** Batch V's verdict, measured only for a document that landed. */
+			let staleness: StalenessFacts | undefined;
 			if (memoryChanged) {
 				// Always keep the bytes on disk right now, whatever this pass believed earlier; the
 				// lock keeps another process from replacing them mid-write, and the journal is the
@@ -386,6 +396,18 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 						);
 					} catch (error: unknown) {
 						await logError(projectRoot, "memory", `the retired-fact record could not be written after MEMORY.md landed: ${diagnosticMessage(error)}`);
+					}
+				}
+				// Batch V's record half, at the same write site and with the same failure semantics: the
+				// bindings describe the document that landed, and losing them must not turn a landed write
+				// into a failed command — but it must be visible, because the next receipt would otherwise
+				// report a staleness verdict it never measured.
+				if (snapshot.written) {
+					try {
+						const landed = await readOptional(memoryFile(projectRoot));
+						staleness = (await bindAndMeasure(projectRoot, landed)).facts;
+					} catch (error: unknown) {
+						await logError(projectRoot, "memory", `the source bindings could not be recorded after MEMORY.md landed: ${diagnosticMessage(error)}`);
 					}
 				}
 			}
@@ -507,6 +529,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				contextWritten: wroteContext,
 				contextDroppedChars: wroteContext ? contextDroppedChars : 0,
 				...(wroteContext && taskSlug !== undefined ? { contextTarget: taskRelativePath(taskSlug) } : {}),
+				...(staleness === undefined ? {} : { staleness }),
 			};
 			if (memoryKeptStale) return { status: "stale", ...loss };
 			if (memoryRefused) {
@@ -757,6 +780,7 @@ export async function memoryStatusReply(
 		unreadable: memory.unreadable === true,
 		poisoned: memory.poisoned === true,
 		cappedDroppedChars: memory.cappedDroppedChars ?? 0,
+		staleness: memory.text.trim() === "" ? undefined : await measureStaleness(context.projectRoot, memory.text).catch(() => undefined),
 		files: await readMemoryFileFacts(context.projectRoot),
 	});
 }
@@ -912,7 +936,15 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		// refusal; the lever that actually gives the reply room is the cap.
 		return { kind: "success", text: `${base} Raise maxMemoryChars, or retry the pass later, to give the reply more room.` };
 	}
-	return { kind: "success", text: detail === "" ? `Memory: updated ${target}.` : `Memory: updated ${target}, but the rewrite was lossy: ${detail}.` };
+	const updated = detail === "" ? `Memory: updated ${target}.` : `Memory: updated ${target}, but the rewrite was lossy: ${detail}.`;
+	// The verdict is a separate sentence: it describes the sources, not the write, and a pass that
+	// measured nothing must not borrow the write's certainty.
+	// Only a verdict that judged something earns a sentence: "stale 0 (no entry cites a bound file)"
+	// on every update would teach the reader to skip the line that matters.
+	const verdict = report.staleness === undefined || !report.staleness.checked || report.staleness.bound === 0
+		? ""
+		: ` Source bindings: ${stalenessClause(report.staleness)}.`;
+	return { kind: "success", text: `${updated}${verdict}` };
 }
 
 /**

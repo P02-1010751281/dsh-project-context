@@ -18,13 +18,13 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { MEMORY_GITIGNORE_LINES } from "../shared/gitignore.js";
 import { MAX_LIST_ITEM_CHARS } from "../shared/limits.js";
-import { withMemoryLock } from "../shared/lock.js";
-import { entryDatesFile, logsDir, readOptional, writeAtomic } from "../shared/project-state.js";
+import { logsDir } from "../shared/project-state.js";
 import type { MemorySections } from "./sections.js";
 import { normalizeMemoryEntry, renderMemoryDocument } from "./sections.js";
 import type { RetirementReason, Tombstone } from "./retired.js";
+import { anchorCandidates, isLocalArtifact } from "./anchors.js";
+import { pruneSidecar, readEntrySidecar, updateEntrySidecar } from "./entry-sidecar.js";
 
 /** Days an entry may go unmentioned in the archive before it is unconfirmed. */
 const MAX_UNCONFIRMED_DAYS = 180;
@@ -159,34 +159,6 @@ function stripSupersedesMarkers(sections: MemorySections): MemorySections {
 }
 
 /**
- * The plugin's own local artifacts, as matchers.
- *
- * A missing `errors.log` is not a broken anchor: the file exists only once something has failed, and a
- * fresh clone has none of these at all. Built from the one list the `.gitignore` writer uses, so a new
- * artifact is covered by adding its line there and nowhere else.
- */
-const LOCAL_ARTIFACTS = MEMORY_GITIGNORE_LINES.map((line) => new RegExp(`^${line.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`));
-
-function isLocalArtifact(candidate: string): boolean {
-	const base = candidate.split("/").pop() ?? "";
-	return LOCAL_ARTIFACTS.some((pattern) => pattern.test(base));
-}
-
-const ANCHOR_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts", "json", "md", "yml", "yaml", "sh", "log", "txt", "lock", "toml", "html", "css", "patch"]);
-
-/**
- * Absolute or multi-segment paths with an optional `:line` / `:line-line` suffix, preceded by a
- * boundary character so an inline code span or a parenthesis opens a candidate.
- */
-const ANCHOR = /(?:^|[\s(（`'"[：:，,])((?:\/|[\w.@+-]+\/)+[\w.@+-]+)(?::(\d+)(?:[–-](\d+))?)?/g;
-
-function anchorExtension(candidate: string): string | undefined {
-	const base = candidate.split("/").pop() ?? "";
-	const dot = base.lastIndexOf(".");
-	return dot <= 0 ? undefined : base.slice(dot + 1).toLowerCase();
-}
-
-/**
  * The paths in one entry that no longer resolve, as human-readable reasons.
  *
  * The narrowing matters more than the detection. A first pass that treated "contains a slash" as a
@@ -207,13 +179,10 @@ function anchorExtension(candidate: string): string | undefined {
 export function anchorDriftReasons(entry: string, projectRoot: string): string[] {
 	const reasons: string[] = [];
 	const seen = new Set<string>();
-	ANCHOR.lastIndex = 0;
-	let match: RegExpExecArray | null;
-	while ((match = ANCHOR.exec(entry)) !== null) {
-		const candidate = match[1];
-		if (candidate.includes("{") || candidate.includes("*")) continue;
-		const extension = anchorExtension(candidate);
-		if (extension === undefined || !ANCHOR_EXTENSIONS.has(extension)) continue;
+	// The lexical half lives in `anchors.ts` so the staleness pass (batch V) cannot disagree with this
+	// one about what counts as a cited path; only the filesystem judgement below is drift-specific.
+	for (const token of anchorCandidates(entry)) {
+		const candidate = token.path;
 		// The plugin's own ignored outputs: absent until something writes them, so absence proves nothing.
 		if (isLocalArtifact(candidate)) continue;
 		const absolute = candidate.startsWith("/") ? candidate : path.join(projectRoot, candidate);
@@ -232,9 +201,9 @@ export function anchorDriftReasons(entry: string, projectRoot: string): string[]
 			reasons.push(`${candidate} does not exist`);
 			continue;
 		}
-		if (match[2] === undefined) continue;
+		if (token.line === undefined) continue;
 		if (!stats.isFile()) continue;
-		const wanted = Number(match[3] ?? match[2]);
+		const wanted = token.line;
 		let lines: number;
 		try {
 			lines = readFileSync(absolute, "utf8").split(/\r?\n/).length;
@@ -518,44 +487,15 @@ function documentIds(sections: MemorySections): Set<string> {
 }
 
 /**
- * The entry-date sidecar: `<memory>/entries.json`, `<tid> -> YYYY-MM-DD` first seen.
+ * The entry-date clock, delegated to the sidecar's single owner (`entry-sidecar.ts`).
  *
- * The date cannot ride in the bullet — eleven more characters per entry pushed this project's document
- * from `renderMemoryDocument` clean to 7 whole entries dropped (measured 2026-11-10) — but the 180-day
- * horizon needs it. A small plugin-owned file is the cheaper half of that trade: it is written only by
- * the plugin, and a missing entry degrades to "no known age", which keeps the fact rather than retiring
- * it.
+ * The file held only dates when this was written; batch V added the source bindings beside them, so the
+ * read-modify-write (and its lock) moved there. This wrapper keeps the retirement pass's own vocabulary
+ * — "when was this entry first seen" — and the merge rule (earliest wins, pruned to the ids the landed
+ * document carries) exactly as before.
  */
-type EntryDatesDocument = { version: number; entries: Record<string, string> };
-
-const ENTRY_DATES_VERSION = 1;
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
 async function readEntryDatesRaw(projectRoot: string): Promise<Map<string, string>> {
-	const dates = new Map<string, string>();
-	const file = entryDatesFile(projectRoot);
-	try {
-		if (!lstatSync(file).isFile()) return dates;
-	} catch {
-		return dates;
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(await readOptional(file));
-	} catch {
-		return dates;
-	}
-	const entries = (parsed as EntryDatesDocument | undefined)?.entries;
-	if (typeof entries !== "object" || entries === null) return dates;
-	for (const [tid, date] of Object.entries(entries)) {
-		if (!ENTRY_ID.test(tid) || typeof date !== "string" || !DATE_ONLY.test(date)) continue;
-		// A legacy four-hex key is published under the id the document now carries, earliest wins, and the
-		// obsolete key is dropped: the next write of this file lands only three-hex keys.
-		const key = tid.length === 4 ? tid.slice(0, 3) : tid;
-		const known = dates.get(key);
-		if (known === undefined || date < known) dates.set(key, date);
-	}
-	return dates;
+	return new Map((await readEntrySidecar(projectRoot)).entries);
 }
 
 /** When each known entry id was first seen. An unreadable file reads as "nothing known". */
@@ -568,25 +508,21 @@ export async function readEntryDates(projectRoot: string): Promise<Map<string, s
  *
  * Earliest-wins rather than last-wins because the value is an *age*: two hosts that both learn an id
  * would otherwise keep resetting a fact's clock depending on which one wrote last, and an entry could
- * never age out. Runs under the memory lock for the same reason the tombstone file does.
+ * never age out. `keep` is the id set of the document that just landed: an id nothing carries any more
+ * is gone for good, and leaving it would slowly grow a file that is nothing but a clock.
  */
 export async function recordEntryDates(projectRoot: string, dates: ReadonlyMap<string, string>, keep?: ReadonlySet<string>): Promise<void> {
 	if (dates.size === 0 && keep === undefined) return;
-	const file = entryDatesFile(projectRoot);
-	await withMemoryLock(file, async () => {
-		const existing = await readEntryDatesRaw(projectRoot);
-		const merged = new Map(existing);
+	await updateEntrySidecar(projectRoot, (current) => {
+		const merged = new Map(current.entries);
 		for (const [tid, date] of dates) {
-			const current = merged.get(tid);
-			if (current === undefined || date < current) merged.set(tid, date);
+			const known = merged.get(tid);
+			if (known === undefined || date < known) merged.set(tid, date);
 		}
-		// `keep` is the id set of the document that just landed: an id nothing carries any more is gone
-		// for good, and leaving it would slowly grow a file that is nothing but a clock.
-		if (keep !== undefined) {
-			for (const tid of [...merged.keys()]) if (!keep.has(tid)) merged.delete(tid);
-		}
-		const document: EntryDatesDocument = { version: ENTRY_DATES_VERSION, entries: Object.fromEntries([...merged.entries()].sort(([left], [right]) => left.localeCompare(right))) };
-		await writeAtomic(file, `${JSON.stringify(document, null, "\t")}\n`);
+		const document = keep === undefined ? { entries: merged, sources: current.sources } : pruneSidecar({ entries: merged, sources: current.sources }, keep);
+		// An unreadable file with nothing to add must not be rewritten into an empty one.
+		if (dates.size === 0 && document.entries.size === 0 && document.sources.size === 0) return undefined;
+		return document;
 	});
 }
 

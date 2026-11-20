@@ -54,7 +54,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/session-log write` | 立即写出当前会话 JSONL + Markdown（并刷新索引） |
 | `/session-log import <path…>` | 回填导入历史档案（zip/jsonl/目录，幂等、无模型调用） |
 | `/session-log tree` | 只读：把 `session-logs/<id>/meta.json` 的 `parentId` 读成缩进树（交接链），标 `kind`、日期、标题、任务与「父会话不在存档」；子代理档案不计入，行数上限 500 |
-| `/memory` | 显示项目记忆的状态：字符数 / 上限（含百分比）、四节条目数（文档不是四节形状时明说「无法解析」而不是报 0）、journal 行数与字节、备份数、归档会话数、`errors.log` 行数；capped / damaged / poisoned / unreadable 的警告原样保留 |
+| `/memory` | 显示项目记忆的状态：字符数 / 上限（含百分比）、四节条目数（文档不是四节形状时明说「无法解析」而不是报 0）、`stale N`（引用的文件在条目写入后被改过；只标不删，四态 fresh / stale / missing / unverifiable）、journal 行数与字节、备份数、归档会话数、`errors.log` 行数；capped / damaged / poisoned / unreadable 的警告原样保留 |
 | `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>`。采纳后 `SKILL.md` 带 `derived_from: autolearn` 与被核对的 session id（frontmatter，可选）；`list` 与采纳回执显示证据条数与 id 前缀，并机械比对关键 token（反引号词 / 路径 / 命令）与既有技能、`MEMORY.md` 的重叠 |
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**）。新会话第一条消息里有一段**给用户的说明**：带过来多少条消息 / 多少 token / 几个文件、更早有多少条留在了归档、归档路径，以及旧会话从哪打开——交接不再是一次静默换会话 |
