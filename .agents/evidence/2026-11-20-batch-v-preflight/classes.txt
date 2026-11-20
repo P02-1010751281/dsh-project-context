@@ -1,0 +1,18 @@
+bind 34 [
+  'docs/upstream-pi-triage.md',
+  'src/project-handoff/decide.ts',
+  'docs/batch-w-decision-seam-spec.md',
+  'test/handoff-decide.test.mjs'
+]
+self 4 [
+  '.agents/memory/MEMORY.md',
+  '.agents/memory/session-logs/INDEX.md',
+  '.agents/memory/errors.log',
+  '.agents/memory/purge.log'
+]
+outside 2 [
+  '/etc/nixos/scripts/dsh-desktop-restart.sh',
+  '/mnt/Data/Backups/dsh-project-context/purge-subagent-archives.mjs'
+]
+missing 0 []
+unreadable 0 []
