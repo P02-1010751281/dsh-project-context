@@ -14,15 +14,23 @@
 
 - 裸 `/memory` 回执原本是 10 个事实用 ` · ` 连成的**单行**；Batch V 加入 `stale N` 子句后实测 **416 字符**，
   终端与界面里都放不下一行。现在按事实组分段，组内仍用 ` · ` 分隔。
-- **根因不是单行，是折叠**：客户端把命令回执渲染成 `GenericCommandCard`——折叠态是一行
-  `white-space: nowrap` + 省略号的摘要，正文（`<pre>`，`pre-wrap`）只在 `text.includes("\n")` 时
-  才可展开，且默认收起。因此**单行回执永远无法展开**，416 字符只能被裁掉；换行本身也是展开的前提。
-- 因此首行必须是**度量**而不是路径：绝对路径会把「长度/上限、四节条目数、stale」全部顶出裁剪区。
+- **根因不是单行，是折叠**：客户端把命令回执渲染成 `GenericCommandCard`——折叠态是
+  `white-space: nowrap` + 省略号的一行摘要，**内容是把整段回执压平**（换行当空白），正文
+  （`<pre>`，`pre-wrap`）只在 `text.includes("\n")` 时才可展开，且默认收起。因此
+  **单行回执永远无法展开**，416 字符只能被裁掉；换行本身也是展开的前提。强模型（`gpt-6.2-astra`）
+  的独立评审复核了整条链路（`GenericCommandCard.tsx:30/40/51`、`DisclosureRow.tsx:64/92`、
+  `command.ts:65`），并纠正一处措辞：可见的是**压平文本的前缀**，不是「只有第一行」。
+- 因此首行必须是**度量**而不是路径：绝对路径会把「长度/上限、四节条目数、stale」顶出裁剪区。
   现在首行是 `Memory: <len>/<cap> chars (<pct>%) · <四节条目数>`（实测 96 字符），
   来源路径改为独占一行 `source <path>` 且仅当它不是 journal 本身时出现（journal 行已点名该文件）。
+- **cap 诊断分成两态**（评审复现的真缺陷）：`isMemoryTruncated` 只证明文档还带着**某次旧 cap**
+  写下的标记行，标记随每次渲染被带下去；真正的拒绝条件是本次读的隐藏字符数（`consolidate.ts` 的
+  `readCapHidden` = `cappedDroppedChars`）。原实现只看标记就断言「this read is cut」并预告
+  `read-capped-refused`——74 字符的文档在 52,000 上限下也会这么报。现在 `cappedDroppedChars > 0`
+  才出警告；只有标记时出一条 `Note:`（旧 cap 的标记仍在，但本次读没扣下任何字符），不预告拒绝。
 - capped 警告原本追加在首行末尾（本身是一句 200 字符的说明），现在独占一行。
-- 事实与措辞一字未改，只改换行与行序；相应更新 6 处依赖原布局的断言（`test/logic.test.mjs` 4 处、
-  `test/memory-status.test.mjs` 2 处），其余断言都是独立正则，未改动。
+- 事实与措辞一字未改，只改换行、行序与 cap 两态；相应更新 8 处依赖原布局的断言
+  （`test/logic.test.mjs` 6 处、`test/memory-status.test.mjs` 2 处），其余断言都是独立正则，未改动。
 - 验证：`pnpm test` **695 通过 / 0 失败**；`lib/` 重建后 `lib/client.js` 37,349 B 不变；
   用 `loadMemory` + `memoryStatusReply` 渲染真实项目，回执 **346 字符 / 5 行 / 首行 96**。
 - 生效条件：宿主代码，需重启。

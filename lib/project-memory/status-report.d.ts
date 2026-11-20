@@ -83,9 +83,10 @@ export interface MemoryStatusReport {
  * writing a marker at all. Either one is enough to warn; a memory that lost a third of itself must not
  * read as perfectly healthy, or every later append lands past the cap and is dropped on write.
  *
- * Layout is load-bearing, not cosmetic: the first line is the whole receipt until the reader expands
- * it (see the healthy branch for the client's collapsed command row), so it carries the measurements
- * and never a path.
+ * Layout is load-bearing, not cosmetic: the client renders this reply as a collapsed command row whose
+ * summary is the whole text flattened onto one `nowrap` line and clipped, so the visible prefix — the
+ * start of the first line — is what the reader gets until they expand it. That is why the measurements
+ * lead and the paths do not; see the healthy branch for the mechanism.
  * @param report - the loaded document, its flags, and the file facts the adapter measured.
  * @returns the command result.
  */

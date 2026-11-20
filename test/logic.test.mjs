@@ -2759,12 +2759,22 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 	const capped = normalizeMemoryDocument(`# Project Memory\n\n${"x".repeat(40_000)}\n`, 32_000);
 	assert.equal(isMemoryTruncated(capped), true, "the fixture really is capped");
 
-	const reply = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md" }, context);
+	// A marker alone is history, not a measurement. This fixture is the marker with a 74-character body:
+	// nothing was hidden from this read, so claiming "this read is cut" (and predicting a refusal) would
+	// name a cause that does not apply — the loader's own count is what a pass actually refuses on.
+	const historical = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md" }, context);
+	assert.equal(historical.kind, "success");
+	assert.match(historical.text, /carries the marker of an earlier cap/, historical.text);
+	assert.doesNotMatch(historical.text, /this read is cut|read-capped-refused/, "a historical marker must not predict a refusal");
+	assert.match(historical.text, /Memory: \d+\/32000 chars/, "the measurement line is still there");
+	assert.match(historical.text, /^source \.agents\/memory\/MEMORY\.md$/m, "the source gets its own line");
+
+	// The state the warning exists for: characters this read's cap kept back.
+	const reply = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md", cappedDroppedChars: 9_621 }, context);
 	assert.equal(reply.kind, "success");
 	assert.match(reply.text, /32000-character cap/, "the note names the configured cap");
 	assert.match(reply.text, /dropped on write/, "and says what the consequence is");
-	assert.match(reply.text, /Memory: \d+\/32000 chars/, "the measurement line is still there");
-	assert.match(reply.text, /source \.agents\/memory\/MEMORY\.md/, "and still names the source, on the journal line");
+	assert.match(reply.text, /read-capped-refused/, "and names the status a pass would answer with");
 	// The measured store facts follow the warning instead of replacing it.
 	assert.match(reply.text, new RegExp(`${capped.length}/32000 chars`), "the size is the loaded document's own length");
 	assert.match(reply.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
@@ -2774,9 +2784,10 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 	// An uncapped memory must not cry wolf, or the warning stops meaning anything.
 	const healthy = await memoryStatusReply({ text: "# Project Memory\n\n- a fact\n", source: ".agents/memory/MEMORY.md" }, context);
 	assert.doesNotMatch(healthy.text, /cap|dropped|truncat/i, "a memory inside the cap is reported as plain healthy");
-	// The measurements lead the first line, because the client collapses a command receipt to one
-	// ellipsized line and only the expanded view shows the rest; the source path rides the journal line.
+	// The measurements lead the first line, because the client flattens the whole receipt onto one
+	// clipped line and only a newline makes it expandable; the source path gets its own line.
 	assert.match(healthy.text, /^Memory: \d+\/32000 chars \(\d+%\) · /, healthy.text);
+	assert.match(healthy.text, /^source \.agents\/memory\/MEMORY\.md$/m, "the healthy fixture still names its exact source");
 	assert.match(healthy.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
 	assert.match(healthy.text, /^0 backups/m);
 
@@ -2794,14 +2805,14 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 
 	// The cap must not replace the other degraded states: a damaged journal that is also capped
 	// reports both, and the damaged wording survives intact.
-	const damaged = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md", damaged: 3 }, context);
+	const damaged = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md", damaged: 3, cappedDroppedChars: 9_621 }, context);
 	assert.match(damaged.text, /3 unusable line\(s\) skipped/, "the damaged wording is unchanged");
 	assert.match(damaged.text, /errors\.log/);
 	assert.match(damaged.text, /32000-character cap/, "and the cap is reported alongside it");
 
 	// A poisoned source likewise keeps its own wording, and the cap count follows the configured
 	// limit rather than a hardcoded 32000.
-	const poisoned = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md", poisoned: true }, { ...context, maxMemoryChars: 40_000 });
+	const poisoned = await memoryStatusReply({ text: capped, source: ".agents/memory/MEMORY.md", poisoned: true, cappedDroppedChars: 9_621 }, { ...context, maxMemoryChars: 40_000 });
 	assert.match(poisoned.text, /stored as raw JSON from the old bug/);
 	assert.match(poisoned.text, /40000-character cap/, "the note follows the configured cap");
 

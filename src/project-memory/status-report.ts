@@ -115,9 +115,10 @@ function journalClause(path: string, facts: JournalFacts): string {
  * writing a marker at all. Either one is enough to warn; a memory that lost a third of itself must not
  * read as perfectly healthy, or every later append lands past the cap and is dropped on write.
  *
- * Layout is load-bearing, not cosmetic: the first line is the whole receipt until the reader expands
- * it (see the healthy branch for the client's collapsed command row), so it carries the measurements
- * and never a path.
+ * Layout is load-bearing, not cosmetic: the client renders this reply as a collapsed command row whose
+ * summary is the whole text flattened onto one `nowrap` line and clipped, so the visible prefix — the
+ * start of the first line — is what the reader gets until they expand it. That is why the measurements
+ * lead and the paths do not; see the healthy branch for the mechanism.
  * @param report - the loaded document, its flags, and the file facts the adapter measured.
  * @returns the command result.
  */
@@ -125,9 +126,18 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	// One line per fact group. The receipt used to be a single `·`-joined sentence; once the staleness
 	// verdict joined it, that sentence outgrew a terminal line, so the groups are separated by newlines
 	// while the `·` separator survives *inside* a line where it still helps scanning the numbers.
-	const capped = isMemoryTruncated(report.document) || report.cappedDroppedChars > 0
+	//
+	// A marker is history, not a measurement. `isMemoryTruncated` only reports that the document still
+	// carries the line an *earlier* cap wrote — the marker is carried forward by every later render —
+	// so a memory that was capped once and has since been rewritten short still reads as "truncated".
+	// What a pass actually refuses on is this read's hidden-character count (`readCapHidden` in
+	// `consolidate.ts`), which is `cappedDroppedChars`. Warning that "this read is cut" off the marker
+	// alone tells the user a wrong cause: nothing was hidden from them.
+	const capped = report.cappedDroppedChars > 0
 		? `Warning: MEMORY.md is at the ${report.maxChars}-character cap — this read is cut, so a consolidation pass refuses to rewrite it (status read-capped-refused), and anything appended past the cap is dropped on write; raise maxMemoryChars or shorten the document.`
-		: "";
+		: isMemoryTruncated(report.document)
+			? `Note: MEMORY.md still carries the marker of an earlier cap, but nothing was dropped from this read — the document was rewritten short since; the next consolidation pass rewrites it and clears the marker.`
+			: "";
 	// `trim()` decides only whether there is a document; the size printed is the document's own length,
 	// never a normalized count (a trimmed length would quietly disagree with the file the user opens).
 	const document = report.document;
@@ -147,10 +157,11 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 		primary = `Memory: none yet — ${report.expectedPath}`;
 	} else {
 		// The measurements lead, not the source path. The client renders a command receipt as a
-		// collapsed one-line summary — `GenericCommandCard`'s `.summary` is `white-space: nowrap` with
-		// an ellipsis, and the full text sits behind a disclosure that only exists when the text
-		// contains a newline — so whatever leads the first line is all a reader sees without opening
-		// it. An absolute path there pushed the size, the section counts and `stale N` past the clip.
+		// collapsed row: `.summary` is `white-space: nowrap` with an ellipsis, and the full text is a
+		// `<pre>` behind a disclosure that only exists when the text contains a newline — so a
+		// single-line receipt can never be expanded, and the visible prefix of the flattened text is
+		// all a reader sees without opening it. An absolute path there pushed the size, the section
+		// counts and `stale N` past the clip.
 		primary = "Memory:";
 	}
 	// A document we could not load has no size or sections to report; saying `0 chars` for it would be
