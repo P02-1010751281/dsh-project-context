@@ -25,7 +25,7 @@ Last updated: 2026-11-20T02:31:19.235Z
 ## Open tasks
 
 - 用户跑一次 `/memory`（或等一个落盘 pass），确认回执确实渲染成 5 行；若仍糊成一行则继续查客户端折叠，否则该项闭合。
-- 决定是否让 `MALFORMED_RESPONSE` 也消耗那次无工具重试（改为退到四节 Markdown 路径而非整次失败）；落地前先读 pi-ai 抛错是否带结构化字段，禁止字符串匹配 `Tool call "..."`。
+- `MALFORMED_RESPONSE` 已落地（`fbe88a8`）：记忆整理对这一个 code 消耗一次无工具重试，日志一行 `the model's record_memory reply was unusable (CODE)`；重启后看 `errors.log` 是否出现该行以确认它真的被触发。
 - 跑几次真实 pass 后复核 Batch V 的 stale 计数与回执四态，据此给 V-2（把 stale 数量写进整理提示词）排期。
 - 实现 `docs/memory-rewrite-loss-gate-spec.md` 的信息损失闸，建议先落 A 的只报不拒版（只改 `src/` 一个判定点 + 回执），再动 `lib/`。
 - 每次改动 profile 设置后复读 `cordis.patch.yml` 的 `maxMemoryChars`，防止设置卡整份回写把它冲回 45,000；若被冲回，从 `/tmp/head-mem-20261120-100945.md` 恢复并按旧上限重新校验。
