@@ -1,0 +1,100 @@
+=== module identity: installed copy vs repo lib ===
+SAME  project-memory/status-report.js  installed=25ac6dc0468961aef67489e06efe75b91b5e03d2ccbde6bfe0e7aa6e62af0bbe  repo=25ac6dc0468961aef67489e06efe75b91b5e03d2ccbde6bfe0e7aa6e62af0bbe
+[CHECK sha:project-memory/status-report.js] PASS — installed built file is byte-identical to repo lib
+SAME  project-memory/load.js  installed=e38a07f40c744eb111b612c023fadcf532520c02b6ed8175a83fd224646c586c  repo=e38a07f40c744eb111b612c023fadcf532520c02b6ed8175a83fd224646c586c
+[CHECK sha:project-memory/load.js] PASS — installed built file is byte-identical to repo lib
+SAME  project-memory/index.js  installed=30e5cd1d5ec9487c1bafd8c4daf235445f456e5b602b7ae7d025e54bc7333920  repo=30e5cd1d5ec9487c1bafd8c4daf235445f456e5b602b7ae7d025e54bc7333920
+[CHECK sha:project-memory/index.js] PASS — installed built file is byte-identical to repo lib
+SAME  project-memory/consolidate.js  installed=6cc50f7111d421f03c80da9cb5f067606d01c89fb4d2f2ec1758712b7d683817  repo=6cc50f7111d421f03c80da9cb5f067606d01c89fb4d2f2ec1758712b7d683817
+[CHECK sha:project-memory/consolidate.js] PASS — installed built file is byte-identical to repo lib
+SAME  project-autolearn/pass.js  installed=63f71e33f944339d006b4bf6153e47ddd6ef1841baf2d15e4432d58b8e8021f6  repo=63f71e33f944339d006b4bf6153e47ddd6ef1841baf2d15e4432d58b8e8021f6
+[CHECK sha:project-autolearn/pass.js] PASS — installed built file is byte-identical to repo lib
+SAME  shared/model-call.js  installed=6a3ed5924640c0fdd414ae705a7b5d116e98e59c1cc06a4e3b35de767e45a7ed  repo=6a3ed5924640c0fdd414ae705a7b5d116e98e59c1cc06a4e3b35de767e45a7ed
+[CHECK sha:shared/model-call.js] PASS — installed built file is byte-identical to repo lib
+
+=== ITEM 1: live /memory receipt (installed copy, cap 52000) ===
+journal path: /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl
+memory.source: /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl
+memory.text.length: 51154
+memory.cappedDroppedChars: 0
+memory.damaged: 0  poisoned: false  unreadable: false
+kind: success
+text.length: 356
+line count: 5
+line[0] len=96 "Memory: 51154/52000 chars (98%) · 160 entries (Project 18, Invariants 73, Pitfalls 51, Index 18)"
+line[1] len=41 "31 bound entries · stale 4: dc5, bde, c79"
+line[2] len=97 "journal /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl 6 lines / 311838 bytes"
+line[3] len=56 "3 backups · 207 archived sessions · errors.log 870 lines"
+line[4] len=62 "no last-pass result (consolidation outcomes are not persisted)"
+[CHECK 1a-line1] PASS — line 1 is the measurements form ("Memory: 51154/52000 chars (98%) · 160 entries (Project 18, Invariants 73, Pitfalls 51, Index 18)")
+[CHECK 1b-len] PASS — line 1's printed length equals the loaded document length 51154
+[CHECK 1c-sections] PASS — line 1 ends with the four-section entry counts
+source lines: []
+[CHECK 1d-source-conditional] PASS — source line present iff source !== journal (source === journal)
+[CHECK 1e-max-line] PASS — max line length 97 < the recorded old single-line 416 (CHANGELOG.md:38)
+old single-line reconstruction length: 433
+old single-line reconstruction (first 160 / last 120): "Memory: /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl · 51154/52000 chars (98%) · 160 entries (Project 18, Invariants 73, Pitfalls 51, Inde" … " backups · 207 archived sessions · errors.log 870 lines · no last-pass result (consolidation outcomes are not persisted)"
+[CHECK 1f-flat] PASS — flattening the same facts reproduces a >=416-char single line (433) — this is the form the multi-line layout replaces
+
+=== ITEM 1 (repo lib parity) ===
+[CHECK 1g-repo-parity] PASS — repo lib renders the byte-identical receipt for the same facts
+
+=== ITEM 2: cap two-state (crafted reports, installed copy) ===
+crafted document length: 130; isMemoryTruncated: true
+[CHECK 2a-marker-present] PASS — the crafted document does carry a truncation marker (so the marker branch is reachable)
+--- (a) marker + cappedDroppedChars:0 (len 499) ---
+a.line[0] len=85 "Memory: 130/52000 chars (0%) · 1 entry (Project 1, Invariants 0, Pitfalls 0, Index 0)"
+a.line[1] len=203 "Note: MEMORY.md still carries the marker of an earlier cap, but nothing was dropped from this read — the document was rewritten short since; the next consolidation pass rewrites it and clears the marker."
+a.line[2] len=94 "journal /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl 2 lines / 100 bytes"
+a.line[3] len=51 "1 backup · 2 archived sessions · errors.log 0 lines"
+a.line[4] len=62 "no last-pass result (consolidation outcomes are not persisted)"
+[CHECK 2b-note] PASS — (a) renders the Note line
+[CHECK 2c-no-cut] PASS — (a) does not contain 'this read is cut'
+[CHECK 2d-no-refused] PASS — (a) does not contain 'read-capped-refused'
+[CHECK 2e-no-warning] PASS — (a) does not render a Warning:
+--- (a) source line present: false (source === journalPath here) ---
+--- (b) same document + cappedDroppedChars:9621 (len 542) ---
+b.line[0] len=85 "Memory: 130/52000 chars (0%) · 1 entry (Project 1, Invariants 0, Pitfalls 0, Index 0)"
+b.line[1] len=246 "Warning: MEMORY.md is at the 52000-character cap — this read is cut, so a consolidation pass refuses to rewrite it (status read-capped-refused), and anything appended past the cap is dropped on write; raise maxMemoryChars or shorten the document."
+b.line[2] len=94 "journal /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl 2 lines / 100 bytes"
+b.line[3] len=51 "1 backup · 2 archived sessions · errors.log 0 lines"
+b.line[4] len=62 "no last-pass result (consolidation outcomes are not persisted)"
+[CHECK 2f-warning] PASS — (b) renders the Warning line
+[CHECK 2g-cut] PASS — (b) contains 'this read is cut'
+[CHECK 2h-refused] PASS — (b) contains 'read-capped-refused'
+[CHECK 2i-no-note] PASS — (b) does not render the Note
+[CHECK 2j-differ] PASS — the same document renders differently under the two counts — the marker alone is not the discriminator
+NEGATIVE CONTROL: a renderer keyed on isMemoryTruncated alone would emit the Warning in case (a) and fail 2c/2d.
+--- (c) control: no marker + 0 (len 346) ---
+[CHECK 2k-control] PASS — (c) neither marker nor cap drop renders no Note/Warning at all
+--- (d) control: no marker + cappedDroppedChars:9621 (len 593) ---
+[CHECK 2o-count-alone] PASS — (d) the cap count alone produces the Warning, with no marker in the document — the two states are independent
+
+=== ITEM 2 (repo lib parity) ===
+[CHECK 2l-repo-parity] PASS — repo lib renders byte-identical two-state receipts
+
+=== ITEM 2 (source-line conditional, crafted: source differs from journal) ===
+d.line[0] "Memory: 37/52000 chars (0%) · sections unparseable (not a plain four-section bullet document — entry counts withheld, not reported as 0)"
+d.line[1] "source /mnt/Data/Projects/dsh-project-context/.agents/memory/MEMORY.md"
+d.line[2] "journal /mnt/Data/Projects/dsh-project-context/.agents/memory/memory.jsonl 2 lines / 100 bytes"
+d.line[3] "1 backup · 2 archived sessions · errors.log 0 lines"
+d.line[4] "no last-pass result (consolidation outcomes are not persisted)"
+[CHECK 2m-source-present] PASS — a source line appears when source !== journal path
+[CHECK 2n-source-absent] PASS — no source line when source === journal path (the journal line already names the file)
+
+=== ITEM 3: retry wiring, behavioural (installed copy) ===
+[CHECK 3a-memory-declares] PASS — installed lib/project-memory/consolidate.js contains `extraCodes: ["MALFORMED_RESPONSE"]` verbatim
+[CHECK 3b-autolearn-silent] PASS — installed lib/project-autolearn/pass.js mentions neither extraCodes nor MALFORMED_RESPONSE (0 / 0)
+REQUEST_SHAPE_CODES: const REQUEST_SHAPE_CODES = new Set(["INVALID_REQUEST", "HTTP_400", "HTTP_413"]);
+[CHECK 3c-allowlist] PASS — the shared allowlist is exactly INVALID_REQUEST / HTTP_400 / HTTP_413 (untouched, no MALFORMED_RESPONSE)
+[CHECK 3d-log-line] PASS — the retry log line exists verbatim in the memory pass (and not in the shared module, which owns no log)
+memory policy (extraCodes MALFORMED_RESPONSE): {"outcome":"retried-ok","seen":[true,false],"retried":["MALFORMED_RESPONSE"],"state":{"toolsAttempted":true,"toolsDisabled":true}}
+[CHECK 3e-memory-retries] PASS — a MALFORMED_RESPONSE first call is retried exactly once, without tools, and onRetry fires once
+autolearn policy (no options): {"error":"MALFORMED_RESPONSE","seen":[true],"retried":[],"state":{"toolsAttempted":true}}
+[CHECK 3f-autolearn-no-retry] PASS — the same failure with no extraCodes throws immediately — the retry is opted into per caller, not global
+shared-set control (INVALID_REQUEST, no options): {"outcome":"retried-ok","seen":[true,false],"retried":[],"state":{"toolsAttempted":true,"toolsDisabled":true}}
+[CHECK 3g-shape-control] PASS — INVALID_REQUEST still spends the retry with no extraCodes — the shared request-shape set is intact
+no-tools-offered control: {"error":"MALFORMED_RESPONSE","seen":[false],"retried":[],"state":{}}
+[CHECK 3h-no-tools] PASS — with no tools offered there is nothing to fall back from, so no retry even with extraCodes
+
+=== SUMMARY: ALL CHECKS PASS ===

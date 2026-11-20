@@ -1,0 +1,40 @@
+errors.log lines: 871; timestamped entries: 290
+first entry: 2026-09-17T11:47:36.226Z
+last entry:  2026-11-20T03:07:21.518Z
+
+=== entries with a line-leading timestamp >= 2026-11-20T03:03:08Z: 1 ===
+--- entry @ 2026-11-20T03:07:21.518Z (2 line(s)) ---
+2026-11-20T03:07:21.518Z [memory] memory regression: 1 Invariants/Pitfalls entry(ies) are no longer present, e.g. Tier C counts only structural loss (`sectionDropped` / `droppedItems` / `itemTruncated`), so a pass that regenerates the whole document in condensed wording reports all three as 0 and a clean `updated` while facts vanish; a byte-identical round trip with 0 drops proves structure, never that facts survived — diff backticked tokens per line against the previous document. Candidate design in `docs/memory-rewrite-loss-gate-spec.md`.
+
+
+=== last 3 entries BEFORE the restart (control) ===
+2026-11-20T02:31:19.103Z [memory] memory regression: 1 Invariants/Pitfalls entry(ies) are no longer present, e.g. The `本会话 ¥…` line is third-party `ds
+2026-11-20T02:53:57.871Z [memory] Error: plugin model call failed (MALFORMED_RESPONSE): Tool call "record_memory": Expected ',' or ']' after array ele
+2026-11-20T03:03:06.278Z [memory] Error: cannot get required service "llm" in inactive context
+
+=== counts among the after-restart entries ===
+memory regression: lines      1
+MALFORMED_RESPONSE anywhere   0
+record_memory unusable retry  0
+
+whole-file counts (any time): memory regression=24, MALFORMED_RESPONSE=5, retry-line=0
+
+=== journal tail: 6 record(s) ===
+[0] ts=2026-11-20T02:14:19.927Z op=replace text.length=48560
+[1] ts=2026-11-20T02:31:19.094Z op=replace text.length=49547
+[2] ts=2026-11-20T02:37:00.887Z op=replace text.length=49797
+[3] ts=2026-11-20T02:37:26.291Z op=replace text.length=49810
+[4] ts=2026-11-20T02:57:46.742Z op=replace text.length=49989
+[5] ts=2026-11-20T03:07:21.514Z op=replace text.length=51154
+
+=== the entry the 03:07 guard reported as no longer present ===
+len=432
+in previous journal record: true
+in newest journal record:   false
+backticked tokens in the removed entry: 5; missing from the newest record: 0
+
+=== MEMORY.md on disk ===
+chars=51154 bytes=53095 mtime=2026-11-20T03:07:21.516Z
+chars === newest journal text.length: true
+backups=3 newest=MEMORY.md.memory-backup-2026-11-20T03-07-21-507Z-ecd70afd mtime=2026-11-20T03:07:21.507Z
+headroom to the 52000 cap: 846
