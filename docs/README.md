@@ -13,6 +13,7 @@
 | [development.md](./development.md) | 门禁、`lib/` 产物纪律、依赖边界、卡片测试怎么搭 |
 | [vocabulary-conventions.md](./vocabulary-conventions.md) | 配置键与命令的用词约定（改名不许只改一半） |
 | [batch-v-memory-staleness-spec.md](./batch-v-memory-staleness-spec.md) | 记忆条目的内容漂移（Batch V 规格）：源绑定、四态判定、只标不删；预检证据在 `.agents/evidence/2026-11-20-batch-v-preflight/` |
+| [memory-rewrite-loss-gate-spec.md](./memory-rewrite-loss-gate-spec.md) | 记忆整篇重写会静默概括（规格）：tier C 的盲区、标识符存活校验、首版只报不拒 |
 | [batch-w-decision-seam-spec.md](./batch-w-decision-seam-spec.md) | 交接判定缝的规格；仍被 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用，故不归档 |
 | [handoff-candidates-b-c.md](./handoff-candidates-b-c.md) | 交接触发点 / 子会话标题三条路线的取舍；其中 (c) 仍待拍板，故留在本目录 |
 | [harness/](./harness/README.md) | 各宿主接口的采用与未采用登记（dsh / pi / codex / integration） |
