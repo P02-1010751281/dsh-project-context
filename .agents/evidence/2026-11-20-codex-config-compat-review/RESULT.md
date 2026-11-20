@@ -1,8 +1,16 @@
-# Adversarial review: `~/.codex/config.toml` compatibility fix for `subagent-codex`
+# `~/.codex/config.toml` compatibility fix for `subagent-codex` — evidence and review history
 
-Date: 2026-11-20. Reviewer subagent (`codex-config-review`, `magpie/auto/claude-opus-5-5`) died mid-run
-after writing its probe artifacts; the verdicts below were completed by the lead from that partial
-evidence plus an independent matrix run. Everything here is reproducible from the commands quoted.
+Date: 2026-11-20. This document lists what was changed, what the probes show, and — important — which
+claims were corrected by review. It is not a self-certified "all green" report: review pass 2 refuted
+seven of the lead's earlier statements, and the corrections are marked.
+
+Review history:
+
+1. Pass 1 (`codex-config-review`) died mid-run after writing probe artifacts.
+2. The lead then finished the verification **himself** — self-verified, not a review.
+3. Pass 2 (`codex-review-pass2`, independent context) re-derived the facts and audited this document.
+   Its report lives in `.agents/evidence/2026-11-20-codex-config-review-pass2/RESULT.md`; every
+   correction it demanded is applied below.
 
 ## The change under review
 
@@ -13,75 +21,83 @@ evidence plus an independent matrix run. Everything here is reproducible from th
 enabled = true
 ```
 
-codex **0.153.4** — the `@openai/codex` the dsh store bundles and `subagent-codex` actually spawns —
-rejects that shape: `failed to load configuration: …:26:1: invalid type: map, expected a boolean`,
-so `thread/start` returns JSON-RPC `-32600` and `subagent_codex` fails before model resolution.
+codex **0.153.4** — the `@openai/codex` the dsh store bundles and `subagent-codex` actually spawns
+(`run.ts:44` resolves it; PATH `codex` is 0.169.0) — rejects that shape:
+`failed to load configuration: …:26:1: invalid type: map, expected a boolean`, so `thread/start`
+returns JSON-RPC `-32600` and `subagent_codex` fails before model resolution.
 
 Two edits were made, the first one wrong:
 
 | # | edit | outcome |
 |---|---|---|
-| 1 | `features = { async_compaction = true }` at the end of the file | parse error gone, **feature silently disabled** |
+| 1 | `features = { async_compaction = true }` at the end of the file | parse error gone, **feature disabled**; 0.169.0 reports the misplaced key |
 | 2 | `[features]` + `async_compaction = true` (final) | accepted by both versions, feature genuinely enabled |
 
-## Defect the review caught (edit #1)
+## Defect in edit #1
 
-Written after `[mcp_servers.magpie]`, a bare key belongs to that table: the file actually defined
-`mcp_servers.magpie.features`, and top-level `features` stayed unset. 0.169.0 says so itself:
+Written after `[mcp_servers.magpie]`, a bare key belongs to that table: the file defined
+`mcp_servers.magpie.features`, and top-level `features` stayed unset. 0.169.0 says so:
 
 ```
 warning: Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.
   user (…/config.toml): `mcp_servers.magpie.features` is ignored.
 ```
 
-The lead's original verification missed it because it only checked that a call returned READY — a
-successful call proves the file parses, never that the setting still means what it said.
+So the loss was **silent on 0.153.4 only** (it accepts the file and simply sees no feature); 0.169.0
+reports it. The lead's original verification missed it because it only checked that a call returned
+READY — a successful call proves the file parses, never that the setting still means what it said.
 
-## Matrix (handshake only, no model call; `CODEX_HOME` copies)
+## Matrix
 
-| variant | 0.153.4 `thread/start` | 0.169.0 `thread/start` | 0.169.0 setting complaint | feature on? |
+Handshake = `app-server --stdio`, `initialize`, `initialized`, `thread/start`
+(`{cwd:"/tmp", ephemeral:true, model:"opendesign/deepseek-v4.1-flash", approvalPolicy:"on-request",
+approvalsReviewer:"auto_review", sandbox:"workspace-write"}`), each binary against a `CODEX_HOME` copy:
+`node <store>/.pnpm/@openai+codex@0.153.4/node_modules/@openai/codex/bin/codex.js …` for 0.153.4 and
+`/home/user/.nix-profile/bin/codex …` for 0.169.0.
+
+Feature state is a **separate** probe: `codex exec … -m invalid/no-such-model` with an 8 s timeout —
+0.169.0 prints `warning: Under-development features enabled: async_compaction` at startup only when the
+feature is registered, and the invalid model keeps the call from reaching an upstream. Raw outputs:
+`exec-feature-probes/<variant>.txt`. The handshake itself never prints that line.
+
+| variant | 0.153.4 `thread/start` | 0.169.0 `thread/start` | 0.169.0 setting complaint | feature (exec probe) |
 |---|---|---|---|---|
-| v1 original table form | **error `-32600`** | ok | — | yes |
-| v2 inline at end (edit #1) | ok | ok | `mcp_servers.magpie.features` ignored | **no** |
-| v3 `[features]` + boolean (final) | ok | ok | none | yes |
-| v4 inline before first table | ok | ok | none | yes |
+| v1 original table form | **error `-32600`** | ok | — | ON for 0.169.0; not evaluable on 0.153.4, which cannot load the file |
+| v2 inline at end (edit #1) | ok | ok | `mcp_servers.magpie.features` ignored | OFF |
+| v3 `[features]` + boolean (final) | ok | ok | none | ON (`exec-feature-probes/v3-features-table.txt`) |
+| v4 inline before first table | ok | ok | none | ON (`exec-feature-probes/v4-inline-top.txt`) |
 
-"feature on?" is judged by the observable `warning: Under-development features enabled:
-async_compaction`, which 0.169.0 prints only when the feature is actually registered.
-
-## Verdicts on the lead's claims
+## Verdicts
 
 | claim | verdict | evidence |
 |---|---|---|
-| C1: plugin spawns store-bundled `@openai/codex` 0.153.4, not PATH's 0.169.0 | CONFIRMED | `createRequire(import.meta.url).resolve('@openai/codex/package.json')` in `packages/subagent/subagent-codex/src/run.ts:44`; resolved `…/.pnpm/@openai+codex@0.153.4/…`; `codex --version` on PATH is 0.169.0 |
+| C1: plugin spawns store-bundled `@openai/codex` 0.153.4, not PATH's 0.169.0 | CONFIRMED | `packages/subagent/subagent-codex/src/run.ts:44`; resolved `…/.pnpm/@openai+codex@0.153.4/…`; PATH `codex --version` is 0.169.0 |
 | C2: old config fails `thread/start` for every model | CONFIRMED | `-32600 invalid type: map, expected a boolean` with four model ids (pinned / control / config default / omitted) |
-| C3: new config is backward compatible, feature preserved | **CONFIRMED ONLY AFTER EDIT #2**; edit #1 kept parsing but dropped the feature | matrix above + `Under-development features enabled` probe |
-| C4: live `subagent_codex` works after the change | CONFIRMED (final run 16:20:01, after the upstream allowance recovered); the 16:11 rerun had failed at `turn` with upstream **402**, not a config fault | `usage.jsonl` rows quoted below |
+| C3: new config is backward compatible, feature preserved | CONFIRMED ONLY AFTER EDIT #2; edit #1 kept parsing but dropped the feature | matrix above |
+| C4: the plugin path completes a live turn after the change | **PARTIAL** — see "Live acceptance" below: the router row is a codex app-server under the `dsh` label and matches the call by time and shape, but the log alone does not tie it to that specific tool invocation | `usage.jsonl` rows |
 | C5: pin is `auto/claude-opus-5-5`, present in the catalog | CONFIRMED | `cordis.patch.yml:1155-1158`; catalog key is `slug`, 108 entries, `gpt-5.6*` absent |
 
 ## Post-fix state
 
 Final file: 30 lines, 1268 bytes; `[features]` block at 29-30.
 
-- 0.153.4 `thread/start` on the real `CODEX_HOME`: ok, no `invalid type`, no unrecognized-setting warning.
-- 0.169.0 `thread/start`: ok; `Under-development features enabled: async_compaction` present.
-- `subagent_codex` live: thread starts; the turn then fails only because the upstream account is dry.
+- 0.153.4 `thread/start` on the real `CODEX_HOME`: ok, no `invalid type`.
+- 0.169.0 `thread/start`: ok, no unrecognized-setting complaint.
+- Feature state: ON, proven by the `codex exec` startup warning (not by the handshake).
+- `subagent_codex`: thread starts; a turn completed and returned `READY` at 16:20 (see below).
 
-## Why the second live run failed (not a regression)
+## A later live run failed on balance, not on config
 
-`/home/user/.config/magpie/usage.jsonl`:
+At 16:11 the plugin's turn failed with `stage: turn, category: product-error`. The router log shows why:
 
 ```
 16:11:31.637  agent=dsh  provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  status=402  in=0 out=0
 ```
 
-and a direct `codex exec` at 16:12 returns:
+and a direct `codex exec` at 16:12 returned
+`402 Payment Required: WandAPI: 账户余额不足以支付本次请求，请充值后重试`.
 
-```
-unexpected status 402 Payment Required: WandAPI: 账户余额不足以支付本次请求，请充值后重试
-```
-
-Availability sweep the same minute (short timeout, real model ids):
+Availability sweep that minute (short timeout, real model ids):
 
 | model | result |
 |---|---|
@@ -92,37 +108,39 @@ Availability sweep the same minute (short timeout, real model ids):
 | `auto/glm-5.3` | 401 unauthorized |
 | `codearts/kimi-k3.1-pro`, `workbuddy/kimi-k3.1-pro` | no usable answer within 70-90 s |
 
-So the pin is correct and the transport is fixed; the strong-model fleet was unfunded at that minute.
+The allowance recovered by 16:19; the transport was never the problem in this second failure.
 
-## Final acceptance (16:19-16:20, after the allowance recovered)
+## Live acceptance (16:19-16:20)
 
 ```
-16:19:48  agent=codex  provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  200  in=21022 out=3
-16:20:01  agent=dsh    provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  200  in=21637 out=3
+16:19:48  agent=codex  provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  200  in=21022  out=3
+16:20:01  agent=dsh    provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  200  in=21637  out=3
 ```
 
-The first row is a direct `codex exec`; the second is the real `subagent_codex` tool call, which returned
-`READY`. Its `agent` label is `dsh` because the plugin's app-server reports
-`clientInfo.name = "deepseek-harness"` — the same shape as the 15:44:32 success row, and the same
-discriminator against the `codex`-labelled CLI traffic.
+Row 1 is a direct `codex exec`. Row 2 is a codex app-server reporting `clientInfo.name =
+"deepseek-harness"`, i.e. the plugin path in practice; it is distinguishable from the host's own turns,
+which in the same window went to `commandcode-plan` over `/v1/chat/completions` with no session id and
+a ~240k system prompt, whereas row 2 used `/v1/responses`, a codex session id and ~69k of prompt.
 
-End-to-end chain now proven: config parses on 0.153.4 → thread starts → turn completes → answer routed
-to the pinned model with 200.
+What this does **not** prove: that row 2 belongs to that exact `subagent_codex` invocation — the tool
+returned `started subagent agent-3` and the child returned `READY`, and the row's time and shape fit,
+but the router log carries no dsh session id. Treat it as strong correlation, not identity.
 
 ## Residual risks
 
-1. `~/.codex/config.toml` is written by magpie and by the codex desktop app. Either can rewrite the
-   `features` block; a rewrite back to `[features.async_compaction] enabled = true` re-breaks 0.153.4
-   with the same `-32600`. Nothing warns; the failure surfaces only as
-   `subagent-codex: … stage: thread-start`.
-2. Backout: `config.toml.bak-20261120-154416-dsh-async-compaction-compat`
+1. `~/.codex/config.toml` is a shared file that magpie and the codex desktop app both touch. Nothing in
+   this evidence shows which writer would produce the table form again, so the rewrite risk is plausible
+   but **not demonstrated**. If it happens, `subagent_codex` fails at thread start (`-32600`), and the
+   tool error folds the cause into `category: unknown` — the JSON-RPC message is only in child stderr.
+2. Backout: `~/.codex/config.toml.bak-20261120-154416-dsh-async-compaction-compat`
    (sha256 `81d8210e…37b7`) restores the pre-change file, at the cost of reintroducing the failure.
-3. The dsh store itself remains on codex 0.153.4; a store upgrade to a version that accepts the table
-   form would make this edit unnecessary (not wrong).
-4. The plugin's error surface folds the real cause into `category: unknown`; the actual JSON-RPC error
-   is only visible in the child's stderr. Better attribution would name the failure code.
+3. The dsh store stays on codex 0.153.4. Whether a store upgrade would accept the table form is
+   **untested**; if it did, this edit would become unnecessary but still harmless.
+4. Better attribution is a code change (surface the JSON-RPC failure code instead of
+   `category: unknown`); it needs its own reviewed batch and is not part of this fix.
 
 ## Recommendation
 
-The applied change (edit #2) should stand. It is the minimal spelling accepted by both binaries.
-Do not revert to edit #1: it trades a loud failure for a silent feature loss.
+The applied change (edit #2) should stand. It is the minimal spelling both binaries accept.
+Do not revert to edit #1: it trades a loud failure for a feature that silently disappears on the
+plugin's codex build.

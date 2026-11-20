@@ -1,0 +1,22 @@
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/codex-matrix/v4-inline-top"))
+Reading additional input from stdin...
+OpenAI Codex v0.169.0
+--------
+workdir: /tmp
+model: invalid/no-such-model
+provider: magpie
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a1f810-a9d1-73b2-8606-91dc7c447665
+--------
+user
+hi
+warning: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.
+warning: Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/codex-matrix/v4-inline-top/config.toml.
+warning: Model metadata for `invalid/no-such-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+ERROR: Reconnecting... 1/5
+ERROR: Reconnecting... 2/5
+ERROR: Reconnecting... 3/5
+ERROR: Reconnecting... 4/5
