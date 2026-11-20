@@ -56,7 +56,7 @@ async_compaction`, which 0.169.0 prints only when the feature is actually regist
 | C1: plugin spawns store-bundled `@openai/codex` 0.153.4, not PATH's 0.169.0 | CONFIRMED | `createRequire(import.meta.url).resolve('@openai/codex/package.json')` in `packages/subagent/subagent-codex/src/run.ts:44`; resolved `…/.pnpm/@openai+codex@0.153.4/…`; `codex --version` on PATH is 0.169.0 |
 | C2: old config fails `thread/start` for every model | CONFIRMED | `-32600 invalid type: map, expected a boolean` with four model ids (pinned / control / config default / omitted) |
 | C3: new config is backward compatible, feature preserved | **CONFIRMED ONLY AFTER EDIT #2**; edit #1 kept parsing but dropped the feature | matrix above + `Under-development features enabled` probe |
-| C4: live `subagent_codex` works after the change | PARTIAL — true at 15:44 (200, `claude-opus-5-5`, in 21637 / out 2); the 16:11 rerun failed at `turn` with upstream **402**, not a config fault | `usage.jsonl` rows quoted below |
+| C4: live `subagent_codex` works after the change | CONFIRMED (final run 16:20:01, after the upstream allowance recovered); the 16:11 rerun had failed at `turn` with upstream **402**, not a config fault | `usage.jsonl` rows quoted below |
 | C5: pin is `auto/claude-opus-5-5`, present in the catalog | CONFIRMED | `cordis.patch.yml:1155-1158`; catalog key is `slug`, 108 entries, `gpt-5.6*` absent |
 
 ## Post-fix state
@@ -92,7 +92,22 @@ Availability sweep the same minute (short timeout, real model ids):
 | `auto/glm-5.3` | 401 unauthorized |
 | `codearts/kimi-k3.1-pro`, `workbuddy/kimi-k3.1-pro` | no usable answer within 70-90 s |
 
-So the pin is correct and the transport is fixed; the strong-model fleet is unfunded right now.
+So the pin is correct and the transport is fixed; the strong-model fleet was unfunded at that minute.
+
+## Final acceptance (16:19-16:20, after the allowance recovered)
+
+```
+16:19:48  agent=codex  provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  200  in=21022 out=3
+16:20:01  agent=dsh    provider=wandapi  model=claude-opus-5-5  req=group/auto-claude-opus-5-5  200  in=21637 out=3
+```
+
+The first row is a direct `codex exec`; the second is the real `subagent_codex` tool call, which returned
+`READY`. Its `agent` label is `dsh` because the plugin's app-server reports
+`clientInfo.name = "deepseek-harness"` — the same shape as the 15:44:32 success row, and the same
+discriminator against the `codex`-labelled CLI traffic.
+
+End-to-end chain now proven: config parses on 0.153.4 → thread starts → turn completes → answer routed
+to the pinned model with 200.
 
 ## Residual risks
 
