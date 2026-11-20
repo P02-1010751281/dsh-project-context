@@ -10,6 +10,18 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（`/memory` 回执改为分段多行）**
+
+- 裸 `/memory` 回执原本是 10 个事实用 ` · ` 连成的**单行**；Batch V 加入 `stale N` 子句后实测 **416 字符**，
+  终端与界面里都放不下一行。现在按事实组分段：首行「来源 · 长度/上限（百分比）· 四节条目数」，
+  其下依次 `stale …`、`journal …`、`backups · archived sessions · errors.log`，末行 `no last-pass result …`；
+  组内仍用 ` · ` 分隔，最长一行约 150 字符。
+- capped 警告原本追加在首行末尾（本身是一句 200 字符的说明），现在独占一行。
+- 事实与措辞一字未改，只改换行位置；相应更新 4 处依赖原布局的断言（`test/logic.test.mjs` 3 处、
+  `test/memory-status.test.mjs` 1 处），其余断言都是独立正则，未改动。
+- 验证：`pnpm test` **695 通过 / 0 失败**；`lib/` 重建，`lib/client.js` 37,349 B 不变。
+- 生效条件：宿主代码，需重启。
+
 **project-memory（Batch V：记忆条目的内容漂移）**
 
 - 每条记忆条目现在可以把**它引用的仓库文件**绑进 `entries.json` 的 `sources`（路径 → sha256 前 16 位），

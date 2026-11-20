@@ -2766,14 +2766,16 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 	assert.match(reply.text, /Memory: \.agents\/memory\/MEMORY\.md/, "the normal line is still there");
 	// The measured store facts follow the warning instead of replacing it.
 	assert.match(reply.text, new RegExp(`${capped.length}/32000 chars`), "the size is the loaded document's own length");
-	assert.match(reply.text, /· journal \.agents\/memory\/memory\.jsonl none yet · 0 backups · 0 archived sessions · errors\.log 0 lines/);
+	assert.match(reply.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
+	assert.match(reply.text, /^0 backups · 0 archived sessions · errors\.log 0 lines$/m);
 	assert.match(reply.text, /no last-pass result \(consolidation outcomes are not persisted\)/, "the receipt refuses to guess the last pass");
 
 	// An uncapped memory must not cry wolf, or the warning stops meaning anything.
 	const healthy = await memoryStatusReply({ text: "# Project Memory\n\n- a fact\n", source: ".agents/memory/MEMORY.md" }, context);
 	assert.doesNotMatch(healthy.text, /cap|dropped|truncat/i, "a memory inside the cap is reported as plain healthy");
 	assert.ok(healthy.text.startsWith("Memory: .agents/memory/MEMORY.md · "), "the source still leads the receipt");
-	assert.match(healthy.text, /· journal \.agents\/memory\/memory\.jsonl none yet · 0 backups/);
+	assert.match(healthy.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
+	assert.match(healthy.text, /^0 backups/m);
 
 	// The loader's own cut raises the warning by itself: the no-journal read clips without writing a
 	// marker into the document, so a marker-only trigger stayed silent about exactly the read the
@@ -2784,7 +2786,7 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 
 	// No memory yet keeps its own wording and gains no warning.
 	const empty = await memoryStatusReply({ text: "", source: ".agents/memory/MEMORY.md" }, context);
-	assert.ok(empty.text.startsWith(`Memory: none yet — ${path.join(projectRoot, ".agents/memory/MEMORY.md")} · `), empty.text);
+	assert.ok(empty.text.startsWith(`Memory: none yet — ${path.join(projectRoot, ".agents/memory/MEMORY.md")}\n`), empty.text);
 	assert.doesNotMatch(empty.text, /cap/i);
 
 	// The cap must not replace the other degraded states: a damaged journal that is also capped

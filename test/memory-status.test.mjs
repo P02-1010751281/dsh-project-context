@@ -58,7 +58,7 @@ test("an empty project says none yet, and every count is a measured zero rather 
 	const { reply } = await status(root);
 
 	assert.equal(reply.kind, "success");
-	assert.ok(reply.text.startsWith(`Memory: none yet — ${memoryFile(root)} · `), reply.text);
+	assert.ok(reply.text.startsWith(`Memory: none yet — ${memoryFile(root)}\n`), reply.text);
 	assert.match(reply.text, /journal .*memory\.jsonl none yet/, "the absent journal is named, not reported as 0 lines");
 	assert.match(reply.text, /0 backups/);
 	assert.match(reply.text, /0 archived sessions/);
