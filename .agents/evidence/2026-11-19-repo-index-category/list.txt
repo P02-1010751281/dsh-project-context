@@ -1,0 +1,17 @@
+aoci-spec/aoci-code
+codegraph-ai/CodeGraph
+bartolli/codanna
+elara-labs/code-context-engine
+srclight/srclight
+Houseofmvps/codesight
+cyanheads/repo-map
+yamadashy/repomix
+oraios/serena
+zilliztech/claude-context
+cyclotruc/gitingest
+raphaelmansuy/code2prompt
+simonw/files-to-prompt
+Aider-AI/aider
+dereira/goldfish
+lemonxiny55/dsh-code-index
+Fourteenth-Night/dsh-aoci

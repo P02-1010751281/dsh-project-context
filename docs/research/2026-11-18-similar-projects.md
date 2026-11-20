@@ -67,7 +67,7 @@
 
 ---
 
-## 2. 全景：六类玩家
+## 2. 全景：七类玩家（第七类 2026-11-19 补）
 
 | 类别 | 代表 | 与本项目的关系 |
 |---|---|---|
@@ -77,6 +77,11 @@
 | D. 宿主原生 | Claude Code（auto memory / compaction / skills）、Codex（AGENTS.md / auto compact）、Gemini CLI、Cursor、Windsurf/Devin、Copilot、aider、OpenHands | 决定「用户为什么可能不装插件」 |
 | E. 记忆基础设施 | mem0、Zep/Graphiti、Cognee、MemOS、MemU、memsearch、supermemory | 组件级机制来源（抽取、图、遗忘、技能演化） |
 | F. 研究原型 | MemGPT、MemoryBank、A-MEM、Generative Agents、ACE、ReasoningBank、Voyager、AWM、ExpeL、Dynamic Cheatsheet、ACON、LongMemEval、Context Rot | 解释「为什么这样设计有效」 |
+| G. 仓库认知索引 | AOCI-CODE、repomix、serena、CodeGraph、codanna、srclight、claude-context、codesight、aider repo map… | **另一个轴**：给代码库建可复核索引，受管对象是文件/表而不是会话；结论见[专文](./2026-11-19-repo-cognition-index.md) |
+
+> 第七类是本报告 2026-11-18 漏掉的一类：#6 与 #7 的**调研方法在 2026-11-19 被补做**
+> （[仓库认知索引调研](./2026-11-19-repo-cognition-index.md)，17 个仓库 + AOCI 实测）。
+> 漏的原因写在那个文档的 §1：从「memory / context」关键词出发，搜不到以「code indexing」自我定位的项目。
 
 一个重要的生态观察：**「记忆」正在从插件功能变成宿主原生功能，又同时被插件商品化。** Claude Code
 2026 年已有 auto memory + 自动压缩 + skills；Codex 有 AGENTS.md + `model_auto_compact_token_limit`；
@@ -526,7 +531,8 @@ done < manifest.tsv
 3. **文档站点在漂移**：Cursor 的 memories 入口现在返回 Rules，Windsurf 文档切到 Devin Local，
    Codex 文档迁到 learn.chatgpt.com；报告中的「未检出」只对 2026-11-18 读到的页面成立。
 4. **DSH 生态名单不完整**：GitHub 搜索只能覆盖公开仓库；私有/未索引插件、以及 dsh-plugin.org
-   之外的发布渠道未纳入。
+   之外的发布渠道未纳入。**2026-11-19 已补**：第七类（仓库认知索引）单独成文，并补进两个同宿主
+   插件 `dsh-aoci` / `dsh-code-index`；其余缺口仍然存在。
 5. **中文/闭源产品未覆盖**：Trae、Qoder、通义灵码、CodeBuddy 等的记忆能力未做一手核验。
 6. **本仓库自身的数字是快照**：v0.4.3、39 个测试文件、546 个跟踪文件（2026-11-18 现读；AGENTS
    快照为 423）等，引用前应现读。

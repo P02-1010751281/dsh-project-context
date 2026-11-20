@@ -1,0 +1,491 @@
+# CodeGraph
+
+**Cross-language code intelligence for AI agents and developers.**
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
+
+CodeGraph builds a semantic graph of your codebase — functions, classes, imports, call chains — and exposes it through **42 MCP tools**, a **VS Code extension**, a **JetBrains IDE plugin**, and a **persistent memory layer**. Parses **38 languages** via tree-sitter. AI agents get structured code understanding instead of grepping through files.
+
+## Quick Start
+
+### MCP Server (Claude Code, Cursor, any MCP client)
+
+Add to `~/.claude.json` (or your MCP client config):
+
+```json
+{
+  "mcpServers": {
+    "codegraph": {
+      "command": "/path/to/codegraph-server",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+The server indexes the current working directory automatically.
+
+### VS Code Extension
+
+Install the VSIX:
+
+```bash
+code --install-extension codegraph-0.21.2.vsix
+```
+
+One VSIX serves every platform.
+The analysis engine is not bundled: on first activation the extension downloads the engine built for your platform, verifies it against the published checksum, and installs it into `~/.codegraph/bin` - the same location the JetBrains plugin uses, so one download serves both.
+If the download fails, run **CodeGraph: Download Analysis Engine** from the command palette to try again.
+
+Once an engine is present, the extension starts it automatically and registers all tools as Language Model Tools for Copilot.
+
+### JetBrains IDEs
+
+A plugin for IntelliJ IDEA, PyCharm, GoLand, Android Studio and the rest of the
+family drives the same engine over LSP: Code Vision, Symbols and Memories tool
+windows, a graph panel, and one-click MCP registration for the AI Assistant.
+It resolves or downloads the engine the same way the VS Code extension does,
+sharing `~/.codegraph/bin`.
+
+→ **[jetbrains/README.md](jetbrains/README.md)** for surfaces, engine
+resolution order, and building from source.
+
+### Rules for AI agents
+
+Pre-configured rule files that teach AI coding agents (Claude, Cursor,
+Windsurf, Codex, Cline) to use CodeGraph MCP tools before falling back
+to grep / multi-file reads. Maps natural-language intent to the right
+`codegraph_*` tool.
+
+→ **[codegraph-ai/codegraph-rules-for-agents](https://github.com/codegraph-ai/codegraph-rules-for-agents)**
+
+Setup is `cp <agent>/codegraph.md ~/<agent>/` (one line per agent — see
+the rules repo's README).
+
+### GitHub Action — PR review in CI
+
+Drop a workflow into your repo to get an automatic code-graph analysis
+comment on every PR — blast radius, test gaps, stale docs, suggested
+reviewers. Runs **graph-only** (no embeddings, no ONNX model), so it's
+fast and needs no API keys — just the built-in `GITHUB_TOKEN`.
+
+Copy [`.github/workflows/codegraph-pr.yml`](.github/workflows/codegraph-pr.yml)
+into your repo. The core invocation is a single command:
+
+```bash
+codegraph-server --graph-only \
+  --run-tool codegraph_pr_context \
+  --tool-args '{"baseBranch":"main","format":"markdown"}'
+```
+
+This prints a ready-to-post markdown comment. The `--graph-only` flag
+skips embedding generation (10-50× faster indexing); `--run-tool` runs
+one tool and exits without the MCP stdio handshake — ideal for scripting.
+
+---
+
+## Upgrading to 0.21
+
+Each project re-embeds once, in the background, the first time 0.21 opens it.
+Stored vectors now record the model and settings that built them, and an index from 0.20.1 or earlier records none.
+Keyword search keeps working while it runs.
+
+Restart any `--watch` daemon after upgrading.
+A daemon left running keeps writing vectors that 0.21 will not load, and sessions attached to it run without semantic search until it restarts.
+
+Identifiers whose words run together, like `getUserById`, are now also embedded in word-split form.
+This mostly helps natural-language search in camelCase languages such as TypeScript, Java and C#.
+Pass `--split-identifiers=false` to keep the old behaviour.
+
+`--full-body-embedding=false` now takes effect; in 0.20.1 the flag was always on.
+
+---
+
+## Configuration
+
+### MCP Server flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--workspace <path>` | current dir | Directories to index (repeatable for multi-project) |
+| `--exclude <dir>` | — | Directories to skip (repeatable) |
+| `--embedding-model <model>` | `bge-small` | `bge-small` (384d, fast), `jina-code-v2` (768d, 6× slower), `granite-97m` (384d, 32K ctx, ~3× slower), or `static` (model2vec, 256d — ~100× faster indexing, no ONNX; needs a local model dir, see below) |
+| `--full-body-embedding` | `true` | Embed full function body (~50 lines) for better semantic search and duplicate detection. Takes a value: `--full-body-embedding=false` turns it off |
+| `--split-identifiers` | `true` | Also embed the word-split form of identifiers whose words are run together, so `getUserById` embeds as "get user by id" too. Names already separated by `_` or `-` are left alone, since they tokenise into the same words; a leading or trailing delimiter separates nothing, so `_handleClick` is split like `handleClick`. Takes a value: `--split-identifiers=false` embeds raw names, as releases up to 0.20.1 did |
+| `--max-files <n>` | 5000 | Maximum files to index (in LSP mode, a positive `codegraph.maxFiles` setting wins) |
+| `--max-threads <n>` | half the CPUs | Most threads the engine computes on: the embedding model's pool, the pool tokenizing for it, and the async runtime. Also read from `CODEGRAPH_MAX_THREADS`. Lower it to keep the machine responsive while a large workspace embeds |
+| `--profile <name>` | `all` | Filter the exposed MCP tool surface to a named subset (see below) |
+| `--graph-only` | off | Skip embedding generation — build the graph and serve structural tools only. No ONNX model load, 10-50× faster indexing. Semantic search and memory tools unavailable. For CI / one-shot graph queries. Not applied in LSP mode. |
+| `--run-tool <name>` | — | One-shot mode: index, run a single tool, print its result, exit. No MCP handshake. Pair with `--tool-args '<json>'`. |
+
+`--split-identifiers` and `--full-body-embedding` both change the text every symbol is embedded from, and vectors built from different text cannot be ranked against each other.
+A project's stored vectors are therefore stamped with the settings that built them - `--embedding-model` included, since models differ in dimension - and are ignored by any process configured differently.
+Changing any of the three re-embeds in the background rather than requiring a manual reindex.
+Run `--watch` with the same flags as the sessions that read the project, so both sides share one set instead of re-embedding over each other.
+For what this means when upgrading from 0.20.1 or earlier, see [Upgrading to 0.21](#upgrading-to-021).
+
+#### `--embedding-model static` — model2vec fast indexing
+
+Static (model2vec) embeddings replace the ONNX transformer with a token→vector
+lookup table: indexing is **~100× faster** (this repo's 5,873 symbols embed in
+~1 s vs ~3.4 min with BGE) and there's **no ONNX runtime or 1.5 GB RAM gate**.
+Retrieval stays **hybrid (BM25 + semantic)**, so end-to-end quality is **~90% of BGE**.
+The model is not bundled with any client — it needs a local model directory
+(`config.json` + `tokenizer.json` + `model.safetensors`) at
+`~/.codegraph/static_models/jina-code-static-256`, or wherever
+`CODEGRAPH_STATIC_MODEL` points:
+
+- Installing `@astudioplus/codegraph-mcp` from npm downloads it into that
+  default location for you (best-effort; set `CODEGRAPH_SKIP_MODEL_FETCH=1` to
+  skip, and the install never fails over it).
+- Otherwise fetch the prebuilt one with `scripts/fetch-static-model.sh`, or
+  distill your own from any sentence-transformer (Apache-2.0 Jina-Code by
+  default) in ~30 s on CPU: `python scripts/distill_static_model.py`.
+- A model in the default location needs no IDE setting: both IDE clients leave
+  `CODEGRAPH_STATIC_MODEL` unset and let the engine resolve it. To use a model
+  kept somewhere else, set `codegraph.staticModelPath` in VS Code, or
+  *Settings → Tools → CodeGraph → Embeddings → Static model directory* in
+  JetBrains; each client then passes that path as `CODEGRAPH_STATIC_MODEL`.
+
+#### `CODEGRAPH_SKIP_MEMORY_CHECK` — force the embedding model past the RAM gate
+
+Before loading the ONNX model, the server checks available memory and, if under
+~1.5 GB, skips the model to avoid an OOM-kill (running graph-only instead).
+Set `CODEGRAPH_SKIP_MEMORY_CHECK=1` (also accepts `true`/`yes`) to bypass that
+check and always load the model.
+
+Use it if embeddings are disabled even though the machine has plenty of free
+RAM.
+A reading of `0 MB available` is treated as a detection failure and the model
+loads anyway (macOS parks reclaimable memory in inactive/speculative pages that
+some memory readers do not count as free), so this override is mainly for other
+cases where the reported figure is low but wrong.
+It works in both MCP and one-shot `--run-tool` modes.
+
+#### `--profile` — narrow the MCP tool surface
+
+The full 42-tool surface is convenient but inflates the agent's prompt-context cost. A profile exposes only the slice you need (also settable via the `CODEGRAPH_TOOL_PROFILE` env var):
+
+| Profile | Tools | Use when |
+|---------|-------|----------|
+| `all` *(default)* | every tool (community + pro) | normal sessions |
+| `core` | 8 — search + symbol info + AI context | chatty agent sessions where you only need lookups |
+| `graph` | 17 — callers/callees/deps/impact/traverse/PR context | refactoring + structural analysis |
+| `memory` | 14 — `codegraph_memory_*` plus the docs tools | note-taking / knowledge-base workflows |
+| `security` | pro security tools only (empty on community) | pro security audits |
+
+### VS Code settings
+
+The `codegraph.*` settings are documented once, next to the extension that
+reads them:
+
+→ **[vscode/README.md — Configuration](vscode/README.md#configuration)**
+
+Full-body embeddings are enabled by default. Function body text is captured at parse time with zero I/O overhead.
+
+Built-in exclusions (always skipped) cover ~47 directories across three categories:
+
+- **Build / cache**: `node_modules`, `target`, `dist`, `build`, `out`, `.git`, `__pycache__`, `vendor`, `.venv`, `venv`, `.tox`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.next`, `.nuxt`, `.svelte-kit`, `.parcel-cache`, `.npm`, `.yarn`, `.pnpm-store`, `.cache`, `.cargo`, `.bundle`, `.gradle`, `DerivedData`, `Pods`, `xcuserdata`, `cmake-build-*`
+- **IDE / IaC state**: `.idea`, `.vscode-test`, `.fleet`, `.terraform`, `.terragrunt-cache`, `.serverless`
+- **Sensitive credential dirs**: `.aws`, `.ssh`, `.gnupg`, `.kube`, `.docker`
+
+Plus glob patterns for binary archives, native libraries, OS metadata, and **secret file extensions** (`*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.crt`, `*.gpg`, `*.kdbx`, SSH key conventions like `id_rsa`, etc.) — defense in depth against accidentally embedding credentials.
+
+Indexing produced zero files, or something else looks wrong? See
+**[docs/troubleshooting.md](docs/troubleshooting.md)**.
+
+---
+
+## Tools
+
+42 community tools, plus 27 more (17 of them security analyzers) in CodeGraph Pro.
+
+### Code Analysis (11)
+
+| Tool | What it does |
+|------|-------------|
+| `get_ai_context` | **Primary context tool.** Intent-aware (explain/modify/debug/test) with token budgeting. Returns source, related symbols, imports, siblings, debug hints. |
+| `get_edit_context` | Everything needed before editing: source + callers + tests + memories + git history |
+| `get_curated_context` | Cross-codebase context for a natural language query ("how does auth work?") |
+| `analyze_impact` | Blast radius prediction — what breaks if you modify, delete, or rename |
+| `analyze_complexity` | Cyclomatic complexity with breakdown (branches, loops, nesting, exceptions, early returns) |
+| `find_circular_deps` | Detect circular import/dependency chains across files |
+| `find_hot_paths` | Most-called functions ranked by transitive caller count |
+| `find_dead_imports` | Find unused imports — modules imported but never referenced |
+| `get_module_summary` | High-level summary of a directory: file count, functions, language breakdown, top complex functions |
+| `search_by_pattern` | Regex search across function bodies, signatures, names, and docstrings |
+| `search_by_error` | Find functions that throw, catch, or handle specific error types |
+
+### Code Navigation (13)
+
+| Tool | What it does |
+|------|-------------|
+| `symbol_search` | Find symbols by name or natural language (hybrid BM25 + semantic search) |
+| `get_callers` / `get_callees` | Who calls this? What does it call? (with transitive depth) |
+| `get_detailed_symbol` | Full symbol info: source, callers, callees, complexity |
+| `get_symbol_info` | Quick metadata: signature, visibility, kind |
+| `get_dependency_graph` | File/module import relationships with depth control |
+| `get_call_graph` | Function call chains (callers and callees) |
+| `find_by_imports` | Find files importing a module |
+| `find_by_signature` | Search by param count, return type, modifiers |
+| `find_entry_points` | Main functions, HTTP handlers, CLI commands, event handlers |
+| `find_implementors` | Find all functions registered as ops struct callbacks |
+| `find_related_tests` | Tests that exercise a given function |
+| `traverse_graph` | Custom graph traversal with edge/node type filters |
+
+### Indexing (3)
+
+| Tool | What it does |
+|------|-------------|
+| `reindex_workspace` | Full or incremental workspace reindex |
+| `index_files` | Add/update specific files without full reindex |
+| `index_directory` | Add directory to graph alongside existing data |
+
+### Memory (7)
+
+Persistent AI context across sessions — debugging insights, architectural decisions, known issues.
+
+| Tool | What it does |
+|------|-------------|
+| `memory_store` / `memory_get` / `memory_search` | Store, retrieve, search memories (BM25 + semantic) |
+| `memory_context` | Get memories relevant to a file/function |
+| `memory_list` / `memory_invalidate` / `memory_stats` | Browse, retire, monitor |
+
+Pairs well with [Tempera](https://github.com/anvanster/tempera) — an episodic memory system that captures transferable debugging strategies and solutions across projects. CodeGraph's memory tools store project-scoped notes; Tempera captures cross-project BKMs (best-known methods) that improve over time.
+
+### PR / Change Analysis (1)
+
+| Tool | What it does |
+|------|-------------|
+| `pr_context` | **One-call PR review.** Runs git diff against base branch, finds changed functions in the graph, reports: blast radius (callers), test coverage + gaps, affected modules, diff-aware change classification (signature vs body), stale-doc warnings, complexity, commit-message hint, suggested reviewers from git blame. |
+
+### Documentation (7)
+
+Persistent project documentation — index design docs, search them semantically, verify code matches the design, generate architecture docs from the code graph.
+
+| Tool | What it does |
+|------|-------------|
+| `index_markdown` | Index a local `.md` file (ARCHITECTURE.md, API_DESIGN.md, etc.) into the persistent docs store. Heading-tree chunking with leaf-node embeddings. |
+| `search_docs` | Semantic search over indexed docs — returns matching sections with heading-path breadcrumbs |
+| `list_doc_sources` | List all indexed source files |
+| `remove_doc_source` | Remove all indexed chunks from a source file |
+| `verify_design` | Cross-reference doc claims vs code graph. `direction=forward` (doc→code), `reverse` (code→doc), or `both` |
+| `design_gaps` | Find identifiers described in docs that don't exist in code yet — build TODO lists from specs |
+| `generate_architecture_doc` | Auto-generate a structured ARCHITECTURE.md from the live code graph (modules, hot paths, complexity, circular deps) |
+
+All tool names are prefixed with `codegraph_` (e.g. `codegraph_get_ai_context`). Tools that target a specific symbol accept `uri` + `line` or `nodeId` from `symbol_search` results.
+
+---
+
+### Usage examples
+
+**Index a design doc and search it:**
+```
+codegraph_index_markdown(path: "/projects/myapp/docs/ARCHITECTURE.md")
+codegraph_search_docs(query: "how does the auth module handle JWT refresh?")
+```
+
+**Check if the code matches the design:**
+```
+codegraph_verify_design(source: "/projects/myapp/docs/ARCHITECTURE.md", direction: "forward")
+// → "132/132 identifiers verified, 0 gaps"
+```
+
+**Find what's described in docs but not yet implemented:**
+```
+codegraph_design_gaps(source: "/projects/myapp/docs/API_DESIGN.md")
+// → "4 of 12 identifiers not found in code: PaymentService, RefundHandler, ..."
+```
+
+**Generate architecture docs from the code graph:**
+```
+codegraph_generate_architecture_doc(scope: "src/", topN: 5)
+// → Markdown with modules, complexity hotspots, hot paths, circular deps
+```
+
+**Save a debugging insight for future sessions:**
+```
+codegraph_memory_store(kind: "debug_context", title: "Nginx body size limit",
+  content: "The /upload endpoint fails on payloads > 1MB...",
+  problem: "API returns 500 on large uploads",
+  solution: "Increase nginx client_max_body_size to 10M",
+  agentSource: "claude")
+```
+
+**Get AI context with graph compression stats + design doc augmentation:**
+```
+codegraph_get_ai_context(uri: "file:///projects/myapp/src/auth.rs", line: 42, intent: "modify")
+// → Code context + graphStats: {entitiesInGraph: 13555, entitiesTraversed: 47, entitiesKept: 8}
+// → design_context section from indexed docs mentioning "auth"
+```
+
+**Review a PR — blast radius, test gaps, stale docs, reviewers in one call:**
+```
+codegraph_pr_context(baseBranch: "main")
+// → "PR changes 4 files (+263/-77, 12 functions). 37 direct callers, 8 tests, 3 untested. Risk: medium."
+// → test_gaps: [refresh_token, revoke_session] — functions with 0 test callers
+// → stale_docs: ["auth.rs described in ARCHITECTURE.md > Authentication — doc may need updating"]
+// → suggested_reviewers: [{author: "anvanster", lines_owned: 3200}]
+// → commit_hint: "feat(mcp): <describe the change>"
+```
+
+**Narrow the tool surface for chatty sessions:**
+```bash
+codegraph-server --mcp --profile=core  # Only 8 tools: search + symbol info + AI context
+```
+
+---
+
+### CodeGraph Pro
+
+Additional tools available in [CodeGraph Pro](https://codegraph.astudioplus.com/pro):
+
+| Tool | What it does |
+|------|-------------|
+| `scan_security` | Security vulnerability scan: 40+ dangerous function patterns, source-to-sink taint tracing, auth coverage for HTTP endpoints (7 languages/frameworks), architectural layer violations, weak crypto, hardcoded secrets |
+| `analyze_coupling` | Module coupling metrics and instability scores |
+| `find_unused_code` | Dead code detection with confidence scoring |
+| `find_duplicates` | Detect duplicate/near-duplicate functions |
+| `find_similar` / `cluster_symbols` / `compare_symbols` | Embedding-based code similarity |
+| `cross_project_search` | Search across all indexed projects |
+| `mine_git_history` / `mine_git_history_for_file` / `search_git_history` | Git history mining and semantic search |
+| `security_control_flow` | Map every execution path through a function — "can this return without hitting the auth check?" |
+| `security_trace_data_flow` | Follow a variable from birth to death — "does user input reach this SQL query?" |
+| `security_generate_sbom` | CycloneDX SBOM from 8 lockfile formats |
+| `security_audit_deps` | OSV vulnerability check on dependencies |
+| `security_check_unchecked_returns` / `_resource_leaks` / `_misconfig` / `_input_validation` / `_error_exposure` | 5 heuristic analyzers covering ~80% of CWE Top 25 |
+| `security_scan_iac` | Docker / Kubernetes / Terraform misconfiguration scan |
+| `security_check_licenses` | Lockfile license policy enforcement (copyleft detection) |
+| `security_check_secrets_entropy` | Shannon-entropy hardcoded-secret detection |
+| `security_detect_injection` | Focused SQL/XSS/cmd/path/deser/template injection detection (20 patterns) |
+| `security_check_search_path` | Untrusted search-path / DLL-hijacking detection (CWE-426/CWE-427) |
+| `security_check_crypto` | Cryptographic misuse: weak ciphers/hashes/PRNG/keys, static IVs, timing-leak comparisons (CWE-208/326-330/338/916, 35 patterns) |
+| `security_export_sarif` | Aggregate findings as SARIF 2.1.0 (GitHub Code Scanning, GitLab SAST) |
+
+**Cross-cutting features (all `security_check_*` tools):**
+- `include_tests` / `treat_as_production` — first-class skip for tests/samples/vendored
+- `check_compile_gates` — C/C++ findings inside `#ifdef X` are marked DEFENSIVE_GATED_OFF when X isn't defined by CMake/Cargo/Makefile
+- 25-marker suppression honoring (`# nosec`, `// NOLINT`, `// codeql[ignore]`, `# rubocop:disable`, etc.) at line and function level
+- Telemetry blocks per scan: `path_filter` (examined/matched/skipped) + `compile_gate` (gated_off count)
+
+---
+
+## Languages
+
+38 languages parsed via tree-sitter — functions, classes, imports, call graph, complexity metrics, dependency graphs, symbol search, and impact analysis:
+
+| Category | Languages |
+|---|---|
+| **Systems** | C, C++, Rust, Zig, Objective-C |
+| **JVM** | Java, Kotlin, Scala, Groovy, Clojure |
+| **Web/Scripting** | TypeScript/JS, Python, Ruby, PHP, Perl, Lua, Elixir, Elm |
+| **Web/Style** | CSS |
+| **Mobile** | Swift, Dart |
+| **Functional** | Haskell, OCaml, Julia, Erlang, Elm, Clojure |
+| **Enterprise** | C#, COBOL, Fortran, Go |
+| **Blockchain** | Solidity |
+| **Shell/Config** | Bash, Dockerfile, HCL/Terraform, TOML, YAML |
+| **Hardware** | Verilog/SystemVerilog, Tcl |
+| **Data Science** | R, Julia |
+
+HTTP handler detection: Python (FastAPI/Flask/Django), TypeScript (NestJS), Java (Spring/JAX-RS), Go (stdlib/Gin/Echo/Fiber), C# (ASP.NET), Ruby (Rails), PHP (Laravel/Symfony).
+
+> **Community vs full builds:** COBOL, Fortran, Perl, Dart, Zig, and R are
+> compiled only with `--features extra-languages`. The default community binary
+> omits them — they had zero usage in telemetry and their tree-sitter grammars
+> add ~25 MB (COBOL's parse tables alone are 30 MB). The other 32 languages are
+> always available.
+
+---
+
+## Architecture
+
+```
+MCP Client (Claude, Cursor, ...)   VS Code Extension   JetBrains Plugin
+        |                                  |                  |
+    MCP (stdio)                       LSP Protocol       LSP Protocol
+        |                                  |                  |
+        └───────────┐               ┌──────┴──────────────────┘
+                    ▼               ▼
+            ┌─────────────────────────────┐
+            │       codegraph-server      │
+            ├─────────────────────────────┤
+            │  38 tree-sitter parsers     │
+            │  Semantic graph engine      │
+            │  AI query engine (BM25)     │
+            │  Memory layer (RocksDB)     │
+            │  Docs store (RocksDB+HNSW)  │
+            │  Full-body embeddings (BGE) │
+            │  HNSW vector index          │
+            └─────────────────────────────┘
+```
+
+A single Rust binary serves both MCP and LSP protocols.
+
+- **Indexing**: ~60 files/sec. Incremental re-indexing on file changes via FNV-1a content hashing.
+- **Persistence**: Graph and embeddings persist to `~/.codegraph/graph.db` (RocksDB). Instant startup on restart — no re-parsing, no re-embedding.
+- **Queries**: Sub-100ms. Cross-file import and call resolution at index time.
+- **Embeddings**: Full-body (function bodies captured at parse time, zero disk I/O). Vectors stored in RocksDB alongside the graph. Auto-downloads model on first run.
+
+---
+
+## Supported platforms
+
+The engine is a native binary, downloaded for your platform on first run.
+
+| Platform | Architectures |
+|---|---|
+| macOS | Apple Silicon (arm64) and Intel (x64) |
+| Linux | x64 and arm64 |
+| Windows | x64 (Windows on ARM runs the x64 build under emulation) |
+
+**Linux requires glibc 2.30 or newer *and* a libstdc++ from GCC 11 or newer
+(`GLIBCXX_3.4.29`).** The second requirement is the binding one, and it is not
+implied by the first — the engine embeds ONNX Runtime, which is built with
+GCC 11.
+
+| Runs | Does not run |
+|---|---|
+| SLES 15 SP4 | Ubuntu 20.04 |
+| Ubuntu 22.04 and newer | Debian 11 |
+| Debian 12 and newer | RHEL / CentOS 8 |
+| RHEL 9 and newer | Amazon Linux 2 |
+| Amazon Linux 2023 | |
+
+Both Linux architectures have identical requirements. If the engine exits
+immediately with a message like
+
+```
+version `GLIBCXX_3.4.29' not found (required by codegraph-server)
+```
+
+the distribution's C++ runtime is older than the engine needs; installing a
+newer `libstdc++` (for example RHEL 8's `gcc-toolset-11`) resolves it without
+upgrading the distribution.
+
+---
+
+## Building from Source
+
+```bash
+git clone https://github.com/codegraph-ai/codegraph
+cd codegraph
+cargo build --release -p codegraph-server    # Rust server
+cd vscode && npm install && npm run esbuild  # VS Code extension
+npx @vscode/vsce package                     # VSIX
+```
+
+Requires rustup (it installs the Rust version pinned in `rust-toolchain.toml`), Node.js 18+, VS Code 1.90+.
+
+---
+
+## Support the project
+
+CodeGraph is free, open-source, and maintained by a solo developer.
+If it saves you time, consider [sponsoring on GitHub](https://github.com/sponsors/anvanster) — it helps keep the project alive and growing.
+
+---
+
+## License
+
+Apache-2.0

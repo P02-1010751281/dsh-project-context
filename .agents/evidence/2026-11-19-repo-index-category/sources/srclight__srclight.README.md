@@ -1,0 +1,727 @@
+<!-- mcp-name: io.github.srclight/srclight -->
+
+# Srclight
+
+[![PyPI](https://img.shields.io/pypi/v/srclight)](https://pypi.org/project/srclight/)
+[![License](https://img.shields.io/github/license/srclight/srclight)](https://github.com/srclight/srclight/blob/master/LICENSE)
+[![Python](https://img.shields.io/pypi/pyversions/srclight)](https://pypi.org/project/srclight/)
+
+**Deep code indexing for AI agents.** SQLite FTS5 + tree-sitter + embeddings + MCP.
+
+Srclight builds a rich, searchable index of your codebase that AI coding agents can query instantly — replacing dozens of grep/glob calls with precise, structured lookups. It is the most comprehensive code intelligence MCP server available: 42 tools covering symbol search, relationship graphs, community detection, impact analysis, git change intelligence, semantic search, build system awareness, and document extraction — capabilities no other single MCP server combines. Fully local and private: your code never leaves your machine.
+
+## Why?
+
+AI coding agents (Claude Code, Cursor, etc.) spend **40-60% of their tokens on orientation** — searching for files, reading code to understand structure, hunting for callers and callees. Srclight eliminates this waste.
+
+| Without Srclight | With Srclight |
+|---|---|
+| 8-12 grep rounds to find callers | `get_callers("lookup")` — one call |
+| Read 5 files to understand module | `codebase_map()` — instant overview |
+| "Find code that does X" → 20 greps | `semantic_search("dictionary lookup")` — one call |
+| Edit a function, break 47 callers | `detect_changes()` — shows blast radius before you commit |
+| 15-25 tool calls per bug fix | 5-8 tool calls per bug fix |
+
+## Features
+
+- **Minimal dependencies** — single SQLite file per repo, no Docker/Redis/vector DB
+- **Fully offline** — no API calls, works air-gapped (Ollama local embeddings)
+- **Incremental** — only re-indexes changed files (content hash detection)
+- **19 languages** — Python, C, C++, C#, Java, Kotlin, Swift, Dart, Go, Rust, JavaScript, TypeScript, PHP, Lua, Bash, SQL, Groovy, CMake, Markdown — include fragments (`.inc`, `.inl`, `.ipp`, `.tcc`) included, plus any extension you declare with `--ext`
+- **Says what it skipped** — `index_status` names the extensions a run walked past, so an incomplete answer never reads as a complete one
+- **10 document formats** — PDF, DOCX, XLSX, HTML, CSV/TSV, email (.eml), images (PNG/JPG/SVG/etc.), plain text, RST, Markdown
+- **Optional OCR** — PaddleOCR for scanned/image-only PDF pages; pytesseract for images
+- **4 search modes** — symbol names, source code (trigram), documentation (stemmed), semantic (embeddings)
+- **Hybrid search** — RRF fusion of keyword + semantic results for best accuracy
+- **Multi-repo workspaces** — search across all your repos simultaneously via SQLite ATTACH+UNION
+- **MCP server** — works with Claude Code, Cursor, and any MCP client
+- **CLI** — index, search, and inspect from the terminal
+- **Auto-reindex** — git post-commit/post-checkout hooks keep indexes fresh
+
+## MCP argument validation
+
+Srclight's MCP server **refuses unknown tool arguments** instead of silently dropping them — a
+mistyped filter like `projects=` (for `project=`) is rejected with an error, never answered as if
+the constraint were applied. Every tool advertises `additionalProperties: false`. The guard is the
+shared [`mcpkit`](https://github.com/srclight/mcpkit) policy, vendored as one hash-verified file
+(`src/srclight/_mcpkit.py`).
+
+**AI agents:** if a call returns `unknown argument(s): … running older code than you think …
+reconnect`, the running server predates the argument you sent (a long-lived daemon serves the code
+it launched with). Nothing ran — check the reported revision and reconnect the MCP; don't retry the
+same call.
+
+## Index freshness
+
+Every symbol/graph result carries `index_freshness`: the short string
+`"verified-fresh"` when the files behind the answer are byte-identical to what
+was indexed, or a bounded object naming which files are `stale`, missing, or
+not indexed. `check_freshness(paths?)` probes any paths — or the whole index —
+on demand (unchanged files cost one `stat` each; never writes), and
+`index_status` reports whole-index `checked`/`stale_count`.
+
+**AI agents:** a result stamped stale describes the code **as indexed**, not as
+it is now — reindex (`srclight index`) or read the live file before acting on
+line numbers or bodies from it. `"verified-fresh"` is the affirmative signal;
+its absence on a workspace-mode result means freshness was not checkable for
+that result, never that it is fresh.
+
+## Index coverage
+
+`index_status` reports both sides of what an index holds: `indexed_extensions`,
+every suffix it reads, and `unindexed_extensions`, the `{extension: file count}`
+this repo holds that the last run walked past, plus `oversize_skipped` for files
+refused on size and `failed_files` for files that could not be read or parsed. `list_projects` carries the same per
+project, and `find_pattern` attaches the tally plus a note whenever it is
+non-empty.
+
+A gap means code that was never read, so the tally deliberately leaves out
+what is skipped on purpose: ignored paths (binaries, vendored trees, `.git`)
+in both the `git ls-files` and directory-walk modes, and inert suffixes —
+config, data and manifests (`.json`, `.toml`, `.yml`, `.lock`, …) along with
+suffixless files like `LICENSE` or `Dockerfile`. Every repo carries some of
+those; counting them would leave the tally non-empty everywhere, put the
+warning on every result and bury the extensions that genuinely hold unread
+code. A document format this install cannot read for want of an extra
+(`.pdf`, `.docx`, `.xlsx`, `.html`) IS counted — it is unread, and one
+`pip install` away from being read. So is a source extension the ignore list
+blocks anyway (`*.cmake` sits next to the build artefacts while cmake is a
+language srclight parses), and a language whose tree-sitter grammar is not
+installed — indexing those files would record them as read while they hold no
+searchable symbol.
+
+`truncated` on a `find_pattern` result means the page was cut short, and
+nothing else. It has never described scan coverage: the search runs over
+indexed symbols, so files the indexer never read cannot appear whatever it
+says. A gap is now readable from the index instead of being discoverable only
+by comparing a result to a `grep`.
+
+Include fragments (`.inc`, `.inl`, `.ipp`, `.tcc`) — the files a project uses
+to split an oversized translation unit, included at file scope and holding real
+definitions — are indexed as source. `.inc` names an include convention rather
+than a language, so its content decides: PHP, C++, else C.
+
+For a house extension srclight does not know, declare it once:
+
+```bash
+srclight index --ext .zz=cpp          # repeatable; --ext none clears
+srclight index --ext .inc=skip        # or: leave an extension unread
+```
+
+`skip` is the way out of the `.inc` sniff for a project that uses it for
+Makefile or SQL fragments: those files then count as a declared gap rather than
+being parsed as C.
+
+The declaration is stored in the index, not the command line, so the git hooks'
+flag-less reindexes keep reading those files.
+
+**AI agents:** a non-empty `unindexed_extensions` means the answer you are
+holding is not a whole-tree answer, whatever `truncated` says — cross-check
+with `grep`, or have the extension declared. An empty one is the affirmative
+signal.
+
+## Graph resolution labels
+
+Reference edges are built by name matching plus ranked evidence, and every
+caller/callee edge carries a `resolution` label saying how its target was
+chosen: `same_file` (the caller's own file defines the name), `unique_file`
+(all same-named candidates live in one file), `import` (the caller's imports
+single out one file), `same_dir`, or `name_only`. Names appearing only in
+comments or strings never become edges.
+
+**AI agents:** `name_only` means a **ranked candidate list** across same-named
+symbols — read it as "one of these", not a confirmed link; verify with
+`get_symbol` or a reference search before acting on it. The stronger labels
+are safe to treat as resolved.
+
+## Requirements
+
+- **Python 3.11+**
+- **Git** (for change intelligence and auto-reindex hooks)
+- **Ollama** (optional, for semantic search / embeddings) — [ollama.com](https://ollama.com)
+- **NVIDIA GPU + cupy** (optional, for GPU-accelerated vector search)
+- **Poppler** (optional, for PaddleOCR scanned-PDF support) — `apt install poppler-utils` / `brew install poppler`
+
+## Quick Start
+
+```bash
+# Install from PyPI
+pip install srclight
+
+# Install from source
+git clone https://github.com/srclight/srclight.git
+cd srclight
+pip install -e .
+
+# Optional: document format support (PDF, DOCX, XLSX, HTML, images)
+pip install 'srclight[docs,pdf]'
+
+# Optional: OCR for scanned PDFs (also needs poppler-utils on your system)
+pip install 'srclight[pdf,paddleocr]'
+
+# Optional: OCR for images (needs tesseract on your system)
+pip install 'srclight[docs,ocr]'
+
+# Optional: GPU-accelerated vector search (requires CUDA 12.x)
+pip install 'srclight[gpu]'
+
+# Everything (docs + pdf + ocr + paddleocr + gpu)
+pip install 'srclight[all]'
+
+# Index your project
+cd /path/to/your/project
+srclight index
+
+# Index with embeddings (requires Ollama running)
+srclight index --embed qwen3-embedding
+
+# Read an extra extension as a known language (recorded in the index)
+srclight index --ext .inc=cpp
+
+# Search
+srclight search "lookup"
+srclight search --kind function "parse"
+srclight symbols src/main.py
+
+# Start MCP server (for Claude Code / Cursor)
+srclight serve
+```
+
+> **Note:** `srclight index` keeps `.srclight/` out of git through the repo's local `.git/info/exclude` (it never edits your tracked `.gitignore`). Index databases and embedding files can be large and should never be committed.
+
+### Running tools from the shell
+
+Every MCP tool is reachable from the CLI, which is how an agent with a
+sandbox can query the index without the answer ever entering its context:
+
+```bash
+srclight tool --list                    # every tool and what it does
+srclight tool find_pattern --help       # arguments, from the tool's own schema
+srclight tool find_pattern --pattern 'this->timer' --kind function --limit 80
+```
+
+Output is the tool's JSON on stdout and nothing else, so it pipes. Exit codes
+are 0 on success, 1 when the tool reports an error, 2 on a usage error — a
+usage error writes nothing to stdout and says why on stderr.
+
+The command reads the server's own tool registry, so it always matches the
+tools your MCP client sees — and a tool renamed on the MCP side is renamed
+here too.
+
+## Semantic Search (Embeddings)
+
+Srclight supports embedding-based semantic search for natural language queries like "find code that handles authentication" or "where is the database connection pool".
+
+### Setup
+
+```bash
+# Install Ollama (https://ollama.com)
+# Pull an embedding model
+ollama pull qwen3-embedding       # Best quality (8B params, needs ~6GB VRAM)
+ollama pull nomic-embed-text      # Lighter alternative (137M params)
+
+# Index with embeddings
+srclight index --embed qwen3-embedding
+
+# Or index workspace with embeddings
+srclight workspace index -w myworkspace --embed qwen3-embedding
+```
+
+### Choosing the Model Once
+
+`--embed` only has to be passed once per index. The index records the model
+and every later run reuses it — including the flag-less `srclight index .`
+the git hooks run on each commit, and the MCP `reindex` tool. Without that,
+every symbol added after the first run stays unembedded until someone
+remembers the flag.
+
+```bash
+srclight index --embed qwen3-embedding   # first run: records the model
+srclight index                           # later runs: reuse it, no flag
+```
+
+The recorded name is provider-qualified, so the second run reports
+`Embedding model: ollama:qwen3-embedding (from the existing index)`.
+
+For indexes that have **no** model recorded yet, `SRCLIGHT_EMBED_MODEL`
+supplies one:
+
+```bash
+export SRCLIGHT_EMBED_MODEL=qwen3-embedding
+srclight index                           # a fresh index embeds with it
+```
+
+Resolution order is `--embed` > the model recorded in the index >
+`SRCLIGHT_EMBED_MODEL`. The variable comes last on purpose: it is a default
+for new indexes, never an override. Ahead of the recorded model, exporting
+it once would make the next commit in an unrelated repo re-embed every
+symbol it holds, silently, from a background hook. Switching an existing
+index stays an explicit `--embed`.
+
+Two escape hatches:
+
+```bash
+srclight index --no-embed             # skip embedding for this run only
+srclight index --forget-embed-model   # stop embedding this index for good
+```
+
+`--forget-embed-model` is the off switch for the hooks, whose command line
+is fixed: after it, commits index without ever calling the embedding model,
+until you pass `--embed` again. Over MCP, `reindex(embed=False)` is the
+per-call equivalent of `--no-embed`.
+
+Note that skipping is not free. Reindexing a changed file drops the
+embeddings of the symbols it replaces, and a skipped pass does not put them
+back — semantic coverage decays on exactly the files being edited. Ask
+`embedding_status()` what an index will do: `configured_model` is the model
+the next flag-less run resolves to — the whole chain, environment variable
+included — and null means it will not embed. Single-repo mode only: in a
+workspace each project records its own, so the field is not reported.
+
+### How It Works
+
+1. Each symbol's name + signature + docstring + content is embedded as a float vector
+2. Vectors are stored as BLOBs in `symbol_embeddings` table (SQLite)
+3. After indexing, a `.npy` sidecar snapshot is built and loaded to **GPU VRAM** (cupy) or CPU RAM (numpy) for fast search
+4. `semantic_search(query)` embeds the query and runs cosine similarity against the GPU-resident matrix (~3ms for 27K vectors on a modern GPU)
+5. `hybrid_search(query)` combines FTS5 keyword results + embedding results via Reciprocal Rank Fusion (RRF)
+
+### Embedding Providers
+
+| Provider | Model | Quality | Local? | Notes |
+|----------|-------|---------|--------|-------|
+| **Ollama** (default) | `qwen3-embedding` | Best local | Yes | Needs ~6GB VRAM |
+| Ollama | `nomic-embed-text` | Good | Yes | Lighter, works on 8GB VRAM |
+| **Voyage AI** (API) | `voyage-code-3` | Best overall | No | Requires `VOYAGE_API_KEY` |
+
+```bash
+# Use Voyage Code 3 (API, highest quality)
+VOYAGE_API_KEY=your-key srclight index --embed voyage-code-3
+```
+
+### Storage
+
+Embeddings are stored in `symbol_embeddings` table in `.srclight/index.db`. After indexing, a `.npy` sidecar snapshot is built for fast GPU loading:
+
+| File | Purpose |
+|------|---------|
+| `index.db` | Write path — per-symbol CRUD during indexing |
+| `embeddings.npy` | Read path — contiguous float32 matrix for GPU/CPU search |
+| `embeddings_norms.npy` | Pre-computed row norms (avoids recomputation per query) |
+| `embeddings_meta.json` | Symbol ID mapping, model info, version for cache invalidation |
+
+For ~27K symbols at 4096 dims (qwen3-embedding), that's ~428 MB on disk, ~450 MB in VRAM. Incremental: only re-embeds symbols whose content changed; sidecar rebuilt after each indexing run.
+
+## Multi-Repo Workspaces
+
+Search across multiple repos simultaneously. Each repo keeps its own `.srclight/index.db`; at query time, srclight ATTACHes them all and UNIONs across schemas.
+
+```bash
+# Create a workspace
+srclight workspace init myworkspace
+
+# Add repos
+srclight workspace add /path/to/repo1 -w myworkspace
+srclight workspace add /path/to/repo2 -w myworkspace -n custom-name
+
+# Index all repos (with optional embeddings)
+srclight workspace index -w myworkspace
+srclight workspace index -w myworkspace --embed qwen3-embedding
+
+# Search across all repos
+srclight workspace search "Dictionary" -w myworkspace
+srclight workspace search "Dictionary" -w myworkspace --project repo1
+
+# Status
+srclight workspace status -w myworkspace
+srclight workspace list
+
+# Start MCP server in workspace mode
+srclight serve --workspace myworkspace
+```
+
+**Git submodules** are not indexed automatically — `git ls-files` does not recurse into them. To index a submodule, clone it separately and add it as its own workspace project. See [docs/usage-guide.md](docs/usage-guide.md#git-submodules) for details.
+
+## MCP Integration
+
+Srclight supports two transport modes: **stdio** (one server per session) and **SSE** (persistent server, multiple sessions). SSE is recommended for workspaces.
+
+### Claude Code
+
+**Stdio (simplest — one server per session):**
+```bash
+# Single repo
+claude mcp add srclight -- srclight serve
+
+# Workspace mode
+claude mcp add srclight -- srclight serve --workspace myworkspace
+
+# Make it available in all projects (user scope)
+claude mcp add --scope user srclight -- srclight serve --workspace myworkspace
+```
+
+**SSE (persistent server — recommended for workspaces):**
+
+Run srclight as a long-lived server, then point Claude Code at it:
+
+```bash
+# Start the server (default: http://127.0.0.1:8742/sse)
+srclight serve --workspace myworkspace &
+
+# Or install as a systemd user service (Linux/WSL)
+# See docs/usage-guide.md for the service file
+
+# Connect Claude Code to the running server
+claude mcp add --transport sse srclight http://127.0.0.1:8742/sse
+```
+
+SSE mode supports multiple concurrent sessions and survives Claude Code restarts.
+
+### Cursor
+
+**SSE (recommended):** Run srclight once, then connect Cursor to it. Best for responsiveness and no cold-start per session.
+
+Start the server: `srclight serve --workspace myworkspace` (default SSE on port 8742).
+
+- **UI:** Settings → Tools & MCP → Add new MCP server → Type: `streamableHttp`, URL: `http://127.0.0.1:8742/sse`.
+- **JSON** (project `.cursor/mcp.json` or global `~/.cursor/mcp.json`):
+
+```json
+"srclight": {
+  "url": "http://127.0.0.1:8742/sse"
+}
+```
+
+**Stdio (alternative):** One server process per Cursor session.
+
+- **UI:** Type: `command`, Command: `srclight`, Args: `serve --workspace myworkspace` (or `serve` for single-repo).
+- **JSON:**
+
+```json
+"srclight": {
+  "command": "srclight",
+  "args": ["serve", "--workspace", "myworkspace"]
+}
+```
+
+For single-repo: `"args": ["serve"]`. Restart Cursor completely after adding the server.
+
+**Verify:** In Cursor chat, ask "What projects are in the srclight workspace?" or "List srclight tools" — the agent should call `list_projects()` or show srclight tools.
+
+### OpenClaw
+
+OpenClaw connects to srclight via [mcporter](https://mcporter.dev), its built-in MCP tool server CLI.
+
+```bash
+# 1. Add srclight to mcporter's home config
+mcporter config add srclight http://127.0.0.1:8742/sse \
+  --transport sse --scope home \
+  --description "Srclight deep code indexing"
+
+# 2. Verify the connection
+mcporter call srclight.list_projects
+
+# 3. Restart the OpenClaw gateway to pick up the new server
+systemctl --user restart openclaw-gateway  # if using systemd
+# or: openclaw daemon restart
+```
+
+The OpenClaw agent can then use srclight tools via the `mcporter` skill:
+```
+mcporter call srclight.search_symbols query="my_function"
+mcporter call srclight.get_callers symbol_name="MyClass" project="my-repo"
+mcporter call srclight.hybrid_search query="authentication logic"
+```
+
+> **Prerequisite:** Srclight must be running as an SSE server (see above). OpenClaw's mcporter connects over HTTP — stdio mode is not supported.
+
+### Claude Desktop (`claude_desktop_config.json`)
+
+```json
+{
+  "mcpServers": {
+    "srclight": {
+      "command": "srclight",
+      "args": ["serve", "--workspace", "myworkspace"]
+    }
+  }
+}
+```
+
+### Any MCP Client (SSE)
+
+Any MCP-compatible client can connect to the SSE endpoint:
+```
+http://127.0.0.1:8742/sse
+```
+
+## MCP Tools (43)
+
+Srclight exposes 43 MCP tools organized in eight tiers. The MCP server includes built-in instructions that guide AI agents on which tool to use and when — agents receive a session protocol, tool selection guide, and `project` parameter documentation automatically on connection.
+
+### Tier 1: Instant Orientation
+| Tool | What it does |
+|------|-------------|
+| `codebase_map()` | Full project overview — call first every session |
+| `search_symbols(query)` | Keyword (FTS5) search across symbol names, code, and docs |
+| `get_symbol(name)` | Full source code + metadata for a symbol |
+| `get_signature(name)` | Just the signature (lightweight) |
+| `symbols_in_file(path)` | Table of contents for a file |
+| `find_pattern(pattern, limit, offset)` | Regex search inside symbol bodies; says when it truncated |
+| `list_projects()` | All projects in workspace with stats |
+
+### Tier 2: Relationship Graph
+| Tool | What it does |
+|------|-------------|
+| `get_callers(name)` | Who calls this symbol? |
+| `get_callees(name)` | What does this symbol call? |
+| `get_dependents(name, transitive)` | Blast radius — what breaks if I change this? |
+| `get_implementors(interface)` | All classes implementing an interface |
+| `get_tests_for(name)` | Test functions covering a symbol |
+| `get_type_hierarchy(name)` | Inheritance tree (base classes + subclasses) |
+| `find_imports(path)` | Import statements in a file, resolved to indexed files |
+| `find_dead_code(kind)` | Symbols nothing calls or references |
+
+### Tier 2b: Community & Impact Analysis
+| Tool | What it does |
+|------|-------------|
+| `get_communities(project)` | Auto-detected functional module clusters (Louvain algorithm) |
+| `get_community(name, project)` | Which community a symbol belongs to, with all co-members |
+| `get_execution_flows(project)` | Traced execution paths from entry points through the call graph |
+| `get_impact(name, project)` | Blast radius + risk level (LOW / MEDIUM / HIGH / CRITICAL) |
+| `detect_changes(project, ref?)` | Map git diff to affected symbols — aggregate blast radius of your edits |
+
+### Tier 3: Git Change Intelligence
+| Tool | What it does |
+|------|-------------|
+| `blame_symbol(name)` | Who changed this, when, and why |
+| `recent_changes(n)` | Commit feed (cross-project in workspace) |
+| `git_hotspots(n, since)` | Most frequently changed files (bug magnets) |
+| `whats_changed()` | Uncommitted work in progress |
+| `changes_to(name)` | Commit history for a symbol's file |
+
+### Tier 4: Build & Config
+| Tool | What it does |
+|------|-------------|
+| `get_build_targets()` | CMake/.csproj/npm targets with dependencies |
+| `get_platform_variants(name)` | #ifdef platform guards around a symbol |
+| `platform_conditionals()` | All platform-conditional code blocks |
+
+### Tier 5: Semantic Search (Embeddings)
+| Tool | What it does |
+|------|-------------|
+| `semantic_search(query)` | Find code by meaning (natural language) |
+| `hybrid_search(query)` | Best of both: keyword + semantic with RRF fusion |
+| `embedding_status()` | Embedding coverage and model info |
+
+### Tier 6: Meta & Server
+| Tool | What it does |
+|------|-------------|
+| `index_status()` | Index freshness and stats |
+| `check_freshness(paths)` | Is the index current for these files, or for all of them? |
+| `show_status(message)` | Show the srclight dashboard window and return current status |
+| `reindex(embed=True)` | Trigger incremental re-index; `embed=False` skips the embedding pass (and lets semantic coverage decay) |
+| `embedding_health()` | Check if the embedding provider (Ollama, etc.) is reachable |
+| `setup_guide()` | Structured setup instructions for agents and users |
+| `server_stats()` | Server uptime and process info |
+| `restart_server()` | Request server restart (SSE only) |
+
+### Tier 7: Learnings & Session Memory
+| Tool | What it does |
+|------|-------------|
+| `record_learning(kind, content)` | Record a decision, correction, discovery, pattern, blocker or convention |
+| `relevant_learnings(query)` | Find recorded learnings by keyword + semantic search |
+| `learning_stats(days)` | Counts by kind over time |
+| `conversation_summary(session_id, task_summary)` | Record what a session did, with token and cost figures |
+
+In workspace mode, `search_symbols`, `get_symbol`, `codebase_map`, and `hybrid_search` accept an optional `project` filter. Graph/git/build/community tools require `project` in workspace mode.
+
+### Choosing a search tool
+
+`search_symbols` is keyword-exact (FTS5); `semantic_search` is embedding-based; `hybrid_search` fuses both via RRF. In FTS5, a **bare multi-word query is implicitly ANDed** — every token must match the same symbol, so a long keyword list can return zero and read as "not indexed." For keyword search, prefer a single distinctive symbol/term or a `"quoted phrase"`. When a keyword miss might just be different wording, reach for `hybrid_search`/`semantic_search` rather than concluding the symbol is absent. A zero result under a `project` filter means absent from *that project*, not the whole workspace — retry without `project` to search all repos.
+
+## Strict Argument Validation
+
+**Since v0.20.2, srclight refuses unknown tool arguments instead of silently discarding them.**
+This is a deliberate behaviour change and it can break callers that were previously sending extra
+keys without noticing.
+
+### Why
+
+The MCP Python SDK's FastMCP drops arguments that are not in a tool's signature, and it does so
+*before* the tool function runs. Combined with an `inputSchema` that omitted
+`additionalProperties: false`, a mistyped argument produced a confident wrong answer rather than an
+error. Measured on this server:
+
+```
+search_symbols(query="main", project="project-a")    ->  20 hits, all from project-a
+search_symbols(query="main", projects="project-a")   ->  20 hits, ZERO from project-a
+                                                         (19 from "project-b", 1 from "project-c")
+```
+
+One added letter. No error, identical hit count, identical result shape, real symbols — from repos
+the caller never asked about. That is not a lossy call, it is a wrong one, and the caller has no
+way to learn their filter was ignored.
+
+### What changed
+
+- **Unknown arguments now return an error** naming the offending key, the accepted set, and stating
+  that nothing was executed. The tool body is never entered.
+- **Every tool advertises `additionalProperties: false`** in `tools/list`, so the catalog matches
+  what the runtime enforces. Previously the runtime and the advertised schema disagreed.
+- **Zero-parameter tools are closed too** (`index_status`, `codebase_map`, and three others). An
+  empty property set means "this tool takes no arguments", not "anything goes".
+
+### Scope: top-level arguments
+
+This validates the **top-level** argument object. An argument that is itself a structured object is
+validated by its own model, which this layer does not descend into. No srclight tool currently takes
+an object argument, so the distinction is not reachable here today — but the guarantee is
+"top-level", and a future tool taking a typed nested model would need `extra="forbid"` on that model
+to get the same protection.
+
+### If this breaks your caller
+
+The error names exactly what it received and what the tool accepts:
+
+```
+unknown argument(s): projects. Tool 'search_symbols' accepts: kind, limit, project, query.
+Nothing was executed and no result was computed.
+```
+
+Fix the argument name. If you believe the argument *should* exist, the server may be running older
+code than you expect — check its reported revision and reconnect.
+
+**If you cannot update your caller right now**, pin the previous behaviour and update when you can:
+
+```
+pip install "srclight<0.20.2"
+```
+
+That is a deliberate escape hatch, not an endorsement — the older versions still return wrong
+answers for mistyped filters, silently. Prefer fixing the argument name.
+
+### For contributors
+
+The policy lives in `src/srclight/_mcpkit.py`, a **generated single-file build** of
+[mcpkit](https://github.com/srclight/mcpkit), shared across this estate's MCP servers so one policy
+is not reimplemented per repo. **Do not hand-edit it** — it carries a `sha256` of its own body and
+a verifier will reject a modified copy.
+
+```bash
+python -m mcpkit.vendor --out src/srclight/_mcpkit.py    # regenerate from upstream
+python -m mcpkit.vendor --check src/srclight/_mcpkit.py  # verify it is unmodified
+```
+
+It adds **no runtime dependency** — the file is vendored, not installed, so `pip install srclight`
+is unaffected. mcpkit is only needed to regenerate it.
+
+`tests/test_strict_args.py` is a smoke test asserting that `srclight.server.mcp` *itself* enforces
+the policy — not a freshly constructed lookalike. If `server.py` were reverted to a bare `FastMCP`
+while `_mcpkit.py` sat unused in the tree, that test is the only one that would fail.
+
+## Deployment Guide
+
+See **[docs/usage-guide.md](docs/usage-guide.md)** for the full deployment and usage guide, including:
+- Setting up srclight as a global MCP server for Claude Code
+- Adding/removing repos from workspaces
+- What happens on commits and branch switches
+- Re-embedding workflows
+- Troubleshooting
+
+## Auto-Reindex (Git Hook)
+
+Keep indexes fresh automatically:
+
+```bash
+# Install post-commit + post-checkout hooks in current repo
+srclight hook install
+
+# Install across all repos in a workspace
+srclight hook install --workspace myworkspace
+
+# Remove hooks
+srclight hook uninstall
+```
+
+The hooks run `srclight index` in the background after each commit and branch switch. On a repo whose index has a recorded embedding model, that refreshes embeddings too — see [Choosing the Model Once](#choosing-the-model-once) for the off switch.
+
+## How It Works
+
+1. **tree-sitter** parses every source file into an AST
+2. **Document extractors** handle non-code files (PDF, DOCX, XLSX, HTML, CSV, images, email, text) — extracting headings, tables, pages, and metadata as searchable symbols. Scanned PDF pages are optionally OCR'd via PaddleOCR.
+3. Symbols (functions, classes, methods, structs, etc.) are extracted with full metadata
+4. Three **SQLite FTS5** indexes are built with different tokenization strategies:
+   - **Names**: code-aware tokenization (splits `camelCase`, handles `::`, `->`)
+   - **Content**: trigram index for substring matching
+   - **Docs**: Porter stemming for natural language in docstrings
+5. **Community detection** clusters symbols into functional modules via Louvain algorithm on call-graph edges, with TF-IDF auto-labeling
+6. **Execution flows** are traced via BFS from entry points, and **impact analysis** scores each symbol's blast radius (LOW/MEDIUM/HIGH/CRITICAL)
+7. Optional: **embedding vectors** are generated via Ollama or Voyage API and stored as BLOBs
+8. A `.npy` **sidecar snapshot** is built and loaded to **GPU VRAM** (cupy) or CPU RAM (numpy) for fast search
+9. The **MCP server** exposes structured query tools that AI agents call instead of grep
+10. **Hybrid search** merges keyword (FTS5) and semantic (embedding) results via RRF
+
+### Architecture (Workspace Mode)
+
+```
+repo1/.srclight/index.db  ──┐
+repo2/.srclight/index.db  ──┼── ATTACH ──→ :memory: ──→ UNION ALL queries
+repo3/.srclight/index.db  ──┘
+```
+
+Each repo is indexed independently. At query time, SQLite's ATTACH mechanism joins them into a single searchable namespace. Handles >10 repos via automatic batching (SQLite's ATTACH limit).
+
+## How Srclight Compares
+
+A survey of 50+ MCP code intelligence servers across all major registries (Official MCP Registry, Smithery, Glama, mcp.so, awesome-mcp-servers) found that no other single server combines srclight's full capabilities:
+
+| Capability | srclight | grep/glob (default) | CodeMCP (SCIP) | Claude Context (Zilliz) |
+|-----------|----------|---------------------|----------------|------------------------|
+| Symbol search (FTS5) | 3 indexes (name, content, docs) | None | SCIP-based | BM25 |
+| Semantic search (embeddings) | GPU-accelerated, ~3ms | None | None | OpenAI API + Milvus |
+| Hybrid search (keyword + semantic) | RRF fusion | None | None | BM25 + vector |
+| Relationship graph (callers, callees) | tree-sitter edges | None | SCIP edges | None |
+| Community detection (module clusters) | Louvain on call graph | None | None | None |
+| Impact analysis (blast radius + risk) | Per-symbol + diff-level | None | None | None |
+| Git change intelligence | blame, hotspots, WIP, detect_changes | None | None | None |
+| Build system awareness | CMake, .csproj, #ifdef | None | None | None |
+| Multi-repo workspace | ATTACH+UNION | None | None | None |
+| Infrastructure required | `pip install`, SQLite | None | SCIP indexer | Docker, Milvus, OpenAI API |
+| Fully local / private | Yes, zero API calls | Yes | Yes | No (needs OpenAI) |
+| Languages | 19 | Any (regex) | 5 (SCIP) | Any (chunking) |
+| MCP tools | 43 | 2 (grep, glob) | 80+ | ~10 |
+
+Unlike grep-based tools, srclight builds a persistent index with structured lookups. Unlike cloud-based solutions, everything runs locally — your code never leaves your machine. Unlike IDE plugins, srclight works with any MCP client.
+
+## Roadmap
+
+### Done
+- [x] Symbol intelligence + 3x FTS5 search
+- [x] Relationship graph: callers, callees, hierarchy
+- [x] Blast radius, test discovery, implementors
+- [x] Git change intelligence: blame, hotspots, recent changes
+- [x] Build system awareness: CMake, .csproj, platform conditionals
+- [x] Semantic search: embeddings via Ollama/Voyage, hybrid RRF
+- [x] GPU-accelerated vector search: `.npy` sidecar, cupy/numpy vectorized math
+- [x] Multi-repo workspaces (ATTACH+UNION)
+- [x] Auto-reindex git hooks (post-commit + post-checkout)
+- [x] Document extraction: PDF, DOCX, XLSX, HTML, CSV, email, images, text (heading detection, tables, metadata)
+- [x] Optional OCR: PaddleOCR for scanned PDFs, pytesseract for images
+- [x] MCP agent guidance: comprehensive instructions, tool selection guide, session protocol
+- [x] Workspace config hot-reload (no server restart needed to add repos)
+- [x] VectorCache sidecar re-discovery (no restart needed after embedding)
+- [x] Project name suggestions in error messages
+- [x] Community detection: Louvain clustering on call-graph edges with TF-IDF auto-labeling
+- [x] Execution flow tracing: BFS from entry points across community boundaries
+- [x] Impact analysis: per-symbol blast radius with risk scoring (LOW/MEDIUM/HIGH/CRITICAL)
+- [x] `detect_changes`: map git diff to affected symbols and aggregate blast radius
+
+### Next
+- [ ] Cross-language concept mapping (explicit edges between equivalent symbols across languages)
+- [ ] Pattern intelligence (convention detection, coding pattern extraction)
+- [ ] AI pre-computation (symbol summaries via cheap LLM)
+
+## License
+
+MIT — Gig8 LLC

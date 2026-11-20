@@ -18,6 +18,7 @@
 | [sibling-repos.md](./sibling-repos.md) | 同族仓库对照（dsh / pi / codex），以及只读勘查的规矩 |
 | [research/2026-11-18-similar-projects.md](./research/2026-11-18-similar-projects.md) | 同类系统与组件级相似物调研；原始证据在 `.agents/evidence/2026-11-18-similar-projects-research/` |
 | [research/2026-11-19-aoci.md](./research/2026-11-19-aoci.md) | AOCI（仓库级认知索引）调研：机制、论文数字的读法、与本仓库的分域裁定；证据在 `.agents/evidence/2026-11-19-aoci/` |
+| [research/2026-11-19-repo-cognition-index.md](./research/2026-11-19-repo-cognition-index.md) | 第七类（仓库认知索引）全景：17 个仓库、四条路线、付费时机矩阵；补 2026-11-18 的漏项；证据在 `.agents/evidence/2026-11-19-repo-index-category/` |
 | [compaction-vs-handoff.md](./compaction-vs-handoff.md) | 压缩与交接的边界、阈值交叉点、`/handoff status` 压缩行的实现与规格（W1-C 已落地）、`compactNow` 探针清单 |
 | [improvement-plan-2026-11-18.md](./improvement-plan-2026-11-18.md) | 调研后的分波改进方案（检索、状态、压缩感知、技能、任务、导出）与五项待拍板 |
 | [repo-metadata.md](./repo-metadata.md) | GitHub About / Topics 文案 |
