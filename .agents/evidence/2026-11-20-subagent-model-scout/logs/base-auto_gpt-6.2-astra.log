@@ -1,0 +1,21 @@
+Reading additional input from stdin...
+OpenAI Codex v0.169.0
+--------
+workdir: /mnt/Data/Projects/dsh-project-context
+model: auto/gpt-6.2-astra
+provider: magpie
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a1f6f2-c05c-7cf3-bf05-407aece15b4b
+--------
+user
+Reply with exactly: READY
+warning: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.
+warning: Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /home/user/.codex/config.toml.
+codex
+READY
+tokens used
+97
+READY

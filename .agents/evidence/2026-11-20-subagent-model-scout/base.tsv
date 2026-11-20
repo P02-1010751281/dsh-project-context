@@ -1,0 +1,11 @@
+auto/gpt-6.1-sol	0	yes	19.3	none	34738	
+apikeyfan/claude-opus-5-5	1	no	18.2	none	?	ERROR: Reconnecting... 1/5
+auto/claude-opus-5-5	0	yes	6.7	none	46810	
+apikeyfan/gpt-6.2-sol	0	yes	9.6	none	26903	
+auto/gpt-6.2-astra	0	yes	11.9	none	31073	
+apikeyfan/gpt-6.1-terra	0	yes	10.2	none	30645	
+apikeyfan/gemini-4-argon	124	no	150.0	none	?	
+auto/gemini-4-carbon	124	no	150.0	none	?	
+apikeyfan/kimi-k3.1-pro	1	no	10.2	none	?	ERROR: Reconnecting... 1/5
+auto/kimi-k3.1-pro	0	yes	9.2	none	26074	
+auto/gpt-6.2-sol	0	yes	6.7	none	31073	

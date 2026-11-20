@@ -1,0 +1,23 @@
+Reading additional input from stdin...
+OpenAI Codex v0.169.0
+--------
+workdir: /mnt/Data/Projects/dsh-project-context
+model: apikeyfan/kimi-k3.1-pro
+provider: magpie
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a1f6f1-674b-7131-bb09-6edcbcd0a1e4
+--------
+user
+Reply with exactly: READY
+warning: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.
+warning: Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /home/user/.codex/config.toml.
+ERROR: Reconnecting... 1/5
+ERROR: Reconnecting... 2/5
+ERROR: Reconnecting... 3/5
+ERROR: Reconnecting... 4/5
+ERROR: Reconnecting... 5/5
+ERROR: unexpected status 403 Forbidden: APIKEY.FAN: insufficient balance, url: http://127.0.0.1:3425/v1/responses, request id: e991308d-f396-4705-898e-3c6527d2b9e9
+ERROR: unexpected status 403 Forbidden: APIKEY.FAN: insufficient balance, url: http://127.0.0.1:3425/v1/responses, request id: e991308d-f396-4705-898e-3c6527d2b9e9
