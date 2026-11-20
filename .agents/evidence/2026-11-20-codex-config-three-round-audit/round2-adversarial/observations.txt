@@ -1,0 +1,12 @@
+codex-cli 0.153.4
+table {'code': -32600, 'message': 'failed to load configuration: /mnt/Data/Projects/dsh-project-context/.agents/evidence/2026-11-20-codex-config-three-round-audit/round2-adversarial/tmps5o1z72n/codex/config.toml:29:1: invalid type: map, expected a boolean'}
+deleted {'thread_id_returned': True, 'model': 'auto/claude-opus-5-5'}
+boolean {'thread_id_returned': True, 'model': 'auto/claude-opus-5-5'}
+different cwd + unknown model {'thread_id_returned': True, 'model': 'invalid/no-such-model'}
+ON features list 0 [] positive control (multi_agent listed) True
+ON explicit enable 1 Error: Unknown feature flag: async_compaction
+ON exec rc 124 warning False normalized sha256 437142383b733a6316dfc1db1e05175fac3003d677cbb1d3449b25de1ceba301
+OFF features list 0 [] positive control (multi_agent listed) True
+OFF explicit enable 1 Error: Unknown feature flag: async_compaction
+OFF exec rc 124 warning False normalized sha256 fb890afbbe2bfbd7e6e74372467869b8892b801b7b320b18d852c6d33fde6a4d
+normalized byte equality: False
