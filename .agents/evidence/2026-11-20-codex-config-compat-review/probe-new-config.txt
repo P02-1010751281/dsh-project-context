@@ -1,0 +1,63 @@
+{
+  "label": "NEW-config",
+  "success": true,
+  "response": {
+    "id": 2,
+    "result": {
+      "thread": {
+        "id": "01a1f7f5-05f2-74d0-8cbd-358f2459af84",
+        "extra": null,
+        "sessionId": "01a1f7f5-05f2-74d0-8cbd-358f2459af84",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": true,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "legacy",
+        "modelProvider": "magpie",
+        "model": "opendesign/deepseek-v4.1-flash",
+        "reasoningEffort": null,
+        "createdAt": 1795161392,
+        "updatedAt": 1795161392,
+        "recencyAt": 1795161392,
+        "status": {
+          "type": "idle"
+        },
+        "path": null,
+        "cwd": "/tmp",
+        "cliVersion": "0.153.4",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      },
+      "model": "opendesign/deepseek-v4.1-flash",
+      "modelProvider": "magpie",
+      "serviceTier": null,
+      "cwd": "/tmp",
+      "runtimeWorkspaceRoots": [
+        "/tmp"
+      ],
+      "instructionSources": [],
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "auto_review",
+      "sandbox": {
+        "type": "workspaceWrite",
+        "writableRoots": [],
+        "networkAccess": false,
+        "excludeTmpdirEnvVar": false,
+        "excludeSlashTmp": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": null,
+      "multiAgentMode": "explicitRequestOnly"
+    }
+  },
+  "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/tmp.EDHTX5Hxrb\"))\n2026-11-20T07:56:32.573215Z ERROR codex_app_server: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.\n"
+}

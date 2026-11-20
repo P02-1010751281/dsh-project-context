@@ -1,0 +1,12 @@
+{
+  "label": "OLD-config",
+  "success": false,
+  "response": {
+    "error": {
+      "code": -32600,
+      "message": "failed to load configuration: /tmp/tmp.u3jP3vbLaz/config.toml:26:1: invalid type: map, expected a boolean"
+    },
+    "id": 2
+  },
+  "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/tmp.u3jP3vbLaz\"))\n2026-11-20T07:56:49.416950Z ERROR codex_app_server: Invalid configuration; using defaults. /tmp/tmp.u3jP3vbLaz/config.toml:26:1: invalid type: map, expected a boolean\n2026-11-20T07:56:49.417002Z ERROR codex_app_server: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the s"
+}

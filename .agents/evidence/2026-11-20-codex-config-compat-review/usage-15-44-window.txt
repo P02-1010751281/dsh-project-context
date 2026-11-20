@@ -1,0 +1,10 @@
+2026-11-20T15:44:10.374801917+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=152 out=472 ep=/v1/chat/completions
+2026-11-20T15:44:16.601690705+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=2902 out=101 ep=/v1/chat/completions
+2026-11-20T15:44:21.520020484+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=539 out=349 ep=/v1/chat/completions
+2026-11-20T15:44:26.822597905+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=893 out=262 ep=/v1/chat/completions
+2026-11-20T15:44:32.527469674+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=406 out=452 ep=/v1/chat/completions
+2026-11-20T15:44:32.624289078+08:00 model=claude-opus-5-5 status=200 agent=dsh in=21637 out=2 ep=/v1/responses → /v1/messages
+2026-11-20T15:44:38.896371988+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=1403 out=451 ep=/v1/chat/completions
+2026-11-20T15:44:45.917513473+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=2533 out=330 ep=/v1/chat/completions
+2026-11-20T15:44:50.525317347+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=969 out=503 ep=/v1/chat/completions
+2026-11-20T15:44:57.029361691+08:00 model=deepseek/deepseek-v4.1-flash status=200 agent=dsh in=1960 out=1057 ep=/v1/chat/completions

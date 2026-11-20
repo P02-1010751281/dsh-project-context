@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "response": {
+    "error": {
+      "code": -32600,
+      "message": "failed to load configuration: /tmp/tmp.zKO5MYdEeF/config.toml:26:1: invalid type: map, expected a boolean"
+    },
+    "id": 2
+  }
+}

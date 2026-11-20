@@ -1,0 +1,27 @@
+model = "opendesign/deepseek-v4.1-flash"
+model_provider = "magpie"
+model_catalog_json = "/home/user/.codex/magpie-models.json"
+openai_base_url = "http://127.0.0.1:3425/backend-api/codex"
+
+[projects."/etc/nixos"]
+trust_level = "trusted"
+
+[projects."/tmp"]
+trust_level = "trusted"
+
+[model_providers.magpie]
+name = "magpie"
+base_url = "http://127.0.0.1:3425/v1"
+wire_api = "responses"
+experimental_bearer_token = "magpie"
+http_headers = { "x-openai-actor-authorization" = "magpie" }
+capabilities = { "remote_compaction" = "v2" }
+
+[desktop]
+enabled-reasoning-efforts = ["low", "medium", "high", "xhigh", "ultra", "persistent", "none", "minimal", "max"]
+
+[mcp_servers.magpie]
+url = "http://127.0.0.1:3425/mcp/magpie/hub/codex"
+
+[features]
+async_compaction = true

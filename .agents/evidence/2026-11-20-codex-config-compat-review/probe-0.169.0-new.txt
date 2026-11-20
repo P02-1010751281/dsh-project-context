@@ -1,0 +1,76 @@
+{
+  "label": "0.169.0-NEW",
+  "success": true,
+  "response": {
+    "id": 2,
+    "result": {
+      "thread": {
+        "id": "01a1f7f6-0531-7231-9a74-49e7ed33795d",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "/tmp",
+            "runtimeWorkspaceRoots": [
+              "/tmp"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a1f7f6-0531-7231-9a74-49e7ed33795d",
+        "forkedFromId": null,
+        "attachedToThreadId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": true,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "magpie",
+        "model": "opendesign/deepseek-v4.1-flash",
+        "reasoningEffort": null,
+        "createdAt": 1795161458,
+        "updatedAt": 1795161458,
+        "recencyAt": 1795161458,
+        "status": {
+          "type": "idle"
+        },
+        "path": null,
+        "cwd": "/tmp",
+        "cliVersion": "0.169.0",
+        "originator": "p",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      },
+      "model": "opendesign/deepseek-v4.1-flash",
+      "modelProvider": "magpie",
+      "serviceTier": null,
+      "disabledPluginIds": [],
+      "cwd": "/tmp",
+      "runtimeWorkspaceRoots": [
+        "/tmp"
+      ],
+      "instructionSources": [],
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "auto_review",
+      "sandbox": {
+        "type": "workspaceWrite",
+        "writableRoots": [],
+        "networkAccess": false,
+        "excludeTmpdirEnvVar": false,
+        "excludeSlashTmp": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": null,
+      "multiAgentMode": "explicitRequestOnly"
+    }
+  },
+  "stderr": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/tmp.fYU4zO2DW2\"))\n2026-11-20T07:57:37.899696Z ERROR codex_app_server: Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n  user (/tmp/tmp.fYU4zO2DW2/config.toml): `mcp_servers.magpie.features"
+}

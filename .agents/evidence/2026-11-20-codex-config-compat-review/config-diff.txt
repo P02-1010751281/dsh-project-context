@@ -1,0 +1,9 @@
+10a11,13
+> [projects."/tmp"]
+> trust_level = "trusted"
+> 
+26,27c29
+< [features.async_compaction]
+< enabled = true
+---
+> features = { async_compaction = true }
