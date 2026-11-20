@@ -170,6 +170,22 @@ export type ToolsFallbackState = {
     toolsAttempted?: boolean;
 };
 /**
+ * What one caller adds to the shared fallback policy, without widening it for anybody else.
+ *
+ * `extraCodes` exists because one failure class is not a request-shape refusal yet has the same
+ * cheapest remedy: a `record_memory` whose argument JSON does not parse means the route *took* the
+ * tools and answered unusably, and the prompt already asks for four-section Markdown when the tool is
+ * unavailable. The code is shared with other unusable replies (`MALFORMED_RESPONSE` is also raised for
+ * invalid SSE JSON), so a caller opting in knowingly spends its one tools-free retry on those too —
+ * there is no exact subtype to discriminate on, and this module must not pretend there is.
+ */
+export interface ToolsFallbackOptions {
+    /** Failure codes this caller wants the one-shot tools-free retry spent on, beyond the shared set. */
+    readonly extraCodes?: readonly string[];
+    /** Called once, right before that retry, so the caller can log it without this module owning a log. */
+    readonly onRetry?: (code: string) => void;
+}
+/**
  * One auxiliary model call that may be refused because it carries `tools`, retried once without them.
  *
  * One-shot and sticky, like pi's `callAux`: only the **first** tools-carrying call of a pass may fall
@@ -181,9 +197,10 @@ export type ToolsFallbackState = {
  * @param state - the pass's own switch; a fresh object per pass.
  * @param offersTools - whether this call would carry tools at all.
  * @param call - runs the request with tools (`true`) or without them (`false`).
- * @returns the first outcome, or the tools-free retry's when the refusal was a request-shape one.
+ * @param options - a caller's own extra codes and retry notice; the shared set is never widened here.
+ * @returns the first outcome, or the tools-free retry's when the failure was one this policy covers.
  */
-export declare function callWithToolsFallback<T>(state: ToolsFallbackState, offersTools: boolean, call: (withTools: boolean) => Promise<T>): Promise<T>;
+export declare function callWithToolsFallback<T>(state: ToolsFallbackState, offersTools: boolean, call: (withTools: boolean) => Promise<T>, options?: ToolsFallbackOptions): Promise<T>;
 /**
  * Pick the tool call the caller asked for; the one place the "unusable call" policy lives.
  *

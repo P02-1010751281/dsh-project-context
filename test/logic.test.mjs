@@ -1796,6 +1796,56 @@ test("a consolidation route that refuses the tools parameter is retried once wit
 	assert.equal(report.status, "updated", `the tools-free answer is the one that lands (got ${JSON.stringify(report)})`);
 });
 
+test("a record_memory reply whose arguments do not parse is retried once without tools", async () => {
+	// `MALFORMED_RESPONSE` is not a request-shape refusal — the route accepted `tools` and answered
+	// unusably — but the same one-shot retry is the cheapest recovery, because this prompt already asks
+	// for four-section Markdown when the tool is unavailable. Memory opts in on the shared policy; the
+	// message here is deliberately neutral, because the real one carries the model's generated arguments.
+	const root = await memoryProject("dsh-memory-malformed-fallback-", "# Project Memory\n\n## Project\n- original\n");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ reason: { kind: "error", failure: { message: "tool arguments are not valid JSON", code: "MALFORMED_RESPONSE" } } },
+			{ text: FITTING_TEXT_REPLY },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 2, "the unusable reply is retried once");
+	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offered the tool");
+	assert.equal(calls[1].tools, undefined, "the retry drops the tool");
+	assert.equal(report.status, "updated", `the text answer is the one that lands (got ${JSON.stringify(report)})`);
+	assert.match(
+		await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"),
+		/the model's record_memory reply was unusable \(MALFORMED_RESPONSE\); the pass was retried once without tools/,
+		"the retry leaves one bounded line and does not echo the arguments",
+	);
+});
+
+test("a tools-free retry after a malformed reply can still be refused, leaving the stored memory untouched", async () => {
+	// The retry is a recovery attempt, not a bypass: a text answer that is lossy in turn still fails
+	// tier C, and the pass leaves the journal's bytes alone.
+	const root = await memoryProject("dsh-memory-malformed-lossy-", "# Project Memory\n\n## Project\n- original\n");
+	const before = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	const { calls, ctx, agent } = await consolidationFixture({
+		root,
+		replies: [
+			{ reason: { kind: "error", failure: { message: "tool arguments are not valid JSON", code: "MALFORMED_RESPONSE" } } },
+			{ text: FLOODED_TEXT_REPLY },
+		],
+	});
+	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(calls.length, 3, "the malformed retry, then tier C's own targeted retry");
+	assert.equal(report.status, "lossy-refused", `a lossy text answer is still refused (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, false, "nothing was written");
+	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), before, "the stored memory is byte-identical");
+});
+
 test("only a request-shape refusal buys the tools-free retry on the memory side too", async () => {
 	// The autolearn pass has the paired negative; without this one a memory-side over-reach — falling
 	// back on any code-carrying failure — would have been caught only by the autolearn case.

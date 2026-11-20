@@ -10,6 +10,29 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（`record_memory` 参数 JSON 非法时，退一次无工具重试）**
+
+- 现象：`errors.log` 记 `plugin model call failed (MALFORMED_RESPONSE): Tool call "record_memory":
+  Expected ',' or ']' …`，9 天 4 次（11-11×2、11-18、11-20）。该次 pass 整次没写盘（journal 逐字节
+  未变），因为 `callWithToolsFallback` 只对请求形状类错误码（`INVALID_REQUEST` / `HTTP_400` /
+  `HTTP_413`）花掉那次「无工具重试」。
+- 判定：这不是请求形状拒绝——路由**接受了** `tools`、回答不可用；而提示词本来就要求「工具不可用时
+  给 `memory_markdown` + `context`」，解析器还能从坏的外层 JSON 里救回完整记忆串，所以同一次无工具
+  重试就是最便宜的恢复。
+- 改法：`callWithToolsFallback` 增加可选的 `ToolsFallbackOptions`（`extraCodes` + `onRetry`），
+  **只有记忆整理**这一个调用方声明 `MALFORMED_RESPONSE`；共享允许集与 autolearn 策略未改。重试前
+  照旧置 `toolsDisabled`，`toolsAttempted` 的粘滞语义未动，输入/会话/effort/token 预算完全相同，
+  只去掉 `tools`。
+- 日志有界：只记一行 `the model's record_memory reply was unusable (CODE); the pass was retried once
+  without tools`——**不回显 message**，因为真实的 message 里带着模型生成的整段记忆参数。
+- 已知代价：`MALFORMED_RESPONSE` 与「SSE JSON 非法」共用同一 code、没有更细的子类型
+  （`llm-pi-ai/src/stream.ts:228` 构造，只带 code + message），因此这次重试偶尔会花在无关的
+  不可用回复上。
+- 验证：`pnpm test` **695 → 697**；变异轮——去掉 `extraCodes` 的接受分支后两条新用例各自变红
+  （含「tier C 仍然拒绝、journal 逐字节不变」那条），还原后全绿；`lib/` 重建，`lib/client.js`
+  37,349 B 不变。
+- 生效条件：宿主代码，需重启。
+
 **project-memory（`/memory` 回执改为分段多行）**
 
 - 裸 `/memory` 回执原本是 10 个事实用 ` · ` 连成的**单行**；Batch V 加入 `stale N` 子句后实测 **416 字符**，
