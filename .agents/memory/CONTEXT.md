@@ -1,32 +1,38 @@
 # Project Context
 
-Last updated: 2026-11-18T01:59:48.533Z
+Last updated: 2026-11-20T02:06:06.079Z
 
 ## Summary
 
-本会话在同一天先交付了同类系统调研（报告 `docs/research/2026-11-18-similar-projects.md` 547 行 + 证据包 `.agents/evidence/2026-11-18-similar-projects-research/` 76 文件 18 MB，一次提交 `3b6f9d6`，152 文件），用户同意后追问「同会话压缩会不会更好」。 针对该问题直接读了 dsh 源码（`packages/compaction/*`，`packages/boot`、`packages/client` 中的引用面）与本仓库 `src/project-handoff/conversation.ts`、`docs/handoff-candidates-b-c.md`，用实测/源码核对得出三层结论：①dsh 宿主自带 `@deepseek-ai/dsh-compaction`，`compaction-basic` 默认 `thresholdRatio 0.8`（再与剩余容量取小）、`retainRatio 0.16`、自动触发在 `agent/pre-step`、溢出在 `agent/request-error` 重试、手动 `/compact` 走 `compactNow`（要求 agent 空闲），改写是 durable surface replace（`compaction/start|summary|end` 遮蔽旧节点，工具配对保持），因此自建压缩器是重复实现且会与宿主抢同一 waterfall；②我们的 handoff 解决的是会话边界问题，且 `conversation.ts` 明确从 append-origin 日志取尾料，压缩遮蔽不影响种子完整性，两者可共存；③用默认策略估算的交叉点约 436K（128K/200K/400K 窗口压缩先到，500K/1M 窗口膝线先到），所以 1M 窗口上「157K 交接 vs 800K 压缩」是目标函数选择而非机制优劣。 给出的建议是分层而非二选一：压缩归宿主、交接归我们、补一个压缩感知的只读观测（`compaction/start|summary|end` 是 session event，可在 `/handoff status` 与注入行报「已压缩 N 次、压缩后仍高于膝线」）、handoff 被 `defer` 或子代理挡住时作为兜底（但插件能否调用 `ctx.compaction.compactNow` 未证，须先探针）、以及告诉用户已有杠杆（把 `handoffThreshold` 设到 0.8 / 800k 即可让 handoff 退化为兜底）。末轮已提议把这些落成 `docs/compaction-vs-handoff.md`（只写规格不动 `src/`），用户尚未答复。
+从 session-f608b842 交接进入（上一会话交付 Batch V 并写规格，未 push）。本会话先核对磁盘状态，然后做了三件事：① 把本地 25 个提交推到 origin（`7c93969..90d5956`，含 Batch V `90d5956` 与三份 AOCI 调研文档），本地与 origin 齐平；② 把 `~/.dsh/profiles/desktop/package.json` 的 pin 从 `2dc80cc`(11-12) 升到 `90d5956`，只改一行、备份在 `/tmp/pkg-20261120-094621.json`，用 store 里的 pnpm 11.27.0 安装（`+1`、15.6s、lockfile 同步）；③ 校验安装副本：Batch V 四个新模块已就位，`staleness.js`/`anchors.js`/`index.js`/`client.js` 与仓库 sha256 全等，profile 写的 5 个配置键都在现行 `config.ts` 里，`config.ts`/`settings.ts`/`card-fields.ts` 在这 35 个提交里零差异；`peers check` 的 `missing peer @deepseek-ai/dsh-*` 是宿主提供的包、profile 里每个插件（含第三方）都同样列出，非本次引入。**新代码尚未生效**，需用户重启宿主。 随后发现工作区 `.agents/memory/` 被 09:37 那次自动整理 pass 整篇重写：44,996 → 39,900 字符、145 → 150 条，新增 5 条（含 Batch V 的 `46c`、`3d0` 与一条安装点事实），但同时 61 个精确标识符消失（`LoadedMemory.cappedDroppedChars`、`fitted.clipped`、`sectionsSemanticallyEmpty`、`fallbackUpdate`、`cachedProjectRoot`、`HandoffRouteError`、`engines.dsh`、`/etc/nixos` 等）。两份都能被渲染器逐字节往返、0 丢弃，所以不是截断损坏，是内容被概括。`memory.jsonl` 最后一条记录（`ts`/`op`/`text`）的 text 正好 39,900 字符，证明那一 pass 是整篇重生成而非增量改。我没有提交这份重写，HEAD 仍是完整版，工作区停在新版上。 用户追问「有没有可能是 dsh 没更新插件？」——核实结果：显式 SHA pin 的 `git+ssh://` 确实不会自动升级（这点成立，也解释了它一直停在 11-12），但重写不是旧版缺陷：09:37 实际在跑的 `consolidate.js`、`record.js` 与 HEAD sha256 完全相同（`6e6e8e23…`），`index.js` 只差 Batch V 与 `/memory` 状态回执的接线，而 `src/shared/`（提示词、输入裁剪、模型调用）在这 35 个提交里零改动。根因是 tier C 只看 `sectionDropped`/`droppedItems`/`itemTruncated` 三个结构数，信息被概括时三者全为 0，回执照样报 `updated`——这是设计真空档，重启不会改变行为。 已给用户退役三选项：接受重写 / `git checkout -- .agents/memory/` 回退 / 回退后做保留标识符的受控压缩；外加可选把 `maxMemoryChars`（现 profile 设 45,000，默认 40,000）提一档。建议先回退、不要提交，再把「整篇重写会静默概括」记入下一批规格。用户尚未答复。
 
 ## Key points
 
-- dsh 自带同会话压缩：`packages/compaction/compaction-basic/src/config.ts` 的 `thresholdRatio 0.8`、`retainRatio 0.16`，压力再与「窗口 − 预留 − 65536」取小；自动触发 `agent/pre-step`，溢出 `agent/request-error` 重试，手动 `/compact` → `compactNow`（需空闲 agent、需 `agent.runMaintenance`）。
-- 压缩是 durable surface replace：`compaction/start|summary|end` 事件 + 遮蔽被压缩 span，不是删消息；工具调用与结果保持配对（`compaction/src/tool-pairing.ts`），客户端有 `CompactionNodeView` 渲染。
-- 本项目 handoff 与压缩不是同一问题：压缩缓解窗口压力（摘要替换历史、保留最近约 16%），handoff 换会话边界（原文尾料 + 文件清单 + 未答问题 + 门控 + 退休旧会话、批次 J 起零模型调用）。
-- `src/project-handoff/conversation.ts` 从 append-origin 日志读取尾料与文件索引，明确注释「不能依赖压缩后模型可见的 surface」，因此压缩遮蔽任何 span 都不影响交接种子的完整性。
-- 按默认策略估算的分界点约 436K：≤400K 窗口压缩先发生（handoff 常到不了膝线），500K/1M 窗口膝线先到（我们在压缩线之前交接）。
-- 1M 窗口两种取向：157K 交接 = 每轮质量优先但切会话多；800K 压缩 = 连续性与成本优先但需承认 160K→800K 区间的质量衰减，且反复压缩会遇 ACE 的 context collapse。
-- 已有用户杠杆、无需新键：把 `handoffThreshold` 设成 `0.8` 或 `800k` 即可让 handoff 退化为兜底，文档需写明代价。
-- 压缩感知属于纯观测（监听本来就是 session event 的三类压缩事件），不改触发时机，是最便宜的补强；插件侧兜底调用 `compactNow` 未探针验证，不得先承诺。
-- `docs/handoff-candidates-b-c.md` 的既有判定仍成立：用户 2026-10-07 的约束「不能丢东西」把触发点钉回 `turn/end`，`step/end` 与 `agent/pre-step` 触发都必须停掉在飞的那一轮、丢掉它的答案，故不做。
-- 上一批调研的交付与复验已收尾：`manifest=76` 无哈希不匹配、CSV 数据行 36、链接 6 条无坏链、密钥扫描干净，证据包 18 MB 随 `3b6f9d6` 进入 Git。
+- 本地已与 origin 齐平：推送 `7c93969..90d5956 main -> main`，共 25 个提交，含 Batch V（`90d5956`）与三份 AOCI 调研提交（`01bed31`、`7384eee`、`31619a9`）。
+- desktop profile pin 由 `2dc80cc` 升到 `90d5956`（仅 `~/.dsh/profiles/desktop/package.json` 一行，备份 `/tmp/pkg-20261120-094621.json`），用 store 内 pnpm 11.27.0 安装成功，lockfile 同步到新 SHA。
+- 安装校验通过：`staleness.js`/`anchors.js`/`index.js`/`client.js` 与仓库 sha256 全等；`staleness-source.js`、`entry-sidecar.js` 已在安装副本；profile 用的 5 个配置键都在现行 `config.ts`；本节 35 个提交里 `config.ts`/`settings.ts`/`card-fields.ts` 零差异。
+- `peers check` 里 7 个块的 `missing peer @deepseek-ai/dsh-*` 是宿主自身提供的包（cordis、dsh-session、dsh-commands、dsh-system-prompt、dsh-llm、dsh-tools 等），profile 内所有插件（含第三方 `dsh-context`、`dsh-oil-ui`、`archive-manager`）都同样列出；包本身不拥有任何 missing peer。
+- 跑中的宿主仍持旧模块，新代码要重启才加载（host 半边重启生效，client 半边需 `pnpm build` + 标签页硬刷新）。
+- 09:37 的自动 pass 把 MEMORY.md 整篇重写：44,996 → 39,900 字符，145 → 150 条，+152/−145 行；新增 5 条，但 61 个精确标识符消失；11 个旧 id 变新 id 属正常（id 由正文 sha256 派生）。
+- 两版都能被 `renderMemoryDocument` 逐字节往返、`sectionDropped`/`droppedItems`/`itemTruncated` 全 0，所以「结构完好」不构成「事实未丢」的证据。
+- `memory.jsonl` 末条记录 `{ts, op, text}` 的 text 长度 = 39,900，等于落盘文档长度，证明那次是整篇重生成而不是增量编辑。
+- 「dsh 没更新」这一层成立但非本次原因：显式 SHA pin 不自动升级（停在 11-12）；但 09:37 在跑的 `consolidate.js`/`record.js` 与 HEAD sha256 相同（`6e6e8e23…`），`src/shared/` 零改动，`index.js` 差异只在 Batch V 与 `/memory` 回执接线。
+- 根因是 tier C 只看结构丢弃数：措辞级概括使三个计数器全为 0，回执报 `updated`，重启不会改变这一行为；属设计真空档，需单独设计一道「信息损失」闸。
+- profile 的 `maxMemoryChars` 已是 45,000（默认 40,000），文档 44,996 顶格——加 5 条就得砍约 5,000 字符；提高 cap 只买时间，不修根因，且每轮多花提示词 token。
+- 改 `renderMemoryDocument` 的调用签名要先读：它是 `(sections, cap: number)`，我一开始传对象导致一次假的「not identical」判定。
+- 记忆事实审计要按行抽反引号 token：跨行正则会让抽取错位、既多报又漏报；本轮修正后 74 个 missing 中 13 个仍是纯文本存在、61 个真消失。
+- 用户尚未在「接受重写 / 回退 / 回退后受控压缩」中拍板；工作区当前停在 39,900 的重写版，HEAD 为完整的 44,996 版。
 
 ## Open tasks
 
-- 用户是否要把分层建议落成 `docs/compaction-vs-handoff.md`（只写规格：交叉点计算、`/handoff status` 压缩行规格、`compactNow` 可调用性探针清单，不动 `src/`）——已提议，待拍板。
-- 若推进压缩感知：先用探针证明插件能否在空闲 agent 上调用 `ctx.compaction.compactNow`，再谈兜底；未证不得写入承诺。
-- P0 补强（只读检索面、`/memory status` 类状态面板、交接回执可视化）仍未拍板，需用户定范围。
-- Z8d 部分盖章需宿主重启后才生效（用户执行），重启后触发一次整理 pass 并确认 `errors.log` 无新的 `memory regression:` 行。
-- 方案 D（3-hex 条目 id）仍默认不做，等用户在看到调研结论后再定。
+- 等用户定夺 MEMORY.md 的处理方式：① 提交这份 39,900 重写；② `git checkout -- .agents/memory/` 回退到 44,996 完整版；③ 回退后由我做保留标识符的受控压缩（每个消失 token 机械校验仍存在）再经插件写路径落地。当前建议是 ②/③ 而非 ①。
+- 若用户同意：把 profile 的 `maxMemoryChars` 提一档（约 52,000）以留余量，并接受每轮提示词 token 增加的代价。
+- 把「整篇重写会静默概括、tier C 三个计数器看不到」写成下一批规格的候选条目（信息损失闸），再决定是否动 `src/`。
+- 用户执行宿主重启后：确认新 pin 的 Batch V 代码生效（`/memory` 回执行显示 `stale N` 四态），并触发一次整理 pass 确认 `errors.log` 无新 `memory regression:` 行。
+- 「调研一下 AOCI」仍未交付：范围为「AOCI 指什么、要文档还是源码核对」先问清；仓库里已有三份 AOCI 调研提交（`01bed31`、`7384eee`、`31619a9`，evidence 目录 09:07 的 `classes.txt`/`classify.mjs`/`probe.mjs`/`output.json` 即该实验），需确认与用户所指是否同一件事。
+- V-2（把 stale 数量写进整理提示词）排期待定：先跑几次真实 pass 观察 stale 数量再决定。
+- SH-10：插件能否在空闲 agent 上调用 `ctx.compaction.compactNow` 仍未探针验证，未证不得写入承诺。
+- P0 补强（`/memory status` 面板扩展、交接回执可视化）仍未拍板，需用户定范围；可选的 `dsh-code-index` 兼容性试验尚未开始。
 - `context-injection.test.mjs` 偶发失败未定性（旧项，需在无并发写入时复现）。
-- 调研报告标注的站点漂移项（Cursor memories、Windsurf→Devin、Codex 文档迁移）未闭合，若要对外发布需补一轮复核。
 
-<!-- latest-session-title: 同会话压缩 vs handoff：宿主压缩机制核对与分工建议 -->
+<!-- latest-session-title: 推送 Batch V、升 desktop pin 并安装，发现一次自动 pass 静默概括了 MEMORY.md -->
