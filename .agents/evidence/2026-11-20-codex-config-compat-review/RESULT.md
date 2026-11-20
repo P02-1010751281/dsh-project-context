@@ -74,7 +74,7 @@ feature is registered, and the invalid model keeps the call from reaching an ups
 | C1: plugin spawns store-bundled `@openai/codex` 0.153.4, not PATH's 0.169.0 | CONFIRMED | `packages/subagent/subagent-codex/src/run.ts:44`; resolved `…/.pnpm/@openai+codex@0.153.4/…`; PATH `codex --version` is 0.169.0 |
 | C2: old config fails `thread/start` for every model | CONFIRMED | `-32600 invalid type: map, expected a boolean` with four model ids (pinned / control / config default / omitted) |
 | C3: new config is backward compatible, feature preserved | CONFIRMED ONLY AFTER EDIT #2; edit #1 kept parsing but dropped the feature | matrix above |
-| C4: the plugin path completes a live turn after the change | **PARTIAL** — see "Live acceptance" below: the router row is a codex app-server under the `dsh` label and matches the call by time and shape, but the log alone does not tie it to that specific tool invocation | `usage.jsonl` rows |
+| C4: the plugin path completes a live turn after the change | CONFIRMED via the session event chain (see "Live acceptance"): the dsh event log pins the `subagent_codex` call and the child's creation to 16:20:01.375/.659, and the router row is 197 ms later | `session-a43aa39f-…/session.v4.jsonl.zstd` events quoted below + `usage.jsonl` |
 | C5: pin is `auto/claude-opus-5-5`, present in the catalog | CONFIRMED | `cordis.patch.yml:1155-1158`; catalog key is `slug`, 108 entries, `gpt-5.6*` absent |
 
 ## Post-fix state
@@ -122,9 +122,21 @@ Row 1 is a direct `codex exec`. Row 2 is a codex app-server reporting `clientInf
 which in the same window went to `commandcode-plan` over `/v1/chat/completions` with no session id and
 a ~240k system prompt, whereas row 2 used `/v1/responses`, a codex session id and ~69k of prompt.
 
-What this does **not** prove: that row 2 belongs to that exact `subagent_codex` invocation — the tool
-returned `started subagent agent-3` and the child returned `READY`, and the row's time and shape fit,
-but the router log carries no dsh session id. Treat it as strong correlation, not identity.
+What ties row 2 to that specific invocation is the dsh session event log
+(`/home/user/.dsh/sessions/--mnt-Data-Projects-dsh-project-context--/session-a43aa39f-…/session.v4.jsonl.zstd`,
+decompressed with `zstd -dc`):
+
+```
+16:20:01.375  tool/call         name=subagent_codex  callId=call_00_h0l8ofrdjgwwf85sxqujn61j
+16:20:01.659  subagent/catalog  childId=1aadd8d9-3b19-4c60-89f7-8e146ec66651  name=agent-3  mode=external
+16:20:01.661  tool/result       "started subagent agent-3"
+16:20:01.856  usage.jsonl       agent=dsh wandapi claude-opus-5-5 200  (197 ms after the child was created)
+16:20:04.737  subagent settled  closing message "READY"
+```
+
+So the tool call, the child's creation and the routed 200 are one causal chain within half a second; the
+router row still carries no dsh session id, which is why the identity argument rests on these event
+timestamps rather than on the row itself.
 
 ## Residual risks
 
