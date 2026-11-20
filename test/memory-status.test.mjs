@@ -75,7 +75,10 @@ test("a stored four-section document reports its length and its section counts, 
 	await writeFile(memoryFile(root), document);
 
 	const { memory, reply } = await status(root);
-	assert.match(reply.text, new RegExp(`^Memory: ${memoryFile(root).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} · `), reply.text);
+	// The first line is the only one a collapsed command row shows, so it carries the measurements;
+	// the source path is named on the journal line instead of leading and being clipped.
+	assert.match(reply.text, /^Memory: \d+\/\d+ chars \(\d+%\) · /, reply.text);
+	assert.match(reply.text, new RegExp(`^source ${memoryFile(root).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"), reply.text);
 	// The receipt sizes the *loaded* document — what a consolidation pass would see — so a loader
 	// normalization (a trailing newline) is already reflected in both numbers.
 	assert.match(reply.text, new RegExp(`${memory.text.length}/${CAP} chars \\(${Math.round((memory.text.length / CAP) * 100)}%\\)`), reply.text);

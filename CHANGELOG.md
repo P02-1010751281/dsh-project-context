@@ -13,13 +13,18 @@
 **project-memory（`/memory` 回执改为分段多行）**
 
 - 裸 `/memory` 回执原本是 10 个事实用 ` · ` 连成的**单行**；Batch V 加入 `stale N` 子句后实测 **416 字符**，
-  终端与界面里都放不下一行。现在按事实组分段：首行「来源 · 长度/上限（百分比）· 四节条目数」，
-  其下依次 `stale …`、`journal …`、`backups · archived sessions · errors.log`，末行 `no last-pass result …`；
-  组内仍用 ` · ` 分隔，最长一行约 150 字符。
+  终端与界面里都放不下一行。现在按事实组分段，组内仍用 ` · ` 分隔。
+- **根因不是单行，是折叠**：客户端把命令回执渲染成 `GenericCommandCard`——折叠态是一行
+  `white-space: nowrap` + 省略号的摘要，正文（`<pre>`，`pre-wrap`）只在 `text.includes("\n")` 时
+  才可展开，且默认收起。因此**单行回执永远无法展开**，416 字符只能被裁掉；换行本身也是展开的前提。
+- 因此首行必须是**度量**而不是路径：绝对路径会把「长度/上限、四节条目数、stale」全部顶出裁剪区。
+  现在首行是 `Memory: <len>/<cap> chars (<pct>%) · <四节条目数>`（实测 96 字符），
+  来源路径改为独占一行 `source <path>` 且仅当它不是 journal 本身时出现（journal 行已点名该文件）。
 - capped 警告原本追加在首行末尾（本身是一句 200 字符的说明），现在独占一行。
-- 事实与措辞一字未改，只改换行位置；相应更新 4 处依赖原布局的断言（`test/logic.test.mjs` 3 处、
-  `test/memory-status.test.mjs` 1 处），其余断言都是独立正则，未改动。
-- 验证：`pnpm test` **695 通过 / 0 失败**；`lib/` 重建，`lib/client.js` 37,349 B 不变。
+- 事实与措辞一字未改，只改换行与行序；相应更新 6 处依赖原布局的断言（`test/logic.test.mjs` 4 处、
+  `test/memory-status.test.mjs` 2 处），其余断言都是独立正则，未改动。
+- 验证：`pnpm test` **695 通过 / 0 失败**；`lib/` 重建后 `lib/client.js` 37,349 B 不变；
+  用 `loadMemory` + `memoryStatusReply` 渲染真实项目，回执 **346 字符 / 5 行 / 首行 96**。
 - 生效条件：宿主代码，需重启。
 
 **project-memory（Batch V：记忆条目的内容漂移）**

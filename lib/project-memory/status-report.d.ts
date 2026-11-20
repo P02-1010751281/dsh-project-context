@@ -82,6 +82,10 @@ export interface MemoryStatusReport {
  * describes what **this** read's cap kept back — including on the no-journal read, which clips without
  * writing a marker at all. Either one is enough to warn; a memory that lost a third of itself must not
  * read as perfectly healthy, or every later append lands past the cap and is dropped on write.
+ *
+ * Layout is load-bearing, not cosmetic: the first line is the whole receipt until the reader expands
+ * it (see the healthy branch for the client's collapsed command row), so it carries the measurements
+ * and never a path.
  * @param report - the loaded document, its flags, and the file facts the adapter measured.
  * @returns the command result.
  */

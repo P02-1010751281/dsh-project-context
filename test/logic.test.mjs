@@ -2763,7 +2763,8 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 	assert.equal(reply.kind, "success");
 	assert.match(reply.text, /32000-character cap/, "the note names the configured cap");
 	assert.match(reply.text, /dropped on write/, "and says what the consequence is");
-	assert.match(reply.text, /Memory: \.agents\/memory\/MEMORY\.md/, "the normal line is still there");
+	assert.match(reply.text, /Memory: \d+\/32000 chars/, "the measurement line is still there");
+	assert.match(reply.text, /source \.agents\/memory\/MEMORY\.md/, "and still names the source, on the journal line");
 	// The measured store facts follow the warning instead of replacing it.
 	assert.match(reply.text, new RegExp(`${capped.length}/32000 chars`), "the size is the loaded document's own length");
 	assert.match(reply.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
@@ -2773,7 +2774,9 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 	// An uncapped memory must not cry wolf, or the warning stops meaning anything.
 	const healthy = await memoryStatusReply({ text: "# Project Memory\n\n- a fact\n", source: ".agents/memory/MEMORY.md" }, context);
 	assert.doesNotMatch(healthy.text, /cap|dropped|truncat/i, "a memory inside the cap is reported as plain healthy");
-	assert.ok(healthy.text.startsWith("Memory: .agents/memory/MEMORY.md · "), "the source still leads the receipt");
+	// The measurements lead the first line, because the client collapses a command receipt to one
+	// ellipsized line and only the expanded view shows the rest; the source path rides the journal line.
+	assert.match(healthy.text, /^Memory: \d+\/32000 chars \(\d+%\) · /, healthy.text);
 	assert.match(healthy.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
 	assert.match(healthy.text, /^0 backups/m);
 
