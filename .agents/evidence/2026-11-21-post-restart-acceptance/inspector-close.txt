@@ -1,0 +1,5 @@
+sent inspector.close()
+
+== final close (attempt 2: process.getBuiltinModule('node:inspector').close()) ==
+curl -s -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9229/json/list  ->  000 (connection refused; inspector listener gone)
+date: 2026-11-21T21:36:38+08:00

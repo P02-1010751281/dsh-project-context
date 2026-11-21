@@ -1,0 +1,38 @@
+date: 2026-11-21T21:35:31+08:00
+HEAD: 5a7064d328ba0176403be7100acb20eb221a8a08 2026-11-21 20:54:04 +0800
+
+== git status --short ==
+ M CHANGELOG.md
+ M docs/memory-rewrite-loss-gate-spec.md
+ M lib/project-memory/consolidate.d.ts
+ M lib/project-memory/consolidate.js
+ M lib/project-memory/index.d.ts
+ M lib/project-memory/index.js
+ M lib/project-memory/missing-literals.d.ts
+ M lib/project-memory/missing-literals.js
+ M src/project-memory/consolidate.ts
+ M src/project-memory/index.ts
+ M src/project-memory/missing-literals.ts
+?? .agents/evidence/2026-11-21-post-restart-acceptance/
+?? lib/project-memory/lost-entry-repair.d.ts
+?? lib/project-memory/lost-entry-repair.js
+?? src/project-memory/lost-entry-repair.ts
+?? test/memory-loss-repair.test.mjs
+
+== b36743e..HEAD diff over code paths ==
+(empty above = code identical)
+
+== process start times ==
+    PID                          
+ 256558 六 11月 21 21:21:39 2026 /nix/store/wmb4b3d5m11025nc9kkhbms87kijkpmg-electron-unwrapped-44.10.2/libexec/electron/electron --force-renderer-accessibility /
+ 257563 六 11月 21 21:21:41 2026 /nix/store/wmb4b3d5m11025nc9kkhbms87kijkpmg-electron-unwrapped-44.10.2/libexec/electron/electron --type=renderer --enable-crash-r
+ 257654 六 11月 21 21:21:42 2026 /nix/store/6wq2z8y8vbw4acm4dnwx13c96sbpvyly-nodejs-official-24.20.0/bin/node --expose-internals /home/user/.dsh/desktop/nix-proje
+
+== 35197 listener ==
+LISTEN 0      511                               127.0.0.1:35197      0.0.0.0:*    users:(("MainThread",pid=257654,fd=38))
+
+== follow-up (2026-11-21T21:37:31+08:00) ==
+HEAD is now: dcc45f90372ad95ac866fdf582a30d159bf6de60 2026-11-21 21:35:38 +0800 feat(memory): restore entries a consolidation pass dropped while their literals vanished
+git status --short:
+?? .agents/evidence/2026-11-21-post-restart-acceptance/
+(lead's in-flight work was committed as dcc45f9 after the 21:35 snapshot; the criterion files in this report are untouched by it)

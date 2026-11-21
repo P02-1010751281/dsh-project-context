@@ -1,0 +1,23 @@
+date: 2026-11-21T21:35:45+08:00
+files: client-served.js (HTTP-served, 40529 B) vs lib/client.js (40453 B, installed = repo = b36743e blob)
+
+marker                           served    built
+SegmentedTabs                         1        1
+dsh-pc-panel-                         2        2
+dsh-pc-tab-                           2        2
+section.memory.title                  3        3
+section.autolearn.title               3        3
+section.handoff.title                 3        3
+tab.memory                            3        3
+tab.autolearn                         3        3
+tab.handoff                           3        3
+sessionSettledDays                    5        5
+autolearnExpireSkills                 5        5
+
+== tab construction (served bundle, verbatim) ==
+rm, { labels: formLabels(t, state.saveFailure), state, onSave: props.save, onDiscard: props.discard, children: [\n    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(\n      import_dsh_client_ui_primitives.SegmentedTabs,\n      {\n        className: "dshPcTabs",\n        label: t("tabs.label"),\n        value: tab,\n        onChange: setTab,\n        items: tabs\n      }\n    ),\n    SECTIONS.map((section) => /* @__PURE__ */
+---
+act.useState)(SECTIONS[0]?.value ?? "memory");\n  const tabs = SECTIONS.map((section) => ({\n    value: section.value,\n    label: t(section.tabKey),\n    id: `dsh-pc-tab-${section.value}`,\n    panelId: `dsh-pc-panel-${section.value}`\n  }));\n  const copy = (row) => ({\n    label: t(labelKey(row.key)),\n    hint: t(hintKey(row.key)),\n    overriddenLabel: t("chrome.overridden"),\n    resetLabel: t("chrome.reset"),\n    
+---
+ems: tabs\n      }\n    ),\n    SECTIONS.map((section) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(\n      "section",\n      {\n        className: "dshPcSection",\n        role: "tabpanel",\n        id: `dsh-pc-panel-${section.value}`,\n        "aria-labelledby": `dsh-pc-tab-${section.value}`,\n        hidden: section.value !== tab,\n        children: [\n          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { cl
+---

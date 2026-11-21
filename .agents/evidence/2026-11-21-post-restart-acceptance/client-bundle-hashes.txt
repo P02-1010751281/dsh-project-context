@@ -1,0 +1,23 @@
+date: 2026-11-21T21:35:31+08:00
+HEAD: 5a7064d328ba0176403be7100acb20eb221a8a08
+
+== served (HTTP /plugins/??dsh-project-context/client.js&rev=d72a52c37456) ==
+40529 bytes
+464bef1b28673d16d28faf948065eabc80792dab81827ce0874d5d33b913d4d8  .agents/evidence/2026-11-21-post-restart-acceptance/client-served.js
+== served minus 76-byte sourceMappingURL trailer ==
+077a071321db57ea6b1027cc4dded8a4f2ff4ea5217718c6b07a11662eec2c2f  -
+== installed profile copy ==
+077a071321db57ea6b1027cc4dded8a4f2ff4ea5217718c6b07a11662eec2c2f  /home/user/.dsh/profiles/desktop/node_modules/dsh-project-context/lib/client.js
+== repo lib/client.js ==
+077a071321db57ea6b1027cc4dded8a4f2ff4ea5217718c6b07a11662eec2c2f  lib/client.js
+== git show b36743e:lib/client.js ==
+077a071321db57ea6b1027cc4dded8a4f2ff4ea5217718c6b07a11662eec2c2f  -
+== git show 5a7064d:lib/client.js ==
+077a071321db57ea6b1027cc4dded8a4f2ff4ea5217718c6b07a11662eec2c2f  -
+== worktree files this evidence relies on, unmodified? ==
+(empty above = unchanged by the lead in-flight edits)
+
+== trailer bytes of served copy ==
+});
+;
+//# sourceMappingURL=??dsh-project-context/client.js.map&rev=d72a52c37456

@@ -1,0 +1,111 @@
+{
+	"root": "/mnt/Data/Projects/dsh-project-context",
+	"measuredAt": "2026-11-21T13:32:13.901Z",
+	"memoryFile": "/mnt/Data/Projects/dsh-project-context/.agents/memory/MEMORY.md",
+	"config": {
+		"maxMemoryChars": 52000,
+		"taskMode": "assisted",
+		"profilePath": "/home/user/.dsh/profiles/desktop/cordis.patch.yml",
+		"profileValues": {
+			"consolidateTurns": 1,
+			"maxMemoryChars": 52000,
+			"maxOutputTokens": 49152,
+			"handoffThreshold": 400000,
+			"handoffBudgetRecentTokens": 20000,
+			"handoffPendingQuestion": "wait"
+		}
+	},
+	"checked": true,
+	"cappedDroppedChars": 0,
+	"total": 209,
+	"counts": {
+		"content-stale": 15
+	},
+	"byState": {
+		"content-stale": [
+			{
+				"tid": "dc5",
+				"detail": "src/shared/model-call.ts"
+			},
+			{
+				"tid": "af0",
+				"detail": "src/project-handoff/perform.ts"
+			},
+			{
+				"tid": "ef8",
+				"detail": "src/project-memory/retirement.ts"
+			},
+			{
+				"tid": "bf1",
+				"detail": "src/project-memory/missing-literals.ts"
+			},
+			{
+				"tid": "d8b",
+				"detail": "src/project-autolearn/skill-state-source.ts"
+			},
+			{
+				"tid": "a2f",
+				"detail": "client/card-fields.ts, test/settings-form.test.mjs"
+			},
+			{
+				"tid": "9f7",
+				"detail": "test/card-render.test.mjs"
+			},
+			{
+				"tid": "0da",
+				"detail": "client/card-fields.ts"
+			},
+			{
+				"tid": "bde",
+				"detail": "test/logic.test.mjs"
+			},
+			{
+				"tid": "b5b",
+				"detail": "docs/README.md"
+			},
+			{
+				"tid": "1a1",
+				"detail": "docs/README.md"
+			},
+			{
+				"tid": "f89",
+				"detail": "client/locales.ts, src/project-context/index.ts, src/shared/config.ts"
+			},
+			{
+				"tid": "fb0",
+				"detail": "src/project-memory/index.ts"
+			},
+			{
+				"tid": "fa5",
+				"detail": "src/project-context/index.ts, src/project-context/session-state.ts, test/session-state.test.mjs"
+			},
+			{
+				"tid": "528",
+				"detail": "docs/batch-aa-state-machines-spec.md, src/project-autolearn/index.ts, src/project-autolearn/skill-state.ts, test/skill-state.test.mjs"
+			}
+		]
+	},
+	"acceptList": [
+		"dc5",
+		"af0",
+		"ef8",
+		"bf1",
+		"d8b",
+		"a2f",
+		"9f7",
+		"0da",
+		"bde",
+		"b5b",
+		"1a1",
+		"f89",
+		"fb0",
+		"fa5",
+		"528"
+	],
+	"acceptCommand": "/memory reconcile --accept dc5\n/memory reconcile --accept af0\n/memory reconcile --accept ef8\n/memory reconcile --accept bf1\n/memory reconcile --accept d8b\n/memory reconcile --accept a2f\n/memory reconcile --accept 9f7\n/memory reconcile --accept 0da\n/memory reconcile --accept bde\n/memory reconcile --accept b5b\n/memory reconcile --accept 1a1\n/memory reconcile --accept f89\n/memory reconcile --accept fb0\n/memory reconcile --accept fa5\n/memory reconcile --accept 528",
+	"nonRetiringStates": [
+		"task-closed",
+		"version-shipped",
+		"content-stale"
+	]
+}

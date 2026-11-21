@@ -118,6 +118,7 @@
 - dsh 上游设置表单是一项一块的竖排 flex column（`ConfigField.tsx` 的 `.field` 为 `flex-direction: column; gap: 6px`，label、控件、错误各占行，无 hint 位、无网格/折叠）；我们的卡片用同行 `.dshPcRow` 更密，多一行的真实成本是每行一条 hint。（b53）
 - 设置卡片用上游 `SegmentedTabs` 分三个页签（记忆 / 技能 / 交接），分组仍由 `client/card-fields.ts` 的 `SECTIONS` 决定；三个面板都留在 DOM 只切可见性，所以切换不丢已暂存编辑、底部仍是一次保存一次原子写（`bfea9cd`）。（5a4）
 - 让 memory / autolearn / handoff 各自导出 `Config` 出三张独立设置卡被否：共享 `project-context` 命名空间（一个 schema、一次保存、一个 revision）是有意的，拆成四份要迁移两个 profile 里已有的值，属单独一批、先出拆分 spec。（5e4）
+- 批次 AC 的修复闸在 `src/project-memory/lost-entry-repair.ts`：tier C 与 batch Z2 退休之后运行，只对 Invariants/Pitfalls 回填「规范化正文（去 id、压空白）消失、且它带的每个反引号字面量都从整篇消失」的条目，恢复旧原文含条目 id 并把 id 补进 `keepIds`；`supersedes:<id>` 点名的、`Project`/`Index` 的、回填后重渲染会丢东西的（`no-room`）都不回填，回执首行印 `Restored:`/`Not restored:` 各一行到 `errors.log`。
 
 ## Pitfalls
 - 记忆丢失发生在写之前或写时，所以干净重渲染证明不了什么；五个点是 `fitMemoryInput` 首尾裁剪、`renderMemoryDocument` 按段落预算丢条目、存储的上下文在适配前被切成 `MAX_CONTEXT_CHARS`、`renderContextDocument` 裁段、`normalizeMemoryDocument` 写时封顶；`ConsolidateReport` 带六个丢失计数加 `memoryWritten`/`contextWritten`。（bbc）
@@ -187,6 +188,7 @@
 - 重启验证脚本可能因为与本仓库无关的原因印 `RESULT: FAIL`：`/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 在另一个无关 desktop 活着时失败，验收脚本自己的 `title-load verify` 一半在重启后重跑判据前也失败。（005）
 - 卡片按 profile 钉住的 dsh 类型编译，上游 0.2.x 才声明的属性不能传——给 `SegmentedTabs` 传 `size` 会让 `tsc -p tsconfig.client.json` 报 `Property 'size' does not exist`。（08f）
 - 手工恢复 `MEMORY.md` 后宿主会印 `adopted an externally edited MEMORY.md into the memory journal` 与 `memory regression: N … entry(ies) are no longer present`（按条目精确文本比），这是它发现外部改写的方式，不是故障。（89a）
+- tier C 量的是渲染期丢弃、`missing-literals.ts` 只报告，所以模型在渲染前整条省掉一个事实时两者都报 0、状态仍 `updated`；2026-11-21 一天内同一条 pitfall 被删两次（20:40、20:48）才补上批次 AC 的回填闸——判断措辞级丢失时不要拿 tier C 的 0 当证据。
 
 ## Index
 - `README.md` / `CHANGELOG.md` 描述当前行为；已发布正文在 `docs/changelog/<version>.md`，`docs/README.md` 是文档索引；README 是 `package.json` 之外唯一写版本行的地方，并载 `## 致谢` 署名段。（b5b）

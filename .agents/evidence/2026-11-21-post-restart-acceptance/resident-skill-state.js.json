@@ -1,0 +1,27 @@
+{
+	"port": "9229",
+	"file": "lib/project-autolearn/skill-state-source.js",
+	"residentCopies": [
+		{
+			"scriptId": "1351",
+			"chars": 12223,
+			"sha256": "8125360f0b2d751be6b407cf28b26805fe1fedcf23f68f9d966f71f80ecf6719",
+			"commits": [
+				"5a7064d 20:54:04 +0800 docs(memory): restore the restart-verify pitfall the 20:48 pass dropped",
+				"c2181ba 20:52:28 +0800 docs(evidence): preflight the settings card against the live 0.2.2-rc.3 platform",
+				"b36743e 20:45:25 +0800 docs(memory): keep this round and restore the restart-verify pitfall",
+				"bfea9cd 20:43:50 +0800 feat(client): group the settings card behind the platform's tab list",
+				"dee5db8 20:35:49 +0800 feat(settings,autolearn): configure the two verdict boundaries, name unbindable skills"
+			]
+		}
+	],
+	"diskSha256": "8125360f0b2d751be6b407cf28b26805fe1fedcf23f68f9d966f71f80ecf6719",
+	"diskCommits": [
+		"5a7064d 20:54:04 +0800 docs(memory): restore the restart-verify pitfall the 20:48 pass dropped",
+		"c2181ba 20:52:28 +0800 docs(evidence): preflight the settings card against the live 0.2.2-rc.3 platform",
+		"b36743e 20:45:25 +0800 docs(memory): keep this round and restore the restart-verify pitfall",
+		"bfea9cd 20:43:50 +0800 feat(client): group the settings card behind the platform's tab list",
+		"dee5db8 20:35:49 +0800 feat(settings,autolearn): configure the two verdict boundaries, name unbindable skills"
+	],
+	"verdict": "the running host executes the code on disk"
+}

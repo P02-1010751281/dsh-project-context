@@ -1,0 +1,83 @@
+{
+  "pinned": {
+    "platform": "/mnt/Data/Projects/dsh-project-context/node_modules/.pnpm/@deepseek-ai+dsh-client-ui-primitives@0.1.7-rc.2_@deepseek-ai+cordis@4.0.2/node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/index.js",
+    "tabs": [
+      "autolearn",
+      "handoff",
+      "memory"
+    ],
+    "panels": [
+      "autolearn",
+      "handoff",
+      "memory"
+    ],
+    "fields": [
+      "autolearnIntervalMs",
+      "autolearnTurns",
+      "consolidateIntervalMs",
+      "consolidateTurns",
+      "forceDedupeMs",
+      "handoffBudgetRecentTokens",
+      "handoffBudgetSummaryTokens",
+      "handoffThreshold",
+      "maxMemoryChars",
+      "maxOutputTokens",
+      "maxTokens",
+      "model",
+      "provider",
+      "sessionSettledDays"
+    ],
+    "visiblePanels": 1,
+    "buttons": 18,
+    "switches": 6,
+    "tablists": 1,
+    "rows": 9,
+    "bytes": 10485,
+    "digest": "4cff106a9970718e"
+  },
+  "live": {
+    "platform": "/nix/store/xbbn6inj2q64j88gsmjrljqkh1m572sy-dsh-desktop-0.2.2-rc.3/lib/dsh-desktop/repo/packages/client/ui-primitives/lib/index.js",
+    "tabs": [
+      "autolearn",
+      "handoff",
+      "memory"
+    ],
+    "panels": [
+      "autolearn",
+      "handoff",
+      "memory"
+    ],
+    "fields": [
+      "autolearnIntervalMs",
+      "autolearnTurns",
+      "consolidateIntervalMs",
+      "consolidateTurns",
+      "forceDedupeMs",
+      "handoffBudgetRecentTokens",
+      "handoffBudgetSummaryTokens",
+      "handoffThreshold",
+      "maxMemoryChars",
+      "maxOutputTokens",
+      "maxTokens",
+      "model",
+      "provider",
+      "sessionSettledDays"
+    ],
+    "visiblePanels": 1,
+    "buttons": 18,
+    "switches": 6,
+    "tablists": 1,
+    "rows": 9,
+    "bytes": 10528,
+    "digest": "f20ca524deff697a"
+  },
+  "differing": [],
+  "chromeOnlyDelta": {
+    "bytes": 43,
+    "digest": false
+  },
+  "markupEqual": false,
+  "control": false,
+  "stubbedByLive": 82,
+  "pass": true
+}

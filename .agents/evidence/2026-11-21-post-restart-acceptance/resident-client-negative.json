@@ -1,0 +1,13 @@
+{
+	"port": "9229",
+	"file": "lib/client.js",
+	"residentCopies": [],
+	"diskSha256": "077a071321db57ea6b1027cc4dded8a4f2ff4ea5217718c6b07a11662eec2c2f",
+	"diskCommits": [
+		"5a7064d 20:54:04 +0800 docs(memory): restore the restart-verify pitfall the 20:48 pass dropped",
+		"c2181ba 20:52:28 +0800 docs(evidence): preflight the settings card against the live 0.2.2-rc.3 platform",
+		"b36743e 20:45:25 +0800 docs(memory): keep this round and restore the restart-verify pitfall",
+		"bfea9cd 20:43:50 +0800 feat(client): group the settings card behind the platform's tab list"
+	],
+	"verdict": "not loaded (the file is not parsed in this isolate)"
+}
