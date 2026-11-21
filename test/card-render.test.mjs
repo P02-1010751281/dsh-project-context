@@ -132,7 +132,7 @@ const result = await build({
 			'export { createElement } from "react";',
 			'export { renderToStaticMarkup } from "react-dom/server";',
 			'export { ProjectContextSettingsCard, ProjectContextSettingsCardController } from "./client/settings-card.tsx";',
-			'export { ROWS } from "./client/card-fields.ts";',
+			'export { ROWS, SECTIONS } from "./client/card-fields.ts";',
 		].join("\n"),
 		resolveDir: root,
 		loader: "tsx",
@@ -167,6 +167,7 @@ const {
 	ProjectContextSettingsCard,
 	ProjectContextSettingsCardController,
 	ROWS,
+	SECTIONS,
 } = await import(pathToFileURL(bundlePath).href);
 
 /** A section value that carries every field of the table. */
@@ -201,8 +202,8 @@ const PILL_TOTAL = UNION_ROWS.reduce((sum, row) => sum + (row.options?.length ??
 /** The rows the platform's own field draws: nothing hides a row any more, so this is the table. */
 const PLATFORM_ROWS = ROWS.filter((row) => PLATFORM_KINDS.has(row.kind));
 
-/** Every clickable control a clean page is allowed: one switch per boolean, one pill per option, one save. */
-const CLEAN_BUTTONS = BOOLEAN_ROWS.length + PILL_TOTAL + 1;
+/** Every clickable control a clean page is allowed: one switch per boolean, one pill per option, one tab per section, one save. */
+const CLEAN_BUTTONS = BOOLEAN_ROWS.length + PILL_TOTAL + SECTIONS.length + 1;
 
 const occurrences = (haystack, needle) => haystack.split(needle).length - 1;
 const tick = () => new Promise((resolve) => { setImmediate(resolve); });
@@ -491,4 +492,17 @@ test("the threshold row folds every spelling the command accepts into the stored
 	await tick();
 	assert.equal(refused.calls.length, 0, "and it must never reach the Host");
 	over.controller.dispose();
+});
+
+test("the card groups its rows behind the platform's tab list", () => {
+	// The platform owns the tab list (`SegmentedTabs`); the card owns which panel is shown. Every
+	// panel stays in the DOM so a staged edit survives a switch and the field list stays complete;
+	// exactly one is visible at a time.
+	const { rendered } = page();
+	assert.equal(occurrences(rendered.html, 'role="tablist"'), 1, "one tab list, not one per section");
+	assert.equal(occurrences(rendered.html, 'role="tab"'), SECTIONS.length, "one tab per section");
+	const panels = [...rendered.html.matchAll(/<section[^>]*role="tabpanel"[^>]*>/g)].map((match) => match[0]);
+	assert.equal(panels.length, SECTIONS.length, "one panel per section");
+	assert.equal(panels.filter((tag) => !/\bhidden\b/.test(tag)).length, 1, "only the selected panel is visible");
+	assert.match(panels[0], new RegExp(`aria-labelledby="dsh-pc-tab-${SECTIONS[0].value}"`), "each panel is labelled by its tab");
 });

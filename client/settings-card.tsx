@@ -23,11 +23,14 @@ import {
 	SECTIONS,
 	unionField,
 	type FieldRow,
+	type FieldSectionValue,
 	type ProjectContextSettings,
 } from "./card-fields.ts";
+import { useState } from "react";
 import {
 	Button,
 	Pill,
+	SegmentedTabs,
 	SettingsForm,
 	SettingsFormModel,
 	SettingsValueField,
@@ -39,6 +42,7 @@ import {
 	type SettingsFieldState,
 	type SettingsFormActions,
 	type SettingsFormScope,
+	type SegmentedTab,
 	type SettingsFormShell,
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { SnapshotStore } from "@deepseek-ai/dsh-client-store";
@@ -286,6 +290,17 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 	// inside a one-line row would be the failure mode if a surface ever asked for the summary.
 	if (props.view === "summary") return t("card.description");
 
+	// One tab per group, the platform's own `SegmentedTabs`: the card is too long as a single
+	// column once every sub-feature owns settings, and a tab keeps one save and one draft over all
+	// of them (only the panels are hidden, so switching never drops a staged edit).
+	const [tab, setTab] = useState<FieldSectionValue>(SECTIONS[0]?.value ?? "memory");
+	const tabs = SECTIONS.map((section) => ({
+		value: section.value,
+		label: t(section.tabKey),
+		id: `dsh-pc-tab-${section.value}`,
+		panelId: `dsh-pc-panel-${section.value}`,
+	})) as [SegmentedTab<FieldSectionValue>, ...SegmentedTab<FieldSectionValue>[]];
+
 	const copy = (row: FieldRow): RowCopy => ({
 		label: t(labelKey(row.key)),
 		hint: t(hintKey(row.key)),
@@ -297,8 +312,22 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 
 	return (
 		<SettingsForm labels={formLabels(t, state.saveFailure)} state={state} onSave={props.save} onDiscard={props.discard}>
+			<SegmentedTabs
+				className="dshPcTabs"
+				label={t("tabs.label")}
+				value={tab}
+				onChange={setTab}
+				items={tabs}
+			/>
 			{SECTIONS.map((section) => (
-				<section key={section.titleKey} className="dshPcSection">
+				<section
+					key={section.value}
+					className="dshPcSection"
+					role="tabpanel"
+					id={`dsh-pc-panel-${section.value}`}
+					aria-labelledby={`dsh-pc-tab-${section.value}`}
+					hidden={section.value !== tab}
+				>
 					<h3 className="dshPcSectionTitle">{t(section.titleKey)}</h3>
 					<p className="dshPcSectionDescription">{t(section.descriptionKey)}</p>
 					{section.rows.map((row) => (

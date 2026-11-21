@@ -81,7 +81,11 @@ test("the card's table covers the host schema exactly once, with copy for every 
 		}
 	}
 
-	const sectionKeys = fields.SECTIONS.flatMap((section) => [section.titleKey, section.descriptionKey]);
+	const sectionKeys = fields.SECTIONS.flatMap((section) => [section.tabKey, section.titleKey, section.descriptionKey]);
+	// One tab per section, and the tabs must cover the panels: a section with no tab is a screen no
+	// reader can reach, which the render test cannot notice because every panel is in the DOM.
+	assert.equal(new Set(fields.SECTIONS.map((section) => section.value)).size, fields.SECTIONS.length, "each section needs its own tab value");
+	for (const dict of [locales.zh, locales.en]) assert.equal(typeof dict["tabs.label"], "string", "the tab list needs an accessible name");
 	for (const key of [...sectionKeys, "card.description", "chrome.overridden", "chrome.reset", "chrome.invalidNumber", "chrome.saveFailed", "chrome.saveFailedRejected", "chrome.saveFailedConflict"]) {
 		for (const dict of [locales.zh, locales.en]) {
 			assert.equal(typeof dict[key], "string", `${key} must exist in both dictionaries`);

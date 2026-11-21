@@ -68,8 +68,14 @@ export interface FieldRow {
 	readonly bounds?: FieldBounds;
 }
 
-/** One rendered group of rows. */
+/** One tab, and the panel of rows it shows. */
+export type FieldSectionValue = "memory" | "autolearn" | "handoff";
+
+/** One rendered group of rows, shown as a tab panel when its tab is selected. */
 interface FieldSection {
+	readonly value: FieldSectionValue;
+	/** Tab label; the title and description below it name the panel once selected. */
+	readonly tabKey: SettingsCardKey;
 	readonly titleKey: SettingsCardKey;
 	readonly descriptionKey: SettingsCardKey;
 	readonly rows: readonly FieldRow[];
@@ -81,6 +87,8 @@ interface FieldSection {
  */
 export const SECTIONS: readonly FieldSection[] = [
 	{
+		value: "memory",
+		tabKey: "tab.memory",
 		titleKey: "section.memory.title",
 		descriptionKey: "section.memory.description",
 		rows: [
@@ -105,6 +113,8 @@ export const SECTIONS: readonly FieldSection[] = [
 		],
 	},
 	{
+		value: "autolearn",
+		tabKey: "tab.autolearn",
 		titleKey: "section.autolearn.title",
 		descriptionKey: "section.autolearn.description",
 		rows: [
@@ -117,6 +127,8 @@ export const SECTIONS: readonly FieldSection[] = [
 		],
 	},
 	{
+		value: "handoff",
+		tabKey: "tab.handoff",
 		titleKey: "section.handoff.title",
 		descriptionKey: "section.handoff.description",
 		rows: [

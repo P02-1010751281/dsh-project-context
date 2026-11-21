@@ -10,6 +10,16 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context 客户端（设置卡改为分组页签）**
+
+- 23 行排在一列已经要滚很久，而上游的 `SegmentedTabs` 正是插件页自己用的分组控件。设置卡现在按
+  「记忆 / 技能 / 交接」三个分组出页签，每个页签下保留原来的标题与说明；三个面板都留在 DOM 里，只有
+  当前页签可见，所以切换不会丢任何已暂存的编辑，底部仍是一个保存按钮（一次原子写入）。
+- 页签是上游组件，卡片只做几何（`styles.ts` 一个 `margin`），不新画颜色或控件；`card-render` 新增
+  「一个 tablist、每段一个 tab/面板、只有一个面板可见」的断言，变异「所有面板都可见」具名打红。
+- 编译按钉住的 0.1.7-rc.2 类型走：`SegmentedTabs` 的 `size` 属性是 0.2.x 才声明的，所以不传；
+  `pnpm test` **772/772**。
+
 **project-context + project-autolearn（批次 AA6：两个设置项，与 bind 的报告缺口）**
 
 - 设置项 `sessionSettledDays`（默认 7，1–365）：`live`/`settled` 分界与 `abandoned` 判据本就共用
