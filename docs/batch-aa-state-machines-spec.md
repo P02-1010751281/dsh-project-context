@@ -189,3 +189,66 @@ export function entryStateOf(tid: string, facts: EntryStateFacts): { state: Entr
 - **AA1b 未做**：`/memory status` 与 `/memory` 回执仍说文件级词汇。接入时必须注明「drift 与不确认
   需要异步扫描，回执只报 superseded + content-stale 子集」，不得用一个 0 让人以为扫过。
 - 下一批按裁定是 **AA2**（内容漂移的显式 + 自动两条通道），`AA4`（技能过期）在其后。
+
+## 9. 质量门：三个产物坏法不同，门也不同（2026-11-21 第二轮）
+
+**先立一条原则**：门只能守**机械可判定**的属性——结构、预算、字面量存活、形状、指纹、重复度。
+「这条事实现在还对不对」
+不可门禁，它只能靠证据绑定（已有 shared 指纹）+ 退役/改写通道（AA1/AA2/AA4）。
+把不可判定的东西写成门，只会得到一个永远为绿的装饰。
+
+| 产物 | 坏法 | 已有哪些门（证据） | 缺什么 |
+|---|---|---|---|
+| `MEMORY.md` | **事实消失或失真**（压缩措辞、整篇重写、锚点失效） | 形状（`sectionsFromMarkdown`）、节预算 + 全篇帽（`memory-schema.ts`）、单条 800、空骨架闸、截断守卫、tier C 拒绝、整篇重写损失度量（`index.ts:395`，报告）、行锚漂移退役（`retirement.ts:418`）、源指纹（`staleness-source.ts`，报告）、id 身份 | 损失度量仍**只报不拒**；没有「重复度」阈值；没有「事实密度/可检索性」指标 |
+| `CONTEXT.md` / `tasks/<slug>.md` | **陈旧与重复**（每轮重写、可能与 MEMORY 冲突、Open tasks 混入已完成项） | 形状（`context-schema.ts:47` 的工具 schema + `consolidate.ts:217` 形状错就整份丢弃）、读帽 `MAX_CONTEXT_CHARS`（`index.ts:110`）、渲染预算与 `dropped`（`context-doc.ts:93/109`） | **没有任何重写损失度量**：`missingLiteralsBetween` 只接了 memory（`index.ts:395`）；没有与 MEMORY 的重复检测；Open tasks 的「只含未完成」只有 todo 机械行受约束 |
+| `.agents/skills/**` | **适用性丧失** + 近名/同 procedure 重复 | 名字 kebab、描述 ≤1024、正文上限、注入启发（`candidate.ts:48-51`）、同名冲突规则（`:83`，只有 autolearn 自己的可被取代）、`autolearn-generated` 标记、`/autolearn approve` 唯一取代路径 | **零适用性门**（描述的代码改了没人管，AA4）；去重是 **exact-name**（`:83`），同义两名会永久并存；没有引用计数（谁在用这份技能） |
+
+### 9.1 建议新增（按成本递增，全部先报告、不拒绝）
+
+1. **context 的重写损失度量**（最便宜）：同一只 `missingLiteralsBetween` 直接吃 context 重写前后的两段文本，
+   进 `/memory` 回执第二行与 `/context` 状态。纯函数、零新依赖，且与 memory 的度量口径一致。
+2. **memory × context 重复句检测**：token Jaccard ≥ 0.5 的跨文档对 → 报告「同一事实有两份拷贝」。
+   今天实测**最高 0.16、≥0.5 的 0 对**，所以它先是一条常驻体检项，不是救火项。
+3. **Open tasks 机械校验**：`- [todo]` 行已受 `todo.ts` 约束，但模型写的散文项不受；检查「已完成」字样
+   出现在 Open tasks 段落时报告。
+4. **技能近名/同 procedure 检测**：名字族（前缀 + 编辑距离）+ 正文 Jaccard ≥ 0.5 → 候选合并，
+   先在 `/autolearn` 报告里出，不动 `rejectionReason`（拒绝新候选会误杀）。
+5. **技能引用计数**：memory 指针 + 会话提及统计；长期 0 引用 → 归档候选。
+
+## 10. 碎片整理：先量，再谈过程
+
+**「碎片」必须先有度量，否则「整理」不可验收。** 2026-11-21 实测（三个口径都跑了）：
+
+| 口径 | 度量 | 结果 |
+|---|---|---|
+| memory 内部 | 条目两两 token Jaccard（170 条） | 最高 **< 0.30**，没有可合并的真重复 |
+| memory × context | 跨文档 Jaccard（170 × 21） | 最高 **0.16**，≥0.5 的 **0 对** |
+| skill 正文 | 两两 token Jaccard（40 份） | ≥0.30 的 **0 对** |
+
+所以**当前没有「重复型碎片」可清**。真正的不平衡是三处结构性的：
+
+1. **memory 的节占用与需求不匹配**：Pitfalls 106%、Index 118%，靠别的节闲置额度借用（Batch N 的
+   「份额是目标不是帽」）。这不是重复，是布局问题。
+2. **context 是每轮重写的摘要**：它的风险不是重复而是**漂移**（与 MEMORY 分叉、Open tasks 留旧项）。
+3. **skill 的去重只有 exact-name**：今天 0 对近名，但机制上不防，一旦出现就会长期并存。
+
+**建议的整理过程**（每条带触发与验收）：
+
+- **memory**：触发 = 文档 ≥90% 上限 **或** 最高 Jaccard ≥0.5；过程 = 合并真重复 → 指针化 →
+  节间再平衡；验收 = `missing-literals-between` 只报主动搬走的字面量 + 渲染往返逐字节 +
+  `itemTruncated 0`。（这套流程本轮已手工跑过两次，是可复现的。）
+- **context**：触发 = 每次整理 pass（它只有 ~3.7K 字符，成本可忽略）；过程 = 去重（MEMORY 留全文、
+  context 留指针）+ 清已完成项；验收 = 与 MEMORY 的跨文档 Jaccard 不上升 + 形状仍可解析。
+- **skill**：触发 = 每次 autolearn pass 只**出候选**（不自动合并/不自动归档）；过程 = 近名/同 procedure
+  合并、0 引用归档；验收 = 合并后引用该 procedure 的 memory 指针仍指向存在的路径。
+
+## 11. 第二轮待裁定
+
+1. **context 的损失度量**：复用同一只 `missingLiteralsBetween`、报告-only 起步？推荐**是**——同一口径，
+   零新依赖，先看现场分布再谈是否设阈值。
+2. **质量门的强弱**：默认报告-only，只对「可证明必然有害」的写入拒绝（tier C、形状错、注入启发）？
+   推荐**是**；把 `Missing literals > N` 直接设成拒绝线会重演「误杀比漏放贵」的教训。
+3. **碎片整理的触发**：memory 按「≥90% 或最高 Jaccard ≥0.5」、context 每 pass、skill 只出候选？
+   推荐**是**；三条都没有自动写盘。
+4. **顺序**：AA2（内容漂移通道）→ AA4（技能过期）→ AA5（context 门 + 三处整理）仍然是主线；
+   context 的门（9.1 第 1 条）成本最低，若想先见到收益，可以插在 AA2 之前单独成一条 **AA2b**。
