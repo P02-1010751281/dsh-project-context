@@ -186,12 +186,23 @@ node -e 'const fs=require("fs");(async()=>{const {sectionsFromMarkdown,renderMem
    会被记成丢失」的反面：只在全部字面量一起消失时动手。
 3. **无字面量的条目不修**：纯文字条目被改写与被删除在机械上不可分，猜就是复活。它们仍由
    `removedSectionEntries` 报告。
-4. **三条拒绝**：`supersedes:<id>` 点名的是替换；恢复后重渲染丢任何东西（整条、per-item 截断、
-   解析不回）都算 `no-room`，此时**不写恢复版**，保留回复原样并各写一行日志——不拿新丢失换旧丢失。
+4. **拒绝面**（2026-11-21 评审后修正）：被判退休的 id 来自 batch Z2 的**返回值**（`droppedIds` ∪
+   `supersededIds`），不是在回复文本里扫 `supersedes:`——`retireReply` 返回前就剥掉了标记，扫文本的
+   过滤器在真实链路上恒为空，会把被替换的条目回填到它自己的墓碑旁边（评审实测）。声明的目标即使已
+   不在回复里也进 `supersededIds`，否则“换掉但不重复旧条目”的回复会被当丢失。恢复后重渲染丢任何
+   东西（整条、per-item 截断、解析不回）都算 `no-room`，此时**不写恢复版**，保留回复原样并报
+   `Not restored:`——不拿新丢失换旧丢失。日志行改在写盘点并由 `snapshot.written` 门控：修复在写之前
+   决定，但被 basis-key 拒绝的 pass 什么都没落盘，先写的 `restored …` 会是假话。
 5. **位置**：tier C 之后、batch Z2 退休之后。恢复条目原文（含 id）并把它补进 `keepIds`，否则侧车剪枝
    会重置年龄；`retirement.ids` 因此仍描述落地文档。
 6. **可见性**：`/memory update` 首行 `Restored: N …` / `Not restored: N …`，`errors.log` 各一行。
    回执仍只放首行（折叠卡），理由同 §10 第 4 条。
 
-变异轮（7 个，全部编译后具名打红）：字面量存活恒 false、无字面量条目也修、supersedes 失效、
-Project/Index 也修、放不下也当成功、用回复自身当基线（永远无丢失）、找到但不追加。
+**已知残余（明确接受，不猜）**：模型把一条事实换掉但不写 `supersedes:<id>`（典型是改名：`Alpha` →
+`Beta`，或整段翻译）时，旧条目会被当成丢失回填，落地文档同时含新旧两条。试过的“同段落词汇重合度”判别
+器在它自己的 wiring 用例上就把一次真实丢失判成了替换，所以不采用——猜错的代价是静默不回填，而回填的
+代价只是一条可见、可被下一轮正常退休的旧事实。回执的 `Restored:` 就是让人看见它。
+
+变异轮（10 个，全部编译后具名打红）：字面量存活恒 false、无字面量条目也修、supersedes 失效、
+Project/Index 也修、放不下也当成功、用回复自身当基线（永远无丢失）、找到但不追加、退休 id 过滤器失效、
+`restored` 日志不受 `snapshot.written` 门控、`retiredIds` 漏掉 `supersededIds`。

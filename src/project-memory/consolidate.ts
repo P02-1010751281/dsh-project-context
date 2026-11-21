@@ -39,7 +39,7 @@ import {
 } from "./sections.js";
 import { normalizeMemoryWithDrop } from "./document.js";
 import { type Tombstone, readTombstones, tombstoneDigestLines } from "./retired.js";
-import { type RetirementResult, entryTid, readEntryDates, retireReply, retireWithinBudget, stripEntryTid } from "./retirement.js";
+import { type RetirementResult, documentIds, readEntryDates, retireReply, retireWithinBudget, stripEntryTid } from "./retirement.js";
 import { type RestoredEntry, repairLostEntries } from "./lost-entry-repair.js";
 
 /**
@@ -152,8 +152,8 @@ export type ConsolidationOutcome = {
 	removedEntries?: { count: number; samples: string[] };
 	/**
 	 * Entries this pass put back verbatim because the reply dropped them and their literals went with
-	 * them (`lost-entry-repair.ts`). Present only when something was restored, and always smaller than
-	 * `removedEntries` when both are set: the difference is what the repair could not bring back.
+	 * them (`lost-entry-repair.ts`). `removedEntries` is measured after the repair, so the two never
+	 * describe the same entry: what is still listed there was not restored.
 	 */
 	restoredEntries?: { count: number; samples: string[] };
 	/**
@@ -1145,7 +1145,12 @@ export function consolidateProjectState(
 				// repaired) and after batch Z2's retirement (a tombstone and a repair must never describe
 				// the same entry). A repair that does not fit is reported, never traded for another loss.
 				if (!memoryLossyRefused) {
-					const repair = repairLostEntries(oldSections, current, config.maxMemoryChars);
+					// The retired ids come from batch Z2, not from re-reading the reply: `retireReply`
+					// strips the `supersedes:` markers before it returns, so a scan for them here would
+					// never see a declaration and would put a replaced entry back (measured on 2026-11-21:
+					// the restored line landed next to the tombstone that retired it).
+					const retiredIds = new Set([...(plan?.droppedIds ?? []), ...(applied?.droppedIds ?? []), ...(applied?.supersededIds ?? [])]);
+					const repair = repairLostEntries(oldSections, current, config.maxMemoryChars, retiredIds);
 					if (repair.kind === "restored") {
 						current = repair.sections;
 						resolved = { ...resolved, sections: repair.sections };
@@ -1153,15 +1158,12 @@ export function consolidateProjectState(
 						loss = memoryLoss(resolved, render, config.maxMemoryChars);
 						restoredEntries = { count: repair.entries.length, samples: entrySamples(repair.entries) };
 						// A restored line carries the id it always had, so the sidecar prune must keep it:
-						// dropping the date would reset a clock only the budget had postponed.
-						for (const { entry } of repair.entries) {
-							const id = entryTid(entry);
-							if (id !== undefined) applied?.keepIds.add(id);
-						}
-						await logError(projectRoot, "memory", `restored ${repair.entries.length} Invariants/Pitfalls entry(ies) this reply had dropped and whose backticked literals disappeared with them: ${restoredEntries.samples.join(" | ")}`);
+						// dropping the date would reset a clock only the budget had postponed. The ids are
+						// read off the repaired document, not off the entry text, because a partial stamp
+						// leaves some entries without a marker and only the document knows which.
+						for (const id of documentIds(repair.sections)) applied?.keepIds.add(id);
 					} else if (repair.kind === "no-room") {
 						unrestoredEntries = { count: repair.entries.length, samples: entrySamples(repair.entries) };
-						await logError(projectRoot, "memory", `${repair.entries.length} Invariants/Pitfalls entry(ies) this reply dropped could not be restored: putting them back would have exceeded the memory cap or the per-item limit, so they stay lost: ${unrestoredEntries.samples.join(" | ")}`);
 					}
 				}
 				// Computed here, logged at the write site: a removal claim must describe a document that

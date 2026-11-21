@@ -21,8 +21,16 @@
  * to tell a reword from a loss, and guessing is how a repair becomes a resurrection.
  *
  * Three refusals keep the repair from doing more harm than the loss:
- *  - an entry the reply `supersedes:` is not lost, it is replaced;
- *  - `Project` and `Index` are rewritten every pass by design, so they are never repaired;
+ *  - an entry batch Z2's retirement already dropped (a `supersedes:` target, an echo of the pre-prompt
+    plan, an anchor drift or an aged-out fact) is not lost, it is retired. The ids come from that pass
+    rather than from a second reading of the reply: `retireReply` strips the markers before it returns,
+    so a regex over the returned sections can never see a declaration;
+ *  - a replacement is declared, not guessed. An entry rewritten with a new symbol and no
+    `supersedes:<id>` is restored like a dropped one: the prompt makes the declaration the way to
+    replace an entry (`MEMORY_ENTRY_ID_RULE`), the receipt names the restore, and a guessed
+    similarity test was rejected after it suppressed a real restore in its own wiring test — the one
+    failure mode a repair must not have;
+  - `Project` and `Index` are rewritten every pass by design, so they are never repaired;
  *  - the repaired document is re-rendered and re-parsed under the real cap. A repair that would make
  *    the renderer drop something else is reported as `no-room` and the pass keeps the reply it has —
  *    trading one loss for another silently is the failure this module exists to prevent.
@@ -63,15 +71,6 @@ function documentText(sections: MemorySections): string {
 	return [...sections.project, ...sections.invariants, ...sections.pitfalls, ...sections.index].join("\n");
 }
 
-/** The ids a reply declares it replaces, so a replacement is never read as a loss. */
-function declaredSuperseded(sections: MemorySections): Set<string> {
-	const declared = new Set<string>();
-	for (const entry of [...sections.invariants, ...sections.pitfalls, ...sections.project, ...sections.index]) {
-		for (const match of entry.matchAll(/supersedes:\s*([0-9a-f]{3,4})/g)) declared.add(match[1]);
-	}
-	return declared;
-}
-
 /**
  * The entries `before` carries that `after` genuinely lost.
  *
@@ -82,22 +81,23 @@ function declaredSuperseded(sections: MemorySections): Set<string> {
  * @param after - the sections this reply would store, after retirement stripped what it replaced.
  * @returns the lost entries in document order, grouped by their own section.
  */
-export function lostEntries(before: MemorySections, after: MemorySections): RestoredEntry[] {
+export function lostEntries(before: MemorySections, after: MemorySections, retired: ReadonlySet<string> = new Set()): RestoredEntry[] {
 	const afterText = documentText(after);
-	const declared = declaredSuperseded(after);
 	const kept = new Set(REPAIRABLE_SECTIONS.flatMap((section) => after[section].map(comparable)));
 	const lost: RestoredEntry[] = [];
 	for (const section of REPAIRABLE_SECTIONS) {
 		for (const entry of before[section]) {
 			const text = comparable(entry);
 			if (text === "" || kept.has(text)) continue;
-			const id = entryTid(entry);
-			if (id !== undefined && declared.has(id)) continue;
 			const literals = backtickedLiterals(stripEntryTid(entry));
 			// No literal is no evidence: a plain-language entry that was reworded reads exactly like one
 			// that was dropped, so it is reported by `removedSectionEntries` and never repaired.
 			if (literals.length === 0) continue;
 			if (literals.some((literal) => literalSurvives(literal, afterText))) continue;
+			// Everything below is a refusal, in the order the failures were measured: an entry this pass
+			// retired is gone on purpose, and one a new entry restates was renamed.
+			const id = entryTid(entry);
+			if (id !== undefined && retired.has(id)) continue;
 			lost.push({ section, entry });
 		}
 	}
@@ -113,10 +113,11 @@ export function lostEntries(before: MemorySections, after: MemorySections): Rest
  * @param before - the document the model was shown.
  * @param after - the sections this reply would store.
  * @param cap - the `maxMemoryChars` the document will be stored under.
+ * @param retired - ids batch Z2's retirement already dropped; never restored.
  * @returns what was lost and, when it fits, the repaired sections.
  */
-export function repairLostEntries(before: MemorySections, after: MemorySections, cap: number): LostEntryRepair {
-	const entries = lostEntries(before, after);
+export function repairLostEntries(before: MemorySections, after: MemorySections, cap: number, retired: ReadonlySet<string> = new Set()): LostEntryRepair {
+	const entries = lostEntries(before, after, retired);
 	if (entries.length === 0) return { kind: "nothing-lost" };
 	const sections: MemorySections = { ...after };
 	for (const section of REPAIRABLE_SECTIONS) {

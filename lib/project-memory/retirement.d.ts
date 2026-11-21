@@ -115,6 +115,17 @@ export type RetirementResult = {
      * would come back dated today once room appears, delaying its retirement for no reason.
      */
     keepIds: Set<string>;
+    /**
+     * Every id this pass treats as replaced by a `supersedes:` declaration, whether or not the reply
+     * still carried it.
+     *
+     * `droppedIds` cannot answer this: an entry the model replaced but did not repeat is absent from the
+     * reply, so there was nothing to drop and the id never enters that set. The rewrite-loss repair
+     * needs it — a replaced entry that reads as "dropped" would be put back next to its own tombstone
+     * (measured 2026-11-21 on the shipped filter, which scanned the reply for markers that
+     * `retireReply` had already stripped).
+     */
+    supersededIds: Set<string>;
     /** Ids this call minted and the returned document carries; their first-seen date is `today`. */
     added: string[];
     /** Ids this call removed from the document. An echo of one of these is dropped, not re-retired. */
@@ -138,6 +149,8 @@ export declare function retireSections(sections: MemorySections, context: Retire
 export declare function retireReply(sections: MemorySections, context: RetirementContext, cap: number): Promise<RetirementResult & {
     stamped: boolean;
 }>;
+/** All entry ids in a document, for the sidecar prune and for the repair's restored lines. */
+export declare function documentIds(sections: MemorySections): Set<string>;
 /** When each known entry id was first seen. An unreadable file reads as "nothing known". */
 export declare function readEntryDates(projectRoot: string): Promise<Map<string, string>>;
 /**

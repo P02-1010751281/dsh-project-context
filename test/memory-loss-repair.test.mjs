@@ -98,10 +98,15 @@ test("an entry with no backticked literal is never repaired", () => {
 	assert.deepEqual(lostEntries(before, after), []);
 });
 
-test("an entry the reply declares superseded is a replacement, not a loss", () => {
+test("an entry batch Z2 retired is a replacement, not a loss", () => {
+	// The ids come from `retireReply`, not from the reply text: it strips the `supersedes:` markers
+	// before returning, so a filter that scanned for them could never fire. Measured on 2026-11-21
+	// against the shipped filter: a replaced entry was restored next to the tombstone that retired it.
 	const before = sections({ invariants: ["rule `alpha` holds（1ab）"] });
-	const after = sections({ invariants: ["rule `gamma` replaces it（9ff）supersedes:1ab"] });
-	assert.deepEqual(lostEntries(before, after), []);
+	const after = sections({ invariants: ["rule `gamma` replaces it（9ff）"] });
+	assert.equal(lostEntries(before, after).length, 1, "control: without the retired set it is a loss");
+	assert.deepEqual(lostEntries(before, after, new Set(["1ab"])), []);
+	assert.deepEqual(lostEntries(before, after, new Set(["9ff"])), [{ section: "invariants", entry: "rule `alpha` holds（1ab）" }], "another id does not protect it");
 });
 
 test("Project and Index are rewritten every pass by design, so they are never restored", () => {
@@ -203,7 +208,7 @@ function replyDocument(invariants) {
 	].join("\n");
 }
 
-async function wiredFixture(invariants) {
+async function wiredFixture(invariants, beforeReply) {
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-loss-repair-"));
 	await mkdir(path.join(root, ".agents", "memory"), { recursive: true });
 	await recordMemoryDocument(root, WIRE_SEED);
@@ -218,6 +223,7 @@ async function wiredFixture(invariants) {
 			resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }),
 			stream() {
 				return (async function* generate() {
+					if (beforeReply) await beforeReply(root);
 					yield { type: "text-delta", index: 0, text: reply };
 					yield { type: "finish", reason: { kind: "stop" } };
 				})();
@@ -236,7 +242,8 @@ async function wiredFixture(invariants) {
 	};
 	const config = resolvePluginConfig({ maxTokens: 8_192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
-	return { root, report, landed: await readFile(memoryFile(root), "utf8") };
+	const errors = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8").catch(() => "");
+	return { root, report, landed: await readFile(memoryFile(root), "utf8"), errors };
 }
 
 test("the pass puts a dropped entry back into the document it actually writes", async () => {
@@ -247,6 +254,27 @@ test("the pass puts a dropped entry back into the document it actually writes", 
 	assert.match(landed, /rule `alpha` holds/, "the landed document carries the old line again");
 	assert.match(landed, /replacement rule `gamma`/, "and the reply's own new entry is still there");
 	assert.match(memoryUpdateReply(report).text, /Restored: 1 entry\(ies\)/, "the receipt says so on its first line");
+});
+
+test("a declared replacement is not restored, so no retired fact comes back", async () => {
+	// The model replaces the entry the way the prompt asks it to: the new line names the old id. Batch
+	// Z2 retires the target and strips the marker, so the only evidence left is its dropped id set.
+	const { report, landed } = await wiredFixture(["- a replacement rule `gamma` holds（9ff）supersedes:1ab"]);
+	assert.equal(report.status, "updated");
+	assert.equal(report.restoredEntries, undefined, "a retired entry is a replacement, not a loss");
+	assert.equal((landed.match(/rule `alpha` holds/g) ?? []).length, 0, "the old line does not come back");
+	assert.match(landed, /replacement rule `gamma`/);
+});
+
+test("a refused write leaves no restored line in errors.log", async () => {
+	// The repair decides before the write; a pass the write path refuses wrote nothing, so a log line
+	// claiming an entry came back would describe a document that never landed.
+	const { report, errors } = await wiredFixture(["- a replacement rule `gamma` holds（3ef）"], async (root) => {
+		const { writeFile } = await import("node:fs/promises");
+		await writeFile(memoryFile(root), WIRE_SEED.replace("the project is `dsh`", "a hand edit landed during the call"), "utf8");
+	});
+	assert.equal(report.status, "stale", "the basis-key race refused the write");
+	assert.ok(!/restored \d+ Invariants/.test(errors), `no restore claim for a refused write, got: ${errors.slice(-400)}`);
 });
 
 test("a reply that keeps the fact by rewording is not repaired, so nothing is duplicated", async () => {

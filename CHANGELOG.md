@@ -18,14 +18,16 @@
 - 判据（`src/project-memory/lost-entry-repair.ts`）：Invariants/Pitfalls 里某条的规范化正文消失、**且它
   带的每一个反引号字面量都从整篇消失了**，才算丢失——合并/改写至少留下一个字面量，因此不会被误判。
   恢复的是旧条目原文（含条目 id，时钟与 `supersedes:` 指针继续有效），追加回它原来的段落。
-- 三条拒绝：回复里 `supersedes:<id>` 点名的条目是替换不是丢失；`Project`/`Index` 每轮重写，永不恢复；
-  恢复后重渲染若会丢别的条目，报 `no-room` 而不写——绝不拿一次新的丢失换回旧的。
+- 拒绝面：被 batch Z2 退休的 id（`droppedIds` ∪ `supersededIds`，含「回复已不再重复旧条目」的声明
+  目标）不回填；`Project`/`Index` 每轮重写，永不恢复；恢复后重渲染若会丢别的条目，报 `no-room` 而不写
+  ——绝不拿一次新的丢失换回旧的。已知残余：未写 `supersedes:` 的替换（改名、整段翻译）会被回填成重复
+  事实，可见且可被下一轮正常退休；试过的词汇重合判别器会静默吞掉真实丢失，故不采用。
 - 位置：tier C 之后（落地的那份回复才被修复）、batch Z2 退休之后（墓碑与修复不会描述同一条）。恢复的
   条目 id 补进 `keepIds`，否则侧车剪枝会重置它的年龄。
 - 回执：`/memory update` 首行新增 `Restored: N entry(ies) the reply had dropped (e.g. …)`，放不下时
-  `Not restored: N …`；`errors.log` 各一行。`pnpm test` **785/785**，7 个变异具名打红（字面量存活恒
-  false、无字面量条目也修、supersedes 失效、Project/Index 也修、放不下也当成功、用回复自身当基线、
-  找到但不追加）。
+  `Not restored: N …`；`errors.log` 的两行在写盘点、由 `snapshot.written` 门控，被拒绝的 pass 不会留下
+  假的「已回填」记录。`pnpm test` **787/787**，10 个变异具名打红（含「退休 id 过滤器失效」「日志不受
+  `snapshot.written` 门控」「`retiredIds` 漏掉 `supersededIds`」三条评审后补的）。
 
 **project-context 客户端（设置卡改为分组页签）**
 

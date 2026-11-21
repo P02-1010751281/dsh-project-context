@@ -361,6 +361,17 @@ export type RetirementResult = {
 	 * would come back dated today once room appears, delaying its retirement for no reason.
 	 */
 	keepIds: Set<string>;
+	/**
+	 * Every id this pass treats as replaced by a `supersedes:` declaration, whether or not the reply
+	 * still carried it.
+	 *
+	 * `droppedIds` cannot answer this: an entry the model replaced but did not repeat is absent from the
+	 * reply, so there was nothing to drop and the id never enters that set. The rewrite-loss repair
+	 * needs it — a replaced entry that reads as "dropped" would be put back next to its own tombstone
+	 * (measured 2026-11-21 on the shipped filter, which scanned the reply for markers that
+	 * `retireReply` had already stripped).
+	 */
+	supersededIds: Set<string>;
 	/** Ids this call minted and the returned document carries; their first-seen date is `today`. */
 	added: string[];
 	/** Ids this call removed from the document. An echo of one of these is dropped, not re-retired. */
@@ -403,12 +414,15 @@ export async function retireSections(sections: MemorySections, context: Retireme
 	// One facts object, consulted by every trigger below: which verdict wins when two of them point at
 	// the same id (`entryStateOf`'s precedence) is no longer implied by the order these loops run in.
 	const superseded = new Map<string, string>();
+	// Reported apart from `drop`, because a target the reply no longer carries cannot be dropped from it.
+	const declaredTargets = new Set<string>();
 	for (const [target, source] of context.declaredSupersedes ?? supersededIds(stamps.sections)) {
 		// A declaration written before the id narrowed still names the four-hex spelling of the id the
 		// document carries after migration; resolving the truncated form keeps that retirement landing
 		// instead of the declaration being consumed while its target survives. The *resolved* id is what
 		// enters `drop`, or the final filter — which compares the document's three-hex ids — would keep it.
 		const resolved = byTid.has(target) ? target : target.slice(0, 3);
+		declaredTargets.add(resolved);
 		if (!byTid.has(resolved) || superseded.has(resolved)) continue;
 		superseded.set(resolved, source);
 	}
@@ -475,7 +489,7 @@ export async function retireSections(sections: MemorySections, context: Retireme
 			return tid === undefined || !drop.has(tid);
 		});
 	}
-	return { sections: kept, retired, ids: documentIds(kept), keepIds: documentIds(kept), added: stamps.added, droppedIds: drop };
+	return { sections: kept, retired, ids: documentIds(kept), keepIds: documentIds(kept), added: stamps.added, droppedIds: drop, supersededIds: declaredTargets };
 }
 
 /**
@@ -499,8 +513,8 @@ export async function retireReply(
 	return retireWithinBudget(stripSupersedesMarkers(sections), { ...context, declaredSupersedes }, cap);
 }
 
-/** All entry ids in a document, for the sidecar prune. */
-function documentIds(sections: MemorySections): Set<string> {
+/** All entry ids in a document, for the sidecar prune and for the repair's restored lines. */
+export function documentIds(sections: MemorySections): Set<string> {
 	const ids = new Set<string>();
 	for (const key of Object.keys(sections) as (keyof MemorySections)[]) {
 		for (const entry of sections[key]) {

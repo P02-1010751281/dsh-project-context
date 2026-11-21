@@ -106,8 +106,8 @@ export type ConsolidationOutcome = {
     };
     /**
      * Entries this pass put back verbatim because the reply dropped them and their literals went with
-     * them (`lost-entry-repair.ts`). Present only when something was restored, and always smaller than
-     * `removedEntries` when both are set: the difference is what the repair could not bring back.
+     * them (`lost-entry-repair.ts`). `removedEntries` is measured after the repair, so the two never
+     * describe the same entry: what is still listed there was not restored.
      */
     restoredEntries?: {
         count: number;

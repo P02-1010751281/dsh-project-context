@@ -21,8 +21,16 @@
  * to tell a reword from a loss, and guessing is how a repair becomes a resurrection.
  *
  * Three refusals keep the repair from doing more harm than the loss:
- *  - an entry the reply `supersedes:` is not lost, it is replaced;
- *  - `Project` and `Index` are rewritten every pass by design, so they are never repaired;
+ *  - an entry batch Z2's retirement already dropped (a `supersedes:` target, an echo of the pre-prompt
+    plan, an anchor drift or an aged-out fact) is not lost, it is retired. The ids come from that pass
+    rather than from a second reading of the reply: `retireReply` strips the markers before it returns,
+    so a regex over the returned sections can never see a declaration;
+ *  - a replacement is declared, not guessed. An entry rewritten with a new symbol and no
+    `supersedes:<id>` is restored like a dropped one: the prompt makes the declaration the way to
+    replace an entry (`MEMORY_ENTRY_ID_RULE`), the receipt names the restore, and a guessed
+    similarity test was rejected after it suppressed a real restore in its own wiring test — the one
+    failure mode a repair must not have;
+  - `Project` and `Index` are rewritten every pass by design, so they are never repaired;
  *  - the repaired document is re-rendered and re-parsed under the real cap. A repair that would make
  *    the renderer drop something else is reported as `no-room` and the pass keeps the reply it has —
  *    trading one loss for another silently is the failure this module exists to prevent.
@@ -61,7 +69,7 @@ export type LostEntryRepair = {
  * @param after - the sections this reply would store, after retirement stripped what it replaced.
  * @returns the lost entries in document order, grouped by their own section.
  */
-export declare function lostEntries(before: MemorySections, after: MemorySections): RestoredEntry[];
+export declare function lostEntries(before: MemorySections, after: MemorySections, retired?: ReadonlySet<string>): RestoredEntry[];
 /**
  * Restore the entries a reply dropped, if they still fit.
  *
@@ -71,6 +79,7 @@ export declare function lostEntries(before: MemorySections, after: MemorySection
  * @param before - the document the model was shown.
  * @param after - the sections this reply would store.
  * @param cap - the `maxMemoryChars` the document will be stored under.
+ * @param retired - ids batch Z2's retirement already dropped; never restored.
  * @returns what was lost and, when it fits, the repaired sections.
  */
-export declare function repairLostEntries(before: MemorySections, after: MemorySections, cap: number): LostEntryRepair;
+export declare function repairLostEntries(before: MemorySections, after: MemorySections, cap: number, retired?: ReadonlySet<string>): LostEntryRepair;

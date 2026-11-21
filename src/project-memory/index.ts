@@ -424,6 +424,15 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				if (snapshot.written && outcome.removedEntries !== undefined && outcome.removedEntries.count > 0) {
 					await logError(projectRoot, "memory", `memory regression: ${outcome.removedEntries.count} Invariants/Pitfalls entry(ies) are no longer present, e.g. ${outcome.removedEntries.samples.join(" | ")}`);
 				}
+				// The repair's two lines, at the write site like every other loss claim: the decision is
+				// made before the write, but a pass the basis-key race refuses wrote nothing, and a log
+				// line that says an entry came back would then describe a document that never landed.
+				if (snapshot.written && outcome.restoredEntries !== undefined) {
+					await logError(projectRoot, "memory", `restored ${outcome.restoredEntries.count} Invariants/Pitfalls entry(ies) this reply had dropped and whose backticked literals disappeared with them: ${outcome.restoredEntries.samples.join(" | ")}`);
+				}
+				if (snapshot.written && outcome.unrestoredEntries !== undefined) {
+					await logError(projectRoot, "memory", `${outcome.unrestoredEntries.count} Invariants/Pitfalls entry(ies) this reply dropped could not be restored: putting them back would have exceeded the memory cap or the per-item limit, so they stay lost: ${outcome.unrestoredEntries.samples.join(" | ")}`);
+				}
 				if (snapshot.written && snapshot.backup.poisoned) {
 					await logError(projectRoot, "memory", `replaced a stored JSON reply with markdown; original kept at ${snapshot.backup.path ?? "(none)"}`);
 				}
