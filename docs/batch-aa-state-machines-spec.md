@@ -252,3 +252,14 @@ export function entryStateOf(tid: string, facts: EntryStateFacts): { state: Entr
    推荐**是**；三条都没有自动写盘。
 4. **顺序**：AA2（内容漂移通道）→ AA4（技能过期）→ AA5（context 门 + 三处整理）仍然是主线；
    context 的门（9.1 第 1 条）成本最低，若想先见到收益，可以插在 AA2 之前单独成一条 **AA2b**。
+
+### 11.1 落地状态（2026-11-21）
+
+裁定四条全按推荐，先做了插队的 **AA2b**：
+
+- **AA2b 已落地**（`1ee6524`）：`ConsolidationOutcome.shownContext` + 落地后 `contextMissingLiterals`
+  → `/memory` 回执（点名 `CONTEXT.md` 或绑定的 `tasks/<slug>.md`）+ `errors.log`；首写不量；只报不拒。
+  2 条测试、3 个变异各自被命名用例打红，`pnpm test` **734/734**。
+- **残余（写进 CHANGELOG）**：`/memory status` 尚未显示这一项；pass 窗口内的外部改写会让基线不是
+  模型看到的那份，与 memory 半边同类。
+- 下一批按裁定是 **AA2**（内容漂移的显式 + 自动两条通道），随后 **AA4**（技能过期），**AA5** 收三处整理。
