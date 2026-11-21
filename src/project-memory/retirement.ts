@@ -24,6 +24,7 @@ import type { MemorySections } from "./sections.js";
 import { normalizeMemoryEntry, renderMemoryDocument } from "./sections.js";
 import type { RetirementReason, Tombstone } from "./retired.js";
 import { anchorCandidates, isLocalArtifact } from "./anchors.js";
+import { entryStateOf, retiresEntry } from "./entry-state.js";
 import { pruneSidecar, readEntrySidecar, updateEntrySidecar } from "./entry-sidecar.js";
 
 /** Days an entry may go unmentioned in the archive before it is unconfirmed. */
@@ -399,23 +400,43 @@ export async function retireSections(sections: MemorySections, context: Retireme
 	for (const tid of context.retiredIds ?? []) {
 		if (byTid.has(tid)) drop.add(tid);
 	}
+	// One facts object, consulted by every trigger below: which verdict wins when two of them point at
+	// the same id (`entryStateOf`'s precedence) is no longer implied by the order these loops run in.
+	const superseded = new Map<string, string>();
 	for (const [target, source] of context.declaredSupersedes ?? supersededIds(stamps.sections)) {
 		// A declaration written before the id narrowed still names the four-hex spelling of the id the
 		// document carries after migration; resolving the truncated form keeps that retirement landing
 		// instead of the declaration being consumed while its target survives. The *resolved* id is what
 		// enters `drop`, or the final filter — which compares the document's three-hex ids — would keep it.
 		const resolved = byTid.has(target) ? target : target.slice(0, 3);
-		const entry = byTid.get(resolved);
-		if (entry === undefined || drop.has(resolved)) continue;
+		if (!byTid.has(resolved) || superseded.has(resolved)) continue;
+		superseded.set(resolved, source);
+	}
+	const facts: { superseded: ReadonlyMap<string, string>; drifted: Map<string, readonly string[]>; stale: ReadonlySet<string>; unconfirmed: Set<string> } = {
+		superseded,
+		drifted: new Map(),
+		// Retirement has no source bindings: the content-drift verdict belongs to the report half and is
+		// never grounds for dropping an entry (batch AA, ruling 2).
+		stale: new Set(),
+		unconfirmed: new Set(),
+	};
+	for (const [resolved, source] of superseded) {
+		if (drop.has(resolved)) continue;
+		if (entryStateOf(resolved, facts).state !== "superseded") continue;
 		drop.add(resolved);
+		const entry = byTid.get(resolved) ?? resolved;
 		retired.push({ date: context.today, title: stripEntryTid(entry), reason: supersedeReason(source) });
 	}
 	// Anchor drift is exact and runs before the expiry scan, so an entry whose path is gone is reported
 	// as drift rather than as an unconfirmed fact whose text simply stopped appearing.
-	const unconfirmed: string[] = [];
 	for (const [tid, entry] of byTid) {
 		if (drop.has(tid)) continue;
-		if (anchorDriftReasons(entry, context.projectRoot).length > 0) {
+		const reasons = anchorDriftReasons(entry, context.projectRoot);
+		if (reasons.length > 0) facts.drifted.set(tid, reasons);
+	}
+	for (const [tid, entry] of byTid) {
+		if (drop.has(tid)) continue;
+		if (entryStateOf(tid, facts).state === "anchor-drift") {
 			drop.add(tid);
 			retired.push({ date: context.today, title: stripEntryTid(entry), reason: "anchor-drift" });
 			continue;
@@ -424,8 +445,9 @@ export async function retireSections(sections: MemorySections, context: Retireme
 		const age = context.now - Date.parse(`${first}T00:00:00Z`);
 		if (!Number.isFinite(age) || age <= MAX_UNCONFIRMED_DAYS * 86_400_000) continue;
 		if (mentionNeedle(entry) === undefined) continue;
-		unconfirmed.push(tid);
+		facts.unconfirmed.add(tid);
 	}
+	const unconfirmed = [...facts.unconfirmed];
 	if (unconfirmed.length > 0) {
 		const needles = new Map<string, string>();
 		for (const tid of unconfirmed) {
@@ -438,6 +460,9 @@ export async function retireSections(sections: MemorySections, context: Retireme
 		if (scan.complete) {
 			for (const [tid, needle] of needles) {
 				if (scan.mentioned.has(needle)) continue;
+				// The same arbiter decides here too: an id another verdict already claimed is not
+				// unconfirmed, and this loop must not hand out a second tombstone for it.
+				if (!retiresEntry(entryStateOf(tid, facts).state)) continue;
 				drop.add(tid);
 				retired.push({ date: context.today, title: stripEntryTid(byTid.get(tid) ?? tid), reason: "unconfirmed" });
 			}

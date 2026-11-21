@@ -190,6 +190,28 @@ test("anchor drift fires only on a path this project can actually check", async 
 	assert.equal(anchorDriftReasons("A fact about docs/README.md:9", root).length, 1);
 });
 
+test("the engine arbitrates through the entry-state layer, so loop order cannot change a verdict", async () => {
+	// Batch AA1: the triggers ask `entryStateOf` rather than each deciding on its own. This pins the two
+	// boundaries that matter — a cited path that is gone retires, a cited file that still exists does not
+	// (its content changing is the report half's business, never grounds for dropping a fact), and the
+	// tombstone still names the entry's own reason.
+	const root = await projectDir();
+	await mkdir(path.join(root, "src", "project-memory"), { recursive: true });
+	await writeFile(path.join(root, "src", "project-memory", "present.ts"), "line\n", "utf8");
+	const result = await retireWithinBudget(
+		sectionsOf({
+			invariants: ["a fact about src/project-memory/gone.ts", "a fact about src/project-memory/present.ts"],
+		}),
+		{ projectRoot: root, firstSeen: new Map(), today: TODAY, now: NOW },
+		100_000,
+	);
+	assert.equal(result.retired.length, 1, "only the drifted entry leaves");
+	assert.equal(result.retired[0].reason, "anchor-drift");
+	assert.match(result.retired[0].title, /gone\.ts/, "the tombstone names the entry that cited the missing path");
+	assert.equal(result.sections.invariants.length, 1);
+	assert.match(result.sections.invariants[0], /present\.ts/, "an existing cited file is not drift, whatever its content");
+});
+
 test("the plugin's own local artifacts are never drift", async () => {
 	// `errors.log`, the journal and the locks exist only once the plugin writes them, and a fresh clone
 	// has none. A fact that points at one describes this plugin's own output, so its absence proves

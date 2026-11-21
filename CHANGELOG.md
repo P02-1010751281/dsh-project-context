@@ -10,6 +10,22 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 AA1a：条目状态只有一个裁定者）**
+
+- 问题：同一个记忆条目有两套结论——退役引擎按「路径没了 / 行号越过文件尾」**行动**，源绑定按内容
+  指纹**只上报**，没有任何一处拥有优先级。于是同一个 id 可以一边被退役、一边在回执里显示为正常，
+  取决于你问的是哪一半。
+- 改法：新增 `src/project-memory/entry-state.ts` 的纯函数 `entryStateOf`，**不新增任何探测**，只把已有
+  事实合成单一状态：`superseded → anchor-drift → age-unconfirmed → content-stale → healthy`；
+  `retiresEntry` 明确只有前三态可删。`retireSections` 的三条触发循环改为每处向它问一次，tombstone 的
+  文案与顺序保持不变；`content-stale` 永不构成删除理由（批次 AA 裁定第 2 条：内容变了不等于事实失效）。
+- 边界：`/memory status` 与 `/memory` 回执尚未接这个词汇（AA1b）——回执只能供 `superseded` +
+  `content-stale`，`anchor-drift` 与 `age-unconfirmed` 需要异步读盘与会话扫描，接入时必须明说是子集。
+  内容漂移的可行动通道是 AA2，本条不给它任何删除权。
+- 测试：新增 7 条（6 条纯核心：优先级、内容漂移不可删、detail 具体化、未采集的事实不算健康、计数；
+  1 条退役引擎仲裁：存在路径不退役、消失路径退役且 tombstone 点名）。变异 4 个全部精确命中：
+  内容漂移越过 drift 抢优先级、`content-stale` 变成可删、`superseded` 分支被删、退役引擎忽略 drift。
+
 **project-handoff（种子自带身份哈希：子会话可自证「读的是哪一次交接」）**
 
 - 问题：`HANDOFF.md` 每个项目只有一份、下一次交接即被覆盖，而子会话的种子消息永久保留；此前没有任何

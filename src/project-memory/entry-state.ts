@@ -1,0 +1,93 @@
+/**
+ * One entry's state, derived once from facts that already exist.
+ *
+ * Before this module the same entry could be described two ways: the retirement engine acted on
+ * "the cited path is gone or its line is past the end", while the staleness bindings only reported
+ * "a cited file's content changed". Both were correct and neither could see the other, so a document
+ * could carry an entry that one half called retired and the other called fine, and nothing owned the
+ * precedence. This module owns only the precedence: it adds no detection of its own, takes the facts
+ * each caller can afford to gather, and answers with a single state per entry.
+ *
+ * Order matters and is the same order the retirement engine already applied: the more certain a
+ * verdict is, the earlier it wins.
+ * 1. `superseded` — someone wrote a replacement for it.
+ * 2. `anchor-drift` — a path it cites is gone, or its line anchor is past the end.
+ * 3. `age-unconfirmed` — old enough and no longer mentioned anywhere the scan could read.
+ * 4. `content-stale` — a cited file still exists but its fingerprint changed since the binding.
+ * 5. `healthy`.
+ *
+ * `content-stale` is deliberately last and deliberately not an action: the file changing is not the
+ * fact becoming false, and retiring on it would drop still-true entries. It exists so the receipt and
+ * `/memory status` can name it in the same vocabulary retirement uses (batch AA, ruling 2).
+ */
+
+/** What an entry's evidence says about it, most certain first. */
+export type EntryState = "superseded" | "anchor-drift" | "age-unconfirmed" | "content-stale" | "healthy";
+
+/**
+ * The facts each caller can afford to gather, all keyed by the entry's stamped id.
+ *
+ * `drifted` carries the reasons rather than a boolean because the retirement tombstone records them,
+ * and re-deriving them in the caller would put the detection back in two places.
+ */
+export interface EntryStateFacts {
+	/** Retired id -> the id of the entry that replaces it. */
+	readonly superseded?: ReadonlyMap<string, string>;
+	/** Retired id -> the reasons its anchors no longer resolve. */
+	readonly drifted?: ReadonlyMap<string, readonly string[]>;
+	/** Ids whose bound sources changed content (`StalenessFacts.staleIds`). */
+	readonly stale?: ReadonlySet<string>;
+	/** Ids past the age horizon with no mention in a complete scan. */
+	readonly unconfirmed?: ReadonlySet<string>;
+}
+
+/** A state plus the sentence a receipt or a tombstone can carry. */
+export interface EntryStateVerdict {
+	readonly state: EntryState;
+	/** `""` for a healthy entry; otherwise the concrete reason, never a bare category. */
+	readonly detail: string;
+}
+
+/**
+ * The state of one entry, from the facts the caller gathered.
+ *
+ * A missing fact set is "not known", not "healthy": the caller decides which facts it can afford, and
+ * a state this call cannot see simply does not win. That is why the return is a plain state rather
+ * than a confidence — the caller's receipt is the place that says which facts were gathered (the
+ * `/memory status` line names its subset for exactly this reason).
+ * @param tid - the entry's stamped id.
+ * @param facts - everything the caller knows, keyed by id.
+ * @returns the winning state and its detail.
+ */
+export function entryStateOf(tid: string, facts: EntryStateFacts): EntryStateVerdict {
+	const replacement = facts.superseded?.get(tid);
+	if (replacement !== undefined) return { state: "superseded", detail: replacement };
+	const drift = facts.drifted?.get(tid);
+	if (drift !== undefined && drift.length > 0) return { state: "anchor-drift", detail: drift.join("; ") };
+	if (facts.unconfirmed?.has(tid) === true) {
+		return { state: "age-unconfirmed", detail: "past the age horizon with no mention in the scanned sessions" };
+	}
+	if (facts.stale?.has(tid) === true) return { state: "content-stale", detail: "a cited file's content changed since the binding" };
+	return { state: "healthy", detail: "" };
+}
+
+/** True for the states the retirement engine is allowed to drop an entry for. */
+export function retiresEntry(state: EntryState): boolean {
+	return state === "superseded" || state === "anchor-drift" || state === "age-unconfirmed";
+}
+
+/**
+ * Count entries per state, for a receipt.
+ *
+ * Only the states named by the facts the caller gathered can appear; a receipt that passed `stale`
+ * but not `drifted` reports zero `anchor-drift` because it did not look, which is why the caller must
+ * say so in its own wording rather than let the zero speak.
+ * @param ids - the ids the caller wants counted.
+ * @param facts - the same facts `entryStateOf` reads.
+ * @returns a count per state, with every state present.
+ */
+export function countEntryStates(ids: Iterable<string>, facts: EntryStateFacts): Record<EntryState, number> {
+	const counts: Record<EntryState, number> = { superseded: 0, "anchor-drift": 0, "age-unconfirmed": 0, "content-stale": 0, healthy: 0 };
+	for (const tid of ids) counts[entryStateOf(tid, facts).state] += 1;
+	return counts;
+}
