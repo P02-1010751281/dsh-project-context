@@ -15,6 +15,7 @@
 | [batch-v-memory-staleness-spec.md](./batch-v-memory-staleness-spec.md) | 记忆条目的内容漂移（Batch V 规格）：源绑定、四态判定、只标不删；预检证据在 `.agents/evidence/2026-11-20-batch-v-preflight/` |
 | [memory-rewrite-loss-gate-spec.md](./memory-rewrite-loss-gate-spec.md) | 记忆整篇重写会静默概括（规格）：tier C 的盲区、标识符存活校验、首版只报不拒 |
 | [batch-aa-state-machines-spec.md](./batch-aa-state-machines-spec.md) | 批次 AA 规格（2026-11-21）：三个核的状态机、两只过期探测器、碎片整理与核心间咬合；含 6 个待裁定问题，**尚未动 `src/`** |
+| [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md) | AA2 规格：内容漂移的两条通道。实测 25 条有绑定、**6 条已漂移**（精度 1/6，故不自动退役）；自动阶梯已存在，缺口是「阶梯看不见漂移」「基线永不刷新」；含 3 个待裁定 |
 | [batch-w-decision-seam-spec.md](./batch-w-decision-seam-spec.md) | 交接判定缝的规格；仍被 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用，故不归档 |
 | [handoff-candidates-b-c.md](./handoff-candidates-b-c.md) | 交接触发点 / 子会话标题三条路线的取舍；其中 (c) 仍待拍板，故留在本目录 |
 | [harness/](./harness/README.md) | 各宿主接口的采用与未采用登记（dsh / pi / codex / integration） |

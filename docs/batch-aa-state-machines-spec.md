@@ -263,3 +263,6 @@ export function entryStateOf(tid: string, facts: EntryStateFacts): { state: Entr
 - **残余（写进 CHANGELOG）**：`/memory status` 尚未显示这一项；pass 窗口内的外部改写会让基线不是
   模型看到的那份，与 memory 半边同类。
 - 下一批按裁定是 **AA2**（内容漂移的显式 + 自动两条通道），随后 **AA4**（技能过期），**AA5** 收三处整理。
+  AA2 的规格已按「先量后设计」写成 [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md)：实测 25 条有绑定、
+  6 条已漂移（精度 1/6），自动阶梯（85%）已存在，故 AA2 收窄为「让阶梯看得见漂移」+「`/memory reconcile` 的
+  报告 / 强制 pass / `--accept` 再基线」。

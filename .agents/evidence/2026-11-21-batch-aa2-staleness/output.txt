@@ -1,0 +1,11 @@
+headline: {"bound":25,"stale":6,"staleIds":["dc5","af0","ef8"],"missing":0,"unverifiable":0,"checked":true}
+document chars: 51996
+sidecar readable: true entries: 152 bound tids: 25
+
+entries with drift/missing: 6
+{"tid":"0ac","changed":["docs/memory-rewrite-loss-gate-spec.md"],"gone":[],"entry":"Tier C counts only structural loss (`sectionDropped` / `droppedItems` / `itemTruncated`), so a pass that regenerates the document in condensed wording reports z"}
+{"tid":"af0","changed":["src/project-handoff/perform.ts"],"gone":[],"entry":"Do not split `performHandoff` (`src/project-handoff/perform.ts`); `maybeAutoHandoff` is genuinely mixed and is the highest-risk refactor here.（af0）"}
+{"tid":"b5b","changed":["docs/README.md"],"gone":[],"entry":"`README.md` / `CHANGELOG.md` describe current behaviour; released bodies live in `docs/changelog/<version>.md`, `docs/README.md` is the docs index; README is th"}
+{"tid":"bde","changed":["test/logic.test.mjs"],"gone":[],"entry":"Batch Z8d: `removedSectionEntries` compares entries only after `stripEntryTid`, since the plan can be stamped and the write-back not; verbatim that reported 107"}
+{"tid":"dc5","changed":["src/shared/model-call.ts"],"gone":[],"entry":"`auxiliaryReasoningEffort(info)` (`src/shared/model-call.ts`) names the lowest enabled non-`off` effort on every auxiliary call: unnamed, pi-ai writes `thinking"}
+{"tid":"ef8","changed":["src/project-memory/retirement.ts"],"gone":[],"entry":"Z2 退休/标记通道在 `src/project-memory/retirement.ts`（`stripEntryTid`、`retireWithinBudget`、`stampEntryIds`、`readEntryDates`）：条目 id 由正文 sha256 派生、绝不读 sidecar；`retireWit"}
