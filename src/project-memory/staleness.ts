@@ -55,28 +55,35 @@ export const UNCHECKED_STALENESS: StalenessFacts = { bound: 0, stale: 0, staleId
 /** How many ids a receipt may name before it stops being a receipt. */
 const MAX_NAMED_IDS = 3;
 
+/** One entry whose cited file changed after it was written, and the paths that changed under it. */
+export interface StaleEntry {
+	readonly tid: string;
+	/** The cited paths whose current fingerprint differs from the recorded one, in document order. */
+	readonly paths: readonly string[];
+}
+
+/** What one entry's cited files say now: the judgement before it is folded into a count or a list. */
+interface EntryJudgement {
+	readonly tid: string;
+	readonly changed: readonly string[];
+	readonly gone: boolean;
+	readonly unknown: boolean;
+}
+
 /**
- * Judge every entry of one document against its bindings and the current readings.
+ * Judge every entry that carries a binding, once, for both readers below.
  *
  * An entry is stale when **at least one** of its bound files changed: the entry makes one claim, and
  * a claim resting on a changed file is unverified even if its other files are intact. Entries without
  * a binding are not judged at all — no binding means nothing was ever recorded to compare against,
  * which is a different fact from "checked and clean".
- * @param sections - the parsed memory document.
- * @param bindings - fingerprints recorded when each entry was authored.
- * @param files - what re-reading each bound path produced now.
- * @returns the counts the receipt renders.
  */
-export function summariseStaleness(
+function judgeEntries(
 	sections: MemorySections,
 	bindings: SourceBindings,
 	files: ReadonlyMap<string, FileState>,
-): StalenessFacts {
-	let bound = 0;
-	let stale = 0;
-	let missing = 0;
-	let unverifiable = 0;
-	const staleIds: string[] = [];
+): EntryJudgement[] {
+	const judged: EntryJudgement[] = [];
 	for (const key of Object.keys(sections) as (keyof MemorySections)[]) {
 		for (const entry of sections[key]) {
 			const tid = entryTid(entry);
@@ -85,8 +92,7 @@ export function summariseStaleness(
 			if (binding === undefined) continue;
 			const paths = Object.keys(binding);
 			if (paths.length === 0) continue;
-			bound += 1;
-			let changed = false;
+			const changed: string[] = [];
 			let gone = false;
 			let unknown = false;
 			for (const path of paths) {
@@ -103,17 +109,63 @@ export function summariseStaleness(
 					gone = true;
 					continue;
 				}
-				if (current.value !== binding[path]) changed = true;
+				if (current.value !== binding[path]) changed.push(path);
 			}
-			if (changed) {
-				stale += 1;
-				if (staleIds.length < MAX_NAMED_IDS) staleIds.push(tid);
-			}
-			if (gone) missing += 1;
-			if (unknown) unverifiable += 1;
+			judged.push({ tid, changed, gone, unknown });
 		}
 	}
+	return judged;
+}
+
+/**
+ * The counts a receipt renders, folded from the same judgement `staleEntriesOf` exposes.
+ *
+ * @param sections - the parsed memory document.
+ * @param bindings - fingerprints recorded when each entry was authored.
+ * @param files - what re-reading each bound path produced now.
+ * @returns the counts the receipt renders.
+ */
+export function summariseStaleness(
+	sections: MemorySections,
+	bindings: SourceBindings,
+	files: ReadonlyMap<string, FileState>,
+): StalenessFacts {
+	let bound = 0;
+	let stale = 0;
+	let missing = 0;
+	let unverifiable = 0;
+	const staleIds: string[] = [];
+	for (const judged of judgeEntries(sections, bindings, files)) {
+		bound += 1;
+		if (judged.changed.length > 0) {
+			stale += 1;
+			if (staleIds.length < MAX_NAMED_IDS) staleIds.push(judged.tid);
+		}
+		if (judged.gone) missing += 1;
+		if (judged.unknown) unverifiable += 1;
+	}
 	return { bound, stale, staleIds, missing, unverifiable, checked: true };
+}
+
+/**
+ * Every stale entry with the paths that changed under it, for a channel that has to act on one.
+ *
+ * `StalenessFacts` names at most three ids because a receipt must stay short, and "which entries" is
+ * the whole question `/memory reconcile` answers. Both views come from one judgement, so the count a
+ * receipt prints and the list a command shows cannot disagree.
+ * @param sections - the parsed memory document.
+ * @param bindings - fingerprints recorded when each entry was authored.
+ * @param files - what re-reading each bound path produced now.
+ * @returns the stale entries, in document order.
+ */
+export function staleEntriesOf(
+	sections: MemorySections,
+	bindings: SourceBindings,
+	files: ReadonlyMap<string, FileState>,
+): StaleEntry[] {
+	return judgeEntries(sections, bindings, files)
+		.filter((judged) => judged.changed.length > 0)
+		.map((judged) => ({ tid: judged.tid, paths: judged.changed }));
 }
 
 /**

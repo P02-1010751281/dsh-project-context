@@ -48,19 +48,33 @@ export interface StalenessFacts {
 }
 /** Nothing was checked — the wording must say so instead of implying a clean memory. */
 export declare const UNCHECKED_STALENESS: StalenessFacts;
+/** One entry whose cited file changed after it was written, and the paths that changed under it. */
+export interface StaleEntry {
+    readonly tid: string;
+    /** The cited paths whose current fingerprint differs from the recorded one, in document order. */
+    readonly paths: readonly string[];
+}
 /**
- * Judge every entry of one document against its bindings and the current readings.
+ * The counts a receipt renders, folded from the same judgement `staleEntriesOf` exposes.
  *
- * An entry is stale when **at least one** of its bound files changed: the entry makes one claim, and
- * a claim resting on a changed file is unverified even if its other files are intact. Entries without
- * a binding are not judged at all — no binding means nothing was ever recorded to compare against,
- * which is a different fact from "checked and clean".
  * @param sections - the parsed memory document.
  * @param bindings - fingerprints recorded when each entry was authored.
  * @param files - what re-reading each bound path produced now.
  * @returns the counts the receipt renders.
  */
 export declare function summariseStaleness(sections: MemorySections, bindings: SourceBindings, files: ReadonlyMap<string, FileState>): StalenessFacts;
+/**
+ * Every stale entry with the paths that changed under it, for a channel that has to act on one.
+ *
+ * `StalenessFacts` names at most three ids because a receipt must stay short, and "which entries" is
+ * the whole question `/memory reconcile` answers. Both views come from one judgement, so the count a
+ * receipt prints and the list a command shows cannot disagree.
+ * @param sections - the parsed memory document.
+ * @param bindings - fingerprints recorded when each entry was authored.
+ * @param files - what re-reading each bound path produced now.
+ * @returns the stale entries, in document order.
+ */
+export declare function staleEntriesOf(sections: MemorySections, bindings: SourceBindings, files: ReadonlyMap<string, FileState>): StaleEntry[];
 /**
  * The receipt clause, in the same voice as the `/memory` status line next to it.
  *

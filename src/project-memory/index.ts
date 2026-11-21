@@ -46,7 +46,7 @@ import { backupMemoryBeforeWrite, importLegacyMemory, loadMemory, loadMemorySync
 import { type MissingLiterals, missingLiteralsBetween } from "./missing-literals.js";
 import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
 import { formatMemoryStatus } from "./status-report.js";
-import { bindAndMeasure, measureStaleness } from "./staleness-source.js";
+import { type AcceptOutcome, type StalenessReading, acceptStaleness, bindAndMeasure, measureStaleness, measureStalenessDetail } from "./staleness-source.js";
 import { type StalenessFacts, stalenessClause } from "./staleness.js";
 import { readMemoryFileFacts } from "./status-source.js";
 import { appendTombstones } from "./retired.js";
@@ -787,8 +787,8 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "memory",
-		description: "Show this project's memory location and status, 'update' to consolidate now, or 'prune' to preview the cleaning channel",
-		input: { hint: "update | prune [--apply]" },
+		description: "Show this project's memory location and status, 'update' to consolidate now, 'prune' to preview the cleaning channel, or 'reconcile' to list entries whose cited files changed",
+		input: { hint: "update | prune [--apply] | reconcile [--accept <id>]" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const verb = (rawInput ?? "").trim().toLowerCase();
 			if (verb === "update") {
@@ -800,7 +800,32 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				const outcome = await pruneProjectMemory(projectRoot, { apply: verb.endsWith("--apply"), reason: "manual" });
 				return memoryPruneReply(outcome, projectRoot);
 			}
-			if (verb !== "") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory (status) | /memory update | /memory prune [--apply]` };
+			if (verb === "reconcile" || verb.startsWith("reconcile ")) {
+				const projectRoot = await getProjectRoot(projectCwd(agent.session));
+				const config = effectivePluginConfig(entry);
+				// The same cap `/memory` status reads under: the id has to be the one the document carries,
+				// and a read cut would silently hide the entries past it (reported below, never implied away).
+				const memory = await loadMemory(projectRoot, config.maxMemoryChars);
+				const rest = verb.slice("reconcile".length).trim();
+				if (rest.startsWith("--accept")) {
+					const tid = rest.slice("--accept".length).trim();
+					if (!/^[0-9a-f]{3,4}$/.test(tid)) {
+						return { kind: "error" as const, text: "Usage: /memory reconcile --accept <id>\nAn entry id is three or four lower-case hex characters, as shown by /memory reconcile." };
+					}
+					const outcome = await acceptStaleness(projectRoot, memory.text, tid);
+					// The one durable trace of a refreshed baseline: the sidecar's fingerprint alone cannot say
+					// whether a human confirmed the fact or a pass rewrote it.
+					if (outcome.status === "accepted") {
+						await logError(projectRoot, "memory", `baseline refreshed by /memory reconcile --accept for ${tid}: ${outcome.paths.join(", ")}`);
+					}
+					return memoryAcceptReply(outcome, tid);
+				}
+				if (rest !== "") {
+					return { kind: "error" as const, text: `Unknown option "${rest}". Usage: /memory reconcile | /memory reconcile --accept <id>` };
+				}
+				return memoryReconcileReply(await measureStalenessDetail(projectRoot, memory.text), { cappedDroppedChars: memory.cappedDroppedChars });
+			}
+			if (verb !== "") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory (status) | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]` };
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			const config = effectivePluginConfig(entry);
 			const memory = await loadMemory(projectRoot, config.maxMemoryChars);
@@ -1058,4 +1083,79 @@ export function memoryPruneReply(outcome: PruneOutcome, projectRoot: string): { 
 		return { kind: "success", text: `Memory prune: ${did} of ${outcome.plan.candidates.length} planned (${size}), ${outcome.failed} file(s) could not be cleaned${outcome.error === undefined ? "" : ` (${outcome.error})`}; the bytes that left are archived in ${trash}. One line was appended to ${log}.` };
 	}
 	return { kind: "success", text: `Memory prune: ${did} (${size}); bytes archived in ${trash}, one line appended to ${log}.` };
+}
+
+/** How many stale entries a reconciliation receipt lists before it stops being a receipt. */
+const MAX_RECONCILE_LINES = 10;
+
+/**
+ * The `/memory reconcile` reply: every entry whose cited file changed since it was written.
+ *
+ * The first line carries the whole verdict on purpose — the client folds a command card to one ellipsized
+ * line, so a receipt whose payload sat below the first line would be unreadable without expanding it.
+ * The per-entry lines name the entry id and the file that moved: an id alone gives the reader nothing to
+ * confirm, and a path alone does not say which entry rests on it.
+ * @param reading - the measured facts and the per-entry detail they were folded from.
+ * @param context - the read-cap count, so a truncated view is named instead of implied complete.
+ * @returns the command result.
+ */
+export function memoryReconcileReply(
+	reading: StalenessReading,
+	context: { cappedDroppedChars: number },
+): { kind: "success" | "error"; text: string } {
+	const { facts, stale } = reading;
+	const hidden = context.cappedDroppedChars > 0
+		? `\nThe read cap hid ${context.cappedDroppedChars} character(s), so entries past that point were not judged.`
+		: "";
+	if (!facts.checked) {
+		return { kind: "error", text: `Memory reconcile: unknown — the entry sidecar or the memory document could not be read, so nothing was judged.${hidden}` };
+	}
+	if (facts.bound === 0) {
+		return { kind: "success", text: `Memory reconcile: nothing to check — no entry cites a file this project can read.${hidden}` };
+	}
+	if (facts.stale === 0) {
+		return { kind: "success", text: `Memory reconcile: no drift — all ${facts.bound} bound entr${facts.bound === 1 ? "y" : "ies"} still match the files they cite.${hidden}` };
+	}
+	const lines = stale
+		.slice(0, MAX_RECONCILE_LINES)
+		.map((entry) => `  ${entry.tid} → ${entry.paths.join(", ")}`);
+	const more = stale.length > MAX_RECONCILE_LINES ? `\n  … and ${stale.length - MAX_RECONCILE_LINES} more` : "";
+	const action = facts.stale === 1
+		? "If that entry is still true, /memory reconcile --accept <id> makes today's file the new baseline; if it is not, /memory update rewrites it."
+		: `If an entry is still true, /memory reconcile --accept <id> makes today's file its new baseline; a pass rewrites the rest.`;
+	return {
+		kind: "success",
+		text: `Memory reconcile: ${facts.stale} of ${facts.bound} bound entr${facts.bound === 1 ? "y" : "ies"} cite a file that changed since the entr${facts.stale === 1 ? "y was" : "ies were"} written — the claim is unverified, not necessarily wrong.\n${lines.join("\n")}${more}\n${action}${hidden}`,
+	};
+}
+
+/**
+ * The `/memory reconcile --accept <id>` reply.
+ *
+ * Every refusal is a different cause and says which, because the reader's next move differs: a missing
+ * anchor is the retirement pass's business, an unreadable file must not be frozen as truth, and a raced
+ * acceptance only needs to be run again.
+ * @param outcome - what the acceptance did.
+ * @param tid - the entry id the user named.
+ * @returns the command result.
+ */
+export function memoryAcceptReply(outcome: AcceptOutcome, tid: string): { kind: "success" | "error"; text: string } {
+	switch (outcome.status) {
+		case "accepted":
+			return { kind: "success", text: `Memory reconcile: accepted ${tid} — ${outcome.paths.length} changed file(s) re-baselined (${outcome.paths.join(", ")}); this entry stops being reported as stale.` };
+		case "unknown-entry":
+			return { kind: "error", text: `Memory reconcile: no entry ${tid} in this memory. Run /memory reconcile to list the entries that carry drift.` };
+		case "no-binding":
+			return { kind: "error", text: `Memory reconcile: entry ${tid} cites no checkable file, so it has no baseline to accept — it is never reported as stale.` };
+		case "not-stale":
+			return { kind: "success", text: `Memory reconcile: entry ${tid} is not stale; its baseline already matches every file it cites.` };
+		case "anchor-missing":
+			return { kind: "error", text: `Memory reconcile: entry ${tid} cites a file that no longer exists (${outcome.paths.join(", ")}). That is anchor drift, which retires the entry — run /memory update instead of accepting it.` };
+		case "unreadable":
+			return { kind: "error", text: `Memory reconcile: entry ${tid} cites a file that could not be read (${outcome.paths.join(", ")}); a baseline is not written from an unread state.` };
+		case "unreadable-store":
+			return { kind: "error", text: "Memory reconcile: the memory document or its entry sidecar could not be read; nothing was changed." };
+		case "raced":
+			return { kind: "error", text: `Memory reconcile: entry ${tid} changed while it was being accepted, so nothing was written. Run the command again.` };
+	}
 }

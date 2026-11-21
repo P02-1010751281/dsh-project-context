@@ -13,7 +13,7 @@
  * under `.agents/memory/` — that directory is rewritten by this very pass, so binding it would mark
  * every entry stale the moment anything is written.
  */
-import { type StalenessFacts } from "./staleness.js";
+import { type StaleEntry, type StalenessFacts } from "./staleness.js";
 /** How many hex characters of the SHA-256 are kept. Change detection, not a signature. */
 export declare const FINGERPRINT_LENGTH = 16;
 /**
@@ -28,15 +28,96 @@ export declare const FINGERPRINT_LENGTH = 16;
  */
 export declare function bindableAnchors(entry: string, projectRoot: string): Promise<string[]>;
 /**
+ * The merge half of `bindAndMeasure`, pure so the raced state can be tested without interleaving.
+ *
+ * Only a tid that had no baseline is written. For an existing one, `next` holds the value this pass read
+ * *before* it hashed the files, so writing it would undo a baseline another writer recorded in between —
+ * an explicit `/memory reconcile --accept` is exactly that writer, and the overwrite is invisible: the
+ * entry is simply reported stale again, and the user re-runs the command that appeared to work.
+ * A single writer cannot tell the difference, because in that case `next` copies the stored value.
+ * @param current - the sidecar's baseline map, re-read inside the write lock.
+ * @param next - the map this pass computed, including entries it just bound for the first time.
+ * @returns the map to write.
+ */
+export declare function mergeBaselines(current: ReadonlyMap<string, ReadonlyMap<string, string>>, next: ReadonlyMap<string, ReadonlyMap<string, string>>): Map<string, ReadonlyMap<string, string>>;
+/** What one read of the store says, for both the count a receipt prints and the list a command shows. */
+export interface StalenessReading {
+    readonly facts: StalenessFacts;
+    /** Every stale entry, not only the three `facts.staleIds` a short receipt may name. */
+    readonly stale: readonly StaleEntry[];
+}
+/**
  * Measure the current staleness of a document without touching the sidecar.
  *
- * Used by `/memory` status, which is a read-only receipt: it hashes what the bindings name and reports
- * the verdict, and a missing sidecar is a named `unknown` rather than a clean bill of health.
+ * Used by `/memory` status and `/memory reconcile`, both read-only: it hashes what the bindings name and
+ * reports what it found, and a missing sidecar is a named `unknown` rather than a clean bill of health.
+ * @param projectRoot - the project whose memory is being read.
+ * @param document - the loaded memory text.
+ * @returns the verdict and the per-entry detail it was folded from.
+ */
+export declare function measureStalenessDetail(projectRoot: string, document: string): Promise<StalenessReading>;
+/**
+ * The counts only, for a caller that has no channel to act on a single entry.
  * @param projectRoot - the project whose memory is being read.
  * @param document - the loaded memory text.
  * @returns the verdict the receipt renders.
  */
 export declare function measureStaleness(projectRoot: string, document: string): Promise<StalenessFacts>;
+/** What one explicit acceptance did. Every failure is named, because the receipt repeats it. */
+export type AcceptOutcome = 
+/** The baseline is now what the cited files say; `paths` are the ones that had changed. */
+{
+    readonly status: "accepted";
+    readonly paths: readonly string[];
+}
+/** No entry in this document carries the id. */
+ | {
+    readonly status: "unknown-entry";
+}
+/** The entry exists but cites no checkable file: nothing to re-baseline. */
+ | {
+    readonly status: "no-binding";
+}
+/** Every cited file still matches its baseline: the acceptance would be a no-op. */
+ | {
+    readonly status: "not-stale";
+}
+/** A cited file is gone: that is anchor drift, which the retirement pass owns, not a re-baseline. */
+ | {
+    readonly status: "anchor-missing";
+    readonly paths: readonly string[];
+}
+/** A cited file could not be read: writing a baseline would freeze an unread state as truth. */
+ | {
+    readonly status: "unreadable";
+    readonly paths: readonly string[];
+}
+/** The sidecar or the document could not be parsed: nothing is judged, nothing is written. */
+ | {
+    readonly status: "unreadable-store";
+}
+/** Another writer replaced the entry's baseline between the read and the write. */
+ | {
+    readonly status: "raced";
+};
+/**
+ * Re-baseline one entry: record the current fingerprints of the files it cites, so it stops being
+ * reported as stale.
+ *
+ * The one write path that may refresh a baseline for an unchanged body. `bindAndMeasure` never does —
+ * a body change mints a new id and therefore a new baseline, which is what "re-read and re-verified"
+ * looks like mechanically — so without this an entry confirmed still true would be reported stale
+ * forever and the count could only grow.
+ *
+ * Three refusals are deliberate: a missing anchor belongs to the retirement pass, an unreadable one
+ * must not be frozen as truth, and a baseline that changed under the read is not overwritten (the
+ * compare-and-swap below), because that write would silently undo a concurrent acceptance.
+ * @param projectRoot - the project whose sidecar is written.
+ * @param document - the loaded memory text the id was read from.
+ * @param tid - the entry id to accept.
+ * @returns what happened, named.
+ */
+export declare function acceptStaleness(projectRoot: string, document: string, tid: string): Promise<AcceptOutcome>;
 /**
  * Record baselines for entries that have none, then measure the whole document.
  *

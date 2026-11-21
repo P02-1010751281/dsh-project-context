@@ -25,8 +25,10 @@ import { sectionsFromMarkdown } from "./sections.js";
 import {
 	type FileState,
 	type SourceBindings,
+	type StaleEntry,
 	type StalenessFacts,
 	UNCHECKED_STALENESS,
+	staleEntriesOf,
 	summariseStaleness,
 } from "./staleness.js";
 
@@ -117,6 +119,30 @@ function identifiedEntries(sections: MemorySections): Array<[string, string]> {
 	return found;
 }
 
+/**
+ * The merge half of `bindAndMeasure`, pure so the raced state can be tested without interleaving.
+ *
+ * Only a tid that had no baseline is written. For an existing one, `next` holds the value this pass read
+ * *before* it hashed the files, so writing it would undo a baseline another writer recorded in between —
+ * an explicit `/memory reconcile --accept` is exactly that writer, and the overwrite is invisible: the
+ * entry is simply reported stale again, and the user re-runs the command that appeared to work.
+ * A single writer cannot tell the difference, because in that case `next` copies the stored value.
+ * @param current - the sidecar's baseline map, re-read inside the write lock.
+ * @param next - the map this pass computed, including entries it just bound for the first time.
+ * @returns the map to write.
+ */
+export function mergeBaselines(
+	current: ReadonlyMap<string, ReadonlyMap<string, string>>,
+	next: ReadonlyMap<string, ReadonlyMap<string, string>>,
+): Map<string, ReadonlyMap<string, string>> {
+	const merged = new Map(current);
+	for (const [tid, bindings] of next) {
+		if (current.has(tid)) continue;
+		merged.set(tid, bindings);
+	}
+	return merged;
+}
+
 /** A binding map as the pure core expects it (plain records, no Map identity). */
 function asBindings(sources: ReadonlyMap<string, ReadonlyMap<string, string>>): SourceBindings {
 	const out: Record<string, Record<string, string>> = {};
@@ -131,22 +157,130 @@ function boundPaths(sources: ReadonlyMap<string, ReadonlyMap<string, string>>): 
 	return paths;
 }
 
+/** What one read of the store says, for both the count a receipt prints and the list a command shows. */
+export interface StalenessReading {
+	readonly facts: StalenessFacts;
+	/** Every stale entry, not only the three `facts.staleIds` a short receipt may name. */
+	readonly stale: readonly StaleEntry[];
+}
+
+/** The reading of a document that could not be judged: a named absence, never a clean bill of health. */
+const UNCHECKED_READING: StalenessReading = { facts: UNCHECKED_STALENESS, stale: [] };
+
 /**
  * Measure the current staleness of a document without touching the sidecar.
  *
- * Used by `/memory` status, which is a read-only receipt: it hashes what the bindings name and reports
- * the verdict, and a missing sidecar is a named `unknown` rather than a clean bill of health.
+ * Used by `/memory` status and `/memory reconcile`, both read-only: it hashes what the bindings name and
+ * reports what it found, and a missing sidecar is a named `unknown` rather than a clean bill of health.
+ * @param projectRoot - the project whose memory is being read.
+ * @param document - the loaded memory text.
+ * @returns the verdict and the per-entry detail it was folded from.
+ */
+export async function measureStalenessDetail(projectRoot: string, document: string): Promise<StalenessReading> {
+	const sections = sectionsFromMarkdown(document);
+	if (sections === undefined) return UNCHECKED_READING;
+	const sidecar = await readEntrySidecar(projectRoot);
+	if (!sidecar.readable) return UNCHECKED_READING;
+	const files = await fingerprintAll(projectRoot, boundPaths(sidecar.sources));
+	const bindings = asBindings(sidecar.sources);
+	return {
+		facts: summariseStaleness(sections, bindings, files),
+		stale: staleEntriesOf(sections, bindings, files),
+	};
+}
+
+/**
+ * The counts only, for a caller that has no channel to act on a single entry.
  * @param projectRoot - the project whose memory is being read.
  * @param document - the loaded memory text.
  * @returns the verdict the receipt renders.
  */
 export async function measureStaleness(projectRoot: string, document: string): Promise<StalenessFacts> {
+	return (await measureStalenessDetail(projectRoot, document)).facts;
+}
+
+/** What one explicit acceptance did. Every failure is named, because the receipt repeats it. */
+export type AcceptOutcome =
+	/** The baseline is now what the cited files say; `paths` are the ones that had changed. */
+	| { readonly status: "accepted"; readonly paths: readonly string[] }
+	/** No entry in this document carries the id. */
+	| { readonly status: "unknown-entry" }
+	/** The entry exists but cites no checkable file: nothing to re-baseline. */
+	| { readonly status: "no-binding" }
+	/** Every cited file still matches its baseline: the acceptance would be a no-op. */
+	| { readonly status: "not-stale" }
+	/** A cited file is gone: that is anchor drift, which the retirement pass owns, not a re-baseline. */
+	| { readonly status: "anchor-missing"; readonly paths: readonly string[] }
+	/** A cited file could not be read: writing a baseline would freeze an unread state as truth. */
+	| { readonly status: "unreadable"; readonly paths: readonly string[] }
+	/** The sidecar or the document could not be parsed: nothing is judged, nothing is written. */
+	| { readonly status: "unreadable-store" }
+	/** Another writer replaced the entry's baseline between the read and the write. */
+	| { readonly status: "raced" };
+
+/** True when two binding maps say the same thing, order-independently. */
+function sameBindings(
+	left: ReadonlyMap<string, string>,
+	right: ReadonlyMap<string, string>,
+): boolean {
+	if (left.size !== right.size) return false;
+	for (const [path, fingerprint] of left) if (right.get(path) !== fingerprint) return false;
+	return true;
+}
+
+/**
+ * Re-baseline one entry: record the current fingerprints of the files it cites, so it stops being
+ * reported as stale.
+ *
+ * The one write path that may refresh a baseline for an unchanged body. `bindAndMeasure` never does —
+ * a body change mints a new id and therefore a new baseline, which is what "re-read and re-verified"
+ * looks like mechanically — so without this an entry confirmed still true would be reported stale
+ * forever and the count could only grow.
+ *
+ * Three refusals are deliberate: a missing anchor belongs to the retirement pass, an unreadable one
+ * must not be frozen as truth, and a baseline that changed under the read is not overwritten (the
+ * compare-and-swap below), because that write would silently undo a concurrent acceptance.
+ * @param projectRoot - the project whose sidecar is written.
+ * @param document - the loaded memory text the id was read from.
+ * @param tid - the entry id to accept.
+ * @returns what happened, named.
+ */
+export async function acceptStaleness(projectRoot: string, document: string, tid: string): Promise<AcceptOutcome> {
 	const sections = sectionsFromMarkdown(document);
-	if (sections === undefined) return UNCHECKED_STALENESS;
+	if (sections === undefined) return { status: "unreadable-store" };
 	const sidecar = await readEntrySidecar(projectRoot);
-	if (!sidecar.readable) return UNCHECKED_STALENESS;
-	const files = await fingerprintAll(projectRoot, boundPaths(sidecar.sources));
-	return summariseStaleness(sections, asBindings(sidecar.sources), files);
+	if (!sidecar.readable) return { status: "unreadable-store" };
+	if (!identifiedEntries(sections).some(([id]) => id === tid)) return { status: "unknown-entry" };
+	const binding = sidecar.sources.get(tid);
+	if (binding === undefined || binding.size === 0) return { status: "no-binding" };
+	const states = await fingerprintAll(projectRoot, [...binding.keys()]);
+	const missing = [...binding.keys()].filter((relative) => states.get(relative)?.kind === "missing");
+	if (missing.length > 0) return { status: "anchor-missing", paths: missing };
+	const unreadable = [...binding.keys()].filter((relative) => {
+		const state = states.get(relative);
+		return state === undefined || state.kind === "unreadable";
+	});
+	if (unreadable.length > 0) return { status: "unreadable", paths: unreadable };
+	const changed = [...binding.keys()].filter((relative) => {
+		const state = states.get(relative);
+		// Every path is a readable sha by the two refusals above; the guard is for the type, not for a case.
+		return state?.kind === "sha" && state.value !== binding.get(relative);
+	});
+	if (changed.length === 0) return { status: "not-stale" };
+	let accepted = false;
+	await updateEntrySidecar(projectRoot, (current) => {
+		const now = current.sources.get(tid);
+		// The compare half: a baseline refreshed after this read is newer evidence than ours.
+		if (now === undefined || !sameBindings(now, binding)) return undefined;
+		const refreshed = new Map<string, string>();
+		for (const [relative, state] of states) if (state.kind === "sha") refreshed.set(relative, state.value);
+		const next = new Map(current.sources);
+		next.set(tid, refreshed);
+		accepted = true;
+		return { entries: current.entries, sources: next };
+	});
+	if (!accepted) return { status: "raced" };
+	return { status: "accepted", paths: changed };
 }
 
 /**
@@ -190,9 +324,7 @@ export async function bindAndMeasure(projectRoot: string, document: string): Pro
 	const files = await fingerprintAll(projectRoot, boundPaths(nextSources));
 	const facts = summariseStaleness(sections, asBindings(nextSources), files);
 	await updateEntrySidecar(projectRoot, (current) => {
-		const merged = new Map(current.sources);
-		for (const [tid, bindings] of nextSources) merged.set(tid, bindings);
-		const pruned = pruneSidecar({ entries: current.entries, sources: merged }, ids);
+		const pruned = pruneSidecar({ entries: current.entries, sources: mergeBaselines(current.sources, nextSources) }, ids);
 		return { entries: pruned.entries, sources: pruned.sources };
 	});
 	return { facts, written: true };

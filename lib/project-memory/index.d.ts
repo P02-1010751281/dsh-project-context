@@ -16,6 +16,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";
 import { type MissingLiterals } from "./missing-literals.js";
+import { type AcceptOutcome, type StalenessReading } from "./staleness-source.js";
 import { type StalenessFacts } from "./staleness.js";
 import { type PruneOutcome } from "./prune.js";
 export declare const name = "project-memory";
@@ -225,6 +226,37 @@ export declare function memoryUpdateReply(report: ConsolidateReport): {
  * @returns the command result.
  */
 export declare function memoryPruneReply(outcome: PruneOutcome, projectRoot: string): {
+    kind: "success" | "error";
+    text: string;
+};
+/**
+ * The `/memory reconcile` reply: every entry whose cited file changed since it was written.
+ *
+ * The first line carries the whole verdict on purpose — the client folds a command card to one ellipsized
+ * line, so a receipt whose payload sat below the first line would be unreadable without expanding it.
+ * The per-entry lines name the entry id and the file that moved: an id alone gives the reader nothing to
+ * confirm, and a path alone does not say which entry rests on it.
+ * @param reading - the measured facts and the per-entry detail they were folded from.
+ * @param context - the read-cap count, so a truncated view is named instead of implied complete.
+ * @returns the command result.
+ */
+export declare function memoryReconcileReply(reading: StalenessReading, context: {
+    cappedDroppedChars: number;
+}): {
+    kind: "success" | "error";
+    text: string;
+};
+/**
+ * The `/memory reconcile --accept <id>` reply.
+ *
+ * Every refusal is a different cause and says which, because the reader's next move differs: a missing
+ * anchor is the retirement pass's business, an unreadable file must not be frozen as truth, and a raced
+ * acceptance only needs to be run again.
+ * @param outcome - what the acceptance did.
+ * @param tid - the entry id the user named.
+ * @returns the command result.
+ */
+export declare function memoryAcceptReply(outcome: AcceptOutcome, tid: string): {
     kind: "success" | "error";
     text: string;
 };
