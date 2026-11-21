@@ -25,6 +25,8 @@ import { importArchiveFiles } from "./import.js";
 import { queueSessionArtifacts, releaseSessionQueue, writeSessionArtifacts } from "./session-log.js";
 import { reconcileSessionIndexOnce, setSessionTask } from "./session-index.js";
 import { readSessionTree } from "./session-tree.js";
+import { sessionStatusReceipt } from "./session-state.js";
+import { measureSessionStates } from "./session-state-source.js";
 import { readSearchCorpus } from "./search-source.js";
 import { renderSearchReport, search } from "./search.js";
 import { readTaskUsageInputs } from "./task-usage-source.js";
@@ -322,8 +324,8 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "session-log",
-		description: "Show the session log location and index; `write` writes the current session's artifacts, `tree` shows the handoff lineage, `import <path…>` backfills ended sessions",
-		input: { hint: "write | tree | import <session.jsonl|archive.zip|dir>…" },
+		description: "Show the session log location and index; `status` checks the archive against INDEX.md, `write` writes the current session's artifacts, `tree` shows the handoff lineage, `import <path…>` backfills ended sessions",
+		input: { hint: "status | write | tree | import <session.jsonl|archive.zip|dir>…" },
 		handler: async ({ agent, rawInput }) => {
 			const args = rawInput.trim();
 			// The bare command is the "what is my state" habit, so it reads; `write` writes. `now` was the
@@ -353,6 +355,18 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 					// A command handler never throws: the failure is a receipt plus one log line.
 					await logError(projectRoot, "memory", error);
 					return { kind: "error", text: `Session tree: the command failed — ${error instanceof Error ? error.message : String(error)} (see .agents/memory/errors.log).` };
+				}
+			}
+			// The archive's own state check: a read, like the bare command, and the only place the four
+			// AOCI failure names (Missing / Orphan / Stale / Unbaselined) become checkable — they describe an
+			// index and the directory it describes, so one side alone can never show them.
+			if (args === "status") {
+				const projectRoot = await getProjectRoot(projectCwd(agent.session));
+				try {
+					return { kind: "success", text: sessionStatusReceipt(await measureSessionStates(projectRoot)) };
+				} catch (error: unknown) {
+					await logError(projectRoot, "memory", error);
+					return { kind: "error", text: `Session status: the command failed — ${error instanceof Error ? error.message : String(error)} (see .agents/memory/errors.log).` };
 				}
 			}
 			const files = await resolveImportTargets(args.replace(/^import\s+/, "").trim(), projectCwd(agent.session));

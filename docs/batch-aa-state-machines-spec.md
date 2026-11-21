@@ -266,3 +266,23 @@ export function entryStateOf(tid: string, facts: EntryStateFacts): { state: Entr
   AA2 的规格已按「先量后设计」写成 [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md)：实测 25 条有绑定、
   6 条已漂移（精度 1/6），自动阶梯（85%）已存在，故 AA2 收窄为「让阶梯看得见漂移」+「`/memory reconcile` 的
   报告 / 强制 pass / `--accept` 再基线」。
+
+## 12. 落地：会话日志的状态判定（AA3，2026-11-21）
+
+§3 的 AA6 原本只写「派生视图」。补上之后它同时是 AOCI 那四个失败名的报告面：
+
+| AOCI 名 | 本核的判定 | 修复方向 |
+|---|---|---|
+| Missing | 索引有一行、目录不在 | 重新归档或删行 |
+| Orphan | 目录在、索引没有行 | 补一行（`reconcileSessionIndexOnce` 的下一次） |
+| Stale | 行与 `meta.json` 的日期/标题不一致 | 重生成那一行 |
+| Unbaselined | 目录没有 `meta.json` | 补 meta 或重新归档 |
+
+加两个本核自己的状态：`dangling`（它继承的父会话已不在磁盘上）与健康的 `live` / `settled`（按最后活动
+时间分，`SETTLED_DAYS = 7`）。`/session-log status` 输出计数 + 最坏若干条，首行带载荷。
+
+**只读是有意的**：把生命周期写进 `meta.json` 会成为第二份真相，而它能与目录本身不一致——这套判定的
+全部价值就是发现这种不一致。所以这里没有「转移」，只有「修复」：四种失败态各自的补救都在回执的
+detail 里点名。
+
+现场：211 个会话、10 live、201 settled、0 需修。
