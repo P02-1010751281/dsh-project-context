@@ -6,6 +6,7 @@
 
 ```bash
 node probe.mjs > output.txt
+node receipt.mjs        # the real `/memory reconcile` receipt, through the plugin's own command
 ```
 
 从 `lib/` 导入**构建产物**（`readEntrySidecar`、`sectionsFromMarkdown`、`entryTid`、`measureStaleness`），不是 `src/`；改过 `src/` 需先 `pnpm build`。
@@ -34,3 +35,23 @@ node probe.mjs > output.txt
 ## 边界
 
 探针只读 `.agents/memory/` 与它引用的仓库内文件；`lib/` 被 `.gitignore` 屏蔽的生成物（`lib/`）本来就不被绑定（`GENERATED_PREFIXES`）。
+
+## 命令的现场回执（`receipt.txt`）
+
+`receipt.mjs` 用插件自己的 `apply()` 注册命令，再把 `/memory reconcile` 的 `rawInput` 交给真实 handler。
+必须先把有效配置发布成 **52000**（`publishProjectContextSettings`）：不发布时 `effectivePluginConfig`
+落到 `DEFAULT_CONFIG` 的 40000，文档被读帽截断，回执按设计变成
+`unknown — … nothing was judged` + `hid 12132 character(s)`——这条 fail-closed 路径本身是对的，
+但它说明 **读帽一旦截断文档，reconcile 就拒绝判定**（残余见规格 §8）。
+
+回执（2026-11-21T18:57+08:00，同一份文档）：
+
+```
+Memory reconcile: 6 of 25 bound entries cite a file that changed since the entries were written — the claim is unverified, not necessarily wrong.
+  dc5 → src/shared/model-call.ts
+  af0 → src/project-handoff/perform.ts
+  ef8 → src/project-memory/retirement.ts
+  0ac → docs/memory-rewrite-loss-gate-spec.md
+  bde → test/logic.test.mjs
+  b5b → docs/README.md
+```

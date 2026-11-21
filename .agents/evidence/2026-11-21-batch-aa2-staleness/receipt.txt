@@ -1,0 +1,9 @@
+kind: success
+Memory reconcile: 6 of 25 bound entries cite a file that changed since the entries were written — the claim is unverified, not necessarily wrong.
+  dc5 → src/shared/model-call.ts
+  af0 → src/project-handoff/perform.ts
+  ef8 → src/project-memory/retirement.ts
+  0ac → docs/memory-rewrite-loss-gate-spec.md
+  bde → test/logic.test.mjs
+  b5b → docs/README.md
+If an entry is still true, /memory reconcile --accept <id> makes today's file its new baseline; a pass rewrites the rest.

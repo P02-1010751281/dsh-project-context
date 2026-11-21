@@ -121,6 +121,9 @@
 - 基线仍是 16 hex 指纹（变更检测，不是签名）。
 - 侧车不可读时是命名缺席（`checked: false`），不能被读成「干净」。
 - `/memory status` 仍只显示计数，不显示是哪几条（AA1b 残留）。
+- **读帽一旦截断文档，`/memory reconcile` 拒绝判定**（`unknown` + `hid N characters`）：一个被切掉尾巴的文档
+  不是可解析的四节文档，所以它不假装扫过。杠杆是 `maxMemoryChars`（当前 52,000，文档 51,996，只差 4 个字符）。
+  这是 fail-closed，不是缺陷；但 memory 一长，reconcile 会先于其它一切失效。
 
 ## 9. 待裁定
 
