@@ -194,6 +194,47 @@ Route attribution for this run is stronger than for 16:20: the row carries a cod
 Responses endpoint, and a codex-shaped prompt (system + tools), which the host's own DeepSeek turns do
 not produce.
 
+## The two open questions, tested
+
+**Q1 — would some writer put the table form back?**
+
+Writers were exercised, not guessed:
+
+| writer | action | result |
+|---|---|---|
+| codex 0.164.0 / 0.167.0 / 0.169.0 | `features enable async_compaction` on a copy | rewrites the block as `[features]` + `async_compaction= true` (boolean) |
+| codex 0.153.4 (store build) | same | `Unknown feature flag`, file unchanged — this command did not write the key |
+| magpie 0.1.4570 | `magpie codex effort high` then `default` | wrote `model_reasoning_effort`; the `[features]` block was left byte-identical, and the file returned to the same sha256 (`6975be27…3b0d`) |
+
+The magpie binary contains four literal occurrences of `async_compaction`: the bare key and three dotted
+forms (`features.async_compaction`, `features.async_compaction.enabled`, and
+`features.async_compaction.model_async_compact_threshold_percent`). These bytes do not show whether the
+key is read or written or whether both shapes are accepted. Its CLI exposes no async field (`fields:
+model, effort, subagent, subagent_model, compact_model, subagent_effort, memories, login, scope,
+statusline`), and the effort-setting test did not produce the table form.
+
+Conclusion: **none of the tested actions emitted the nested table** — the three newer Codex feature
+commands wrote a boolean, 0.153.4 rejected the flag without changing the copy, and the magpie effort
+change preserved the block. The original writer is unknown; an untested writer or code path, including
+one already installed, could restore it.
+
+**Q2 — would a future store accept the table form?**
+
+All nine dsh-desktop store generations present on this machine — 0.2.2-rc.1, 0.2.1-alpha.2 and seven
+0.2.2-rc.3 outputs — bundle codex **0.153.4**, so switching among these nine installed outputs does not change the
+bundled Codex version. What changes is the codex version itself; the ladder:
+
+| codex build | table form (`[features.async_compaction]`) | boolean form (`[features]`) |
+|---|---|---|
+| 0.153.4 (every dsh store here) | **`-32600 invalid type`** | ok |
+| 0.164.0 | ok | ok |
+| 0.167.0 | ok | ok |
+| 0.169.0 (PATH CLI) | ok | ok |
+
+0.153.4 rejected the table. 0.164.0, 0.167.0 and 0.169.0 accepted it; the first compatible release was
+not established. Use the boolean, which passed on all four tested builds, and rerun the handshake when a
+different Codex build is bundled.
+
 ## Failure modes if the table form returns
 
 - **Plugin (0.153.4):** fails at thread start as `stage: thread-start; category: unknown`; the message
@@ -205,17 +246,18 @@ not produce.
 
 ## Residual risks
 
-1. `~/.codex/config.toml` is shared. Magpie writes parts of it (its comments mark the magpie lines; its
-   `stash.json` carries `codex.async = {"enabled":true,"cap":true}`, though no literal
-   `async_compaction` string was found in its binary), and codex itself persists project-trust entries
-   on demand — demonstrated once as a removal-and-reappearance here. Which writer would restore the
-   table form is **plausible but not demonstrated**.
+1. `~/.codex/config.toml` is shared. In the tested actions, codex 0.164/0.167/0.169 rewrote the flag as
+   the boolean form, 0.153.4 rejected it without touching the copy, and the magpie effort change left the
+   block alone. None of those actions emitted the nested table; the original writer is unknown, and an
+   untested writer or code path — including one already installed — could restore it.
 2. Backout: `~/.codex/config.toml.bak-20261120-154416-dsh-async-compaction-compat`
    (sha256 `81d8210e…37b7`) restores the pre-change bytes. Restoring it brings back the `-32600` failure
    on 0.153.4 and, within the behaviours measured, changes nothing on 0.169.0. The `/tmp` trust stanza
    is on neither side.
 3. Deleting the `[features]` block fixes 0.153.4 equally and drops the 0.169.0 opt-in.
-4. The store stays on 0.153.4; whether a future store version accepts the table form is untested.
+4. Store upgrades: all nine installed outputs bundle 0.153.4. 0.153.4 rejected the table form;
+   0.164.0, 0.167.0 and 0.169.0 accepted it, and the first compatible release was not established. The
+   boolean passed on all four tested builds — rerun the handshake whenever a different build is bundled.
 5. Surfacing the JSON-RPC failure code instead of `category: unknown` is a code change and needs its own
    reviewed batch.
 
@@ -235,6 +277,7 @@ feature off and warns each time, while gaining nothing for the plugin.
 | round 2 | `audit-r2-adversarial` | alternative causes | `async_compaction` absent from 0.153.4; deletion equivalent for that build; 402/200 confounded | `…/round2-adversarial/RESULT.md` |
 | round 3 | `audit-r3-final` | new claims, regression, backout, failure modes | `AMEND`: six defects (trust stanza, 127→135, wording, anchor, CLI equivalence, unverified claims) | `…/round3-final/RESULT.md` |
 | round 4 | `audit-r4-proofread` | sentence-by-sentence proofread | 76 claim groups: 43 OK / 29 weak / 4 unsupported → 10 grouped fixes, applied here | `…/round4-proofread/RESULT.md` |
+| round 5 | `audit-r5-closure` | the two sections added after round 4 (writer test, version ladder) | `CLOSURE: 4 fixes` — reproduced 8 handshakes and the 9-store inventory; narrowed four claims, applied here | `…/closure/RESULT.md` |
 
 What the rounds changed in this document, in order: the feature warning's observation channel; the
 matrix's evidence basis; the `/tmp` trust stanza; the feature count and its scope; the "minimal" claim;

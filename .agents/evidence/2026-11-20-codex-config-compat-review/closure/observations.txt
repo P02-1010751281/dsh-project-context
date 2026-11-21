@@ -1,0 +1,30 @@
+codex-cli 0.153.4 writer-nested rc 1 WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-17jbulh4" (codex_home: AbsolutePathBuf("/tmp/closure-codex-17jbulh4"))
+Error: Unknown feature flag: async_compaction identical True block ['[features.async_compaction]', 'enabled = true']
+codex-cli 0.153.4 writer-absent rc 1 WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-7dfj57d5" (codex_home: AbsolutePathBuf("/tmp/closure-codex-7dfj57d5"))
+Error: Unknown feature flag: async_compaction identical True block []
+codex-cli 0.153.4 nested {'code': -32600, 'message': 'failed to load configuration: /tmp/closure-codex-1d59lyz4/config.toml:26:1: invalid type: map, expected a boolean'}
+codex-cli 0.153.4 bool thread 01a1fb92-aca8-7922-923b-f5f0d6bddfbb
+codex-cli 0.164.0 writer-nested rc 0 Enabled feature `async_compaction` in config.toml.
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-j0l7piif" (codex_home: AbsolutePathBuf("/tmp/closure-codex-j0l7piif"))
+Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/closure-codex-j0l7piif/config.toml. identical False block ['[features]', 'async_compaction= true']
+codex-cli 0.164.0 writer-absent rc 0 Enabled feature `async_compaction` in config.toml.
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-9vw0xc4l" (codex_home: AbsolutePathBuf("/tmp/closure-codex-9vw0xc4l"))
+Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/closure-codex-9vw0xc4l/config.toml. identical False block ['[features]', 'async_compaction = true']
+codex-cli 0.164.0 nested thread 01a1fb92-adb3-7cc0-a330-b4e03d979e36
+codex-cli 0.164.0 bool thread 01a1fb92-ae7e-7241-992b-aabc4246a175
+codex-cli 0.167.0 writer-nested rc 0 Enabled feature `async_compaction` in config.toml.
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-jd3a5pb_" (codex_home: AbsolutePathBuf("/tmp/closure-codex-jd3a5pb_"))
+Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/closure-codex-jd3a5pb_/config.toml. identical False block ['[features]', 'async_compaction= true']
+codex-cli 0.167.0 writer-absent rc 0 Enabled feature `async_compaction` in config.toml.
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-ct6qioet" (codex_home: AbsolutePathBuf("/tmp/closure-codex-ct6qioet"))
+Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/closure-codex-ct6qioet/config.toml. identical False block ['[features]', 'async_compaction = true']
+codex-cli 0.167.0 nested thread 01a1fb92-af92-7e11-9e79-6c8b15899235
+codex-cli 0.167.0 bool thread 01a1fb92-b067-7510-97ef-e2da3d2c68c6
+codex-cli 0.169.0 writer-nested rc 0 Enabled feature `async_compaction` in config.toml.
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-0dgfe_90" (codex_home: AbsolutePathBuf("/tmp/closure-codex-0dgfe_90"))
+Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/closure-codex-0dgfe_90/config.toml. identical False block ['[features]', 'async_compaction= true']
+codex-cli 0.169.0 writer-absent rc 0 Enabled feature `async_compaction` in config.toml.
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp/closure-codex-13zrkhk5" (codex_home: AbsolutePathBuf("/tmp/closure-codex-13zrkhk5"))
+Under-development features enabled: async_compaction. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /tmp/closure-codex-13zrkhk5/config.toml. identical False block ['[features]', 'async_compaction = true']
+codex-cli 0.169.0 nested thread 01a1fb92-b16a-7083-8a9e-c673ff562ce1
+codex-cli 0.169.0 bool thread 01a1fb92-b250-7d03-9411-3bb49a74dfdb
