@@ -92,3 +92,21 @@ A plugin instance reads its config at apply, so the pin only takes effect at the
 - An id that exists in the catalog can still fail; an id that is absent fails deterministically. Always test, never read names as strength.
 - Reported catalog counts drift (108 vs 109 in one session): recount and print the number you actually read.
 - If you state the catalog "has no such id", re-check your accessor key before saying it to the user.
+
+## Config-file traps (`~/.codex/config.toml`)
+
+The plugin path runs the store build of `@openai/codex@0.153.4` (`run.ts:44` → `bin.codex` → `app-server --stdio`), not the PATH `codex`; the two parse the file differently, so `codex --version` decides
+which rules apply.
+
+- `async_compaction` must be spelled `[features] async_compaction = true` — a **boolean**. Store build
+  0.153.4 fails `thread/start` with `invalid type: map, expected a boolean` on the nested
+  `[features.async_compaction] enabled = true` table; the PATH CLI 0.169.0 reads only the boolean.
+  Deleting the block also fixes 0.153.4, which has no such feature at all: `features list` is 135
+  rows with no entry, and `--enable` / `features enable` answers `Unknown feature flag` (exit 1).
+- Unknown keys are silent on 0.153.4 (even a fabricated `[bogus_section_xyz]` earns no warning), so
+  "no warning" never means "recognised"; `thread/start` also returns a thread id for a nonexistent
+  model, so a handshake is not a model-call test.
+- A failure surfaces as `stage: thread-start; category: unknown`; the real reason is on the
+  app-server stderr, which `run.ts:261` copies to the host stderr — there is no per-child log.
+- With cwd `/tmp`, codex appends `[projects."/tmp"] trust_level = "trusted"` to the config itself.
+  Probe from an already-trusted cwd and prove the config's sha256 unchanged afterwards.
