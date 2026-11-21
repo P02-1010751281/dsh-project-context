@@ -1774,6 +1774,96 @@ test("tier C: a reply that would be stored lossily is refused after one retry, a
 	}
 });
 
+/** A four-section document that names two literals; the replies below keep or drop one of them. */
+const LITERAL_MEMORY = "# Project Memory\n\n## Project\n- root `/etc/nixos` holds the flake\n- `isHeadingOnlyDocument` refuses the skeleton\n\n## Invariants\n- one name per fact\n\n## Pitfalls\n- none yet\n\n## Index\n- docs/README.md\n";
+
+/** A complete four-section reply whose Project section is `body`; a complete reply is accepted as-is. */
+function literalReply(body) {
+	return JSON.stringify({
+		memory_markdown: `# Project Memory\n\n## Project\n${body}\n\n## Invariants\n- one name per fact\n\n## Pitfalls\n- none yet\n\n## Index\n- docs/README.md\n`,
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+}
+
+const KEEPS_BOTH_REPLY = literalReply("- root `/etc/nixos` holds the flake\n- `isHeadingOnlyDocument` refuses the skeleton, unchanged");
+const DROPS_ONE_REPLY = literalReply("- root `/etc/nixos` holds the flake\n- the skeleton gate is unchanged");
+
+test("a rewrite that drops a backticked fact reports it after the write lands, and the receipt says so", async () => {
+	// The rewrite loss gate's observation half (`docs/memory-rewrite-loss-gate-spec.md` §3 A): tier C
+	// counts structure, so this reply lands `updated` with the structure intact while one fact leaves.
+	// The measure is taken from the bytes that landed, reported once, and never refuses anything.
+	const root = await memoryProject("dsh-memory-missing-literals-", LITERAL_MEMORY);
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: DROPS_ONE_REPLY }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
+	assert.equal(report.memoryWritten, true);
+	assert.equal(report.sectionDropped, 0, "fixture: nothing was dropped structurally, which is the whole point");
+	assert.equal(report.droppedItems, 0);
+	assert.equal(report.itemTruncated, 0);
+	assert.deepEqual(report.missingLiterals, { count: 1, samples: ["isHeadingOnlyDocument"] }, "the departed literal is named, the kept one is not");
+	const landed = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	assert.match(landed, /\/etc\/nixos/, "the fixture keeps one literal");
+	assert.doesNotMatch(landed, /isHeadingOnlyDocument/, "and the other really left the document");
+	const receipt = memoryUpdateReply(report).text;
+	assert.match(receipt, /^Memory: updated /, "the payload still starts the receipt");
+	assert.match(receipt, /Missing literals: 1 backticked literal\(s\)/, `the receipt names the loss, got ${receipt}`);
+	assert.match(receipt, /isHeadingOnlyDocument/, `and one sample of it, got ${receipt}`);
+	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("backticked literal(s)"));
+	assert.equal(logged.length, 1, `one line per lossy write, got ${JSON.stringify(logged)}`);
+	assert.match(logged[0], /1 backticked literal\(s\) the previous memory carried no longer appear in the new document, e\.g\. isHeadingOnlyDocument/);
+});
+
+test("a rewrite that keeps every backticked fact reports nothing, in neither the receipt nor the log", async () => {
+	// The negative control for the test above: same fixture, a reply that keeps both literals. Without
+	// this, a measure that reported a constant would pass the positive case.
+	const root = await memoryProject("dsh-memory-kept-literals-", LITERAL_MEMORY);
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: KEEPS_BOTH_REPLY }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
+	assert.deepEqual(report.missingLiterals, { count: 0, samples: [] }, "no literal left the document");
+	const receipt = memoryUpdateReply(report).text;
+	assert.doesNotMatch(receipt, /Missing literals/, `a lossless rewrite must not read like a lossy one, got ${receipt}`);
+	const logFile = path.join(root, ".agents", "memory", "errors.log");
+	const log = existsSync(logFile) ? await readFile(logFile, "utf8") : "";
+	assert.doesNotMatch(log, /backticked literal\(s\)/, "nothing was lost, so nothing is logged");
+});
+
+test("a deliberate retirement before the prompt is not reported as a silently lost fact", async () => {
+	// Batch Z2's plan retires an entry whose anchor drifted *before* the prompt is built, and the model
+	// is shown the shortened view. Measuring the landed document against the raw store would then count
+	// the retirement's own literals as an unexplained loss — a wrong cause: that deletion is this pass's,
+	// and `retired.md` records it. The baseline is the document the model was actually shown.
+	const stored = "# Project Memory\n\n## Project\n- root `/etc/nixos` holds the flake\n- the `orbitalDriftGate` lives in `src/project-memory/gone.ts`\n\n## Invariants\n- one name per fact\n\n## Pitfalls\n- none yet\n\n## Index\n- docs/README.md\n";
+	const reply = JSON.stringify({
+		memory_markdown: "# Project Memory\n\n## Project\n- root `/etc/nixos` holds the flake\n\n## Invariants\n- one name per fact\n\n## Pitfalls\n- none yet\n\n## Index\n- docs/README.md\n",
+		context: { title: "t", summary: "s", key_points: [], open_tasks: [] },
+	});
+	const root = await memoryProject("dsh-memory-retired-baseline-", stored);
+	// The anchor check only judges a token whose parent directory exists (a cross-repo reference is not
+	// checkable), so the fixture creates the directory and leaves the file absent.
+	await mkdir(path.join(root, "src", "project-memory"), { recursive: true });
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
+	const landed = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
+	assert.doesNotMatch(landed, /orbitalDriftGate/, "fixture: the anchor-drift entry really left the document");
+	const retiredRecord = path.join(root, ".agents", "memory", "retired.md");
+	assert.match(existsSync(retiredRecord) ? await readFile(retiredRecord, "utf8") : "", /orbitalDriftGate/, "fixture: and the retirement channel recorded it as a deliberate deletion");
+	assert.deepEqual(report.missingLiterals, { count: 0, samples: [] }, "a deletion this pass made and recorded is not a lost fact");
+	const logFile = path.join(root, ".agents", "memory", "errors.log");
+	assert.doesNotMatch(existsSync(logFile) ? await readFile(logFile, "utf8") : "", /backticked literal\(s\)/, "and it is not logged as one");
+	assert.doesNotMatch(memoryUpdateReply(report).text, /Missing literals/, "nor does the receipt claim it");
+});
+
 test("a consolidation route that refuses the tools parameter is retried once without it", async () => {
 	// The shared fallback is wired in both passes, so this pins the memory side's own call site: the
 	// first (tools-carrying) call is the one that may be refused, and the retry must really drop the

@@ -10,17 +10,30 @@
 
 ### 未发布（`v0.4.3` 之后）
 
-**project-context / project-memory（回执标注派生视图：权威是 journal）**
+**project-memory（整篇重写的静默概括：`/memory update` 报告 missing literals）**
 
-- 动机：AOCI 调研（`docs/research/2026-11-19-aoci.md` §5）建议借它的 `derived=true / authoritative=false`
-  标记。`/memory status` 与 `/context export --write` 展示的都是派生视图，但回执里没有一句说明权威在哪。
-- 改法：`formatMemoryStatus` 末行加 `derived view: MEMORY.md is a projection, the authority is the journal`，
-  **仅当** `loadMemory` 确实从 journal 读出（`source === journalPath`）；`/context export --write` 同理，
-  依据 `readMemoryExport` 新增的 `fromJournal`。空 journal、外部改动后较新的 `MEMORY.md`、归档回退三种
-  情况下都不标：状态回执若照标，会与它自己的 `source` 行矛盾（正是「报错因」而不是「缺信息」）；导出的
-  回执则是把没读过的 journal 说成权威。
-- 测试：新增 6 条（有 journal / 无 journal / 空 journal / 外部改动 / 导出正负），变异验证：把条件退回
-  「journal 文件存在即标」时，空 journal 与外部改动两条变红；删掉导出那半句时导出正例变红。
+- 问题：tier C 只数结构丢失（整条被丢或截到单条上限），所以一次「整篇重写成浓缩措辞」的 pass 报
+  `0 0 0`、状态 `updated`，事实却静默消失。离线校准（6 份 journal、相邻两次落盘共 66 次转换，用落地
+  实现本身量）：零丢失 30 次（45%），平均每次丢 5.41 个字面量，中位 1，最大 67。
+- 改法：新增 `src/project-memory/missing-literals.ts`。写入**成功后**从落盘字节（不是回复文本，写路径
+  还会再裁一次；读取也在同一把锁内，避免读到并发宿主写入的另一份文档）抽反引号字面量，与**模型实际
+  看到的**那份文档比对；计数与最多 `MISSING_LITERAL_SAMPLES` 个样本写 `errors.log`，`/memory update`
+  回执追加一句 `Missing literals: N`（两个样本），放在首行，因为折叠的命令卡只显示首行。
+- **只报不拒**：一个拒绝分支都没加。规格 §9.2 的裁定是这个名字本就不该单独当准入闸——一次合法改名、
+  或某个符号在别的条目里还活着，都会让机械比对误判。
+- 基线是「模型看到的那份」而不是库里的原始文档：Batch Z2 的退休计划会在建提示词之前删条目，拿库里
+  的原文当基线会把这次 pass 自己做的、`retired.md` 已记账的删除报成「静默丢失」——那正是本仓库最忌的
+  报错因。
+- 口径四条，都由实测缺陷定死：先配对反引号再过滤短于 3 字符的 span（反过来的写法把短 span 的收尾当
+  下一个开头，同一份字节多报 4 条）；按行配对、绝不跨行；只丢了反引号而事实仍在的不算丢；裸文本必须
+  是**整词**且在反引号之外（`memoryComparisonKey` 在 `memoryComparisonKeyWithDrop` 里、`main` 在
+  `remaining` 里都不算还在——同一批转换实测：子串判定 4.74/次，整词判定 5.41/次，即子串规则掩盖了
+  44 条真实丢失，占 12%）。
+- 已知重叠：条目被截到单条上限（`itemTruncated`）时，它丢的字面量也在这个计数里，日志行会点名这件事；
+  计数不持久化，所以 `/memory status` 报不了它（只有写出这份文档的那次 pass 知道）。
+- 测试：新增 13 条（10 条纯函数 + 3 条端到端：有丢失、无丢失、退休基线），变异 8 个全部命中：配对前
+  过滤、去掉整词检查、抬高样本上限、回执不报、日志不写、回执条件反转、报告字段不携带、基线退回库里
+  原文（这一条正是把退休删除误报成丢失的那种）。
 
 **project-memory（`record_memory` 参数 JSON 非法时，退一次无工具重试）**
 

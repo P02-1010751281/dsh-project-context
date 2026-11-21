@@ -81,6 +81,13 @@ export type ConsolidationOutcome = {
 	 */
 	basisKey: string;
 	/**
+	 * The memory the model was actually shown, which is not `basisKey` once batch Z2's plan retired an
+	 * entry before the prompt was built: a deliberate retirement is a deletion this pass already made
+	 * and reported, so it must not come back as an unexplained lost fact. The rewrite loss measure
+	 * compares the landed document against this view, not against the store.
+	 */
+	shownMemory: string;
+	/**
 	 * Which entry the memory came from. Reported for diagnostics and tests; no receipt reads it yet,
 	 * so a pass is never worded differently because of it.
 	 */
@@ -654,6 +661,7 @@ export function consolidateProjectState(
 				...(taskSlug === undefined ? {} : { taskSlug }),
 				version: (nextVersion += 1),
 				basisKey: existing.text,
+				shownMemory: existing.text,
 				kind: "none",
 				semanticEmpty: false,
 				sectionDropped: 0,
@@ -725,6 +733,7 @@ export function consolidateProjectState(
 				...(taskSlug === undefined ? {} : { taskSlug }),
 				version: (nextVersion += 1),
 				basisKey: existing.text,
+				shownMemory: existing.text,
 				kind: "none",
 				semanticEmpty: false,
 				sectionDropped: 0,
@@ -1051,6 +1060,7 @@ export function consolidateProjectState(
 			...(taskSlug === undefined ? {} : { taskSlug }),
 			version,
 			basisKey: existing.text,
+			shownMemory: promptMemory,
 			kind: resolved.kind,
 			semanticEmpty,
 			sectionDropped: loss.sectionDropped,

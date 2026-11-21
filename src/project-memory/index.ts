@@ -43,6 +43,7 @@ import {
 	writeAtomic,
 } from "../shared/project-state.js";
 import { backupMemoryBeforeWrite, importLegacyMemory, loadMemory, loadMemorySync, memoryJournalFile, normalizeMemoryWithDrop, readMemoryDamage, recordMemoryDocument } from "./memory-store.js";
+import { type MissingLiterals, missingLiteralsBetween } from "./missing-literals.js";
 import { OPAQUE_DOCUMENT_MIN_CHARS } from "./sections.js";
 import { formatMemoryStatus } from "./status-report.js";
 import { bindAndMeasure, measureStaleness } from "./staleness-source.js";
@@ -225,6 +226,16 @@ type ConsolidateReport = {
 	/** Invariants/Pitfalls entries a written reply no longer carries (batch Q2's report layer). */
 	removedEntries?: { count: number; samples: string[] };
 	/**
+	 * The literals the memory this pass replaced carried and the document that landed no longer
+	 * mentions — the rewrite loss gate's observation half (`docs/memory-rewrite-loss-gate-spec.md`
+	 * §3 A). Measured from the landed bytes, never from the reply: the write path caps the document
+	 * once more, so only a read-back describes what replaced the old file. Reported and never used as
+	 * a gate (§9.2: a legal rename reads as a loss, and a symbol another entry still mentions hides its
+	 * own loss). Absent when this pass landed no memory, because a document that did not land replaced
+	 * nothing.
+	 */
+	missingLiterals?: MissingLiterals;
+	/**
 	 * Set by the read-cap gate: the pass was refused before any model call because a stored artifact was
 	 * longer than the cap that decides what the model is shown (`maxMemoryChars` for the memory,
 	 * `MAX_CONTEXT_CHARS` for the context). The reply would have been built from the shortened view and
@@ -337,6 +348,8 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 
 			let memoryKeptStale = false;
 			let memoryWriteDroppedChars = 0;
+			/** The rewrite loss gate's observation of the bytes that landed. */
+			let memoryLiteralLoss: MissingLiterals | undefined;
 			/** Batch V's verdict, measured only for a document that landed. */
 			let staleness: StalenessFacts | undefined;
 			if (memoryChanged) {
@@ -349,7 +362,12 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				const snapshot = await withMemoryLock(memoryFile(projectRoot), async () => {
 					const backup = await backupMemoryBeforeWrite(memoryFile(projectRoot));
 					const result = await recordMemoryDocument(projectRoot, memoryText, config.maxMemoryChars, { basisKey: outcome.basisKey });
-					return { backup, written: result.written };
+					// The bytes this pass wrote, read while the lock still holds them. Read after it is
+					// released and a concurrent host may have replaced the file already: the measure would
+					// then describe a document that did not land here — a wrong cause, which is the one
+					// failure this repository treats as worse than a missing number.
+					const landed = result.written ? await readOptional(memoryFile(projectRoot)) : "";
+					return { backup, written: result.written, landed };
 				});
 				wroteMemory = snapshot.written;
 				memoryKeptStale = !snapshot.written;
@@ -360,6 +378,27 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				memoryWriteDroppedChars = snapshot.written ? normalizeMemoryWithDrop(memoryText, config.maxMemoryChars).dropped : 0;
 				if (memoryWriteDroppedChars > 0) {
 					await logError(projectRoot, "memory", `MEMORY.md was capped at ${config.maxMemoryChars} characters on write: ${memoryWriteDroppedChars} character(s) of the reply were dropped`);
+				}
+				// The rewrite loss gate's observation half: tier C counts structure, so a document
+				// regenerated in condensed wording reports no loss while facts vanish. Two baselines matter
+				// and both are deliberate:
+				//  - the **previous** side is `shownMemory`, the view the model was handed, not the store:
+				//    batch Z2's plan may have retired an entry before the prompt was built, and a deletion
+				//    this pass already made and reported must not return as an unexplained lost fact;
+				//  - the **next** side is the bytes that landed, not the reply: the write path caps the
+				//    document once more, so only the landed bytes describe what replaced the old file.
+				// Reported only, never refused (§3 A, §9.2: a legal rename reads as a loss, so this cannot
+				// decide anything). An empty read is no observation at all: `readOptional` cannot tell an
+				// unreadable file from an empty one, and measuring against either would report every
+				// literal as lost — the wrong-cause failure this gate is supposed to catch, not commit.
+				if (snapshot.written && snapshot.landed !== "") {
+					memoryLiteralLoss = missingLiteralsBetween(outcome.shownMemory, snapshot.landed);
+					if (memoryLiteralLoss.count > 0) {
+						const alsoTruncated = outcome.itemTruncated > 0
+							? `; ${outcome.itemTruncated} entry(ies) were also cut at their per-item cap, and part of that count comes from them`
+							: "";
+						await logError(projectRoot, "memory", `${memoryLiteralLoss.count} backticked literal(s) the previous memory carried no longer appear in the new document, e.g. ${memoryLiteralLoss.samples.join(" | ")}${alsoTruncated}`);
+					}
 				}
 				// Batch Q2's report layer, at the write site: the claim describes the document that landed,
 				// so a reply tier C or the basis-key race refused does not leave a removal claim behind.
@@ -427,6 +466,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// counts: a merge the write path then refused describes nothing on disk.
 				...(wroteMemory && outcome.mergedFromStore.length > 0 ? { mergedFromStore: outcome.mergedFromStore } : {}),
 				...(wroteMemory && outcome.removedEntries !== undefined ? { removedEntries: outcome.removedEntries } : {}),
+				...(wroteMemory && memoryLiteralLoss !== undefined ? { missingLiterals: memoryLiteralLoss } : {}),
 			};
 
 			// A refused pass publishes neither artifact. The reply was built from a memory that is no
@@ -944,7 +984,15 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	const verdict = report.staleness === undefined || !report.staleness.checked || report.staleness.bound === 0
 		? ""
 		: ` Source bindings: ${stalenessClause(report.staleness)}.`;
-	return { kind: "success", text: `${updated}${verdict}` };
+	// The rewrite loss gate's sentence: `detail` reports structure, so a document regenerated in
+	// condensed wording lands with a clean detail while facts leave. This is the only receipt line that
+	// names that loss, and it stays on the first line because a folded command card shows only that one.
+	// Two samples here and `MISSING_LITERAL_SAMPLES` in `errors.log`: the count is the evidence, the log
+	// is where to look. `count > 0` implies at least one sample, so the parenthetical cannot be empty.
+	const missing = report.missingLiterals === undefined || report.missingLiterals.count === 0
+		? ""
+		: ` Missing literals: ${report.missingLiterals.count} backticked literal(s) the previous memory carried no longer appear (e.g. ${report.missingLiterals.samples.slice(0, 2).join(" | ")}).`;
+	return { kind: "success", text: `${updated}${verdict}${missing}` };
 }
 
 /**

@@ -146,3 +146,26 @@ node -e 'const fs=require("fs");(async()=>{const {sectionsFromMarkdown,renderMem
 3. **§0 的前提有一处错。** tier C 量的是「候选文档渲染会丢什么」；模型完全可以在渲染之前就把一条旧条目省掉，于是 `sectionDropped` / `droppedItems` / `itemTruncated` 仍是 0、状态仍报 `updated`——所以「tier C 已经覆盖旧条目消失」不成立。
 
 据此的落地顺序：先用 `memory.jsonl` 的历史 diff **离线校准**这个指标（不需要新的模型调用），**只报不拒**，且只在写入成功之后报；频率本身不足以构成阻断理由。
+
+## 10. 落地（2026-11-21）：只报不拒的观测版
+
+按 §3 A + §4 第 1 步落地，`src/project-memory/missing-literals.ts` + 写侧一处判定。四件事在这
+一轮被独立评审与自证定死，写在这里免得下次重新论证：
+
+1. **基线是「模型看到的那份」，不是库里的原文。** Batch Z2 的退休计划在建提示词之前删条目，拿
+   `basisKey` 当基线会把这次 pass 自己做的、`retired.md` 已记账的删除报成「静默丢失」——正是本仓库
+   最忌的报错因。所以 `ConsolidationOutcome` 多了 `shownMemory`，测量以它为准。
+2. **落盘字节在同一把锁内读回。** 锁外读会读到并发宿主写入的另一份文档；测量必须描述这次真的落盘的
+   那份字节（读回为空时视为「没有观测」，不把不可读当成清空）。
+3. **裸文本判定要整词、且在反引号之外。** `next.includes(literal)` 会把 `memoryComparisonKey` 在
+   `memoryComparisonKeyWithDrop` 里当成还在；同一批 66 次转换实测：子串判定 4.74/次，整词判定
+   5.41/次，即子串规则掩盖了 44 条真实丢失（12%），方向恰好是让这个指标看不见它要看的东西。
+4. **回执只放 `/memory update` 首行**（折叠卡只显示首行）。§7 第 4 问的答案是「不能两处都放」：这个
+   计数不持久化，`/memory status` 读的是文件而不是上一次 pass，放上去只能靠猜。
+
+最终校准（落地实现本身，6 份 journal 66 次转换）：零丢失 30 次（45%），均值 5.41 个字面量/次，中位
+1，最大 67，p90 13；证据在 `.agents/evidence/2026-11-21-missing-literals-calibration/`。早先那份
+59 次 / 6.41 / 68 由 §9.1 的错配正则得出，不再引用。
+
+下一步仍是 §4 第 2 步：跑 3~5 次真实 pass，看这个数稳定在 0 还是常态非 0，再决定是否升级为拒绝
+（`generalized-refused`）。在此之前不拒绝、不写进承诺。

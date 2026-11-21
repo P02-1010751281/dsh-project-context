@@ -15,6 +15,7 @@ import type { Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";
+import { type MissingLiterals } from "./missing-literals.js";
 import { type StalenessFacts } from "./staleness.js";
 import { type PruneOutcome } from "./prune.js";
 export declare const name = "project-memory";
@@ -119,6 +120,16 @@ type ConsolidateReport = {
         count: number;
         samples: string[];
     };
+    /**
+     * The literals the memory this pass replaced carried and the document that landed no longer
+     * mentions — the rewrite loss gate's observation half (`docs/memory-rewrite-loss-gate-spec.md`
+     * §3 A). Measured from the landed bytes, never from the reply: the write path caps the document
+     * once more, so only a read-back describes what replaced the old file. Reported and never used as
+     * a gate (§9.2: a legal rename reads as a loss, and a symbol another entry still mentions hides its
+     * own loss). Absent when this pass landed no memory, because a document that did not land replaced
+     * nothing.
+     */
+    missingLiterals?: MissingLiterals;
     /**
      * Set by the read-cap gate: the pass was refused before any model call because a stored artifact was
      * longer than the cap that decides what the model is shown (`maxMemoryChars` for the memory,

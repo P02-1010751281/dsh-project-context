@@ -31,4 +31,5 @@ export { backupMemoryBeforeWrite } from "./backup.js";
 export { isMemoryTruncated, memoryTruncationMarker, normalizeMemoryDocument, normalizeMemoryWithDrop } from "./document.js";
 export { appendMemoryOp, foldMemoryJournal, memoryJournalFile, readMemoryJournal } from "./journal.js";
 export { loadMemory, loadMemorySync, readMemoryDamage, type LoadedMemory } from "./load.js";
+export { MISSING_LITERAL_SAMPLES, backtickedLiterals, missingLiteralsBetween, type MissingLiterals } from "./missing-literals.js";
 export { importLegacyMemory, recordMemoryDocument } from "./record.js";
