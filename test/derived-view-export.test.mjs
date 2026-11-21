@@ -50,7 +50,9 @@ test("/context export --write names the export a derived view when the journal i
 		const reply = await command.handler({ agent: fakeAgent(root), rawInput: "export --write" });
 		assert.equal(reply.kind, "success", reply.text);
 		assert.match(reply.text, /Exported \d+ entr(y|ies) to /, "the written path still leads");
-		assert.match(reply.text, /The export is a derived view; the authority is the memory journal\./, reply.text);
+		// Its own line, not a trailing clause: the client only creates an expandable <pre> when the
+		// text contains a newline, and a single-line row is clipped where the marker would sit.
+		assert.match(reply.text, /\nThe export is a derived view; the authority is the memory journal\.$/, reply.text);
 	});
 });
 

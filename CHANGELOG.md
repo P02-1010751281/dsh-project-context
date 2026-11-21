@@ -17,7 +17,8 @@
 - 改法：`formatMemoryStatus` 末行加 `derived view: MEMORY.md is a projection, the authority is the journal`，
   **仅当** `loadMemory` 确实从 journal 读出（`source === journalPath`）；`/context export --write` 同理，
   依据 `readMemoryExport` 新增的 `fromJournal`。空 journal、外部改动后较新的 `MEMORY.md`、归档回退三种
-  情况下都不标——否则回执会与它自己的 `source` 行矛盾，正是「报错因」而不是「缺信息」。
+  情况下都不标：状态回执若照标，会与它自己的 `source` 行矛盾（正是「报错因」而不是「缺信息」）；导出的
+  回执则是把没读过的 journal 说成权威。
 - 测试：新增 6 条（有 journal / 无 journal / 空 journal / 外部改动 / 导出正负），变异验证：把条件退回
   「journal 文件存在即标」时，空 journal 与外部改动两条变红；删掉导出那半句时导出正例变红。
 

@@ -231,8 +231,12 @@ test("an absent journal is not called an authority", async () => {
 	// The negative control: with no journal there is nothing to defer to, so the receipt must not claim
 	// an authority the store does not have.
 	const root = await freshProject();
+	// A real document, so journal absence is the only thing this case varies.
+	await mkdir(memoryDir(root), { recursive: true });
+	await writeFile(memoryFile(root), renderMemoryDocument(FIXTURE, CAP).text);
 	const { reply } = await status(root);
 
+	assert.match(reply.text, /^Memory: \d+\/\d+ chars/m, "the document is loaded, not empty");
 	assert.match(reply.text, /journal .*memory\.jsonl none yet/);
 	assert.doesNotMatch(reply.text, /derived view/, "no journal, no authority to name");
 });
