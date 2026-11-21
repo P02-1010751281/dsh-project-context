@@ -139,6 +139,23 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 致谢
+
+本包的若干机制来自对同族与外部项目的学习；代码均为本仓库独立实现。
+
+- **pi-project-context**：同族项目，长期互相对照；批次 J、Q、R、T1/T2、U 等机制与其踩过的坑来自它。
+  逐提交裁定见 [upstream-pi-triage](./docs/upstream-pi-triage.md)，三者对照见
+  [sibling-repos](./docs/sibling-repos.md)。
+- **AOCI / AOCI-CODE**（AI-Oriented Cognition Infrastructure；arXiv `2605.02421`，仓库
+  [`aoci-spec/aoci-code`](https://github.com/aoci-spec/aoci-code)，许可 FSL-1.1-MIT）：只借鉴思路，
+  **没有复制代码，也没有作为运行依赖引入**。调研与分域裁定见
+  [research/2026-11-19-aoci.md](./docs/research/2026-11-19-aoci.md)。已采纳两条：派生/权威标记
+  （`/context export` 与 `/memory` 回执里的「派生视图，权威是 journal」）和交付证明（交接种子里的
+  `- handoff-seed: <12 hex>` 身份哈希，见 CHANGELOG 未发布段）；「漂移分类词汇」因本仓库没有对应的
+  INDEX 对账报告面而未采纳。
+- **dsh-auto-continue**（MIT，Copyright (c) 2025 HsiangNianian）：早期卡片外壳与 store 探测层曾改编自
+  它，改用平台组件后这两处已删除；原始声明保留在下一节末尾。
+
 ## 许可证
 
 MIT © 2026 呼啸山庄 (P02-1010751281)，见 [LICENSE](./LICENSE)。
