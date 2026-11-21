@@ -56,21 +56,28 @@ test("the five states are derived from what the skill cites, worst first in a re
 	assert.equal(byName.get("gone-file").state, "drifted", "a partial loss is drift, not expiry");
 	assert.equal(byName.get("all-gone").state, "expired");
 	assert.equal(byName.get("unreferenced").state, "orphan");
-	assert.deepEqual(report.counts, { unbaselined: 1, expired: 1, drifted: 2, orphan: 1, intact: 1 });
+	assert.deepEqual(report.counts, { unbaselined: 1, expired: 1, moved: 0, drifted: 2, orphan: 1, intact: 1 });
 
 	const receipt = skillStatusReceipt(report);
 	const [first] = receipt.split("\n");
 	assert.match(first, /^Learned skills: 6 skill\(s\) — 1 intact, 5 needing a look/, `payload on line one, got ${first}`);
+	// The corpus denominator: a report of 18 learned skills out of 40 must say where the other 22 went.
+	const scoped = skillStates(facts, { total: 40 });
+	assert.equal(scoped.unmanaged, 34, "hand-written skills are counted, not silently dropped");
+	assert.match(skillStatusReceipt(scoped).split("\n")[0], /6 of 40 skill\(s\) \(34 hand-written, not managed\)/);
+
 	const order = receipt.split("\n").filter((line) => line.startsWith("  ")).map((line) => line.trim().split(" — ")[0]);
-	assert.deepEqual(order.slice(0, 2), SKILL_SEVERITY.slice(0, 2));
+	// Consecutive duplicates collapsed: two `drifted` entries are one group in the order, not a repeat.
+	const ranks = order.filter((state, index) => index === 0 || state !== order[index - 1]).map((state) => SKILL_SEVERITY.indexOf(state));
+	assert.deepEqual(ranks, [...ranks].sort((left, right) => left - right), "worst first, in the declared order");
 });
 
 test("a whole directory that moved never counts as an expiry", () => {
 	// Every citation is gone, but each vanished with its parent: that is a move, and retiring the skill
 	// would delete knowledge that still exists somewhere else.
 	const report = skillStates([{ name: "moved", bound: 1, changed: [], missing: ["src/old/a.ts"], moved: ["src/old/a.ts"], references: 1 }]);
-	assert.equal(report.verdicts[0].state, "drifted");
-	assert.match(report.verdicts[0].detail, /gone/);
+	assert.equal(report.verdicts[0].state, "moved", "named separately: the remedy is a pointer rewrite, not a re-read");
+	assert.match(report.verdicts[0].detail, /moved with its directory/);
 });
 
 test("the I/O half binds, drifts, expires and moves a skill out of service", async () => {
@@ -104,8 +111,8 @@ test("a moved directory is reported, never expired by the command", async () => 
 	await writeFile(path.join(root, "src", "old", "a.ts"), "one\n", "utf8");
 	await bindSkills(root);
 	await rm(path.join(root, "src", "old"), { recursive: true });
-	// The parent is gone too, so this is a move: drift, and the command refuses to act.
-	assert.equal((await measureSkillStates(root)).counts.drifted, 1);
+	// The parent is gone too, so this is a move: named, and the command refuses to act.
+	assert.equal((await measureSkillStates(root)).counts.moved, 1);
 	const outcome = await expireSkill(root, "mover");
 	assert.equal(outcome.status, "not-expired");
 	await access(path.join(root, ".agents", "skills", "mover", "SKILL.md"));

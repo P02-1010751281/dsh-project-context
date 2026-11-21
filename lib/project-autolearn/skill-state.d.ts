@@ -22,7 +22,7 @@
  * generated (the provenance marker) — a hand-written skill is never touched.
  */
 /** What a learned skill's own evidence says about it, most certain first. */
-export type SkillState = "unbaselined" | "expired" | "drifted" | "orphan" | "intact";
+export type SkillState = "unbaselined" | "expired" | "moved" | "drifted" | "orphan" | "intact";
 /** Every state, in the order a receipt counts them. */
 export declare const SKILL_STATES: readonly SkillState[];
 /** The states worth naming in a receipt, worst first. */
@@ -52,6 +52,10 @@ export interface SkillVerdict {
 export interface SkillStateReport {
     readonly verdicts: readonly SkillVerdict[];
     readonly counts: Record<SkillState, number>;
+    /** Every skill directory, learned or not: the denominator a reader needs to see what is left out. */
+    readonly total: number;
+    /** Skill directories without the provenance marker: read by nobody here, and never touched. */
+    readonly unmanaged: number;
 }
 /**
  * Judge one skill from the facts its body and the disk produced.
@@ -64,7 +68,9 @@ export declare function skillStateOf(facts: SkillFacts): SkillVerdict;
  * @param facts - one entry per learned skill.
  * @returns the verdicts and the counts.
  */
-export declare function skillStates(facts: readonly SkillFacts[]): SkillStateReport;
+export declare function skillStates(facts: readonly SkillFacts[], corpus?: {
+    readonly total: number;
+}): SkillStateReport;
 /** True for the one state the pipeline is allowed to act on by itself. */
 export declare function retiresSkill(state: SkillState): boolean;
 /**

@@ -11,11 +11,14 @@
  * sides together.
  */
 
+import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import path from "node:path";
 import { logsDir, readOptional } from "../shared/project-state.js";
+import { humanUserText } from "../shared/conversation.js";
 import { parseSessionIndex } from "./session-index.js";
-import { type SessionDirFacts, type SessionRow, type SessionStateReport, sessionStates } from "./session-state.js";
+import { SETTLED_DAYS, type SessionDirFacts, type SessionRow, type SessionStateReport, sessionStates } from "./session-state.js";
 
 /** The artifacts whose newest mtime is the session's activity. */
 const ACTIVITY_FILES = ["session.jsonl", "session.md", "meta.json"];
@@ -47,10 +50,47 @@ async function readMeta(sessionDir: string): Promise<(SessionRow & { readonly pa
 		const title = parsed.title;
 		if (typeof date !== "string" || typeof title !== "string") return undefined;
 		const parentId = typeof parsed.parentId === "string" ? parsed.parentId : undefined;
-		return parentId === undefined ? { date, title } : { date, title, parentId };
+		const kind = typeof parsed.kind === "string" ? parsed.kind : undefined;
+		return { date, title, ...(parentId === undefined ? {} : { parentId }), ...(kind === undefined ? {} : { kind }) };
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Whether a settled handoff continuation ever received a human turn.
+ *
+ * Streams the durable log and stops at the first one, because the only question is zero versus non-zero:
+ * an abandoned handoff has nothing to find, so its whole file is read once, while a used one stops within
+ * the first few megabytes (measured on this project: the latest first human turn sits at 2.9 MB).
+ */
+async function humanTurnCount(sessionDir: string): Promise<number> {
+	const file = path.join(sessionDir, "session.jsonl");
+	// A continuation that never wrote a log has nothing to read, which is the strongest form of the fact
+	// this measures — and `createReadStream` would otherwise reject the whole command with ENOENT.
+	try {
+		if (!(await stat(file)).isFile()) return 0;
+	} catch {
+		return 0;
+	}
+	const stream = createReadStream(file, { encoding: "utf8" }).on("error", () => undefined);
+	const lines = createInterface({ input: stream, crlfDelay: Infinity });
+	let count = 0;
+	for await (const line of lines) {
+		const trimmed = line.trim();
+		if (trimmed === "") continue;
+		try {
+			if (humanUserText(JSON.parse(trimmed) as Parameters<typeof humanUserText>[0]) !== undefined) count += 1;
+		} catch {
+			// A torn tail line is skipped, exactly as the durable reader skips it.
+		}
+		if (count > 0) {
+			lines.close();
+			stream.destroy();
+			break;
+		}
+	}
+	return count;
 }
 
 /**
@@ -74,6 +114,11 @@ export async function measureSessionStates(projectRoot: string, now: number = Da
 		if (!entry.isDirectory()) continue;
 		const sessionDir = path.join(directory, entry.name);
 		dirs.set(entry.name, { activityMs: await activityMs(sessionDir), meta: await readMeta(sessionDir) });
+	}
+	for (const [name, facts] of dirs) {
+		if (facts.meta?.kind !== "handoff") continue;
+		if (now - facts.activityMs <= SETTLED_DAYS * 86_400_000) continue;
+		dirs.set(name, { ...facts, humanTurns: await humanTurnCount(path.join(directory, name)) });
 	}
 	return sessionStates({
 		dirs,

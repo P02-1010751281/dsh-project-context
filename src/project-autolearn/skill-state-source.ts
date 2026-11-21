@@ -150,6 +150,7 @@ export async function bindSkills(projectRoot: string, names?: readonly string[])
  */
 export async function measureSkillStates(projectRoot: string): Promise<SkillStateReport & { facts: ReadonlyMap<string, SkillFacts> }> {
 	const learned = await learnedSkills(projectRoot);
+	const allDirs = (await readdir(skillsDir(projectRoot), { withFileTypes: true }).catch(() => [])).filter((entry) => entry.isDirectory()).length;
 	const bindings = await readSkillBindings(projectRoot);
 	const documents = [await readOptional(path.join(memoryDir(projectRoot), "MEMORY.md")), await readOptional(path.join(memoryDir(projectRoot), "CONTEXT.md"))];
 	const facts: SkillFacts[] = [];
@@ -171,7 +172,7 @@ export async function measureSkillStates(projectRoot: string): Promise<SkillStat
 		}
 		facts.push({ name: skill.name, bound: recorded.size, changed, missing, moved, references: referenceCount(documents, skill.name) });
 	}
-	return { ...skillStates(facts), facts: new Map(facts.map((entry) => [entry.name, entry])) };
+	return { ...skillStates(facts, { total: allDirs }), facts: new Map(facts.map((entry) => [entry.name, entry])) };
 }
 
 /** What one expiry attempt did. Every refusal is named, because the receipt repeats it. */

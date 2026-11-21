@@ -63,7 +63,33 @@ test("every failure the index can have is named, from both sides at once", () =>
 	assert.match(byId.get("child").detail, /gone-away/);
 	assert.equal(byId.get("live1").state, "live");
 	assert.equal(byId.get("settled1").state, "settled");
-	assert.deepEqual(report.counts, { missing: 1, orphan: 1, unbaselined: 1, stale: 1, dangling: 1, live: 1, settled: 1 });
+	assert.deepEqual(report.counts, { missing: 1, orphan: 1, unbaselined: 1, stale: 1, abandoned: 0, dangling: 1, live: 1, settled: 1 });
+});
+
+test("a handoff continuation nobody wrote in is abandoned, and an unmeasured one never is", () => {
+	const settled = NOW - (SETTLED_DAYS + 1) * DAY;
+	const base = {
+		rows: new Map([["kid", { ...AGREEING }], ["kid2", { ...AGREEING }]]),
+		indexPresent: true,
+		now: NOW,
+	};
+	const measured = sessionStates({
+		...base,
+		dirs: new Map([
+			["kid", { activityMs: settled, meta: { ...AGREEING, parentId: "parent", kind: "handoff" }, humanTurns: 0 }],
+			// The same shape with no human-turn measurement: absence of a measurement is not a verdict.
+			// A handoff child with no parent reference, so `dangling` cannot mask the abandoned check.
+			["kid2", { activityMs: settled, meta: { ...AGREEING, kind: "handoff" } }],
+		]),
+	});
+	const byId = new Map(measured.verdicts.map((verdict) => [verdict.id, verdict]));
+	assert.equal(byId.get("kid").state, "abandoned");
+	assert.match(byId.get("kid").detail, /no human turn/);
+	assert.equal(byId.get("kid2").state, "settled", "never read means never called abandoned");
+
+	// A child that got a human turn is a used continuation, not an abandoned one.
+	const used = sessionStates({ ...base, dirs: new Map([["kid", { activityMs: settled, meta: { ...AGREEING, kind: "handoff" }, humanTurns: 1 }]]) });
+	assert.equal(new Map(used.verdicts.map((verdict) => [verdict.id, verdict.state])).get("kid"), "settled");
 });
 
 test("the live/settled boundary is the documented number of days, not a feeling", () => {
@@ -106,6 +132,17 @@ test("a clean archive says so instead of printing an empty list", () => {
 	});
 	const receipt = sessionStatusReceipt(report);
 	assert.match(receipt, /Nothing to repair/);
+});
+
+test("a handoff continuation with no log at all is abandoned, and does not fail the command", async () => {
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-session-nolog-"));
+	const logs = path.join(root, ".agents", "memory", "session-logs");
+	await mkdir(path.join(logs, "empty-kid"), { recursive: true });
+	await writeFile(path.join(logs, "empty-kid", "meta.json"), JSON.stringify({ id: "empty-kid", date: "2026-11-01", title: "kid", kind: "handoff" }), "utf8");
+	await writeFile(path.join(logs, "INDEX.md"), "# Session Index\n\n- [empty-kid](empty-kid/session.jsonl) — 2026-11-01 — kid\n", "utf8");
+	// The clock has to sit past the settled horizon, and the directory is the only artifact to date it.
+	const report = await measureSessionStates(root, Date.now() + 30 * DAY);
+	assert.equal(report.counts.abandoned, 1, "no log means no human turn: the strongest case, not a crash");
 });
 
 test("the I/O half reads both sides of a real archive", async () => {

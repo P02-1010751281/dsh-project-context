@@ -10,6 +10,27 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context + project-autolearn（批次 AA5：把上一批的三条残余做掉）**
+
+- 残余一（会话日志）：`dangling` 只判父会话在不在磁盘上，判不了「被放弃的交接」。新增 `abandoned`：
+  `kind: handoff` 的子会话超过 7 天**且一个人类回合都没有**（`humanUserText` 跳过种子横幅，所以种子
+  不算回合）。零 `session.jsonl` 是最强的情形，同样判 `abandoned`——**这条是现场逼出来的**：真实档案里
+  恰好有一个没有日志的交接子会话，第一版让整条命令以 ENOENT 失败。
+  为控制开销，只对已 settle 的交接子会话流式读日志、命中第一个人类回合即停止（实测本项目首个回合最晚
+  在 2.9 MB 处，代价可忽略）。
+- 残余二（技能）：整目录搬家原本混在 `drifted` 里。新增 `moved` 态，单独命名，因为补救办法不同——
+  它要的是指针改写，不是重读正文。`expired` 仍要求「每个引用都不在、且都不属于搬家」。
+- 残余三（技能）：回执原本把 40 个技能里的 18 个学习型当全部，读者看不出另外 22 个是手写、不在管辖内。
+  回执首行改为 `Learned skills: 18 of 40 skill(s) (22 hand-written, not managed) — …`，
+  `SkillStateReport` 带 `total` / `unmanaged`。
+- 剩余两条是**设计边界**，不是待办：手写技能只读（不碰用户的文件），`confirmed` 是本地侧车（换机后
+  会重新上报一次，不会伪造干净）。
+- 测试：新增 5 条（无日志的交接子会话、未测量不得判 abandoned、用过的续接不算 abandoned、搬家单独成态、
+  未管理计数进回执）。变异 5 个全部具名打红：不再判 abandoned、未测量当成 0、移除无日志守卫、
+  搬家不单独命名、unmanaged 恒 0。`pnpm test` **765/765**。
+- 现场（2026-11-21）：`Session log: 211 session(s) — 208 healthy (10 live, 198 settled), 3 needing a repair.`
+  三条 `abandoned` 都是 10 天前的交接子会话；`Learned skills: 18 of 40 skill(s) (22 hand-written, not managed)`。
+
 **project-autolearn（批次 AA4：学习型技能有了状态，过期由系统移出服役）**
 
 - 问题：被提升的技能只能靠「下一次 autolearn pass 取代」，所以一条描述已删代码的技能会永久生效——

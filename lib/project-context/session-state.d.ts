@@ -20,7 +20,7 @@
  * states (re-index, adopt the directory, rewrite the row), and none of them belongs to a read-only view.
  */
 /** What one archived session's own files say about it, most certain first. */
-export type SessionState = "missing" | "orphan" | "unbaselined" | "stale" | "dangling" | "live" | "settled";
+export type SessionState = "missing" | "orphan" | "unbaselined" | "stale" | "abandoned" | "dangling" | "live" | "settled";
 /** Every state, in the order a receipt counts them. */
 export declare const SESSION_STATES: readonly SessionState[];
 /** The states that mean the archive and its index disagree: what a repair would act on. */
@@ -48,7 +48,13 @@ export interface SessionDirFacts {
     /** The parsed `meta.json`, or `undefined` when it is absent or unreadable. */
     readonly meta: (SessionRow & {
         readonly parentId?: string;
+        readonly kind?: string;
     }) | undefined;
+    /**
+     * Human turns, measured only for a settled handoff continuation. `undefined` means "not measured",
+     * which is different from zero: a session that was never read cannot be called abandoned.
+     */
+    readonly humanTurns?: number;
 }
 /** Everything the verdict reads, so the rules are testable without a filesystem. */
 export interface SessionStateInput {

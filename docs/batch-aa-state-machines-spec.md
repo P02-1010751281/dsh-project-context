@@ -278,8 +278,8 @@ export function entryStateOf(tid: string, facts: EntryStateFacts): { state: Entr
 | Stale | 行与 `meta.json` 的日期/标题不一致 | 重生成那一行 |
 | Unbaselined | 目录没有 `meta.json` | 补 meta 或重新归档 |
 
-加两个本核自己的状态：`dangling`（它继承的父会话已不在磁盘上）与健康的 `live` / `settled`（按最后活动
-时间分，`SETTLED_DAYS = 7`）。`/session-log status` 输出计数 + 最坏若干条，首行带载荷。
+加两个本核自己的状态：`dangling`（它继承的父会话已不在磁盘上）、`abandoned`（交接子会话超过 `SETTLED_DAYS`
+且一个人类回合都没有）与健康的 `live` / `settled`。`/session-log status` 输出计数 + 最坏若干条，首行带载荷。
 
 **只读是有意的**：把生命周期写进 `meta.json` 会成为第二份真相，而它能与目录本身不一致——这套判定的
 全部价值就是发现这种不一致。所以这里没有「转移」，只有「修复」：四种失败态各自的补救都在回执的
@@ -296,6 +296,7 @@ detail 里点名。
 | `unbaselined` | 没有指纹基线（提升前的老技能） | `/autolearn bind`（显式） |
 | `expired` | **每一个**引用路径都不存在，且**每个都从其父目录仍在的目录里消失** | 系统（autolearn pass 开始前）/ `/autolearn expire` |
 | `drifted` | 有引用文件变了，或部分消失 | 只报告 |
+| `moved` | 每个引用都随其父目录一起消失（搬家，不是删除） | 只报告：补救是指针改写 |
 | `orphan` | memory / context 里没有任何一行引用它 | 只报告 |
 | `intact` | 基线存在、全部未变、仍被引用 | — |
 

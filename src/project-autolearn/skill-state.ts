@@ -23,13 +23,13 @@
  */
 
 /** What a learned skill's own evidence says about it, most certain first. */
-export type SkillState = "unbaselined" | "expired" | "drifted" | "orphan" | "intact";
+export type SkillState = "unbaselined" | "expired" | "moved" | "drifted" | "orphan" | "intact";
 
 /** Every state, in the order a receipt counts them. */
-export const SKILL_STATES: readonly SkillState[] = ["intact", "orphan", "drifted", "expired", "unbaselined"];
+export const SKILL_STATES: readonly SkillState[] = ["intact", "orphan", "drifted", "moved", "expired", "unbaselined"];
 
 /** The states worth naming in a receipt, worst first. */
-export const SKILL_SEVERITY: readonly SkillState[] = ["expired", "drifted", "orphan", "unbaselined"];
+export const SKILL_SEVERITY: readonly SkillState[] = ["expired", "moved", "drifted", "orphan", "unbaselined"];
 
 /** What the measurement found about one learned skill. */
 export interface SkillFacts {
@@ -58,6 +58,10 @@ export interface SkillVerdict {
 export interface SkillStateReport {
 	readonly verdicts: readonly SkillVerdict[];
 	readonly counts: Record<SkillState, number>;
+	/** Every skill directory, learned or not: the denominator a reader needs to see what is left out. */
+	readonly total: number;
+	/** Skill directories without the provenance marker: read by nobody here, and never touched. */
+	readonly unmanaged: number;
 }
 
 /**
@@ -73,6 +77,11 @@ export function skillStateOf(facts: SkillFacts): SkillVerdict {
 	// directory moved is stale in a different way, and retiring it would delete knowledge that still exists.
 	if (facts.missing.length === facts.bound && facts.moved.length === 0) {
 		return { name: facts.name, state: "expired", detail: `every cited file is gone (${facts.missing.join(", ")})` };
+	}
+	// Every citation vanished with its parent directory: knowledge that still exists somewhere else. Named
+	// separately from drift because the remedy is a pointer rewrite, not a re-read of the body.
+	if (facts.missing.length > 0 && facts.moved.length === facts.missing.length) {
+		return { name: facts.name, state: "moved", detail: `every cited file moved with its directory (${facts.moved.join(", ")})` };
 	}
 	if (facts.changed.length > 0) {
 		return { name: facts.name, state: "drifted", detail: `changed since it was promoted: ${facts.changed.join(", ")}` };
@@ -91,11 +100,12 @@ export function skillStateOf(facts: SkillFacts): SkillVerdict {
  * @param facts - one entry per learned skill.
  * @returns the verdicts and the counts.
  */
-export function skillStates(facts: readonly SkillFacts[]): SkillStateReport {
+export function skillStates(facts: readonly SkillFacts[], corpus?: { readonly total: number }): SkillStateReport {
 	const verdicts = [...facts].sort((left, right) => left.name.localeCompare(right.name)).map(skillStateOf);
-	const counts: Record<SkillState, number> = { unbaselined: 0, expired: 0, drifted: 0, orphan: 0, intact: 0 };
+	const counts: Record<SkillState, number> = { unbaselined: 0, expired: 0, moved: 0, drifted: 0, orphan: 0, intact: 0 };
 	for (const verdict of verdicts) counts[verdict.state] += 1;
-	return { verdicts, counts };
+	const total = corpus?.total ?? verdicts.length;
+	return { verdicts, counts, total, unmanaged: Math.max(0, total - verdicts.length) };
 }
 
 /** True for the one state the pipeline is allowed to act on by itself. */
@@ -114,7 +124,10 @@ export function retiresSkill(state: SkillState): boolean {
  */
 export function skillStatusReceipt(report: SkillStateReport, named = 10): string {
 	const broken = report.verdicts.filter((verdict) => verdict.state !== "intact");
-	const head = `Learned skills: ${report.verdicts.length} skill(s) — ${report.counts.intact} intact, ${broken.length} needing a look.`;
+	const scope = report.unmanaged > 0
+		? `${report.verdicts.length} of ${report.total} skill(s) (${report.unmanaged} hand-written, not managed)`
+		: `${report.verdicts.length} skill(s)`;
+	const head = `Learned skills: ${scope} — ${report.counts.intact} intact, ${broken.length} needing a look.`;
 	if (broken.length === 0) return `${head}\nEvery learned skill still matches the files it cites and is still referenced.`;
 	const lines = broken
 		.sort((left, right) => SKILL_SEVERITY.indexOf(left.state) - SKILL_SEVERITY.indexOf(right.state) || left.name.localeCompare(right.name))

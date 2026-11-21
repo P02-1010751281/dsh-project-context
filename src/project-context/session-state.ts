@@ -21,13 +21,13 @@
  */
 
 /** What one archived session's own files say about it, most certain first. */
-export type SessionState = "missing" | "orphan" | "unbaselined" | "stale" | "dangling" | "live" | "settled";
+export type SessionState = "missing" | "orphan" | "unbaselined" | "stale" | "abandoned" | "dangling" | "live" | "settled";
 
 /** Every state, in the order a receipt counts them. */
-export const SESSION_STATES: readonly SessionState[] = ["live", "settled", "stale", "orphan", "missing", "dangling", "unbaselined"];
+export const SESSION_STATES: readonly SessionState[] = ["live", "settled", "stale", "orphan", "missing", "abandoned", "dangling", "unbaselined"];
 
 /** The states that mean the archive and its index disagree: what a repair would act on. */
-export const BROKEN_SESSION_STATES: readonly SessionState[] = ["stale", "orphan", "missing", "dangling", "unbaselined"];
+export const BROKEN_SESSION_STATES: readonly SessionState[] = ["stale", "orphan", "missing", "abandoned", "dangling", "unbaselined"];
 
 /**
  * How a receipt orders the broken states: worst first.
@@ -37,7 +37,7 @@ export const BROKEN_SESSION_STATES: readonly SessionState[] = ["stale", "orphan"
  * declared here rather than derived from the state list so the count order and the severity order can
  * never be silently tied together.
  */
-export const SESSION_SEVERITY: readonly SessionState[] = ["missing", "orphan", "unbaselined", "stale", "dangling"];
+export const SESSION_SEVERITY: readonly SessionState[] = ["missing", "orphan", "unbaselined", "stale", "abandoned", "dangling"];
 
 /** Days without activity after which a healthy session reads as `settled` rather than `live`. */
 export const SETTLED_DAYS = 7;
@@ -53,7 +53,12 @@ export interface SessionDirFacts {
 	/** Newest modification time among the directory's artifacts, in ms. */
 	readonly activityMs: number;
 	/** The parsed `meta.json`, or `undefined` when it is absent or unreadable. */
-	readonly meta: (SessionRow & { readonly parentId?: string }) | undefined;
+	readonly meta: (SessionRow & { readonly parentId?: string; readonly kind?: string }) | undefined;
+	/**
+	 * Human turns, measured only for a settled handoff continuation. `undefined` means "not measured",
+	 * which is different from zero: a session that was never read cannot be called abandoned.
+	 */
+	readonly humanTurns?: number;
 }
 
 /** Everything the verdict reads, so the rules are testable without a filesystem. */
@@ -126,14 +131,21 @@ export function sessionStates(input: SessionStateInput): SessionStateReport {
 			add("stale", `INDEX.md says "${row.date} ${row.title}", meta.json says "${dir.meta.date} ${dir.meta.title}"`);
 			continue;
 		}
+		const age = input.now - dir.activityMs;
+		// A handoff continuation nobody ever wrote in: the seed arrived, the session sat, and the work it
+		// was created for went elsewhere. Judged before `dangling`, because a dead continuation whose parent
+		// is also gone is still primarily dead weight — the missing parent is the smaller fact.
+		if (dir.meta.kind === "handoff" && dir.humanTurns === 0 && age > days(SETTLED_DAYS)) {
+			add("abandoned", `a handoff continuation with no human turn after ${when(age)}`);
+			continue;
+		}
 		if (dir.meta.parentId !== undefined && !input.dirs.has(dir.meta.parentId)) {
 			add("dangling", `continues ${dir.meta.parentId}, which is not on disk`);
 			continue;
 		}
-		const age = input.now - dir.activityMs;
 		add(age <= days(SETTLED_DAYS) ? "live" : "settled", `last activity ${when(age)}`);
 	}
-	const counts: Record<SessionState, number> = { missing: 0, orphan: 0, unbaselined: 0, stale: 0, dangling: 0, live: 0, settled: 0 };
+	const counts: Record<SessionState, number> = { missing: 0, orphan: 0, unbaselined: 0, stale: 0, abandoned: 0, dangling: 0, live: 0, settled: 0 };
 	for (const verdict of verdicts) counts[verdict.state] += 1;
 	return { indexPresent: input.indexPresent, verdicts, counts };
 }
