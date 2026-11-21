@@ -47,6 +47,24 @@ interface RunOptions {
 	track?: ((work: Promise<unknown>) => void) | undefined;
 }
 
+/**
+ * The expiry transition on its own: no model call and no queue, so it can run when the pass is off.
+ *
+ * The move logs its own line per skill; this wrapper only keeps a throw from escaping and records it.
+ * @param ctx - the plugin context, for the warning line.
+ * @param agent - the session whose project is judged.
+ * @param silent - suppress the warning while the UI is already rebuilding.
+ */
+async function runSkillExpiry(ctx: Context, agent: Agent, silent: boolean): Promise<void> {
+	const projectRoot = await getProjectRoot(projectCwd(agent.session));
+	try {
+		await retireExpiredSkills(projectRoot);
+	} catch (error) {
+		await logError(projectRoot, "autolearn", error);
+		if (!silent) ctx.logger.warn(`dsh-project-context: skill expiry failed: ${diagnosticMessage(error)}`);
+	}
+}
+
 /** Run one pass; the outcome is kept for command reporting while the queue only sees void. */
 function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options: RunOptions): Promise<AutolearnOutcome | undefined> {
 	let outcome: AutolearnOutcome | undefined;
@@ -54,8 +72,9 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 		const projectRoot = await getProjectRoot(projectCwd(agent.session));
 		try {
 			// The system-fired transition, before the pass spends a model call: a learned skill whose
-			// cited files are all gone is moved out of the harness's view and logged.
-			await retireExpiredSkills(projectRoot);
+			// cited files are all gone is moved out of the harness's view and logged. Its own switch,
+			// so turning expiry off never keeps the pass from distilling.
+			if (config.autolearnExpireSkills) await retireExpiredSkills(projectRoot);
 			outcome = await autolearnProjectSkills(ctx, agent, config, { force: options.force, signal: options.signal, track: options.track });
 			if (outcome?.candidate && !options.silent) {
 				ctx.logger.info(`dsh-project-context: skill candidate saved for review: /autolearn approve ${outcome.skill?.name ?? ""}`);
@@ -77,7 +96,12 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autolearnEnabled) return;
+		if (!current.autolearnEnabled) {
+			// Expiry keeps its own switch, so a project that turned distillation off still retires a
+			// skill pointing at deleted code — silently, and without the model call the pass would spend.
+			if (current.autolearnExpireSkills) void runSkillExpiry(ctx, agent, false).catch(() => undefined);
+			return;
+		}
 		// Only the pass's write segments reach the tracker (`SessionWorkTracker`); the span itself is
 		// observed here so a rejection stays as invisible as it was when the tracker carried it.
 		void runAutolearn(ctx, current, agent, { force: false, silent: false, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
@@ -86,7 +110,10 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 	ctx.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
 		const current = effectivePluginConfig(entry);
-		if (!current.autolearnEnabled) return;
+		if (!current.autolearnEnabled) {
+			if (current.autolearnExpireSkills) void runSkillExpiry(ctx, agent, true).catch(() => undefined);
+			return;
+		}
 		// Silent: the UI may already be rebuilding for a session switch.
 		void runAutolearn(ctx, current, agent, { force: false, silent: true, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
 	});
@@ -124,11 +151,18 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 				return { kind: "success" as const, text: skillStatusReceipt(await measureSkillStates(projectRoot)) };
 			}
 			if (verb === "bind") {
-				const bound = await bindSkills(projectRoot);
+				const { bound, skipped } = await bindSkills(projectRoot);
 				const total = bound.reduce((sum, entry) => sum + entry.paths, 0);
-				return bound.length === 0
-					? { kind: "success" as const, text: "Learned skills: every skill already carries a baseline; nothing to bind." }
-					: { kind: "success" as const, text: `Learned skills: recorded a baseline for ${bound.length} skill(s) (${total} cited file(s)): ${bound.map((entry) => entry.name).join(", ")}` };
+				// Two lines, two facts: what a baseline now covers, and what no baseline can ever cover.
+				// Without the second line a reader keeps re-running bind for skills whose only citations
+				// are build output, memory documents or paths outside the project.
+				const covered = bound.length === 0
+					? "Learned skills: every bindable skill already carries a baseline; nothing to bind."
+					: `Learned skills: recorded a baseline for ${bound.length} skill(s) (${total} cited file(s)): ${bound.map((entry) => entry.name).join(", ")}`;
+				const skippedLine = skipped.length === 0
+					? ""
+					: `\nLearned skills: ${skipped.length} skill(s) have no bindable path (only build output, memory documents, or paths outside the project): ${skipped.join(", ")}`;
+				return { kind: "success" as const, text: covered + skippedLine };
 			}
 			if (verb === "expire") {
 				const result = await expireSkill(projectRoot, parts[1] ?? "");

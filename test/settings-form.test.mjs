@@ -106,8 +106,8 @@ test("every bounded number row enforces exactly the Host schema's inclusive boun
 	const bounded = fields.ROWS.filter((row) => row.kind === "number" && row.bounds !== undefined);
 	assert.deepEqual(
 		bounded.map((row) => row.key).sort(),
-		["handoffBudgetRecentTokens", "handoffBudgetSummaryTokens"],
-		"the two handoff budget amounts are the rows that carry bounds",
+		["handoffBudgetRecentTokens", "handoffBudgetSummaryTokens", "sessionSettledDays"],
+		"the two handoff budget amounts and the archive's day boundary are the rows that carry bounds",
 	);
 	for (const row of bounded) {
 		const meta = schemaDict[row.key].meta;

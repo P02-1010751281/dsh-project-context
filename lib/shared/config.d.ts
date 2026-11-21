@@ -17,6 +17,8 @@ export type TaskMode = "assisted" | "delegated" | "manual";
 export interface PluginConfig {
     /** Write the per-session archive (session.jsonl / session.md / INDEX.md) on turns and settles. Explicit commands still work when false. */
     archiveEnabled: boolean;
+    /** Days without activity before a session counts as settled; a handoff continuation with no human turn older than this is called abandoned. */
+    sessionSettledDays: number;
     /** Run the automatic consolidation pass after turns settle. Commands still work when false. */
     memoryEnabled: boolean;
     /** User turns accumulated before an automatic consolidation pass. */
@@ -50,6 +52,8 @@ export interface PluginConfig {
     autolearnTurns: number;
     /** Minimum wall-clock gap between automatic autolearn passes. */
     autolearnIntervalMs: number;
+    /** Move a learned skill whose cited files are all gone out of the harness's view; runs before the pass, and without it. */
+    autolearnExpireSkills: boolean;
     /** Start an automatic handoff when a top-level session approaches its context limit. */
     handoffEnabled: boolean;
     /**

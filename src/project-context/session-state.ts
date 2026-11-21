@@ -70,6 +70,8 @@ export interface SessionStateInput {
 	/** False when `INDEX.md` is absent: then every directory would look orphaned and nothing is claimed. */
 	readonly indexPresent: boolean;
 	readonly now: number;
+	/** The configured boundary: a session with no activity for longer than this counts as settled, and an unread handoff continuation as abandoned. */
+	readonly settledDays: number;
 }
 
 /** One session's verdict. */
@@ -135,7 +137,7 @@ export function sessionStates(input: SessionStateInput): SessionStateReport {
 		// A handoff continuation nobody ever wrote in: the seed arrived, the session sat, and the work it
 		// was created for went elsewhere. Judged before `dangling`, because a dead continuation whose parent
 		// is also gone is still primarily dead weight — the missing parent is the smaller fact.
-		if (dir.meta.kind === "handoff" && dir.humanTurns === 0 && age > days(SETTLED_DAYS)) {
+		if (dir.meta.kind === "handoff" && dir.humanTurns === 0 && age > days(input.settledDays)) {
 			add("abandoned", `a handoff continuation with no human turn after ${when(age)}`);
 			continue;
 		}
@@ -143,7 +145,7 @@ export function sessionStates(input: SessionStateInput): SessionStateReport {
 			add("dangling", `continues ${dir.meta.parentId}, which is not on disk`);
 			continue;
 		}
-		add(age <= days(SETTLED_DAYS) ? "live" : "settled", `last activity ${when(age)}`);
+		add(age <= days(input.settledDays) ? "live" : "settled", `last activity ${when(age)}`);
 	}
 	const counts: Record<SessionState, number> = { missing: 0, orphan: 0, unbaselined: 0, stale: 0, abandoned: 0, dangling: 0, live: 0, settled: 0 };
 	for (const verdict of verdicts) counts[verdict.state] += 1;

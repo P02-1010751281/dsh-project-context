@@ -121,10 +121,11 @@ function referenceCount(documents: readonly string[], name: string): number {
  * @param names - the skills to bind; omit for every learned skill that has no baseline yet.
  * @returns the names that were bound, with how many paths each recorded.
  */
-export async function bindSkills(projectRoot: string, names?: readonly string[]): Promise<Array<{ name: string; paths: number }>> {
+export async function bindSkills(projectRoot: string, names?: readonly string[]): Promise<BindReport> {
 	const learned = await learnedSkills(projectRoot);
 	const existing = await readSkillBindings(projectRoot);
 	const bound: Array<{ name: string; paths: number }> = [];
+	const skipped: string[] = [];
 	await withMemoryLock(skillBindingsFile(projectRoot), async () => {
 		const next = new Map((await readSkillBindings(projectRoot)).skills);
 		for (const skill of learned) {
@@ -132,7 +133,12 @@ export async function bindSkills(projectRoot: string, names?: readonly string[])
 			if (names === undefined && existing.skills.has(skill.name)) continue;
 			if (next.has(skill.name)) continue;
 			const anchors = await bindableAnchors(projectRoot, skill.body);
-			if (anchors.length === 0) continue;
+			if (anchors.length === 0) {
+				// Remembered rather than silently dropped: a second `bind` cannot change this skill, and
+				// the receipt has to say so or the reader keeps waiting for a baseline that will never come.
+				skipped.push(skill.name);
+				continue;
+			}
 			const paths = new Map<string, string>();
 			for (const anchor of anchors) paths.set(anchor, fingerprint(await readFile(path.join(projectRoot, anchor))));
 			next.set(skill.name, paths);
@@ -140,7 +146,7 @@ export async function bindSkills(projectRoot: string, names?: readonly string[])
 		}
 		if (bound.length > 0) await writeSkillBindings(projectRoot, next);
 	});
-	return bound;
+	return { bound, skipped };
 }
 
 /**
@@ -170,9 +176,24 @@ export async function measureSkillStates(projectRoot: string): Promise<SkillStat
 				if (!parentExists) moved.push(file);
 			}
 		}
-		facts.push({ name: skill.name, bound: recorded.size, changed, missing, moved, references: referenceCount(documents, skill.name) });
+		facts.push({
+			name: skill.name,
+			bound: recorded.size,
+			changed,
+			missing,
+			moved,
+			references: referenceCount(documents, skill.name),
+			bindable: (await bindableAnchors(projectRoot, skill.body)).length,
+		});
 	}
 	return { ...skillStates(facts, { total: allDirs }), facts: new Map(facts.map((entry) => [entry.name, entry])) };
+}
+
+/** What one `bind` did: the baselines it recorded, and the skills no baseline can ever cover. */
+export interface BindReport {
+	readonly bound: Array<{ name: string; paths: number }>;
+	/** Learned skills with nothing bindable — build output, memory documents, or paths outside the project. */
+	readonly skipped: readonly string[];
 }
 
 /** What one expiry attempt did. Every refusal is named, because the receipt repeats it. */

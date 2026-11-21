@@ -27,6 +27,7 @@ import type { SettingsCardKey } from "./locales.ts";
 /** The `project-context` settings section shape (mirrors the host schema). */
 export interface ProjectContextSettings {
 	archiveEnabled: boolean;
+	sessionSettledDays: number;
 	memoryEnabled: boolean;
 	consolidateTurns: number;
 	consolidateIntervalMs: number;
@@ -40,6 +41,7 @@ export interface ProjectContextSettings {
 	autolearnEnabled: boolean;
 	autolearnTurns: number;
 	autolearnIntervalMs: number;
+	autolearnExpireSkills: boolean;
 	handoffEnabled: boolean;
 	handoffThreshold: string;
 	handoffBudgetSummaryTokens: number;
@@ -83,6 +85,9 @@ export const SECTIONS: readonly FieldSection[] = [
 		descriptionKey: "section.memory.description",
 		rows: [
 			{ key: "archiveEnabled", kind: "boolean" },
+			// The one boundary the session archive judges by, and therefore also the abandoned test:
+			// one number, so the receipt and the display cannot disagree about what settled means.
+			{ key: "sessionSettledDays", kind: "number", bounds: { min: 1, max: 365 } },
 			{ key: "memoryEnabled", kind: "boolean" },
 			{ key: "consolidateTurns", kind: "number" },
 			{ key: "consolidateIntervalMs", kind: "number" },
@@ -104,6 +109,9 @@ export const SECTIONS: readonly FieldSection[] = [
 		descriptionKey: "section.autolearn.description",
 		rows: [
 			{ key: "autolearnEnabled", kind: "boolean" },
+			// Its own switch, so turning the distillation pass off does not also keep expired skills
+			// injected; the pass honours it too, and the expiry-only path runs when the pass is off.
+			{ key: "autolearnExpireSkills", kind: "boolean" },
 			{ key: "autolearnTurns", kind: "number" },
 			{ key: "autolearnIntervalMs", kind: "number" },
 		],

@@ -9,7 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -47,6 +47,7 @@ function fixture() {
 		]),
 		indexPresent: true,
 		now: NOW,
+		settledDays: SETTLED_DAYS,
 	};
 }
 
@@ -72,6 +73,7 @@ test("a handoff continuation nobody wrote in is abandoned, and an unmeasured one
 		rows: new Map([["kid", { ...AGREEING }], ["kid2", { ...AGREEING }]]),
 		indexPresent: true,
 		now: NOW,
+		settledDays: SETTLED_DAYS,
 	};
 	const measured = sessionStates({
 		...base,
@@ -99,13 +101,14 @@ test("the live/settled boundary is the documented number of days, not a feeling"
 		rows: new Map([["edge", { ...AGREEING }]]),
 		indexPresent: true,
 		now: NOW,
+		settledDays: SETTLED_DAYS,
 	});
 	assert.equal(report.verdicts[0].state, "live", "exactly at the boundary is still inside it");
 });
 
 test("an absent index is reported, never turned into a wall of orphans", () => {
 	// No INDEX file means no rows at all: the two sides cannot disagree when only one was read.
-	const report = sessionStates({ dirs: fixture().dirs, rows: new Map(), indexPresent: false, now: NOW });
+	const report = sessionStates({ dirs: fixture().dirs, rows: new Map(), indexPresent: false, now: NOW, settledDays: SETTLED_DAYS });
 	assert.equal(report.counts.orphan, 0, "nothing was compared, so nothing is called orphaned");
 	assert.equal(report.counts.unbaselined, report.verdicts.length, "every directory is named as unchecked");
 	const receipt = sessionStatusReceipt(report);
@@ -129,6 +132,7 @@ test("a clean archive says so instead of printing an empty list", () => {
 		rows: new Map([["one", { ...AGREEING }]]),
 		indexPresent: true,
 		now: NOW,
+		settledDays: SETTLED_DAYS,
 	});
 	const receipt = sessionStatusReceipt(report);
 	assert.match(receipt, /Nothing to repair/);
@@ -171,6 +175,43 @@ test("the I/O half reads both sides of a real archive", async () => {
 	assert.equal(byId.get("gone"), "missing");
 });
 
+test("the command judges with the configured day boundary", async () => {
+	// The wiring, not the helper: the card's number has to reach the command's verdict. The fixture's
+	// files are backdated ten days, so 7 settles it and 30 leaves it live.
+	const root = await mkdtemp(path.join(tmpdir(), "dsh-session-days-"));
+	const logs = path.join(root, ".agents", "memory", "session-logs");
+	await mkdir(path.join(logs, "kept"), { recursive: true });
+	await writeFile(path.join(logs, "kept", "meta.json"), JSON.stringify({ id: "kept", date: "2026-11-10", title: "kept session" }), "utf8");
+	await writeFile(path.join(logs, "kept", "session.jsonl"), "{}\n", "utf8");
+	await writeFile(path.join(logs, "INDEX.md"), "# Session Index\n\n- [kept](kept/session.jsonl) — 2026-11-10 — kept session\n", "utf8");
+	const tenDaysAgo = Math.floor(Date.now() / 1000) - 10 * 86_400;
+	for (const name of ["meta.json", "session.jsonl"]) {
+		const file = path.join(logs, "kept", name);
+		const stats = await stat(file);
+		await utimes(file, tenDaysAgo, tenDaysAgo);
+	}
+	await utimes(path.join(logs, "kept"), tenDaysAgo, tenDaysAgo);
+
+	const receiptFor = async (sessionSettledDays) => {
+		let handler;
+		applyContext(
+			{
+				get: () => undefined,
+				logger: { info() {}, warn() {} },
+				effect: (callback) => callback(),
+				on: () => () => undefined,
+				commands: { register: (registration) => { if (registration.name === "session-log") handler = registration.handler; } },
+			},
+			resolvePluginConfig({ provider: "test-provider", model: "test-model", sessionSettledDays }),
+		);
+		return handler({ agent: { session: { header: { cwd: root, id: "session-current" } } }, rawInput: "status" });
+	};
+	const short = await receiptFor(7);
+	assert.match(short.text, /0 live, 1 settled/, "10 days is past a 7-day boundary");
+	const wide = await receiptFor(30);
+	assert.match(wide.text, /1 live, 0 settled/, "and inside a 30-day one");
+});
+
 test("the registered /session-log command routes 'status' to the state report", async () => {
 	const root = await mkdtemp(path.join(tmpdir(), "dsh-session-status-"));
 	const logs = path.join(root, ".agents", "memory", "session-logs");
@@ -197,4 +238,26 @@ test("the registered /session-log command routes 'status' to the state report", 
 	assert.equal(receipt.kind, "success", receipt.text);
 	assert.match(receipt.text, /^Session log: 1 session\(s\)/);
 	assert.match(receipt.text, /Nothing to repair/);
+});
+
+test("the settled and abandoned boundaries follow the configured days", () => {
+	// One number, two verdicts: with the default 7 a ten-day-old session is settled and its unread
+	// handoff continuation is abandoned; with 30 both are still live. A hard-coded 7 would print the
+	// same answer for both settings.
+	const tenDays = NOW - 10 * DAY;
+	const input = (settledDays) => ({
+		dirs: new Map([
+			["plain", { activityMs: tenDays, meta: { ...AGREEING } }],
+			["kid", { activityMs: tenDays, meta: { ...AGREEING, kind: "handoff" }, humanTurns: 0 }],
+		]),
+		rows: new Map([["plain", { ...AGREEING }], ["kid", { ...AGREEING }]]),
+		indexPresent: true,
+		now: NOW,
+		settledDays,
+	});
+	const byId = (settledDays) => new Map(sessionStates(input(settledDays)).verdicts.map((verdict) => [verdict.id, verdict.state]));
+	assert.equal(byId(SETTLED_DAYS).get("plain"), "settled");
+	assert.equal(byId(SETTLED_DAYS).get("kid"), "abandoned");
+	assert.equal(byId(30).get("plain"), "live", "a wider boundary keeps a ten-day-old session live");
+	assert.equal(byId(30).get("kid"), "live", "and the same continuation is not called abandoned either");
 });

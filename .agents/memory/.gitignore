@@ -29,3 +29,5 @@ HANDOFF.md
 project-context.json
 purge.log
 trash/
+skill-bindings.json
+expired-skills/

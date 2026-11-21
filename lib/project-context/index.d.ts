@@ -33,6 +33,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
     autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+    autolearnExpireSkills: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    sessionSettledDays: import("@deepseek-ai/schemastery").default<number, number>;
     handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
@@ -55,6 +57,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
     autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+    autolearnExpireSkills: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    sessionSettledDays: import("@deepseek-ai/schemastery").default<number, number>;
     handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;

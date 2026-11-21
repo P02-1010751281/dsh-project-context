@@ -65,6 +65,8 @@ export interface SessionStateInput {
     /** False when `INDEX.md` is absent: then every directory would look orphaned and nothing is claimed. */
     readonly indexPresent: boolean;
     readonly now: number;
+    /** The configured boundary: a session with no activity for longer than this counts as settled, and an unread handoff continuation as abandoned. */
+    readonly settledDays: number;
 }
 /** One session's verdict. */
 export interface SessionVerdict {

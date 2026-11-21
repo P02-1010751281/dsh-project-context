@@ -39,10 +39,7 @@ export declare function learnedSkills(projectRoot: string): Promise<Array<{
  * @param names - the skills to bind; omit for every learned skill that has no baseline yet.
  * @returns the names that were bound, with how many paths each recorded.
  */
-export declare function bindSkills(projectRoot: string, names?: readonly string[]): Promise<Array<{
-    name: string;
-    paths: number;
-}>>;
+export declare function bindSkills(projectRoot: string, names?: readonly string[]): Promise<BindReport>;
 /**
  * Judge every learned skill against its baseline and the files it cites.
  * @param projectRoot - the project whose skills and memory documents are read.
@@ -51,6 +48,15 @@ export declare function bindSkills(projectRoot: string, names?: readonly string[
 export declare function measureSkillStates(projectRoot: string): Promise<SkillStateReport & {
     facts: ReadonlyMap<string, SkillFacts>;
 }>;
+/** What one `bind` did: the baselines it recorded, and the skills no baseline can ever cover. */
+export interface BindReport {
+    readonly bound: Array<{
+        name: string;
+        paths: number;
+    }>;
+    /** Learned skills with nothing bindable — build output, memory documents, or paths outside the project. */
+    readonly skipped: readonly string[];
+}
 /** What one expiry attempt did. Every refusal is named, because the receipt repeats it. */
 export type ExpireOutcome = {
     readonly status: "moved";

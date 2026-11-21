@@ -102,7 +102,7 @@ async function humanTurnCount(sessionDir: string): Promise<number> {
  * @param now - the clock the live/settled split is measured against; injected for tests.
  * @returns the verdict for every session either side knows about.
  */
-export async function measureSessionStates(projectRoot: string, now: number = Date.now()): Promise<SessionStateReport> {
+export async function measureSessionStates(projectRoot: string, now: number = Date.now(), settledDays: number = SETTLED_DAYS): Promise<SessionStateReport> {
 	const directory = logsDir(projectRoot);
 	const indexFile = path.join(directory, "INDEX.md");
 	const indexText = await readOptional(indexFile);
@@ -117,7 +117,7 @@ export async function measureSessionStates(projectRoot: string, now: number = Da
 	}
 	for (const [name, facts] of dirs) {
 		if (facts.meta?.kind !== "handoff") continue;
-		if (now - facts.activityMs <= SETTLED_DAYS * 86_400_000) continue;
+		if (now - facts.activityMs <= settledDays * 86_400_000) continue;
 		dirs.set(name, { ...facts, humanTurns: await humanTurnCount(path.join(directory, name)) });
 	}
 	return sessionStates({
@@ -125,5 +125,6 @@ export async function measureSessionStates(projectRoot: string, now: number = Da
 		rows: new Map(rows.map((row) => [row.id, { date: row.date, title: row.title }])),
 		indexPresent: indexPresent || rows.length > 0,
 		now,
+		settledDays,
 	});
 }

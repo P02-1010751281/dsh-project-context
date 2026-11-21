@@ -311,3 +311,24 @@ detail 里点名。
 这是 AOCI 那笔账的落点：四个失败名（Missing / Orphan / Stale / Unbaselined）只是词汇，当初被拒是因为
 没有报告面；AA3 建了会话日志那一面，AA4 复用了同一套命名。**不借代码、不引依赖**（FSL-1.1-MIT），
 边界与记忆 `4c9` 一致。
+
+## 14. 落地：两个设置项与 bind 的报告缺口（AA6，2026-11-21）
+
+三条判定此前把决定它们的事实写死在代码里，验收时又暴露一处报告歧义，本批一并收口。
+
+| 设置项 | 默认 | 管什么 | 此前 |
+|---|---|---|---|
+| `sessionSettledDays` | 7（1–365） | `live`/`settled` 分界、`abandoned` 判据、交接子会话日志扫描门槛 | `session-state.ts` 的 `SETTLED_DAYS` 常量 |
+| `autolearnExpireSkills` | true | 过期技能移出服役 | 隐式跟着 `autolearnEnabled` |
+
+两个开关的语义边界：`autolearnEnabled` 管「要不要花模型调用去沉淀」，`autolearnExpireSkills` 管
+「要不要把已失效的技能移出服役」。沉淀关闭时，handler 只调 `retireExpiredSkills`（无模型调用），
+所以关掉沉淀不再意味着让过期技能永久注入。
+
+报告缺口：`bindableAnchors`（`src/project-autolearn/skill-state-source.ts:77-93`）跳过 `lib/`、
+`.agents/memory/` 与项目根外绝对路径，这是对的（构建产物每次构建都变）；错的是它对「永远绑不上」
+沉默。`bindSkills` 现在返回 `{bound, skipped}`，回执第二行点名 skipped；`SkillFacts.bindable` 让
+`unbaselined` 分成两句不同的 detail：有可绑锚点但没记录过 vs 根本没有可绑锚点。
+
+变异 6 个全部具名打红；其中「命令硬编码 7」首版不编译（`SETTLED_DAYS` 未在该文件导入），改成字面量
+`7` 后才算证据——不编译的变异不是证据。

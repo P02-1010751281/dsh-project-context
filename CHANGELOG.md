@@ -10,6 +10,24 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context + project-autolearn（批次 AA6：两个设置项，与 bind 的报告缺口）**
+
+- 设置项 `sessionSettledDays`（默认 7，1–365）：`live`/`settled` 分界与 `abandoned` 判据本就共用
+  `session-state.ts` 里的一个常量，现在它是卡片可见的配置，`/session-log status` 按它判；交接子会话的
+  日志扫描门槛也取同一个值，否则判定会与扫描用两条界线。
+- 设置项 `autolearnExpireSkills`（默认 true）：过期技能移出服役此前跑在 autolearn pass 里，关掉沉淀
+  就一并关掉了移出。现在 pass 内按它执行；沉淀关闭时另走一条只做移出、不花模型调用的路径，两种关闭
+  因此互不牵连。
+- 报告缺口（现场发现）：`bindableAnchors` 故意跳过 `lib/`、`.agents/memory/` 与项目根外绝对路径
+  （拿构建产物当基线，下次构建就全变 `drifted`），于是 6 个学习型技能永远补不上基线；而
+  `/autolearn bind` 只说「记了 12 条」，`status` 对它们印 `no fingerprint was recorded when it was
+  promoted`——与「从没跑过 bind」无法区分，读者会一直重跑 bind。现在 `bindSkills` 返回
+  `{bound, skipped}`，回执第二行点名「没有可绑路径」的技能；`SkillFacts` 带 `bindable`，status 对它们印
+  `nothing bindable: every path it cites is a build output, a memory document, or outside the project`。
+- 测试：新增 7 条（配置化界线的两态、命令按配置判、bindable 与「没绑过」不得混同、bind 点名、回执点名、
+  过期开关的三种组合、pass 开启而过期关闭时不移出）。变异 6 个全部具名打红：删过期门、删沉淀关闭时的
+  只移出路径、核心忽略配置天数、命令硬编码 7、`skipped` 不入报告、`bindable` 恒 0。`pnpm test` **771/771**。
+
 **project-context + project-autolearn（批次 AA5：把上一批的三条残余做掉）**
 
 - 残余一（会话日志）：`dangling` 只判父会话在不在磁盘上，判不了「被放弃的交接」。新增 `abandoned`：

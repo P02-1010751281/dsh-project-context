@@ -44,6 +44,12 @@ export interface SkillFacts {
 	readonly moved: readonly string[];
 	/** How many lines in MEMORY.md / CONTEXT.md cite this skill by path. */
 	readonly references: number;
+	/**
+	 * Cited paths a baseline could ever fingerprint: relative, inside the project, and not a build
+	 * output or a memory document. Zero means `/autolearn bind` can never help this skill, which is a
+	 * different fact from "nobody ran bind yet".
+	 */
+	readonly bindable: number;
 }
 
 /** One skill's verdict. */
@@ -71,7 +77,9 @@ export interface SkillStateReport {
  */
 export function skillStateOf(facts: SkillFacts): SkillVerdict {
 	if (facts.bound === 0) {
-		return { name: facts.name, state: "unbaselined", detail: "no fingerprint was recorded when it was promoted" };
+		return facts.bindable === 0
+			? { name: facts.name, state: "unbaselined", detail: "nothing bindable: every path it cites is a build output, a memory document, or outside the project" }
+			: { name: facts.name, state: "unbaselined", detail: "no fingerprint was recorded when it was promoted" };
 	}
 	// Expiry needs *every* citation gone and none of them from a vanished directory: a skill whose whole
 	// directory moved is stale in a different way, and retiring it would delete knowledge that still exists.

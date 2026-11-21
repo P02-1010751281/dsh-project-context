@@ -29,6 +29,8 @@ export type TaskMode = "assisted" | "delegated" | "manual";
 export interface PluginConfig {
 	/** Write the per-session archive (session.jsonl / session.md / INDEX.md) on turns and settles. Explicit commands still work when false. */
 	archiveEnabled: boolean;
+	/** Days without activity before a session counts as settled; a handoff continuation with no human turn older than this is called abandoned. */
+	sessionSettledDays: number;
 	/** Run the automatic consolidation pass after turns settle. Commands still work when false. */
 	memoryEnabled: boolean;
 	/** User turns accumulated before an automatic consolidation pass. */
@@ -62,6 +64,8 @@ export interface PluginConfig {
 	autolearnTurns: number;
 	/** Minimum wall-clock gap between automatic autolearn passes. */
 	autolearnIntervalMs: number;
+	/** Move a learned skill whose cited files are all gone out of the harness's view; runs before the pass, and without it. */
+	autolearnExpireSkills: boolean;
 	/** Start an automatic handoff when a top-level session approaches its context limit. */
 	handoffEnabled: boolean;
 	/**
@@ -90,6 +94,7 @@ export interface PluginConfig {
 
 export const DEFAULT_CONFIG: PluginConfig = {
 	archiveEnabled: true,
+	sessionSettledDays: 7,
 	memoryEnabled: true,
 	consolidateTurns: 6,
 	consolidateIntervalMs: 5 * 60 * 1000,
@@ -103,6 +108,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 	autolearnEnabled: true,
 	autolearnTurns: 20,
 	autolearnIntervalMs: 30 * 60 * 1000,
+	autolearnExpireSkills: true,
 	handoffEnabled: true,
 	handoffThreshold: { mode: "auto" },
 	handoffBudgetSummaryTokens: DEFAULT_HANDOFF_SUMMARY_TOKENS,
@@ -232,12 +238,14 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
 		maxTokens: positive("maxTokens", DEFAULT_CONFIG.maxTokens, 256),
 		maxOutputTokens: positive("maxOutputTokens", DEFAULT_CONFIG.maxOutputTokens, 256),
 		maxMemoryChars: bounded("maxMemoryChars", DEFAULT_CONFIG.maxMemoryChars, MIN_MEMORY_CHARS, MAX_MEMORY_CHARS_LIMIT),
+		sessionSettledDays: bounded("sessionSettledDays", DEFAULT_CONFIG.sessionSettledDays, 1, 365),
 		taskMode: taskMode ?? DEFAULT_CONFIG.taskMode,
 		provider,
 		model,
 		autolearnEnabled: boolean("autolearnEnabled", DEFAULT_CONFIG.autolearnEnabled),
 		autolearnTurns: positive("autolearnTurns", DEFAULT_CONFIG.autolearnTurns, 1),
 		autolearnIntervalMs: positive("autolearnIntervalMs", DEFAULT_CONFIG.autolearnIntervalMs, 1000),
+		autolearnExpireSkills: boolean("autolearnExpireSkills", DEFAULT_CONFIG.autolearnExpireSkills),
 		handoffEnabled: boolean("handoffEnabled", DEFAULT_CONFIG.handoffEnabled),
 		handoffThreshold: threshold("handoffThreshold", DEFAULT_CONFIG.handoffThreshold),
 		handoffBudgetSummaryTokens: bounded("handoffBudgetSummaryTokens", DEFAULT_CONFIG.handoffBudgetSummaryTokens, MIN_HANDOFF_SUMMARY_TOKENS, MAX_HANDOFF_SUMMARY_TOKENS),

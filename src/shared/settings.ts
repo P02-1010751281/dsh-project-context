@@ -60,6 +60,8 @@ export const PluginSettingsSchema = z.object({
 	autolearnEnabled: z.boolean().default(DEFAULT_CONFIG.autolearnEnabled).extra("volatile", true),
 	autolearnTurns: z.natural().min(1).default(DEFAULT_CONFIG.autolearnTurns).extra("volatile", true),
 	autolearnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.autolearnIntervalMs).extra("volatile", true),
+	autolearnExpireSkills: z.boolean().default(DEFAULT_CONFIG.autolearnExpireSkills).extra("volatile", true),
+	sessionSettledDays: z.natural().min(1).max(365).default(DEFAULT_CONFIG.sessionSettledDays).extra("volatile", true),
 	handoffEnabled: z.boolean().default(DEFAULT_CONFIG.handoffEnabled).extra("volatile", true),
 	handoffThreshold: z.string().default(formatThresholdSpec(DEFAULT_CONFIG.handoffThreshold)).extra("volatile", true),
 	handoffBudgetSummaryTokens: z.natural().min(MIN_HANDOFF_SUMMARY_TOKENS).max(MAX_HANDOFF_SUMMARY_TOKENS).default(DEFAULT_CONFIG.handoffBudgetSummaryTokens).extra("volatile", true),

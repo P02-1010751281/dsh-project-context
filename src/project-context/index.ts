@@ -363,7 +363,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			if (args === "status") {
 				const projectRoot = await getProjectRoot(projectCwd(agent.session));
 				try {
-					return { kind: "success", text: sessionStatusReceipt(await measureSessionStates(projectRoot)) };
+					return { kind: "success", text: sessionStatusReceipt(await measureSessionStates(projectRoot, Date.now(), effectivePluginConfig(entry).sessionSettledDays)) };
 				} catch (error: unknown) {
 					await logError(projectRoot, "memory", error);
 					return { kind: "error", text: `Session status: the command failed — ${error instanceof Error ? error.message : String(error)} (see .agents/memory/errors.log).` };

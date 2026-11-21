@@ -20,4 +20,4 @@ import { type SessionStateReport } from "./session-state.js";
  * @param now - the clock the live/settled split is measured against; injected for tests.
  * @returns the verdict for every session either side knows about.
  */
-export declare function measureSessionStates(projectRoot: string, now?: number): Promise<SessionStateReport>;
+export declare function measureSessionStates(projectRoot: string, now?: number, settledDays?: number): Promise<SessionStateReport>;

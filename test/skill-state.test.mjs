@@ -15,7 +15,7 @@ import path from "node:path";
 
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
-import { SKILL_SEVERITY, skillStates, skillStatusReceipt } from "../lib/project-autolearn/skill-state.js";
+import { SKILL_SEVERITY, skillStateOf, skillStates, skillStatusReceipt } from "../lib/project-autolearn/skill-state.js";
 import { bindSkills, expireSkill, measureSkillStates } from "../lib/project-autolearn/skill-state-source.js";
 
 const MARKER = "<!-- autolearn-generated: this skill may be superseded by a later autolearn pass -->";
@@ -42,7 +42,7 @@ const REFERENCED = "# Project Memory\n\n## Index\n- `.agents/skills/usable/SKILL
 test("the five states are derived from what the skill cites, worst first in a receipt", () => {
 	const facts = [
 		{ name: "usable", bound: 2, changed: [], missing: [], moved: [], references: 1 },
-		{ name: "no-baseline", bound: 0, changed: [], missing: [], moved: [], references: 1 },
+		{ name: "no-baseline", bound: 0, bindable: 1, changed: [], missing: [], moved: [], references: 1 },
 		{ name: "changed-file", bound: 1, changed: ["src/a.ts"], missing: [], moved: [], references: 1 },
 		{ name: "gone-file", bound: 2, changed: [], missing: ["src/b.ts"], moved: [], references: 1 },
 		{ name: "all-gone", bound: 1, changed: [], missing: ["src/c.ts"], moved: [], references: 1 },
@@ -88,7 +88,8 @@ test("the I/O half binds, drifts, expires and moves a skill out of service", asy
 	// Before any baseline, nothing can be judged: that is `unbaselined`, not `intact`.
 	assert.equal((await measureSkillStates(root)).counts.unbaselined, 1);
 	const bound = await bindSkills(root);
-	assert.deepEqual(bound, [{ name: "usable", paths: 1 }]);
+	assert.deepEqual(bound.bound, [{ name: "usable", paths: 1 }]);
+	assert.deepEqual(bound.skipped, [], "a skill with a bindable path is never reported as unbindable");
 	assert.equal((await measureSkillStates(root)).counts.intact, 1, "baselined, unchanged and referenced");
 
 	await writeFile(path.join(root, "src", "a.ts"), "two\n", "utf8");
@@ -123,7 +124,7 @@ test("a hand-written skill is not part of the learned corpus", async () => {
 	const root = await projectWith({ hand: handWritten }, "");
 	await mkdir(path.join(root, "src"), { recursive: true });
 	await writeFile(path.join(root, "src", "a.ts"), "one\n", "utf8");
-	assert.deepEqual(await bindSkills(root), [], "it is never bound");
+	assert.deepEqual((await bindSkills(root)).bound, [], "it is never bound");
 	assert.equal((await measureSkillStates(root)).verdicts.length, 0, "and never judged");
 	assert.equal((await expireSkill(root, "hand")).status, "no-such-skill");
 });
@@ -186,4 +187,121 @@ test("an idle agent moves an expired skill before the pass spends a model call",
 	}
 	await assert.rejects(access(path.join(root, ".agents", "skills", "usable")), "the expired skill left the harness's view");
 	await access(path.join(root, ".agents", "memory", "expired-skills", "usable", "SKILL.md"));
+});
+
+test("an unbindable skill is told apart from one nobody bound", () => {
+	// The same state, two different facts: one is waiting for a `bind`, the other can never have a
+	// baseline. Printing one sentence for both makes the second look like the first forever.
+	const never = skillStateOf({ name: "never", bound: 0, bindable: 2, changed: [], missing: [], moved: [], references: 1 });
+	const cannot = skillStateOf({ name: "cannot", bound: 0, bindable: 0, changed: [], missing: [], moved: [], references: 1 });
+	assert.equal(never.state, "unbaselined");
+	assert.equal(cannot.state, "unbaselined");
+	assert.match(never.detail, /no fingerprint was recorded/);
+	assert.match(cannot.detail, /nothing bindable/);
+	assert.notEqual(never.detail, cannot.detail, "the two reasons must not collapse into one sentence");
+});
+
+test("a skill with nothing bindable is named by bind, and the status says why", async () => {
+	const root = await projectWith({ buildonly: skillDoc("buildonly", ["lib/client.js"]) }, "");
+	await mkdir(path.join(root, "lib"), { recursive: true });
+	await writeFile(path.join(root, "lib", "client.js"), "x\n", "utf8");
+
+	const report = await bindSkills(root);
+	assert.deepEqual(report.bound, [], "a build output is never fingerprinted: the next build would call it drift");
+	assert.deepEqual(report.skipped, ["buildonly"], "so bind names it instead of silently doing nothing");
+
+	const states = await measureSkillStates(root);
+	assert.equal(states.counts.unbaselined, 1);
+	assert.match(states.verdicts[0].detail, /nothing bindable/);
+});
+
+test("the bind receipt carries the skills no baseline can cover", async () => {
+	const root = await projectWith({ buildonly: skillDoc("buildonly", ["lib/client.js"]) }, "");
+	await mkdir(path.join(root, "lib"), { recursive: true });
+	await writeFile(path.join(root, "lib", "client.js"), "x\n", "utf8");
+	let handler;
+	applyAutolearn(
+		{
+			get: () => undefined,
+			logger: { info() {}, warn() {} },
+			effect: (callback) => callback(),
+			on: () => () => undefined,
+			commands: { register: (registration) => { if (registration.name === "autolearn") handler = registration.handler; } },
+		},
+		resolvePluginConfig({ provider: "test-provider", model: "test-model" }),
+	);
+	const receipt = await handler({ agent: { session: { header: { cwd: root, id: "session-current" } } }, rawInput: "bind" });
+	assert.equal(receipt.kind, "success", receipt.text);
+	assert.match(receipt.text, /1 skill\(s\) have no bindable path/);
+	assert.match(receipt.text, /buildonly/);
+});
+
+test("the expiry switch is independent of the distillation switch", async () => {
+	// Pass off, expiry on: the move still happens, because the switch that owns it is on.
+	const moved = await projectWith({ usable: skillDoc("usable", ["src/a.ts"]) }, REFERENCED);
+	await mkdir(path.join(moved, "src"), { recursive: true });
+	await writeFile(path.join(moved, "src", "a.ts"), "one\n", "utf8");
+	await bindSkills(moved);
+	await rm(path.join(moved, "src", "a.ts"));
+	const idle = new Map();
+	applyAutolearn(
+		{
+			get: () => undefined,
+			logger: { info() {}, warn() {} },
+			effect: (callback) => callback(),
+			on: (event, handler) => { idle.set(event, handler); return () => undefined; },
+			commands: { register: () => () => undefined },
+		},
+		resolvePluginConfig({ provider: "test-provider", model: "test-model", autolearnEnabled: false, autolearnExpireSkills: true }),
+	);
+	idle.get("agent/status")({ agent: { session: { header: { cwd: moved, id: "session-off" } } }, status: "idle" });
+	for (let i = 0; i < 100; i += 1) {
+		const gone = await access(path.join(moved, ".agents", "skills", "usable")).then(() => false).catch(() => true);
+		if (gone) break;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	await assert.rejects(access(path.join(moved, ".agents", "skills", "usable")), "the pass being off does not keep an expired skill in view");
+
+	// Expiry off: the same setup keeps the skill, because the switch that owns the move is off.
+	const kept = await projectWith({ usable: skillDoc("usable", ["src/a.ts"]) }, REFERENCED);
+	await mkdir(path.join(kept, "src"), { recursive: true });
+	await writeFile(path.join(kept, "src", "a.ts"), "one\n", "utf8");
+	await bindSkills(kept);
+	await rm(path.join(kept, "src", "a.ts"));
+	const handlers = new Map();
+	applyAutolearn(
+		{
+			get: () => undefined,
+			logger: { info() {}, warn() {} },
+			effect: (callback) => callback(),
+			on: (event, handler) => { handlers.set(event, handler); return () => undefined; },
+			commands: { register: () => () => undefined },
+		},
+		resolvePluginConfig({ provider: "test-provider", model: "test-model", autolearnEnabled: false, autolearnExpireSkills: false }),
+	);
+	handlers.get("agent/status")({ agent: { session: { header: { cwd: kept, id: "session-expiry-off" } } }, status: "idle" });
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	await access(path.join(kept, ".agents", "skills", "usable"));
+
+	// Pass on, expiry off: the pass still runs (and fails for want of a model) but must not move the
+	// skill. Without this case the gate inside the pass is never exercised: every other case has it on.
+	const passOnly = await projectWith({ usable: skillDoc("usable", ["src/a.ts"]) }, REFERENCED);
+	await mkdir(path.join(passOnly, "src"), { recursive: true });
+	await writeFile(path.join(passOnly, "src", "a.ts"), "one\n", "utf8");
+	await bindSkills(passOnly);
+	await rm(path.join(passOnly, "src", "a.ts"));
+	const passHandlers = new Map();
+	applyAutolearn(
+		{
+			get: () => undefined,
+			logger: { info() {}, warn() {} },
+			effect: (callback) => callback(),
+			on: (event, handler) => { passHandlers.set(event, handler); return () => undefined; },
+			commands: { register: () => () => undefined },
+		},
+		resolvePluginConfig({ provider: "test-provider", model: "test-model", autolearnEnabled: true, autolearnExpireSkills: false }),
+	);
+	passHandlers.get("agent/status")({ agent: { session: { header: { cwd: passOnly, id: "session-pass-only" } } }, status: "idle" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	await access(path.join(passOnly, ".agents", "skills", "usable"));
 });

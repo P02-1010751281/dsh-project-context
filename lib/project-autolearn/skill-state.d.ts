@@ -40,6 +40,12 @@ export interface SkillFacts {
     readonly moved: readonly string[];
     /** How many lines in MEMORY.md / CONTEXT.md cite this skill by path. */
     readonly references: number;
+    /**
+     * Cited paths a baseline could ever fingerprint: relative, inside the project, and not a build
+     * output or a memory document. Zero means `/autolearn bind` can never help this skill, which is a
+     * different fact from "nobody ran bind yet".
+     */
+    readonly bindable: number;
 }
 /** One skill's verdict. */
 export interface SkillVerdict {

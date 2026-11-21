@@ -49,6 +49,8 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     autolearnEnabled: z<boolean, boolean>;
     autolearnTurns: z<number, number>;
     autolearnIntervalMs: z<number, number>;
+    autolearnExpireSkills: z<boolean, boolean>;
+    sessionSettledDays: z<number, number>;
     handoffEnabled: z<boolean, boolean>;
     handoffThreshold: z<string, string>;
     handoffBudgetSummaryTokens: z<number, number>;
@@ -71,6 +73,8 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     autolearnEnabled: z<boolean, boolean>;
     autolearnTurns: z<number, number>;
     autolearnIntervalMs: z<number, number>;
+    autolearnExpireSkills: z<boolean, boolean>;
+    sessionSettledDays: z<number, number>;
     handoffEnabled: z<boolean, boolean>;
     handoffThreshold: z<string, string>;
     handoffBudgetSummaryTokens: z<number, number>;
