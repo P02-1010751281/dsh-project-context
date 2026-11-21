@@ -17,7 +17,7 @@
 - Batch W：`src/project-handoff/decide.ts` 是纯判断（`decideAutoHandoff(inputs, config) → Decision`），`measure.ts` 是类型宿主，`auto.ts` 是适配器，其中 `gatherDecisionInputs` 是唯一的宿主读取；spec `docs/batch-w-decision-seam-spec.md`，套件 `test/handoff-decide.test.mjs`。（c0b）
 - Batch Z：Z1–Z8f 已实现并推送；`docs/batch-z-six-problems-spec.md` 冻结在 Z8e，Z8f（三位 hex 条目 id）只写在 `CHANGELOG.md` 的 `未发布`。（391）
 - Batch V：每条事实绑定它所引用文件的内容哈希，文件之后一改就把该条标 `stale`（只标——绝不删除或改写）；计数随两份 `/memory` 回执发布；spec `docs/batch-v-memory-staleness-spec.md`，模块 `src/project-memory/{anchors,staleness,staleness-source,entry-sidecar,status-report,status-source}.ts`。（274）
-- Batch AA 三个核都已落地并推送：AA2 `/memory reconcile`（`450de13`）、AA3 会话日志核（`9a5062d`）、AA4 技能核（`b758772`），三条残余收口于 `db357b1`（`abandoned`、`moved`、受管技能分母）；AA5/AA6 未排期；spec `docs/batch-aa-state-machines-spec.md`。（005）
+- Batch AA 三个核都已落地并推送：AA2 `/memory reconcile`（`450de13`）、AA3 会话日志核（`9a5062d`）、AA4 技能核（`b758772`），三条残余收口于 `db357b1`；AA5/AA6 于 `dee5db8` 落地（`sessionSettledDays`、`autolearnExpireSkills`、bind 报告缺口）；spec `docs/batch-aa-state-machines-spec.md`。（054）
 - 真实使用点：406-12（ssh `406-12`，easytier `10.126.126.4`，LAN `10.42.0.1`）是这些插件唯一有真实使用的机器，所以索引与记忆语料的读数从那里来、在这里对比；那台机器的 DSH desktop 宿主跑 `~/.local/share/dsh-desktop/0.2.2-rc.1`，回滚备份在 `~/.cache/pctx-backup-*/`。（1a4）
 - `docs/research/2026-11-18-similar-projects.md` 调查了 26 个同类系统与 14 篇论文；原始证据在 `.agents/evidence/2026-11-18-similar-projects-research/`（`manifest.tsv` 带完整 SHA-256，另有 `sources.md`、`comparison-matrix.csv`、`failures.tsv`、`local/`），落在 `3b6f9d6`；后续的 AOCI / repo-cognition-index 调查是 Batch V 源绑定想法的来源。（67c）
 - `CHANGELOG.md` 里记的残余只剩两条设计边界：技能过期只对带 `autolearn-generated` 标记的技能生效（手写技能只读）、`confirmed` 是本地侧车换机后重报；「整目录搬家报 `drifted`」与「`dangling` 只查父会话是否在磁盘上」已由 `moved` / `abandoned` 两态在 `db357b1` 补上。（28a）
@@ -112,6 +112,10 @@
 - 技能回执首行报受管子集与分母（`N of M skill(s) (K hand-written, not managed)`），`SkillStatusReport` 带 `total`/`unmanaged`——手写技能只读是设计边界，不是缺口。（fd9）
 - 跨插件复用的模块必须放 `src/shared/`：`anchors.ts` 因此从 `src/project-memory/` 挪到 `src/shared/anchors.ts`，`retirement.ts`、`staleness-source.ts` 与技能核都从那里取 `anchorCandidates` / `isLocalArtifact`。（79c）
 - 技能基线绑定（`bindableAnchors`，`src/project-autolearn/skill-state-source.ts:77-93`）故意跳过 `lib/`（每次构建都变）、`.agents/memory/`（本身易变）与项目根外的绝对路径；`orphan` 只判「MEMORY.md / CONTEXT.md 没有一行用路径引用它」，与 `drifted` / `moved` / `expired` 分开且只报告。（d8b）
+- `sessionSettledDays`（默认 7，范围 1–365）是 `live`/`settled` 分界、`abandoned` 判据与交接日志扫描门槛的唯一来源——同一个数，判定与扫描不再各用一条线；`autolearnExpireSkills`（默认 true）把「过期技能移出服役」与「要不要花模型调用沉淀」解耦，沉淀关闭时另走一条不做模型调用的只移出路径。（e64）
+- 新增配置键要同时落四个面：`src/shared/config.ts`、`src/shared/settings.ts` 的 schema、`client/card-fields.ts` 的 `ProjectContextSettings` 接口（独立副本，缺了会让 `tsc -p tsconfig.client.json` 直接报错）与 `ROWS`/locales，以及 `test/settings-form.test.mjs` 的每键一行断言。（a2f）
+- `bindSkills` 返回 `{bound, skipped}`，`SkillFacts.bindable` 让 `unbaselined` 分成「没人跑过 bind」与「根本没有可绑锚点」两句不同的 detail——跳过规则是对的，沉默不是。（f0a）
+- dsh 上游设置表单是一项一块的竖排 flex column（`ConfigField.tsx` 的 `.field` 为 `flex-direction: column; gap: 6px`，label、控件、错误各占行，无 hint 位、无网格/折叠）；我们的卡片用同行 `.dshPcRow` 更密，多一行的真实成本是每行一条 hint。（b53）
 
 ## Pitfalls
 - 记忆丢失发生在写之前或写时，所以干净重渲染证明不了什么；五个点是 `fitMemoryInput` 首尾裁剪、`renderMemoryDocument` 按段落预算丢条目、存储的上下文在适配前被切成 `MAX_CONTEXT_CHARS`、`renderContextDocument` 裁段、`normalizeMemoryDocument` 写时封顶；`ConsolidateReport` 带六个丢失计数加 `memoryWritten`/`contextWritten`。（bbc）
@@ -147,7 +151,6 @@
 - 证明手改文档安全靠的是渲染往返而不是 `isMemoryTruncated`：cap 可以报 `truncated:false` 而某条超过 `MAX_LIST_ITEM_CHARS`（800）正排队被静默裁剪；`CONTEXT.md` 与 `MEMORY.md` 各需一次往返（`roundtrip.mjs` / `share-fit.mjs`）——`itemTruncated 0`、没有条目贴着上限、往返字节相同，并且是拆开长条而不是丢掉事实。（b96）
 - 上下文文档会饿死自己的尾部（Open tasks 曾占到其份额的 99.7%，下一 pass 就会丢尾部条目），所以任何大幅手改后要量各段占用；一条事实写一个 `- ` bullet 而不是追加纯文本（那会拼进上一条并吞掉标题），直接调 `renderContextDocument` 时要给 `options.updatedAt`。（33f）
 - 一次拒绝的输入文档版本事后无法证明——请求体不落盘、成本台账按会话聚合、宿主不写 `[memory]` 运行日志——所以用 `MEMORY.md` 的 mtime 加「下次重启后的拒绝无歧义」来归属；任何「某批已生效」的书面断言都会衰减，必须重新推导。（0cf）
-- 重启验证脚本可能因为与本仓库无关的原因印 `RESULT: FAIL`：`/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 在另一个无关 desktop 活着时失败，验收脚本自己的 `title-load verify` 一半在重启后重跑判据前也失败。（005）
 - `dsh-live-inventory-probe.mjs` 的 `--expect` 收的是插件 `moduleName` 后缀而不是包名：我们的四行是 `dsh-project-context`、`dsh-project-context/memory`、`dsh-project-context/autolearn`、`dsh-project-context/handoff`，传 `dsh-project-memory` 会对一个完全加载的宿主报假 `NOT FOUND` / FAIL。（cf5）
 - 学到的正文只有模型用 `inspect_skill` 点名时才被取出，本轮没渲染正文的带标记名字在门与写路径上都被以 `body not shown this pass` 拒绝；简报在 `docs/archive/batch-{g,h}-*.md` 与 `docs/vocabulary-conventions.md`。（6f4）
 - dsh 在 store 仓库的 `docs/upgrade-guide/` 下有机器可读的升级指南——推理差异前按版本读，但指南写的是声明意图，要在已发的 `lib/` 里确认行为；dsh 的 schemastery 不再声明的陈旧配置键会被静默接受、什么都不做。（367）
@@ -177,7 +180,9 @@
 - 交接续接的第一个人类回合可能落在日志约 2.9MB 处（17 个交接子会话共约 71MB），所以判 `abandoned` 必须流式读到首个命中即停，不能整文件读入。（10c）
 - 技能回执曾把受管的 18 个技能当成全集（真实是 40 个里的 18）：`unmanaged` 恒 0 的变异只有加了分母断言才被打红，所以回执的数字必须有分母。（860）
 - 变异改到判定的共享常量时必须同步改夹具：`ABANDONED_AFTER_DAYS` 提出来后，测试里写死的天数与常量脱钩，会让「未测量当 0」这类变异不再被抓住。（c02）
-- `/autolearn status` 把「永远绑不上基线」印成 `no fingerprint was recorded when it was promoted`，与「bind 从没跑过」无法区分——只引用 `lib/`、`.agents/memory/` 或项目根外绝对路径的技能属于前者，再跑几次 bind 也不会有变化；判读前先看该技能正文有没有可绑锚点。（619）
+- 翻译或换措辞的 pass 可以在 `sectionDropped`/`droppedItems`/`itemTruncated` 全 0、状态 `updated` 的情况下丢掉代码标识符：tier C 只管结构丢失，`missing-literals.ts` 只报告不修，恢复只能手工并经插件自己的 `renderMemoryDocument` 做字节相同往返证明（`032d4a2` 补回 19 个仍成立的字面量）。（1e5）
+- 「永远绑不上」被印成「没人跑过 bind」是报告缺口不是规则缺口：跳过 `lib/`、`.agents/memory/` 与项目根外绝对路径是对的（构建产物每次都变），错的是 `bindSkills` 只报记了几条、`status` 用同一句话描述两种成因。（89f）
+- 重启验证脚本可能因为与本仓库无关的原因印 `RESULT: FAIL`：`/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 在另一个无关 desktop 活着时失败，验收脚本自己的 `title-load verify` 一半在重启后重跑判据前也失败。（005）
 
 ## Index
 - `README.md` / `CHANGELOG.md` 描述当前行为；已发布正文在 `docs/changelog/<version>.md`，`docs/README.md` 是文档索引；README 是 `package.json` 之外唯一写版本行的地方，并载 `## 致谢` 署名段。（b5b）
@@ -205,3 +210,4 @@
 - `src/shared/anchors.ts` 是锚点词法的唯一实现（`anchorCandidates`、`isLocalArtifact`），消费者是 `retirement.ts`、`staleness-source.ts` 与技能核。（92d）
 - `docs/research/2026-11-19-aoci.md` §7.1 记着三项借鉴的落地状态（派生/权威标记、种子身份哈希、漂移词汇）与 A/B 未启动；漂移词汇那段的原始理由（本仓库没有 INDEX 对账报告面）也留在文里供复查。（a3c）
 - `.agents/memory/skill-bindings.json` 是学习型技能基线的唯一写入面（`readSkillBindings` / `bindSkills`，路径 → 指纹前缀），`expired-skills/` 是退役目录；两者都由插件写，并已进 `.agents/memory/.gitignore`。（f41）
+- `.agents/skills/dsh-readonly-state-core-extension/SKILL.md`（autolearn 提升、受跟踪）拥有给三个只读状态核加状态/裁定/回执字段的流程：核心保持纯、派生与读盘分离、回执带分母、变异轮证明。（450）
