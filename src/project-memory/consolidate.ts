@@ -88,6 +88,14 @@ export type ConsolidationOutcome = {
 	 */
 	shownMemory: string;
 	/**
+	 * The context the model was actually shown, the baseline of the same rewrite-loss measure the memory
+	 * half already takes. It is not always the stored bytes: `fitMemoryInput` may shorten the context
+	 * head-and-tail, and a pass that would be shortened is refused — so for every pass that lands this
+	 * equals the file the reply replaced, and the value is carried anyway rather than re-read at the
+	 * write site, where a concurrent writer could have replaced it in between.
+	 */
+	shownContext: string;
+	/**
 	 * Which entry the memory came from. Reported for diagnostics and tests; no receipt reads it yet,
 	 * so a pass is never worded differently because of it.
 	 */
@@ -701,6 +709,7 @@ export function consolidateProjectState(
 				version: (nextVersion += 1),
 				basisKey: existing.text,
 				shownMemory: existing.text,
+				shownContext: existingContext,
 				kind: "none",
 				semanticEmpty: false,
 				sectionDropped: 0,
@@ -773,6 +782,7 @@ export function consolidateProjectState(
 				version: (nextVersion += 1),
 				basisKey: existing.text,
 				shownMemory: existing.text,
+				shownContext: existingContext,
 				kind: "none",
 				semanticEmpty: false,
 				sectionDropped: 0,
@@ -1100,6 +1110,7 @@ export function consolidateProjectState(
 			version,
 			basisKey: existing.text,
 			shownMemory: promptMemory,
+			shownContext: usedInput.contextText,
 			kind: resolved.kind,
 			semanticEmpty,
 			sectionDropped: loss.sectionDropped,

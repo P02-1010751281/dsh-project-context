@@ -10,6 +10,19 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 AA2b：上下文文档的整篇重写损失度量）**
+
+- 问题：`missingLiteralsBetween` 只接了 memory（`index.ts:395`）。上下文文档每轮被整篇重写，却没有任何
+  存活度量——一次重写把事实丢掉，回执与状态都看不见。
+- 改法：`ConsolidationOutcome` 新增 `shownContext`（模型实际看到的上下文；两条拒绝路径带上被裁后的视图，
+  但只有落盘的 pass 才会被量），落盘后与落地字节比对得 `contextMissingLiterals`：进 `/memory` 回执
+  （`Context missing literals: N … the previous CONTEXT.md`，会话绑定任务时点名 `tasks/<slug>.md`）、
+  进 `errors.log`；首写不量（没有基线）。只报不拒，与 memory 半边同一纪律（批次 AA 裁定第 2 条）。
+- 测试：2 条（丢字面量 → 报告 + 回执 + 一行日志；控制组全保留 → 三处都没有）。变异 3 个全部精确命中：
+  报告字段没接、基线取成新文档（恒零）、回执不输出该句。
+- 残余：`/memory status` 还没显示这一项（本批只做 `/memory update` 与日志）；pass 窗口内被外部改写的
+  `CONTEXT.md` 会使基线不是模型看到的那份，与 memory 半边同类残余。
+
 **project-memory（批次 AA1a：条目状态只有一个裁定者）**
 
 - 问题：同一个记忆条目有两套结论——退役引擎按「路径没了 / 行号越过文件尾」**行动**，源绑定按内容

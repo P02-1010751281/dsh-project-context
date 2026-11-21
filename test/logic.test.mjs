@@ -1834,6 +1834,58 @@ test("a rewrite that keeps every backticked fact reports nothing, in neither the
 	assert.doesNotMatch(log, /backticked literal\(s\)/, "nothing was lost, so nothing is logged");
 });
 
+/** A stored context that names one literal the reply may or may not keep. */
+const LITERAL_CONTEXT = `# Project Context\n\nLast updated: 2026-11-21T00:00:00.000Z\n\n## Summary\n- the pass reports what it wrote\n\n## Key points\n- \`isHeadingOnlyDocument\` keeps the skeleton gate honest\n\n## Open tasks\n- none\n`;
+
+/** A complete reply whose memory keeps every memory literal and whose context is `keyPoint`. */
+function contextReply(keyPoint) {
+	return JSON.stringify({
+		memory_markdown: `# Project Memory\n\n## Project\n- root \`/etc/nixos\` holds the flake\n- \`isHeadingOnlyDocument\` refuses the skeleton\n\n## Invariants\n- one name per fact\n\n## Pitfalls\n- none yet\n\n## Index\n- docs/README.md\n`,
+		context: { title: "t", summary: "s", key_points: [keyPoint], open_tasks: [] },
+	});
+}
+
+test("a context rewrite that drops a backticked fact reports it, and the receipt names the document", async () => {
+	// Batch AA2b: the context is rewritten whole on every pass and had no survival measure at all —
+	// the memory half's gate never looked at it. Same measure, same report-only discipline.
+	const root = await memoryProject("dsh-context-missing-literals-", LITERAL_MEMORY);
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), LITERAL_CONTEXT, "utf8");
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: contextReply("a point that drops the symbol") }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
+	assert.equal(report.contextWritten, true);
+	assert.deepEqual(report.missingLiterals, { count: 0, samples: [] }, "the memory half kept every literal");
+	assert.deepEqual(report.contextMissingLiterals, { count: 1, samples: ["isHeadingOnlyDocument"] }, "the departed context literal is named");
+	const landed = await readFile(path.join(root, ".agents", "memory", "CONTEXT.md"), "utf8");
+	assert.doesNotMatch(landed, /isHeadingOnlyDocument/, "and it really left the document");
+	const receipt = memoryUpdateReply(report).text;
+	assert.match(receipt, /Context missing literals: 1 backticked literal\(s\) the previous CONTEXT\.md/, `the receipt names the loss and the document, got ${receipt}`);
+	assert.match(receipt, /isHeadingOnlyDocument/, `and one sample of it, got ${receipt}`);
+	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("the previous CONTEXT.md carried"));
+	assert.equal(logged.length, 1, `one line per lossy context write, got ${JSON.stringify(logged)}`);
+	assert.match(logged[0], /1 backticked literal\(s\)/);
+});
+
+test("a context rewrite that keeps every literal reports nothing, in neither the receipt nor the log", async () => {
+	const root = await memoryProject("dsh-context-kept-literals-", LITERAL_MEMORY);
+	await writeFile(path.join(root, ".agents", "memory", "CONTEXT.md"), LITERAL_CONTEXT, "utf8");
+	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: contextReply("`isHeadingOnlyDocument` still keeps the gate honest") }] });
+	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
+
+	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+
+	assert.equal(report.status, "updated");
+	assert.deepEqual(report.contextMissingLiterals, { count: 0, samples: [] }, "no literal left the context");
+	const receipt = memoryUpdateReply(report).text;
+	assert.doesNotMatch(receipt, /Context missing literals/, `a lossless rewrite must not read like a lossy one, got ${receipt}`);
+	const logFile = path.join(root, ".agents", "memory", "errors.log");
+	const log = existsSync(logFile) ? await readFile(logFile, "utf8") : "";
+	assert.doesNotMatch(log, /the previous CONTEXT\.md carried/, "nothing was lost, so nothing is logged");
+});
+
 test("the retention ladder reaches the live prompt only when the stored memory is near its cap", async () => {
 	// The conditional lives in `memoryBudgetRule`, but what matters is the assembled prompt: the same
 	// stored document shape, two occupancies, one branch each. A near-cap memory is told to buy room by

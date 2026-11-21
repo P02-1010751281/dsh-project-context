@@ -236,6 +236,13 @@ type ConsolidateReport = {
 	 */
 	missingLiterals?: MissingLiterals;
 	/**
+	 * The same rewrite-loss measure, taken on the other artifact: the context document is rewritten
+	 * whole on every pass and had no survival measure at all before batch AA2b. Reported only, for the
+	 * same reason as the memory half — a legal rename reads as a loss — and absent when nothing landed
+	 * or when there was no previous document to lose anything from.
+	 */
+	contextMissingLiterals?: MissingLiterals;
+	/**
 	 * Set by the read-cap gate: the pass was refused before any model call because a stored artifact was
 	 * longer than the cap that decides what the model is shown (`maxMemoryChars` for the memory,
 	 * `MAX_CONTEXT_CHARS` for the context). The reply would have been built from the shortened view and
@@ -499,6 +506,8 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				? undefined
 				: outcome.result.context ?? (existing.trim() ? undefined : fallbackUpdate(session));
 			let contextDroppedChars = 0;
+			/** The rewrite loss measure's observation of the context bytes that landed. */
+			let contextLiteralLoss: MissingLiterals | undefined;
 			if (update && contextRefused) {
 				// Silent no-ops are this repo's standing failure class: say what did not land, and do not
 				// call the session-derived placeholder "the reply's context section".
@@ -537,6 +546,15 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				}
 				await writeAtomic(contextPath, contextDocument);
 				wroteContext = true;
+				// The context half of the rewrite loss measure (batch AA2b). The baseline is what the model was
+				// shown, and a first write has none: with no previous document there is nothing to lose. Reported
+				// only — deciding anything from it is the reader's job, and AA2 is where a lever gets built.
+				if (existing.trim() !== "") {
+					contextLiteralLoss = missingLiteralsBetween(outcome.shownContext, contextDocument);
+					if (contextLiteralLoss.count > 0) {
+						await logError(projectRoot, "memory", `${contextLiteralLoss.count} backticked literal(s) the previous ${contextName} carried no longer appear in the new document, e.g. ${contextLiteralLoss.samples.join(" | ")}`);
+					}
+				}
 				const dropped = contextTruncationDropped(contextDocument);
 				contextDroppedChars = dropped ?? 0;
 				if (dropped !== undefined) {
@@ -568,6 +586,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				...loss,
 				contextWritten: wroteContext,
 				contextDroppedChars: wroteContext ? contextDroppedChars : 0,
+				...(wroteContext && contextLiteralLoss !== undefined ? { contextMissingLiterals: contextLiteralLoss } : {}),
 				...(wroteContext && taskSlug !== undefined ? { contextTarget: taskRelativePath(taskSlug) } : {}),
 				...(staleness === undefined ? {} : { staleness }),
 			};
@@ -992,7 +1011,12 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	const missing = report.missingLiterals === undefined || report.missingLiterals.count === 0
 		? ""
 		: ` Missing literals: ${report.missingLiterals.count} backticked literal(s) the previous memory carried no longer appear (e.g. ${report.missingLiterals.samples.slice(0, 2).join(" | ")}).`;
-	return { kind: "success", text: `${updated}${verdict}${missing}` };
+	// The context half of the same measure. It names the document it came from because `/memory update`
+	// answers for both artifacts, and a bound session writes a task document instead of `CONTEXT.md`.
+	const contextMissing = report.contextMissingLiterals === undefined || report.contextMissingLiterals.count === 0
+		? ""
+		: ` Context missing literals: ${report.contextMissingLiterals.count} backticked literal(s) the previous ${report.contextTarget ?? "CONTEXT.md"} carried no longer appear (e.g. ${report.contextMissingLiterals.samples.slice(0, 2).join(" | ")}).`;
+	return { kind: "success", text: `${updated}${verdict}${missing}${contextMissing}` };
 }
 
 /**

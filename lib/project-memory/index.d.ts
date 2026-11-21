@@ -131,6 +131,13 @@ type ConsolidateReport = {
      */
     missingLiterals?: MissingLiterals;
     /**
+     * The same rewrite-loss measure, taken on the other artifact: the context document is rewritten
+     * whole on every pass and had no survival measure at all before batch AA2b. Reported only, for the
+     * same reason as the memory half — a legal rename reads as a loss — and absent when nothing landed
+     * or when there was no previous document to lose anything from.
+     */
+    contextMissingLiterals?: MissingLiterals;
+    /**
      * Set by the read-cap gate: the pass was refused before any model call because a stored artifact was
      * longer than the cap that decides what the model is shown (`maxMemoryChars` for the memory,
      * `MAX_CONTEXT_CHARS` for the context). The reply would have been built from the shortened view and
