@@ -10,6 +10,30 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（记忆满额时的取用顺序：先指针化，不靠压缩措辞）**
+
+- 问题：提示词里有两处把「整篇压缩措辞」写成标准解法——`MEMORY_KEEP_RULE` 的 `then condense the
+  wording` 与 `MEMORY_SURVIVAL_CAPTION` 的 `fixed by condensing its wording, not by dropping entries`。
+  这正是损失闸量到的那种静默丢失：一次「每条都缩短一点」的 pass，结构计数全是 0、状态 `updated`，
+  字面量却没了。
+- 改法一（始终生效）：`MEMORY_KEEP_RULE` 改为「合并重复、跨节去重；仍超目标就收紧措辞，绝不靠丢事实」；
+  `MEMORY_SURVIVAL_CAPTION` 改为「靠合并重复 + 指向拥有该 procedure 的技能/文档，不靠丢条目，也不靠
+  缩短仍成立条目的措辞」。
+- 改法二（仅当库内文档 ≥ `maxMemoryChars` 的 85%，`MEMORY_RETENTION_TRIGGER_SHARE`）：预算行追加
+  `MEMORY_RETENTION_LADDER`，给出取用顺序——合并同一事实的重复条目 → 把**已经点名了归宿**的条目换成
+  一句保留该名字、丢掉步骤的指针（`.agents/skills/`、`docs/`、CHANGELOG、具名测试）→ 删除只留给被取代
+  的条目。指针只能复用条目自己已经写出的名字：这个 pass 不读文件，让它「指向拥有该 procedure 的技能」
+  等于邀请它编路径。
+- 阈值是 85% 而不是 90%：`fitMemoryInput` 在「内存 + 上下文放不进输出预算」时**拒绝而不是裁剪**，
+  实测 52,000 上限、reasoning 路由下这条线在约 98.5%（51,225 字符），被拒的 pass 根本到不了提示词。所以
+  阶梯必须早于那条线；它无法保证每条路由都可达（线的位置随上下文与模型变化），这一点如实写在常量注释里。
+- 依据：手动清理实测——同一份 5.2 万字符文档，指针化腾出 2,083 字符且**零反引号字面量丢失**（只把 11 个
+  codex 字面量搬进技能，逐字核过 11/11）。两处非反引号测量随 7d0 那条重写一起消失（`45000`、`44,996`，
+  是抬上限的历史值），这里如实记下；两个脚本只打印缺失计数、不在计数 >0 时失败，判读靠人工。条件分支的
+  原因是 token：不接近上限的 pass 不该为这条指令付费。
+- 测试：新增 2 条（纯函数双分支 + 90% 边界；活提示词双分支），更新 2 条既有 pin（caption 与 keep-rule
+  各自的措辞断言）。变异 4 个全部命中：无条件追加、阈值改 99%、caption 回退、keep-rule 回退。
+
 **project-memory（整篇重写的静默概括：`/memory update` 报告 missing literals）**
 
 - 问题：tier C 只数结构丢失（整条被丢或截到单条上限），所以一次「整篇重写成浓缩措辞」的 pass 报

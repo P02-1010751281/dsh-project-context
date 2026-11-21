@@ -160,12 +160,17 @@ export declare const CONVERSATION_CAPTION = "[This session's working state. It m
  * a mis-shaped reply hollow out CONTEXT.md silently.
  */
 export declare const CONSOLIDATION_PROMPT_RULES: readonly string[];
-export declare const MEMORY_KEEP_RULE = "Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections, then condense the wording. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one.";
+export declare const MEMORY_KEEP_RULE = "Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections. A section still over its target is fixed by removing phrasing that repeats elsewhere in the document \u2014 not by compressing a fact's wording and not by dropping a fact. Delete an entry only when it is superseded or another entry already states the same fact, never to make room for a new one.";
 /**
  * The same rule at the block whose text the reply rewrites (pi's second layer): the material arrives
  * with the instruction attached, rather than only in the rules above it.
+ *
+ * It used to end "fixed by condensing its wording, not by dropping entries", and that clause is the
+ * licence the silent loss took: a pass that shortens every entry a little reports no structural loss
+ * (tier C counts whole entries) while literals leave, which is why the rewrite measure exists
+ * (`missing-literals.ts`). The cheap move is the opposite order, so the caption names it.
  */
-export declare const MEMORY_SURVIVAL_CAPTION = "The existing-memory block below is what has to survive this pass: every entry that is still true must reappear unless it is superseded or already covered elsewhere, and a document that does not fit its cap is fixed by condensing its wording, not by dropping entries.";
+export declare const MEMORY_SURVIVAL_CAPTION = "The existing-memory block below is what has to survive this pass: every entry that is still true must reappear unless it is superseded or another entry already states it, and a document that does not fit its cap is fixed by merging duplicates and pointing at a skill or document the entry itself already names \u2014 not by dropping entries and not by shortening a still-true entry's wording.";
 /**
  * The memory layout the pass actually writes, stated with the real per-section budgets.
  *
@@ -191,6 +196,19 @@ export declare function memorySectionRule(maxMemoryChars: number): string;
  * as the only hard limit.
  */
 export declare function memoryBudgetRule(maxMemoryChars: number, currentChars: number): string;
+/**
+ * The order a full document is bought back in.
+ *
+ * The previous rule said a full document is fixed "by condensing its wording", and that is the move
+ * that loses detail: a rewrite that shortens every entry reports no structural loss while literals
+ * vanish (the rewrite measure exists because of it). The measured cheap move is the opposite order —
+ * merge true restatements, then fold a procedure into a pointer at the skill, document, CHANGELOG
+ * entry or test that owns it, which keeps the fact reachable for a fraction of its characters. The
+ * pointer may only name a home the entry *already* names: the pass reads no files, so an instruction
+ * to "point at the skill that owns this" would invite an invented path. Deleting stays last and only
+ * for an entry something else already supersedes.
+ */
+export declare const MEMORY_RETENTION_LADDER = "The document is at or near its cap, so buy room in this order: merge entries that restate one fact; then replace an entry that already names the skill, tracked document, CHANGELOG entry or test holding its procedure with one sentence that keeps that name and drops the steps. Never shorten a still-true entry's wording to buy room, and delete only an entry that is superseded.";
 /**
  * The targeted retry a complete-but-lossy reply is allowed (tier C).
  *

@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { basePrompt, backtrackPrompt } from "../lib/project-autolearn/prompt.js";
 import { MAX_SKILL_DESCRIPTION_CHARS } from "../lib/project-autolearn/skill.js";
-import { CONSOLIDATION_PROMPT_RULES, memoryBudgetRule } from "../lib/project-memory/consolidate.js";
+import { CONSOLIDATION_PROMPT_RULES, MEMORY_RETENTION_LADDER, memoryBudgetRule } from "../lib/project-memory/consolidate.js";
 import { MAX_SKILL_BODY_CHARS } from "../lib/shared/project-state.js";
 
 /** A word-count hint is what the code does not enforce; no prompt may carry one. */
@@ -32,6 +32,23 @@ test("the consolidation prompt states the enforced character cap and the current
 	// The cap is per project, so the line has to change with it — a fixed number in the static
 	// rules would be a second source of truth again.
 	assert.match(memoryBudgetRule(120_000, 0), /at or under 120000 characters/);
+});
+
+test("the retention ladder appears only when the stored document is near its cap", () => {
+	// Two branches, both pinned: a roomy document must not spend prompt tokens on the ladder, and a
+	// near-cap one must carry it — the branch this rule exists for is the one production will hit.
+	const roomy = memoryBudgetRule(40_000, 12_345);
+	assert.doesNotMatch(roomy, /buy room in this order/i, "a roomy document is not told to buy room");
+	assert.ok(!roomy.includes(MEMORY_RETENTION_LADDER));
+	const tight = memoryBudgetRule(40_000, 34_000);
+	assert.ok(tight.includes(MEMORY_RETENTION_LADDER), "85% of the cap is already near it");
+	assert.match(tight, /merge entries that restate one fact/, "the ladder states the order");
+	assert.match(tight, /Never shorten a still-true entry's wording to buy room/, "and the move it forbids");
+	// The boundary is inclusive on purpose: 85% is the trigger, not 86%. The trigger sits below the
+	// output-budget gate (measured at ~98.5% of the cap on a reasoning route), so the ladder can reach
+	// the model before a pass is refused for its fit.
+	assert.ok(memoryBudgetRule(40_000, 34_000).includes(MEMORY_RETENTION_LADDER));
+	assert.ok(!memoryBudgetRule(40_000, 33_999).includes(MEMORY_RETENTION_LADDER));
 });
 
 test("no consolidation rule states a word count", () => {

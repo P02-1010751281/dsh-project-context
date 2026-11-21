@@ -250,14 +250,19 @@ const MEMORY_ENTRY_ID_RULE =
 	"Every entry ends with its id in a full-width parenthetical, e.g. `… durable fact（4f2）`. When you keep an entry, keep its id exactly as given. Do not invent an id for a new entry and do not add one to an entry that has none. To replace an entry, write the replacement and end it with `supersedes:<old id>`; the old entry is retired automatically, so do not repeat it.";
 
 export const MEMORY_KEEP_RULE =
-	"Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections, then condense the wording. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one.";
+	"Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections. A section still over its target is fixed by removing phrasing that repeats elsewhere in the document — not by compressing a fact's wording and not by dropping a fact. Delete an entry only when it is superseded or another entry already states the same fact, never to make room for a new one.";
 
 /**
  * The same rule at the block whose text the reply rewrites (pi's second layer): the material arrives
  * with the instruction attached, rather than only in the rules above it.
+ *
+ * It used to end "fixed by condensing its wording, not by dropping entries", and that clause is the
+ * licence the silent loss took: a pass that shortens every entry a little reports no structural loss
+ * (tier C counts whole entries) while literals leave, which is why the rewrite measure exists
+ * (`missing-literals.ts`). The cheap move is the opposite order, so the caption names it.
  */
 export const MEMORY_SURVIVAL_CAPTION =
-	"The existing-memory block below is what has to survive this pass: every entry that is still true must reappear unless it is superseded or already covered elsewhere, and a document that does not fit its cap is fixed by condensing its wording, not by dropping entries.";
+	"The existing-memory block below is what has to survive this pass: every entry that is still true must reappear unless it is superseded or another entry already states it, and a document that does not fit its cap is fixed by merging duplicates and pointing at a skill or document the entry itself already names — not by dropping entries and not by shortening a still-true entry's wording.";
 
 /**
  * The memory layout the pass actually writes, stated with the real per-section budgets.
@@ -297,12 +302,46 @@ export function memorySectionRule(maxMemoryChars: number): string {
  * as the only hard limit.
  */
 export function memoryBudgetRule(maxMemoryChars: number, currentChars: number): string {
-	return `memory_markdown must stay at or under ${maxMemoryChars} characters (the stored memory is currently about ${currentChars}). That is a hard cap in characters, not words: content past it is dropped on write, so condense and merge instead of appending. The per-section numbers above are targets, not caps: a section may go over its share while the document has room, and entries are dropped whole only when the whole document is over.`;
+	const base = `memory_markdown must stay at or under ${maxMemoryChars} characters (the stored memory is currently about ${currentChars}). That is a hard cap in characters, not words: content past it is dropped on write, so never append without merging. The per-section numbers above are targets, not caps: a section may go over its share while the document has room, and entries are dropped whole only when the whole document is over.`;
+	// Conditional on purpose: the ladder costs prompt tokens and only answers a document that is
+	// already close to the cap. Both branches are pinned by `test/prompt-bounds.test.mjs`.
+	return currentChars >= Math.floor(maxMemoryChars * MEMORY_RETENTION_TRIGGER_SHARE) ? `${base} ${MEMORY_RETENTION_LADDER}` : base;
 }
+
+/**
+ * Where the retention ladder starts: a stored document at 85% of the cap or above.
+ *
+ * Below 85% a pass still has room, so the ladder would only spend tokens. Above it, the ladder is the
+ * last instruction that can act before the output-budget gate does: `fitMemoryInput` refuses (rather
+ * than clipping) once memory plus context no longer fit the output budget, measured at ~98.5% of a
+ * 52,000 cap on a reasoning route, and a refused pass never reaches the prompt at all. The trigger
+ * therefore sits well under that line; it cannot guarantee reachability on every route, because the
+ * gate's line moves with the context size and the model.
+ *
+ * Not the same 85/90 split as `MEMORY_SECTION_PROMPT_SHARE` in `memory-schema.ts` — that one asks the
+ * model to aim below a section's share, this one decides when the prompt names the ladder at all.
+ * Kept apart so moving one never silently moves the other.
+ */
+const MEMORY_RETENTION_TRIGGER_SHARE = 0.85;
+
+/**
+ * The order a full document is bought back in.
+ *
+ * The previous rule said a full document is fixed "by condensing its wording", and that is the move
+ * that loses detail: a rewrite that shortens every entry reports no structural loss while literals
+ * vanish (the rewrite measure exists because of it). The measured cheap move is the opposite order —
+ * merge true restatements, then fold a procedure into a pointer at the skill, document, CHANGELOG
+ * entry or test that owns it, which keeps the fact reachable for a fraction of its characters. The
+ * pointer may only name a home the entry *already* names: the pass reads no files, so an instruction
+ * to "point at the skill that owns this" would invite an invented path. Deleting stays last and only
+ * for an entry something else already supersedes.
+ */
+export const MEMORY_RETENTION_LADDER =
+	"The document is at or near its cap, so buy room in this order: merge entries that restate one fact; then replace an entry that already names the skill, tracked document, CHANGELOG entry or test holding its procedure with one sentence that keeps that name and drops the steps. Never shorten a still-true entry's wording to buy room, and delete only an entry that is superseded.";
 
 /** The one retry a cut-off reply is allowed. Kept as a constant so a wording regression is visible. */
 const TRUNCATED_REPLY_RULE =
-	"Your previous reply was cut off by the model output limit. Retry this same consolidation now without the tool: return exactly one complete JSON object with string memory_markdown and object context, keeping memory_markdown shorter.";
+	"Your previous reply was cut off by the model output limit. Retry this same consolidation now without the tool: return exactly one complete JSON object with string memory_markdown and object context, making memory_markdown shorter by merging duplicates and pointing at a home an entry already names — never by compressing a still-true entry and never by dropping a fact.";
 
 /**
  * The targeted retry a complete-but-lossy reply is allowed (tier C).
@@ -330,7 +369,7 @@ export function memoryLossRetryRule(overage: readonly MemorySectionOverage[], wr
 	return [
 		"Your previous reply was complete but would have lost content when stored, so it was not stored:",
 		...lines,
-		`Retry this same consolidation without the tool: return exactly one complete JSON object with string memory_markdown and object context. ${MEMORY_KEEP_RULE} The per-section shares are targets, so the entries above were lost because the document itself reached its cap; when the reply carried no sections, apply the same ladder without them.`,
+		`Retry this same consolidation without the tool: return exactly one complete JSON object with string memory_markdown and object context. ${MEMORY_KEEP_RULE} The per-section shares are targets: content would have been lost because the document itself reached its cap, or because an entry exceeded its per-item cap. When the reply carried no sections, apply the same order without them.`,
 	].join("\n");
 }
 

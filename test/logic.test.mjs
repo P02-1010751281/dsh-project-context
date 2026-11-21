@@ -1834,6 +1834,45 @@ test("a rewrite that keeps every backticked fact reports nothing, in neither the
 	assert.doesNotMatch(log, /backticked literal\(s\)/, "nothing was lost, so nothing is logged");
 });
 
+test("the retention ladder reaches the live prompt only when the stored memory is near its cap", async () => {
+	// The conditional lives in `memoryBudgetRule`, but what matters is the assembled prompt: the same
+	// stored document shape, two occupancies, one branch each. A near-cap memory is told to buy room by
+	// pointing; a roomy one must not spend tokens on that instruction.
+	const doc = (projectBody) => ["# Project Memory", "", "## Project", projectBody, "", "## Invariants", "- alphaRule", "", "## Pitfalls", "- none yet", "", "## Index", "- docs/README.md", ""].join("\n");
+	const roomyDoc = doc("- one fact");
+	// Built to sit above the 90% trigger (3,600 of 4,000) and below the cap, so the fixture exercises
+	// the near-cap branch instead of the read-cap refusal: ~55 characters per entry, ~65 entries.
+	const entries = [];
+	// The pass stamps every entry with a 5-character id before the prompt is built, so the estimate
+	// counts those: the *prompt's* document has to clear the 90% trigger, not the raw fixture.
+	const estimated = () => doc(entries.join("\n")).length + entries.length * 5;
+	while (estimated() < 3_650) entries.push(`- fact ${entries.length} mentions token${entries.length} and stays short`);
+	const nearCapDoc = doc(entries.join("\n"));
+	assert.ok(nearCapDoc.length < 4_000, `fixture: ${nearCapDoc.length} characters`);
+	const reply = JSON.stringify({ memory_markdown: roomyDoc, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } });
+
+	const promptFor = async (memory) => {
+		const root = await memoryProject("dsh-memory-ladder-", memory);
+		const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply }] });
+		const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: 4000 });
+		await consolidateProject(ctx, config, agent, { force: true, silent: true });
+		assert.ok(calls.length > 0, "fixture: the pass really ran");
+		return calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
+	};
+
+	const roomy = await promptFor(roomyDoc);
+	assert.doesNotMatch(roomy, /buy room in this order/i, "a roomy document is not told to buy room");
+	// The pointer guard is in the always-on caption, not only in the conditional ladder: a roomy
+	// document has no ladder, so without this the pointer licence would be unbounded there.
+	assert.match(roomy, /pointing at a skill or document the entry itself already names/, "the guard travels with the permission");
+
+	const tight = await promptFor(nearCapDoc);
+	assert.match(tight, /currently about 3[4-9]\d\d/, "fixture: the pass saw a document at 85% or more of the cap");
+	assert.match(tight, /buy room in this order/i, "a near-cap document is");
+	assert.match(tight, /already names the skill, tracked document/, "and the pointer may only reuse a home the entry already names");
+	assert.match(tight, /never append without merging/, "the cap line no longer endorses condensing either");
+});
+
 test("a deliberate retirement before the prompt is not reported as a silently lost fact", async () => {
 	// Batch Z2's plan retires an entry whose anchor drifted *before* the prompt is built, and the model
 	// is shown the shortened view. Measuring the landed document against the raw store would then count
@@ -5633,6 +5672,10 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 	const retryPrompt = calls[1].messages[0].content.map((block) => block.text ?? "").join("\n");
 	assert.match(retryPrompt, /cut off by the model output limit/i, "the retry says why it is being asked again");
 	assert.match(retryPrompt, /compact|shorter/i, "the retry asks for a shorter reply");
+	// The retry must not reintroduce a bare "shorter" licence: it is the third place a pass is told to
+	// shrink itself, and it fires exactly when the output budget is tight.
+	assert.doesNotMatch(retryPrompt, /keeping memory_markdown shorter/, "no bare shorter licence");
+	assert.match(retryPrompt, /by merging duplicates and pointing at a home an entry already names/, "the order travels with the retry");
 	// The first prompt must NOT carry the retry instruction.
 	const firstPrompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	assert.doesNotMatch(firstPrompt, /cut off by the model output limit/i);
@@ -5641,7 +5684,10 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 		firstPrompt.includes(MEMORY_SURVIVAL_CAPTION + "\n<existing-memory>"),
 		"the survival caption sits directly above the block it protects",
 	);
-	assert.match(firstPrompt, /condensing its wording, not by dropping entries/, "the caption's own wording is pinned");
+	// The caption used to licence "condensing its wording"; that clause is what the silent rewrite loss
+	// rode on, so it is replaced by the pointer order and the replacement is pinned here.
+	assert.match(firstPrompt, /fixed by merging duplicates and pointing at a skill or document the entry itself already names/, "the caption names the pointer move and its guard");
+	assert.doesNotMatch(firstPrompt, /condensing its wording/, "the old licence is gone, not merely reworded beside it");
 	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n", "the successful retry is accepted");
 	assert.deepEqual(warnings, [], `a recovered truncation is not a failure: ${JSON.stringify(warnings)}`);
 });
@@ -6060,9 +6106,15 @@ test("the memory section rule states the same sections, order and character budg
 	assert.ok(rule.includes(MEMORY_KEEP_RULE), "the rule states the compression ladder");
 	// The steps are pinned by their own words too: matching only the imported constant would stay green
 	// through any edit inside it, and that is where the deletion-first wording lived.
-	assert.match(rule, /keep every entry that is still true[\s\S]*merge duplicates within a section, deduplicate across sections, then condense the wording/i, "the ladder names its steps in order");
-	assert.match(rule, /condense the wording/, "condensing is the named first move");
-	assert.match(rule, /Delete an entry only when it is superseded or already covered elsewhere/, "deletion needs a reason");
+	assert.match(rule, /keep every entry that is still true[\s\S]*merge duplicates within a section, deduplicate across sections\./i, "the ladder names its steps in order");
+	// The retention change: tightening prose is still allowed, but as a fix for an over-target section,
+	// never as a way to buy room — that clause is what the whole-document rewrite loss rode on.
+	// The retention change: room is bought by removing phrasing repeated elsewhere, so "tightening
+	// prose" can no longer be read as licence to compress a fact's wording (the near-cap ladder says
+	// the same in its own words, which is why the two are pinned together).
+	assert.match(rule, /removing phrasing that repeats elsewhere in the document — not by compressing a fact's wording and not by dropping a fact/, "the only allowed tightening is removing repetition");
+	assert.doesNotMatch(rule, /then condense the wording/, "the clause that licensed shorthand condensation is gone");
+	assert.match(rule, /Delete an entry only when it is superseded or another entry already states the same fact/, "deletion needs a reason");
 	assert.doesNotMatch(rule, /least durable/i, "the deletion-first wording is gone");
 });
 
@@ -6083,7 +6135,7 @@ test("the lossy retry asks for compression instead of naming entries to drop", (
 	// The cap-only path is covered too: a reply carrying no sections still has to be compressed.
 	const capOnly = memoryLossRetryRule([], 1234);
 	assert.match(capOnly, /- the memory_markdown you returned was about 1234 character\(s\) over the memory cap/);
-	assert.match(capOnly, /apply the same ladder without them/);
+	assert.match(capOnly, /apply the same order without them/);
 	// The shares are targets now, so no retry may attribute a loss to a section budget.
 	assert.doesNotMatch(capOnly, /rather than a section budget/, "the retry attributes the loss to the document cap, not a section budget");
 });

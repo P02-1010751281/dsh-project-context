@@ -1,0 +1,37 @@
+== 1. prompt growth (characters) ==
+MEMORY_KEEP_RULE      284 -> 345 (+61)
+MEMORY_SURVIVAL_CAPTION 266 -> 345 (+79)
+memoryBudgetRule base  415 -> 378 (-37)
+MEMORY_RETENTION_LADDER 376 (+1 separator when appended)
+unconditional total per pass: +103; near-cap total: +480
+
+== 2. trigger boundary ==
+cap 40000: fires at 36000 (90.000%), at 35999: false
+cap 52000: fires at 46800 (90.000%), at 46799: false
+
+== 3. assembled near-cap prompt: which sentences coexist ==
+[PRESENT] A section still over its target is fixed by tightening prose
+[PRESENT] Never shorten a still-true entry's wording to buy room
+[PRESENT] every entry that is still true must reappear unless it is superseded
+[PRESENT] Delete an entry only when it is superseded or already covered elsewhere
+[PRESENT] delete only an entry that is superseded
+[PRESENT] pointing at the skill or document that owns a procedure
+[PRESENT] already names the skill, tracked document
+[PRESENT] a section may go over its share while the document has room
+
+== 4. fit-clip band: when the ladder is unreachable ==
+live MEMORY.md 51637 chars (99.30% of 52,000), CONTEXT.md 3707
+reasoning=false: no clip up to 51637; ladder band [46,800, 52,000)
+reasoning=true: fit clips from 51225 chars (98.51%); ladder band [46,800, 51225)
+
+== 5. near-cap test fixture: raw vs id-stamped occupancy ==
+entries 75; raw 3312 (82.8% of 4,000); stamped 3702 (92.5%); clean true
+
+== 6. curation arithmetic (CHANGELOG 2,083 / 11 literals) ==
+previous.md 51998 -> next.md 49915 = 2083
+missing literals 11: ["@openai/codex@0.153.4","run.ts:44","bin.codex"] …
+missing literals absent from the codex skill: 0
+non-backticked numeric tokens absent from next.md: ["45000","44,996-","0.153.4","0.169.0","135","261"]
+
+== 7. tier C retry text ==
+"Retry this same consolidation without the tool: return exactly one complete JSON object with string memory_markdown and object context. Keep every entry that is still true and make each section fit its stated target above: merge duplicates within a section, deduplicate across sections. A section still over its target is fixed by tightening prose, never by dropping a fact. Delete an entry only when it is superseded or already covered elsewhere, never to make room for a new one. The per-section shares are targets, so the entries above were lost because the document itself reached its cap; when the reply carried no sections, apply the same ladder without them."
