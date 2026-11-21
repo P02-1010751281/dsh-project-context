@@ -76,7 +76,11 @@
 | `/memory reconcile --apply` | 用 §AA2b 的提示跑一次强制 pass（走既有 tier C、整篇损失闸、写路径） | 是，1 次 |
 | `/memory reconcile --accept <tid>` | 把该条目当前指纹写成新基线并记一行日志 | 否 |
 
-`--accept` 必须持 `withMemoryLock`（侧车的既有写者都在锁内：`index.ts:454` 的 `bindAndMeasure`），并且**只接受当前确实漂移的 tid**，否则报错而不是静默成功。
+`--accept` 的锁边界（已核）：`updateEntrySidecar` **自己**持 `withMemoryLock`（`entry-sidecar.ts:124`），所以命令不需要再包一层。
+但存在一个真实的丢更新：`bindAndMeasure` 先读侧车、再把读到的旧基线并回去（`staleness-source.ts:170-176` + `:207-213`），
+会覆盖并发写入的新基线。修法是一行收窄——合并时只写**此前没有基线**的 tid（那个分支本来就逐字节复制旧值，单写者下行为完全相同），
+于是 `--accept` 不会被在飞的 pass 擦掉。这条必须进验收（并发用例），否则 `--accept` 是「看起来成功」。
+`--accept` 还只接受**当前确实漂移**的 tid，否则报错而不是静默成功——一个没漂移的条目不该被「确认」。
 
 ## 5. 不做什么
 
@@ -92,7 +96,7 @@
 | 纯核心 | `staleEntriesOf` 用例：多文件、无绑定、孤儿绑定 |
 | 回执 | `summariseStaleness` 输出在 AA2a 前后**逐字节相同**（现有用例即证） |
 | 命令 | `/memory reconcile` 列出 6 条（当前现场）；`--accept ef8` 后该条消失、其余不动；再跑一次仍不出现 |
-| 锁 | `--accept` 与 `bindAndMeasure` 并发时不丢绑定（4 子进程 barrier 用例，照 `test/logic.test.mjs:399` 的形状） |
+| 并发 | `--accept` 与 `bindAndMeasure` 同时跑时新基线存活（4 子进程 barrier 用例，照 `test/logic.test.mjs:399` 的形状） |
 | 提示词 | `test/prompt-bounds.test.mjs` 的 85% 两侧用例继续绿；新增「stale=0 时提示词不含该段」 |
 | 全量 | `pnpm typecheck` / `pnpm build` / `pnpm test` 全绿，`git diff --exit-code -- lib` 为空 |
 
@@ -102,7 +106,8 @@
 |---|---|
 | M1 `promptFor` 不接收 stale 段 | 命名用例「stale>0 的 pass 提示词点名该条目」 |
 | M2 条件去掉「≥85% 或 reconcile」 | 「低占用且非 reconcile 的 pass 不带该段」 |
-| M3 `--accept` 不过锁 / 不校验 tid | 并发用例 + 「接受不存在的 tid 必须报错」 |
+| M3 `--accept` 不校验 tid | 「接受不存在 / 未漂移的 tid 必须报错」 |
+| M3b `bindAndMeasure` 继续覆盖已有基线 | 并发用例：`--accept` 与 pass 同时跑，基线不得被擦回旧值 |
 | M4 `staleEntriesOf` 只返回第一个文件 | 「多文件条目点名全部已改文件」 |
 | M5 `summariseStaleness` 改为返回全部 id | 回执用例（`stale 6` 不能变成逐条列出） |
 
