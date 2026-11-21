@@ -166,3 +166,52 @@
   ——它们决定提示词要能说出几种理由。
 - **AA2d / AA2e（未排序）**：`task-closed` 与 `version-shipped` 两个新依据，各自是纯函数 + 一条测试；
   它们进 hint 的理由词表，不新增删除权。
+
+## 12. 状态机（最终形状，2026-11-21 第三轮）
+
+用户的裁定把这一批从「过期理由清单」纠正成「状态判定 + 转移」。§4 的 `ExpiryFinding` 清单是错形状——
+它在 `entryStateOf` 之外又开了一套词汇，正是 §2 G2 原样复发。并回去之后的形状：
+
+### 12.1 七个状态，一个裁定者
+
+```
+superseded → anchor-drift → task-closed → version-shipped → age-unconfirmed → content-stale → healthy
+```
+
+优先级 = 「越确定越先」。`entryStateOf(tid, facts)` 是唯一裁定者；`facts` 有五类来源，各由自己的
+模块产出，裁定者不探测任何东西：
+
+| 事实 | 产出者 | 来源 |
+|---|---|---|
+| `superseded` | `supersededIds`（`retirement.ts`） | 文档内的 `supersedes:<id>` 声明 |
+| `drifted` | `anchorDriftReasons`（`retirement.ts`） | 文件系统：路径/行锚是否存在 |
+| `taskClosed` | `expiry.ts` 纯规则 + `expiry-source.ts` 读盘 | `.agents/memory/tasks/<slug>.md` 的派生状态 = `archived` |
+| `shipped` | 同上 | 条目含「未发布」+ 批号标记，且该标记出现在 `docs/changelog/v*.md` |
+| `unconfirmed` | `scanMentions`（`retirement.ts`） | 归档会话的提及扫描（只在扫描完整时成立） |
+| `stale` | `measureStalenessDetail`（`staleness-source.ts`） | 源绑定指纹 |
+
+### 12.2 谁能点转移
+
+| 转移 | 谁点 | 守卫 | 回执 |
+|---|---|---|---|
+| → `superseded` | 模型写声明 | 目标 id 可解析 | tombstone |
+| → `anchor-drift` | 退役 pass | 路径/行锚不存在 | tombstone |
+| → `age-unconfirmed` | 退役 pass | 过期 + 扫描完整 + 未提及 | tombstone |
+| → `task-closed` / `version-shipped` / `content-stale` | **无事件**：三种状态由外部事实被动成立 | 见 12.1 | `/memory reconcile` |
+| `task-closed` / `version-shipped` → `healthy` | 人：`--accept <id>` | 裁定结果必须是该状态 | 记 `confirmed`（按理由分键） |
+| `content-stale` → `healthy` | 人：`--accept <id>` | 同上 | 刷新指纹基线 |
+| `*` → 改写正文 | **系统**：整理 pass（AA2b） | 文档 ≥85% 且对话说明了改动 | 明令不得发明路径/不得删仍成立的事实 |
+| `*` → 移出文档 | 退役引擎 | `retiresEntry(state)` | tombstone |
+
+### 12.3 两条约束
+
+1. **一个判定只能有一个所有者**：回执、`--accept`、整理 pass 都读 `memoryEntryStates`，不得各自重算。
+2. **每个状态必须有可达出口**：`task-closed` / `version-shipped` / `content-stale` 都有出口；
+   `open-state`（说「待定」而事情已定）**没有可信的机械判定**，所以不做探测器，出口只有会话与显式确认。
+
+### 12.4 落地状态
+
+- **AA2a + AA2c**（`29e8f90`）：逐条视图、`--accept` 再基线、合并丢更新修复。
+- **AA2d + AA2e + AA2b**：七态裁定者、两个新事实源、侧车 v3 的 `confirmed`、整理 pass 的过期提示。
+  14 条测试、6 个变异全部具名打红，`pnpm test` **749/749**。
+- **残余**：`confirmed` 是本地侧车；`version-shipped` 依赖条目自己写批号；`open-state` 不做探测器。

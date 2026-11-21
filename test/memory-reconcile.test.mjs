@@ -18,8 +18,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { apply as applyMemory, memoryAcceptReply, memoryReconcileReply } from "../lib/project-memory/index.js";
+import { acceptEntryState, apply as applyMemory, memoryAcceptReply, memoryReconcileReply } from "../lib/project-memory/index.js";
+import { memoryEntryStates } from "../lib/project-memory/entry-states.js";
 import { sectionsFromMarkdown } from "../lib/project-memory/sections.js";
+import { memoryExpiryRule } from "../lib/project-memory/consolidate.js";
 import { mergeBaselines, acceptStaleness, measureStalenessDetail } from "../lib/project-memory/staleness-source.js";
 import { staleEntriesOf, summariseStaleness } from "../lib/project-memory/staleness.js";
 
@@ -213,65 +215,140 @@ test("a document that is not a four-section memory is refused, not guessed at", 
 // The receipts
 // ---------------------------------------------------------------------------------------------------
 
-test("the reconcile receipt puts the verdict on the first line and names the entry and its file", () => {
-	const reading = {
-		facts: { bound: 25, stale: 2, staleIds: ["ef8", "dc5"], missing: 0, unverifiable: 0, checked: true },
-		stale: [
-			{ tid: "ef8", paths: ["src/project-memory/retirement.ts"] },
-			{ tid: "dc5", paths: ["src/shared/model-call.ts"] },
-		],
-	};
-	const reply = memoryReconcileReply(reading, { cappedDroppedChars: 0 });
+/** The arbiter's verdict for a document, as the receipts consume it. */
+function statesOf(entries, total = entries.length) {
+	return { checked: true, total, entries };
+}
+
+test("the reconcile receipt puts the verdict on the first line and names the entry, its state and the file", () => {
+	const states = statesOf([
+		{ tid: "ef8", state: "content-stale", detail: "src/project-memory/retirement.ts" },
+		{ tid: "dc5", state: "content-stale", detail: "src/shared/model-call.ts" },
+	]);
+	const reply = memoryReconcileReply(states, { cappedDroppedChars: 0 });
 	assert.equal(reply.kind, "success");
 	const [first] = reply.text.split("\n");
-	assert.match(first, /^Memory reconcile: 2 of 25 bound entries/, `the payload must survive the collapsed card, got ${first}`);
-	assert.match(reply.text, /ef8 → src\/project-memory\/retirement\.ts/);
+	assert.match(first, /^Memory reconcile: 2 of 2 entries have a reason to re-verify/, `the payload must survive the collapsed card, got ${first}`);
+	assert.match(reply.text, /ef8 — content-stale — src\/project-memory\/retirement\.ts/);
 	assert.match(reply.text, /--accept <id>/, "the receipt names the lever");
 	assert.doesNotMatch(reply.text, /hid \d+ character/, "nothing was hidden, so nothing is claimed");
 });
 
-test("a clean, empty, unchecked and read-capped memory each read differently", () => {
-	const clean = memoryReconcileReply({ facts: { bound: 25, stale: 0, staleIds: [], missing: 0, unverifiable: 0, checked: true }, stale: [] }, { cappedDroppedChars: 0 });
-	assert.match(clean.text, /no drift — all 25 bound entries/);
+test("a healthy, unchecked and read-capped document each read differently", () => {
+	const healthy = memoryReconcileReply(statesOf([], 12), { cappedDroppedChars: 0 });
+	assert.match(healthy.text, /no entry has a reason to re-verify — all 12 entries are healthy/);
 
-	const unbounded = memoryReconcileReply({ facts: { bound: 0, stale: 0, staleIds: [], missing: 0, unverifiable: 0, checked: true }, stale: [] }, { cappedDroppedChars: 0 });
-	assert.match(unbounded.text, /nothing to check/, "an unbound memory is not a clean one");
-
-	const unchecked = memoryReconcileReply({ facts: { bound: 0, stale: 0, staleIds: [], missing: 0, unverifiable: 0, checked: false }, stale: [] }, { cappedDroppedChars: 0 });
+	const unchecked = memoryReconcileReply({ checked: false, total: 0, entries: [] }, { cappedDroppedChars: 0 });
 	assert.equal(unchecked.kind, "error");
 	assert.match(unchecked.text, /unknown/);
 
-	const capped = memoryReconcileReply({ facts: { bound: 25, stale: 1, staleIds: ["ef8"], missing: 0, unverifiable: 0, checked: true }, stale: [{ tid: "ef8", paths: ["src/a.ts"] }] }, { cappedDroppedChars: 900 });
+	const capped = memoryReconcileReply(statesOf([{ tid: "ef8", state: "content-stale", detail: "src/a.ts" }], 25), { cappedDroppedChars: 900 });
 	assert.match(capped.text, /hid 900 character\(s\), so entries past that point were not judged/, "a truncated view must not read as a complete scan");
 });
 
-test("every acceptance refusal says its own cause, so the reader's next move differs", () => {
-	const accepted = memoryAcceptReply({ status: "accepted", paths: ["src/a.ts"] }, "aaa");
+test("every acceptance outcome says its own cause, so the reader's next move differs", () => {
+	const accepted = memoryAcceptReply({ kind: "content-stale", outcome: { status: "accepted", paths: ["src/a.ts"] } }, "aaa");
 	assert.match(accepted.text, /accepted aaa/);
 	assert.match(accepted.text, /src\/a\.ts/);
 
-	const missing = memoryAcceptReply({ status: "anchor-missing", paths: ["src/gone.ts"] }, "aaa");
+	const confirmed = memoryAcceptReply({ kind: "confirmed", reason: "task-closed" }, "aaa");
+	assert.equal(confirmed.kind, "success");
+	assert.match(confirmed.text, /recorded that you confirmed it/);
+	assert.match(confirmed.text, /"task-closed" stops being reported/);
+	assert.match(confirmed.text, /Any other reason for the same entry still is/, "accepting one claim must not imply the others");
+
+	const missing = memoryAcceptReply({ kind: "content-stale", outcome: { status: "anchor-missing", paths: ["src/gone.ts"] } }, "aaa");
 	assert.equal(missing.kind, "error");
 	assert.match(missing.text, /anchor drift/, "a missing anchor is the retirement pass's business, not a re-baseline");
-	assert.match(missing.text, /\/memory update/);
 
-	assert.match(memoryAcceptReply({ status: "unknown-entry" }, "fff").text, /no entry fff/);
-	assert.match(memoryAcceptReply({ status: "no-binding" }, "ccc").text, /cites no checkable file/);
-	assert.match(memoryAcceptReply({ status: "not-stale" }, "aaa").text, /not stale/);
-	assert.match(memoryAcceptReply({ status: "unreadable", paths: ["src/x.ts"] }, "aaa").text, /could not be read/);
-	assert.match(memoryAcceptReply({ status: "unreadable-store" }, "aaa").text, /nothing was changed/);
-	assert.match(memoryAcceptReply({ status: "raced" }, "aaa").text, /run the command again/i);
+	const retirable = memoryAcceptReply({ kind: "retirable", state: "age-unconfirmed" }, "aaa");
+	assert.equal(retirable.kind, "error");
+	assert.match(retirable.text, /the retirement engine owns that state/);
+
+	assert.match(memoryAcceptReply({ kind: "healthy" }, "aaa").text, /no reason to re-verify/);
+	assert.match(memoryAcceptReply({ kind: "unknown-entry" }, "fff").text, /no entry fff/);
+	assert.match(memoryAcceptReply({ kind: "unreadable-store" }, "aaa").text, /nothing was changed/);
+	assert.match(memoryAcceptReply({ kind: "content-stale", outcome: { status: "raced" } }, "aaa").text, /run the command again/i);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The two states a fingerprint cannot see, and their exit
+// ---------------------------------------------------------------------------------------------------
+
+/** A task document the way `/context task` writes one. */
+function taskDoc(status, lastSeen = "2026-11-20") {
+	return `> created 2026-11-01 · status ${status} · lastSeen ${lastSeen} · title t\n\n## Summary\n- a task\n`;
+}
+
+test("entry state: a closed task, a released claim, and their exit by confirmation", async () => {
+	const root = await projectDir();
+	await mkdir(path.join(root, ".agents", "memory", "tasks"), { recursive: true });
+	await writeFile(path.join(root, ".agents", "memory", "tasks", "old-work.md"), taskDoc("archived"), "utf8");
+	// An open task the entry also cites: the reason must fire for the closed one only.
+	await writeFile(path.join(root, ".agents", "memory", "tasks", "active-work.md"), taskDoc("active"), "utf8");
+	await mkdir(path.join(root, "docs", "changelog"), { recursive: true });
+	await writeFile(path.join(root, "docs", "changelog", "v0.9.0.md"), "# 0.9.0\n\n**project-memory（批次 Z9q：shipped thing）**\n", "utf8");
+	const sections = {
+		project: [
+			"a fact that depends on `tasks/old-work.md`（aaa）",
+			"Z9q 只在 未发布 里（bbb）",
+			"the release procedure moves `未发布` into a changelog（ccc）",
+			"nothing to see（ddd）",
+			// Names a released marker but claims no unreleased state: the marker alone must not fire.
+			"batch Z9q landed the three-hex entry ids（eee）",
+			// The task is open, so this entry is healthy even though it cites a task document.
+			// The id must be hex: `entryTid` only recognises `（[0-9a-f]{3,4}）`, and a non-hex id makes
+			// the entry silently invisible to every state — a control that proves nothing.
+			"a fact about `tasks/active-work.md`（f01）",
+		],
+	};
+	await writeMemory(root, sections);
+	await writeSidecar(root, {});
+	const text = doc(sections);
+
+	const states = await memoryEntryStates(root, text, { taskMode: "manual" });
+	assert.equal(states.checked, true);
+	assert.deepEqual(
+		states.entries.map((entry) => [entry.tid, entry.state]),
+		[["aaa", "task-closed"], ["bbb", "version-shipped"]],
+		"`ccc` only mentions 未发布 as a procedure and names no marker; `eee` names a shipped marker but claims nothing unreleased — neither may fire",
+	);
+	assert.match(states.entries[0].detail, /tasks\/old-work\.md \(archived\)/);
+	assert.match(states.entries[1].detail, /docs\/changelog\/v0\.9\.0\.md \(Z9q\)/);
+
+	// Accepting one reason clears it and nothing else: `bbb` keeps its own state.
+	assert.equal((await acceptEntryState(root, text, states, "aaa")).kind, "confirmed");
+	const after = await memoryEntryStates(root, text, { taskMode: "manual" });
+	assert.deepEqual(after.entries.map((entry) => entry.tid), ["bbb"]);
+	const raw = JSON.parse(await readFile(path.join(root, ".agents", "memory", "entries.json"), "utf8"));
+	assert.deepEqual(raw.confirmed.aaa, ["task-closed"]);
+
+	// Accepting a healthy entry says so instead of writing a marker.
+	assert.equal((await acceptEntryState(root, text, after, "ddd")).kind, "healthy");
+	// An id the document does not carry is a different answer from a healthy one.
+	assert.equal((await acceptEntryState(root, text, after, "fff")).kind, "unknown-entry");
+});
+
+test("a retirable state is refused by the acceptance, because the retirement engine owns it", async () => {
+	const root = await projectDir();
+	const sections = { project: ["kept（aaa）", "needs an id（bbb）"] };
+	await writeMemory(root, sections);
+	await writeSidecar(root, {});
+	const states = await memoryEntryStates(root, doc(sections), { taskMode: "manual" });
+	// `bbb` is healthy here; force the verdict the retirement engine would give and check the refusal path.
+	const retirable = await acceptEntryState(root, doc(sections), { checked: true, total: 2, entries: [{ tid: "bbb", state: "anchor-drift", detail: "src/gone.ts does not exist" }] }, "bbb");
+	assert.equal(retirable.kind, "retirable");
+	assert.equal(states.checked, true);
 });
 
 // ---------------------------------------------------------------------------------------------------
 // Wiring: the command the host registers really routes to it
 // ---------------------------------------------------------------------------------------------------
 
-test("the registered /memory command routes 'reconcile' to the drift report", async () => {
+test("the registered /memory command routes 'reconcile' to the state report", async () => {
 	const root = await projectDir();
 	const cited = path.join(root, "src", "a.ts");
 	await mkdir(path.join(root, "src"), { recursive: true });
-	await writeFile(cited, "before\n", "utf8");
 	await writeFile(cited, "after\n", "utf8");
 	await writeMemory(root, { project: ["a fact about `src/a.ts`（aaa）"] });
 	await writeSidecar(root, { aaa: { "src/a.ts": fingerprint("before\n") } });
@@ -291,11 +368,23 @@ test("the registered /memory command routes 'reconcile' to the drift report", as
 	const agent = { session: { header: { cwd: root } } };
 	const receipt = await handler({ agent, rawInput: "reconcile", signal: undefined });
 	assert.equal(receipt.kind, "success", receipt.text);
-	assert.match(receipt.text, /1 of 1 bound entry/);
-	assert.match(receipt.text, /aaa → src\/a\.ts/);
+	assert.match(receipt.text, /1 of 1 entry has a reason to re-verify/);
+	assert.match(receipt.text, /aaa — content-stale — src\/a\.ts/);
 
 	// The usage line still answers an unknown verb, and now names the new one.
 	const unknown = await handler({ agent, rawInput: "nonsense", signal: undefined });
 	assert.equal(unknown.kind, "error");
 	assert.match(unknown.text, /\/memory reconcile/, "the usage line must not hide a verb the command accepts");
+});
+
+test("the expiry rule names the reason, the evidence and the prohibition, and stops being a list", () => {
+	assert.equal(memoryExpiryRule([]), "", "nothing to report means no prompt tokens");
+	const one = memoryExpiryRule([{ tid: "aaa", state: "task-closed", detail: "tasks/old-work.md (archived)" }]);
+	assert.match(one, /aaa \(task-closed: tasks\/old-work\.md \(archived\)\)/);
+	assert.match(one, /Never invent a path/);
+	assert.match(one, /never delete an entry that is still true/);
+	assert.doesNotMatch(one, /and \d+ more/, "one entry needs no tail");
+
+	const many = memoryExpiryRule(Array.from({ length: 13 }, (_, index) => ({ tid: `a0${index}`, state: "content-stale", detail: "src/a.ts" })));
+	assert.match(many, /and 3 more of the same kind/, "the rule names ten and counts the rest");
 });

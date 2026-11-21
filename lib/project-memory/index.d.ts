@@ -16,7 +16,9 @@ import { type PluginConfig } from "../shared/config.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";
 import { type MissingLiterals } from "./missing-literals.js";
-import { type AcceptOutcome, type StalenessReading } from "./staleness-source.js";
+import { type AcceptOutcome } from "./staleness-source.js";
+import { type EntryState } from "./entry-state.js";
+import { type MemoryStates } from "./entry-states.js";
 import { type StalenessFacts } from "./staleness.js";
 import { type PruneOutcome } from "./prune.js";
 export declare const name = "project-memory";
@@ -229,18 +231,48 @@ export declare function memoryPruneReply(outcome: PruneOutcome, projectRoot: str
     kind: "success" | "error";
     text: string;
 };
+/** What one acceptance did. A flat union: every branch is a different sentence and a different next move. */
+type AcceptResult = {
+    readonly kind: "content-stale";
+    readonly outcome: AcceptOutcome;
+} | {
+    readonly kind: "confirmed";
+    readonly reason: EntryState;
+} | {
+    readonly kind: "healthy";
+} | {
+    readonly kind: "retirable";
+    readonly state: EntryState;
+} | {
+    readonly kind: "unknown-entry";
+} | {
+    readonly kind: "unreadable-store";
+};
 /**
- * The `/memory reconcile` reply: every entry whose cited file changed since it was written.
+ * Accept one entry's current state: the single exit, dispatched by what the arbiter says.
  *
- * The first line carries the whole verdict on purpose — the client folds a command card to one ellipsized
- * line, so a receipt whose payload sat below the first line would be unreadable without expanding it.
- * The per-entry lines name the entry id and the file that moved: an id alone gives the reader nothing to
- * confirm, and a path alone does not say which entry rests on it.
- * @param reading - the measured facts and the per-entry detail they were folded from.
+ * `content-stale` is cleared by re-baselining fingerprints; `task-closed` and `version-shipped` have no
+ * fingerprint to refresh, so they are cleared by recording that a human confirmed the entry. A
+ * retirable state is refused on purpose — the remedy there is the retirement pass, and accepting it
+ * would keep an entry the document already superseded.
+ * @param projectRoot - the project the sidecar lives in.
+ * @param text - the loaded memory document.
+ * @param states - the arbiter's verdict, already computed for this document.
+ * @param tid - the entry id the user named.
+ * @returns what happened, for the receipt.
+ */
+export declare function acceptEntryState(projectRoot: string, text: string, states: MemoryStates, tid: string): Promise<AcceptResult>;
+/**
+ * The `/memory reconcile` reply: every entry the arbiter will not call healthy, with its reason.
+ *
+ * The first line carries the count on purpose — the client folds a command card to one ellipsized line,
+ * so a payload below it would be unreadable without expanding the card. Each line names the entry, the
+ * state, and the evidence; an id alone gives the reader nothing to confirm.
+ * @param states - the arbiter's verdict for the document.
  * @param context - the read-cap count, so a truncated view is named instead of implied complete.
  * @returns the command result.
  */
-export declare function memoryReconcileReply(reading: StalenessReading, context: {
+export declare function memoryReconcileReply(states: MemoryStates, context: {
     cappedDroppedChars: number;
 }): {
     kind: "success" | "error";
@@ -250,13 +282,13 @@ export declare function memoryReconcileReply(reading: StalenessReading, context:
  * The `/memory reconcile --accept <id>` reply.
  *
  * Every refusal is a different cause and says which, because the reader's next move differs: a missing
- * anchor is the retirement pass's business, an unreadable file must not be frozen as truth, and a raced
- * acceptance only needs to be run again.
- * @param outcome - what the acceptance did.
+ * anchor or a superseded entry is the retirement pass's business, an unreadable file must not be frozen
+ * as truth, and a raced acceptance only needs to be run again.
+ * @param result - what the acceptance did.
  * @param tid - the entry id the user named.
  * @returns the command result.
  */
-export declare function memoryAcceptReply(outcome: AcceptOutcome, tid: string): {
+export declare function memoryAcceptReply(result: AcceptResult, tid: string): {
     kind: "success" | "error";
     text: string;
 };

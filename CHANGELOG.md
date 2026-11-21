@@ -10,6 +10,29 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 AA2d+AA2e+AA2b：一个状态词汇、一个裁定者、一条出口）**
+
+- 问题：过期只有「引用文件变了」一种判定（批次 V），而它既不是充分条件也不是必要条件——实测 25 条有
+  绑定、6 条漂移、只有 1 条真的失真。另有两类可机械判定的依据没有归属：条目引用的任务已归档、条目
+  声称「在 `未发布` 里」而该内容已发布。更根本的是，`entryStateOf` 之外又长出了一套「过期理由」清单，
+  正是批次 AA §2 的 G2「两套词汇」原样复发。
+- 改法：把两套并回一条。`EntryState` 扩到七态（`superseded → anchor-drift → task-closed →
+  version-shipped → age-unconfirmed → content-stale → healthy`），`entryStateOf` 仍是唯一裁定者；
+  `expiry.ts` 只产出两个事实集（纯识别规则），`expiry-source.ts` 只负责读任务文档与已发布 changelog，
+  `entry-states.ts` 把五类事实合成每条的判定。回执、`--accept`、整理 pass 全读同一份判定。
+- 出口：`/memory reconcile --accept <id>` 按裁定结果分派——`content-stale` 刷新指纹基线，
+  `task-closed` / `version-shipped` 记一条 `confirmed`（侧车 v3，按理由分键，正文一改自动清除）；
+  可退役的三态拒绝接受，指向 `/memory update`。**没有出口的状态就是噪声**，这条是本轮的结构约束。
+- 转移：整理 pass 在文档 ≥85% 时拿到「这些条目有过期依据（状态 + 证据）」，允许在对话说明了改动时
+  更新该条目，并明令不得发明路径、不得删除仍成立的事实——这是系统唯一能自己点的那一次转移。
+- 测试：新增 14 条（七态优先级与计数、两个新事实及其证据、接受后只清一个理由、可退役态被拒、读帽与
+  健康文档的措辞差异、近 cap 的 pass 带提示而宽松的 pass 不带）。变异 6 个全部被具名用例打红：
+  裁定者忽略已归档任务、归档判定失效、版本判定忽略「未发布」声明、确认不写盘、提示忽略 cap 门、
+  提示从未进入提示词。`pnpm test` **749/749**。
+- 残余：`confirmed` 是本地侧车（不入库、不跨机），换机器后确认过的条目会重新上报；`version-shipped`
+  只认批号标记已进已发布 changelog，条目不写标记时无从判定；`open-state`（说「待定」而事情已定）
+  不做探测器，出口只有会话与显式确认。
+
 **project-memory（批次 AA2a+AA2c：内容漂移有了逐条视图与显式再基线）**
 
 - 问题：`/memory status` 只报 `stale N` 和最多三个 id（`MAX_NAMED_IDS`），既说不出是哪几条，也没有

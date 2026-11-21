@@ -16,6 +16,7 @@ import { loadMemory } from "./memory-store.js";
 import { type MemoryInput, conversationText, firstUserText, fitMemoryInput, userTurnCount } from "../shared/conversation.js";
 import { type CompletionOutcome, type PluginTool, type ToolsFallbackState, auxiliaryReasoningEffort, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
 import { RETRY_OUTPUT_HEADROOM_TOKENS } from "../shared/output-budget.js";
+import { type MemoryEntryState, memoryEntryStates } from "./entry-states.js";
 import { type ConsolidationResult, type ContextUpdate, parseConsolidation, parseContextMember, parseToolArguments } from "../shared/reply-json.js";
 import { MAX_CONSOLE_REPLY_CHARS, replyHead } from "../shared/text.js";
 import { contextSectionBudgets } from "./context-schema.js";
@@ -346,6 +347,54 @@ const MEMORY_RETENTION_TRIGGER_SHARE = 0.85;
  */
 export const MEMORY_RETENTION_LADDER =
 	"The document is at or near its cap, so buy room in this order: merge entries that restate one fact; then replace an entry that already names the skill, tracked document, CHANGELOG entry or test holding its procedure with one sentence that keeps that name and drops the steps. Never shorten a still-true entry's wording to buy room, and delete only an entry that is superseded.";
+
+/** How many entries the expiry rule names before it stops being a prompt and becomes a list. */
+const MAX_EXPIRY_LINES = 10;
+
+/**
+ * The one transition the system may fire on its own (batch AA2b).
+ *
+ * Every other change of an entry's state is either mechanical (the retirement engine) or a human's
+ * (`/memory reconcile --accept`). This is the third: the pass is handed the entries whose evidence says
+ * they may no longer hold, and told the two things it may do with them — update an entry the conversation
+ * explains, or leave it alone. The prohibitions are the load-bearing half: the pass reads no files
+ * (`MEMORY_SURVIVAL_CAPTION` says so too), so "point at where this moved" would invite an invented path,
+ * and deleting a still-true entry is the loss class tier C and the rewrite measure exist to catch.
+ *
+ * Reasons, not just file drift: `task-closed` and `version-shipped` are settled by the disk and cannot be
+ * seen by a fingerprint, so the wording names the state and its evidence rather than assuming bytes.
+ * @param entries - the non-healthy entries the arbiter reported, in document order.
+ * @returns the rule, or `""` when there is nothing to report.
+ */
+export function memoryExpiryRule(entries: readonly MemoryEntryState[]): string {
+	if (entries.length === 0) return "";
+	const named = entries
+		.slice(0, MAX_EXPIRY_LINES)
+		.map((entry) => `${entry.tid} (${entry.state}: ${entry.detail})`)
+		.join("; ");
+	const more = entries.length > MAX_EXPIRY_LINES ? `; and ${entries.length - MAX_EXPIRY_LINES} more of the same kind` : "";
+	return `These entries carry evidence that they may no longer hold: ${named}${more}. If the conversation below explains the change, update that entry; otherwise keep it exactly as written. Never invent a path for it to point at, and never delete an entry that is still true.`;
+}
+
+/**
+ * The expiry rule for this pass, or `""` when the pass should not spend the tokens.
+ *
+ * Only near the cap: below it the document has room, and naming possibly-stale entries invites a rewrite
+ * of a fact that is still true for no gain. A failed measurement is a skipped hint, never a failed pass —
+ * but it is logged, because a hint that silently stopped appearing is indistinguishable from a healthy
+ * document. The same threshold the retention ladder uses, so one number moves both.
+ */
+async function expiryRuleFor(projectRoot: string, text: string, config: PluginConfig): Promise<string> {
+	if (text.length < Math.floor(config.maxMemoryChars * MEMORY_RETENTION_TRIGGER_SHARE)) return "";
+	try {
+		const states = await memoryEntryStates(projectRoot, text, config);
+		if (!states.checked) return "";
+		return memoryExpiryRule(states.entries);
+	} catch (error: unknown) {
+		await logError(projectRoot, "memory", `the entry states could not be measured, so this pass carries no expiry hint: ${diagnosticMessage(error)}`);
+		return "";
+	}
+}
 
 /** The one retry a cut-off reply is allowed. Kept as a constant so a wording regression is visible. */
 const TRUNCATED_REPLY_RULE =
@@ -807,13 +856,16 @@ export function consolidateProjectState(
 			throttle.set(projectRoot, { session: sessionId, turns, at: Date.now() });
 			return refusal;
 		}
-		const promptFor = (input: MemoryInput, extra: readonly string[]): string => [
+		// Batch AA2b's transition: measured once, before any attempt, so a retry states the same entries.
+	const expiryRule = await expiryRuleFor(projectRoot, promptMemory, config);
+	const promptFor = (input: MemoryInput, extra: readonly string[]): string => [
 			...CONSOLIDATION_PROMPT_RULES,
 			memorySectionRule(config.maxMemoryChars),
 			memoryBudgetRule(config.maxMemoryChars, input.text.length),
 			MEMORY_ENTRY_ID_RULE,
 			// Dates and titles only: quoting the reason would re-inject the retired content.
 			...tombstoneDigestLines(storedTombstones),
+			...(expiryRule === "" ? [] : [expiryRule]),
 			...extra,
 			"",
 			`Project root: ${projectRoot}`,

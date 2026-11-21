@@ -12,16 +12,21 @@
  * verdict is, the earlier it wins.
  * 1. `superseded` — someone wrote a replacement for it.
  * 2. `anchor-drift` — a path it cites is gone, or its line anchor is past the end.
- * 3. `age-unconfirmed` — old enough and no longer mentioned anywhere the scan could read.
- * 4. `content-stale` — a cited file still exists but its fingerprint changed since the binding.
- * 5. `healthy`.
+ * 3. `task-closed` — a task it cites is archived; the fact may be moot, which is not the same as false.
+ * 4. `version-shipped` — it claims something is unreleased and that marker is in a released changelog.
+ * 5. `age-unconfirmed` — old enough and no longer mentioned anywhere the scan could read.
+ * 6. `content-stale` — a cited file still exists but its fingerprint changed since the binding.
+ * 7. `healthy`.
  *
- * `content-stale` is deliberately last and deliberately not an action: the file changing is not the
- * fact becoming false, and retiring on it would drop still-true entries. It exists so the receipt and
- * `/memory status` can name it in the same vocabulary retirement uses (batch AA, ruling 2).
+ * Only the first two and `age-unconfirmed` may be acted on, and only by the retirement engine
+ * (`retiresEntry`). The other three are labels with an explicit exit: `3`–`4` by recording that a
+ * human confirmed the entry, `6` by re-baselining its fingerprints. A state nothing can leave is a
+ * trap — `content-stale` was one until `/memory reconcile --accept` existed.
  */
 /** What an entry's evidence says about it, most certain first. */
-export type EntryState = "superseded" | "anchor-drift" | "age-unconfirmed" | "content-stale" | "healthy";
+export type EntryState = "superseded" | "anchor-drift" | "task-closed" | "version-shipped" | "age-unconfirmed" | "content-stale" | "healthy";
+/** The states a verdict may report without the entry being wrong: each one has an explicit exit. */
+export declare const NON_RETIRING_STATES: readonly EntryState[];
 /**
  * The facts each caller can afford to gather, all keyed by the entry's stamped id.
  *
@@ -35,6 +40,10 @@ export interface EntryStateFacts {
     readonly drifted?: ReadonlyMap<string, readonly string[]>;
     /** Ids whose bound sources changed content (`StalenessFacts.staleIds`). */
     readonly stale?: ReadonlySet<string>;
+    /** Id -> the archived task documents it cites (`tasks/<slug>.md`), as evidence. */
+    readonly taskClosed?: ReadonlyMap<string, readonly string[]>;
+    /** Id -> the released changelog that carries a marker the entry says is unreleased. */
+    readonly shipped?: ReadonlyMap<string, readonly string[]>;
     /** Ids past the age horizon with no mention in a complete scan. */
     readonly unconfirmed?: ReadonlySet<string>;
 }

@@ -8,6 +8,7 @@ import { type Context } from "@deepseek-ai/cordis";
 import { type Agent } from "@deepseek-ai/dsh-agent";
 import { type Session } from "@deepseek-ai/dsh-session";
 import { type PluginConfig } from "../shared/config.js";
+import { type MemoryEntryState } from "./entry-states.js";
 import { type ConsolidationResult, type ContextUpdate } from "../shared/reply-json.js";
 import { type MemorySectionOverage } from "./sections.js";
 import { type Tombstone } from "./retired.js";
@@ -217,6 +218,22 @@ export declare function memoryBudgetRule(maxMemoryChars: number, currentChars: n
  * for an entry something else already supersedes.
  */
 export declare const MEMORY_RETENTION_LADDER = "The document is at or near its cap, so buy room in this order: merge entries that restate one fact; then replace an entry that already names the skill, tracked document, CHANGELOG entry or test holding its procedure with one sentence that keeps that name and drops the steps. Never shorten a still-true entry's wording to buy room, and delete only an entry that is superseded.";
+/**
+ * The one transition the system may fire on its own (batch AA2b).
+ *
+ * Every other change of an entry's state is either mechanical (the retirement engine) or a human's
+ * (`/memory reconcile --accept`). This is the third: the pass is handed the entries whose evidence says
+ * they may no longer hold, and told the two things it may do with them — update an entry the conversation
+ * explains, or leave it alone. The prohibitions are the load-bearing half: the pass reads no files
+ * (`MEMORY_SURVIVAL_CAPTION` says so too), so "point at where this moved" would invite an invented path,
+ * and deleting a still-true entry is the loss class tier C and the rewrite measure exist to catch.
+ *
+ * Reasons, not just file drift: `task-closed` and `version-shipped` are settled by the disk and cannot be
+ * seen by a fingerprint, so the wording names the state and its evidence rather than assuming bytes.
+ * @param entries - the non-healthy entries the arbiter reported, in document order.
+ * @returns the rule, or `""` when there is nothing to report.
+ */
+export declare function memoryExpiryRule(entries: readonly MemoryEntryState[]): string;
 /**
  * The targeted retry a complete-but-lossy reply is allowed (tier C).
  *

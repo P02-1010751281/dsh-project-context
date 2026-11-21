@@ -19,6 +19,10 @@
  *
  * Version 2 added `sources`. A v2 file is readable by v1 code (it only reads `entries`) and a v1 file
  * is readable here (`sources` defaults to `{}`), so the upgrade needs no migration step.
+ *
+ * Version 3 added `confirmed`: `<tid> -> [reason]`, the reasons a human has looked at and accepted
+ * (`/memory reconcile --accept`). It is the exit for the states no fingerprint can clear — a cited task
+ * closed, a claimed release shipped — and it is keyed by reason so accepting one never silences another.
  */
 
 import { lstatSync } from "node:fs";
@@ -29,6 +33,8 @@ import { entryDatesFile, readOptional, writeAtomic } from "../shared/project-sta
 export interface EntrySidecar {
 	readonly entries: ReadonlyMap<string, string>;
 	readonly sources: ReadonlyMap<string, ReadonlyMap<string, string>>;
+	/** Entry id -> the expiry reasons a human accepted. Cleared when the body changes (a new id). */
+	readonly confirmed: ReadonlyMap<string, ReadonlySet<string>>;
 	/**
 	 * False when the file exists but could not be parsed. Distinct from "read, nothing recorded": a
 	 * caller that printed `stale 0` for an unreadable sidecar would report a clean memory it never read.
@@ -41,6 +47,7 @@ export interface EntrySidecar {
 export interface EntrySidecarDocument {
 	readonly entries: ReadonlyMap<string, string>;
 	readonly sources: ReadonlyMap<string, ReadonlyMap<string, string>>;
+	readonly confirmed: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** The on-disk shape. `entries` keeps its v1 type; `sources` is the v2 addition. */
@@ -48,15 +55,18 @@ interface RawSidecar {
 	version?: number;
 	entries?: Record<string, unknown>;
 	sources?: Record<string, unknown>;
+	confirmed?: Record<string, unknown>;
 }
 
 /** The write-side version. A reader that predates it still finds `entries` where it expects it. */
-export const ENTRY_SIDECAR_VERSION = 2;
+export const ENTRY_SIDECAR_VERSION = 3;
 
 const ENTRY_ID = /^[0-9a-f]{3,4}$/;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 /** A fingerprint is a lower-case hex prefix of a SHA-256; 16 characters is the writer's length. */
 const FINGERPRINT = /^[0-9a-f]{16}$/;
+/** A reason token: the state vocabulary, lower-case and dash-separated. */
+const REASON = /^[a-z][a-z-]{0,39}$/;
 
 /**
  * Read the sidecar. A missing, unreadable or malformed file reads as "nothing known": the caller must
@@ -67,16 +77,16 @@ const FINGERPRINT = /^[0-9a-f]{16}$/;
 export async function readEntrySidecar(projectRoot: string): Promise<EntrySidecar> {
 	const file = entryDatesFile(projectRoot);
 	try {
-		if (!lstatSync(file).isFile()) return { entries: new Map(), sources: new Map(), readable: true };
+		if (!lstatSync(file).isFile()) return { entries: new Map(), sources: new Map(), confirmed: new Map(), readable: true };
 	} catch (error: unknown) {
 		// An absent file is "never recorded"; anything else (permissions, a FIFO) is unreadable.
-		return { entries: new Map(), sources: new Map(), readable: (error as { code?: string } | undefined)?.code === "ENOENT" };
+		return { entries: new Map(), sources: new Map(), confirmed: new Map(), readable: (error as { code?: string } | undefined)?.code === "ENOENT" };
 	}
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(await readOptional(file));
 	} catch {
-		return { entries: new Map(), sources: new Map(), readable: false };
+		return { entries: new Map(), sources: new Map(), confirmed: new Map(), readable: false };
 	}
 	const raw = (parsed ?? {}) as RawSidecar;
 	const entries = new Map<string, string>();
@@ -89,6 +99,16 @@ export async function readEntrySidecar(projectRoot: string): Promise<EntrySideca
 			const key = tid.length === 4 ? tid.slice(0, 3) : tid;
 			const known = entries.get(key);
 			if (known === undefined || date < known) entries.set(key, date);
+		}
+	}
+	const confirmed = new Map<string, Set<string>>();
+	if (typeof raw.confirmed === "object" && raw.confirmed !== null) {
+		for (const [tid, reasons] of Object.entries(raw.confirmed)) {
+			if (!ENTRY_ID.test(tid) || !Array.isArray(reasons)) continue;
+			const key = tid.length === 4 ? tid.slice(0, 3) : tid;
+			const target = confirmed.get(key) ?? new Set<string>();
+			for (const reason of reasons) if (typeof reason === "string" && REASON.test(reason)) target.add(reason);
+			if (target.size > 0) confirmed.set(key, target);
 		}
 	}
 	if (typeof raw.sources === "object" && raw.sources !== null) {
@@ -104,7 +124,7 @@ export async function readEntrySidecar(projectRoot: string): Promise<EntrySideca
 			if (target.size > 0) sources.set(key, target);
 		}
 	}
-	return { entries, sources, readable: true };
+	return { entries, sources, confirmed, readable: true };
 }
 
 /**
@@ -136,7 +156,11 @@ export async function updateEntrySidecar(
 			for (const [path, fingerprint] of [...bindings.entries()].sort(([left], [right]) => left.localeCompare(right))) paths[path] = fingerprint;
 			sources[tid] = paths;
 		}
-		await writeAtomic(file, `${JSON.stringify({ ...raw, version: ENTRY_SIDECAR_VERSION, entries, sources }, null, "\t")}\n`);
+		const confirmed: Record<string, string[]> = {};
+		for (const [tid, reasons] of [...document.confirmed.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+			confirmed[tid] = [...reasons].sort();
+		}
+		await writeAtomic(file, `${JSON.stringify({ ...raw, version: ENTRY_SIDECAR_VERSION, entries, sources, confirmed }, null, "\t")}\n`);
 	});
 }
 
@@ -157,5 +181,6 @@ export function pruneSidecar(
 ): EntrySidecarDocument {
 	const entries = new Map([...document.entries].filter(([tid]) => keep.has(tid)));
 	const sources = new Map([...document.sources].filter(([tid]) => keep.has(tid)));
-	return { entries, sources };
+	const confirmed = new Map([...document.confirmed].filter(([tid]) => keep.has(tid)));
+	return { entries, sources, confirmed };
 }

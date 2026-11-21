@@ -64,7 +64,7 @@ test("a fact the caller did not gather cannot win", () => {
 	// `/memory status` can afford the bindings but not a filesystem walk or an archive scan; it must not
 	// read the missing facts as "healthy", and it must not read them as a verdict either.
 	const counts = countEntryStates(["abc", "def"], { stale: new Set(["abc"]) });
-	assert.deepEqual(counts, { superseded: 0, "anchor-drift": 0, "age-unconfirmed": 0, "content-stale": 1, healthy: 1 });
+	assert.deepEqual(counts, { superseded: 0, "anchor-drift": 0, "task-closed": 0, "version-shipped": 0, "age-unconfirmed": 0, "content-stale": 1, healthy: 1 });
 });
 
 test("the count covers every state, including the empty ones", () => {
@@ -75,6 +75,6 @@ test("the count covers every state, including the empty ones", () => {
 		stale: new Set(["a4"]),
 	};
 	const counts = countEntryStates(["a1", "a2", "a3", "a4", "a5"], facts);
-	assert.deepEqual(counts, { superseded: 1, "anchor-drift": 1, "age-unconfirmed": 1, "content-stale": 1, healthy: 1 });
-	assert.deepEqual(countEntryStates([], facts), { superseded: 0, "anchor-drift": 0, "age-unconfirmed": 0, "content-stale": 0, healthy: 0 });
+	assert.deepEqual(counts, { superseded: 1, "anchor-drift": 1, "task-closed": 0, "version-shipped": 0, "age-unconfirmed": 1, "content-stale": 1, healthy: 1 });
+	assert.deepEqual(countEntryStates([], facts), { superseded: 0, "anchor-drift": 0, "task-closed": 0, "version-shipped": 0, "age-unconfirmed": 0, "content-stale": 0, healthy: 0 });
 });

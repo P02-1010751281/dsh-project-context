@@ -211,7 +211,8 @@ test("a v1 sidecar upgrades in place and keeps keys this version does not know",
 	await writeFile(memoryFile(root), documentWith("the run passes `src/a.ts`"));
 	await bindAndMeasure(root, documentWith("the run passes `src/a.ts`"));
 	const raw = JSON.parse(await readFile(entryDatesFile(root), "utf8"));
-	assert.equal(raw.version, 2);
+	assert.equal(raw.version, 3);
+	assert.deepEqual(raw.confirmed, {}, "the v3 map is written even when nothing was accepted");
 	assert.equal(raw.entries.a1b, "2026-01-02", "the age clock survives the upgrade");
 	assert.equal(raw.note, "hand-added", "an unknown top-level key is preserved");
 	assert.equal(typeof raw.sources.a1b["src/a.ts"], "string");

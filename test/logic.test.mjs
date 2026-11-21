@@ -58,6 +58,7 @@ import { MAX_CONTEXT_CHARS } from "../lib/shared/limits.js";
 import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-context/session-log.js";
 import { effectivePluginConfig, publishProjectContextSettings } from "../lib/shared/settings.js";
 import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
+import { bindAndMeasure } from "../lib/project-memory/staleness-source.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { sessionViews } from "./session-views.mjs";
 
@@ -6479,3 +6480,41 @@ test("the generated index follows the directory listing, not a cap", async () =>
 	}
 });
 
+test("the pass names entries with an expiry reason only when the document is near its cap", async () => {
+	// Batch AA2b: the one state change the system fires by itself. It costs prompt tokens, so both
+	// branches are pinned — "the hint never appears" and "the hint always appears" are different defects,
+	// and a single-branch test cannot tell them apart.
+	// Batch AA2b: the one state change the system fires by itself. It costs prompt tokens, so both
+	// branches are pinned — "the hint never appears" and "the hint always appears" are different defects,
+	// and a single-branch test cannot tell them apart. Two independent project roots, because the first
+	// pass writes the memory and would resolve the very state the control needs.
+	const padding = Array.from({ length: 60 }, (_, index) => `- a padding fact number ${index} that takes room in the document`);
+	const body = `# Project Memory\n\n## Project\n- the run passes \`src/a.ts\`（aaa）\n${padding.join("\n")}\n\n## Invariants\n- one name per fact（zz1）\n\n## Pitfalls\n- none yet\n\n## Index\n- docs/README.md\n`;
+	const near = Math.floor(body.length / 0.9);
+	assert.ok(near >= 4000 && near <= 200000 && body.length >= Math.floor(near * 0.85), `fixture: the near-cap document must fit its cap, got ${body.length}/${near}`);
+
+	/** A project whose one cited file moved after its baseline was recorded. */
+	const staleProject = async (prefix) => {
+		const root = await memoryProject(prefix, body);
+		await mkdir(path.join(root, "src"), { recursive: true });
+		await writeFile(path.join(root, "src", "a.ts"), "one\n", "utf8");
+		await bindAndMeasure(root, body);
+		await writeFile(path.join(root, "src", "a.ts"), "two\n", "utf8");
+		return root;
+	};
+
+	const promptOf = (calls) => calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
+
+	const tightRoot = await staleProject("dsh-memory-expiry-tight-");
+	const tight = await consolidationFixture({ root: tightRoot, replies: [{ text: FITTING_TEXT_REPLY }] });
+	await consolidateProject(tight.ctx, resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: near, maxOutputTokens: 49_152 }), tight.agent, { force: true, silent: true });
+	const tightPrompt = promptOf(tight.calls);
+	assert.match(tightPrompt, /evidence that they may no longer hold/, "a near-cap pass must name the entries");
+	assert.match(tightPrompt, /content-stale/, "and say which reason, not just that something is wrong");
+	assert.match(tightPrompt, /Never invent a path/, "the prohibition travels with the permission");
+
+	const roomyRoot = await staleProject("dsh-memory-expiry-roomy-");
+	const roomy = await consolidationFixture({ root: roomyRoot, replies: [{ text: FITTING_TEXT_REPLY }] });
+	await consolidateProject(roomy.ctx, resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: 200_000, maxOutputTokens: 49_152 }), roomy.agent, { force: true, silent: true });
+	assert.doesNotMatch(promptOf(roomy.calls), /evidence that they may no longer hold/, "a roomy pass must not spend the tokens");
+});

@@ -544,7 +544,9 @@ export async function recordEntryDates(projectRoot: string, dates: ReadonlyMap<s
 			const known = merged.get(tid);
 			if (known === undefined || date < known) merged.set(tid, date);
 		}
-		const document = keep === undefined ? { entries: merged, sources: current.sources } : pruneSidecar({ entries: merged, sources: current.sources }, keep);
+		const document = keep === undefined
+			? { entries: merged, sources: current.sources, confirmed: current.confirmed }
+			: pruneSidecar({ entries: merged, sources: current.sources, confirmed: current.confirmed }, keep);
 		// An unreadable file with nothing to add must not be rewritten into an empty one.
 		if (dates.size === 0 && document.entries.size === 0 && document.sources.size === 0) return undefined;
 		return document;

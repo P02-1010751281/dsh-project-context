@@ -19,11 +19,17 @@
  *
  * Version 2 added `sources`. A v2 file is readable by v1 code (it only reads `entries`) and a v1 file
  * is readable here (`sources` defaults to `{}`), so the upgrade needs no migration step.
+ *
+ * Version 3 added `confirmed`: `<tid> -> [reason]`, the reasons a human has looked at and accepted
+ * (`/memory reconcile --accept`). It is the exit for the states no fingerprint can clear — a cited task
+ * closed, a claimed release shipped — and it is keyed by reason so accepting one never silences another.
  */
 /** The sidecar document, both halves optional on read and always both present on write. */
 export interface EntrySidecar {
     readonly entries: ReadonlyMap<string, string>;
     readonly sources: ReadonlyMap<string, ReadonlyMap<string, string>>;
+    /** Entry id -> the expiry reasons a human accepted. Cleared when the body changes (a new id). */
+    readonly confirmed: ReadonlyMap<string, ReadonlySet<string>>;
     /**
      * False when the file exists but could not be parsed. Distinct from "read, nothing recorded": a
      * caller that printed `stale 0` for an unreadable sidecar would report a clean memory it never read.
@@ -35,9 +41,10 @@ export interface EntrySidecar {
 export interface EntrySidecarDocument {
     readonly entries: ReadonlyMap<string, string>;
     readonly sources: ReadonlyMap<string, ReadonlyMap<string, string>>;
+    readonly confirmed: ReadonlyMap<string, ReadonlySet<string>>;
 }
 /** The write-side version. A reader that predates it still finds `entries` where it expects it. */
-export declare const ENTRY_SIDECAR_VERSION = 2;
+export declare const ENTRY_SIDECAR_VERSION = 3;
 /**
  * Read the sidecar. A missing, unreadable or malformed file reads as "nothing known": the caller must
  * then keep entries rather than treat them as ageless or unbound.

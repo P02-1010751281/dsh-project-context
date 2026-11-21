@@ -277,7 +277,9 @@ export async function acceptStaleness(projectRoot: string, document: string, tid
 		const next = new Map(current.sources);
 		next.set(tid, refreshed);
 		accepted = true;
-		return { entries: current.entries, sources: next };
+		// Accepting a content change re-baselines, so no confirmation marker is needed: the fingerprint
+		// itself is the record. A reason no fingerprint can clear is recorded by `confirmExpiry`.
+		return { entries: current.entries, sources: next, confirmed: current.confirmed };
 	});
 	if (!accepted) return { status: "raced" };
 	return { status: "accepted", paths: changed };
@@ -324,8 +326,8 @@ export async function bindAndMeasure(projectRoot: string, document: string): Pro
 	const files = await fingerprintAll(projectRoot, boundPaths(nextSources));
 	const facts = summariseStaleness(sections, asBindings(nextSources), files);
 	await updateEntrySidecar(projectRoot, (current) => {
-		const pruned = pruneSidecar({ entries: current.entries, sources: mergeBaselines(current.sources, nextSources) }, ids);
-		return { entries: pruned.entries, sources: pruned.sources };
+		const pruned = pruneSidecar({ entries: current.entries, sources: mergeBaselines(current.sources, nextSources), confirmed: current.confirmed }, ids);
+		return { entries: pruned.entries, sources: pruned.sources, confirmed: pruned.confirmed };
 	});
 	return { facts, written: true };
 }
