@@ -1,0 +1,129 @@
+### probes/f1-retry-retirement.mjs
+=== Scenario A: truncation retry + a deliberate pre-prompt retirement ===
+model calls: 2 | first stopReason path was max-tokens
+report.status: updated | memoryWritten: true
+report.itemTruncated: 0 | sectionDropped: 0
+report.missingLiterals: {"count":0,"samples":[]}
+retired literals still visible in call-1 <existing-memory>: []
+retired literals still visible in call-2 <existing-memory>: []
+call-1 view === call-2 view: true
+retired.md records the deletion: true
+landed still carries orbitalDriftGate: false
+BASIS-KEY variant missingLiteralsBetween(store, landed): {"count":2,"samples":["orbitalDriftGate","src/project-memory/gone.ts"]}
+receipt: Memory: updated MEMORY.md and CONTEXT.md.
+
+=== Scenario B: control — a literal that was shown and left ===
+report.status: updated | memoryWritten: true
+report.missingLiterals: {"count":1,"samples":["isHeadingOnlyDocument"]}
+receipt: Memory: updated MEMORY.md and CONTEXT.md. Missing literals: 1 backticked literal(s) the previous memory carried no longer appear (e.g. isHeadingOnlyDocument).
+exit=0
+
+### probes/f2-calibration.mjs
+journals: memory-log-2026-10-26T09-01-36-824Z-5705b858.jsonl(15) memory-log-2026-11-10T12-30-22-970Z-2eb5ea09.jsonl(13) memory-log-2026-11-11T03-29-44-115Z-060d47c2.jsonl(12) memory-log-2026-11-12T12-06-49-866Z-5a929a32.jsonl(12) memory-log-2026-11-20T02-14-19-927Z-c1461f98.jsonl(12) memory.jsonl(8)
+pairs: 66
+
+landed (pair, then whole token)    transitions=66 zero=30 (45%) mean=5.41 median=1 max=67 p90=13 total=357
+substring rule (F3 first version)  transitions=66 zero=31 (47%) mean=4.74 median=1 max=57 p90=12 total=313
+pre-§9.1 (filter at the match)     transitions=66 zero=28 (42%) mean=5.30 median=1 max=61 p90=15 total=350
+
+substring rule hid: 44 losses = 12.3% of the landed total
+landed means: 5.41 / substring means: 4.74
+histogram (landed): {"0":30,"1":8,"2":6,"3":1,"4":2,"5":1,"6":2,"7":2,"8":4,"11":1,"12":2,"13":1,"16":2,"30":1,"32":1,"54":1,"67":1}
+
+spec §1 pair in memory-log-2026-11-20T02-14-19-927Z-c1461f98.jsonl: 44996 -> 39900 chars, 549 -> 510 literals
+  filter-at-match, no bare check      : 74   (spec §1: 74 missing)
+  literal counts by rule: 549 -> 510; the spec's extractor reports 553 -> 514 (it keeps spans that only trim below three characters)
+  filter-at-match, substring bare     : 61   (spec §9.1: 61)
+  pairing-first, substring bare       : 57   (spec §9.1: 57)
+  pairing-first, whole token (shipped): 67   (the landed rule in this batch)
+  shipped rule, this pair             : 67
+  backticked-only under the substring rule: 13   (spec §1: 13)
+
+5 archives, §8 rule (filter, no bare) transitions=59 zero=23 (39%) mean=7.46 median=2 max=74 p90=22 total=440
+5 archives, filter + substring bare transitions=59 zero=24 (41%) mean=5.76 median=1 max=61 p90=16 total=340
+5 archives, pairing + substring bare transitions=59 zero=27 (46%) mean=5.14 median=1 max=57 p90=14 total=303
+5 archives, pairing + NO bare check transitions=59 zero=26 (44%) mean=6.41 median=1 max=68 p90=17 total=378
+retired numbers (README / old CHANGELOG): 59 transitions, zero 26, mean 6.41, max 68
+filter-at-match max=61;  the README prose says the landed tail reaches 57 while its table says max 67
+exit=0
+
+### probes/f3-hostile.mjs
+--- punctuation-adjacent literals are mentions (the token is there) ---
+ok   failureCodeOf(...)                                                         0
+ok   (failureCodeOf)                                                            0
+ok   "failureCodeOf"                                                            0
+ok   path/to/file.ts as a whole token                                           0
+ok   reason === "manual" (space inside)                                         0
+ok   /etc/nixos:                                                                0
+
+--- a literal that is only a prefix of a longer bare word is a LOSS ---
+ok   main in remaining                                                          1
+ok   test in tests                                                              1
+ok   docs in documentation                                                      1
+ok   memoryComparisonKey in ...WithDrop                                         1
+ok   prefix with a hyphen after it is a mention                                 0
+
+--- CJK: whole token, including a two-character literal below the floor ---
+ok   记忆库 in 记忆库扩容 (loss)                                                        1
+ok   记忆库 free-standing (mention)                                                0
+ok   记忆库 against punctuation (mention)                                          0
+ok   two-character CJK literal is below MIN_LITERAL_CHARS                       []
+ok   three-character CJK literal is a literal                                   ["记忆库"]
+ok   ASCII two-character literal is below the floor                             ["abc"]
+
+--- fenced code blocks ---
+ok   fence line ```js carries no literal                                        []
+ok   a literal inside a fence is extracted like any other                       ["inFence"]
+ok   an unchanged fenced block measures zero                                    0
+ok   a fenced block that became prose still mentions the token                  0
+ok   a fence whose literal left entirely is reported                            1
+
+--- the same literal twice on one line / across lines ---
+ok   twice on one line dedupes                                                  ["kept"]
+ok   twice on one line, one survived                                            0
+ok   twice on one line, both gone                                               1
+ok   kept once bare on a line with an unpaired backtick                         0
+
+--- pairing: three backticks on one line (both halves use the same per-line regex) ---
+ok   `abc` x `def  -> literal abc, tail `def is bare                            ["abc"]
+ok     ... and a previous literal def is a mention in the bare tail             0
+ok     ... while a previous literal xyz is missing                              1
+ok   unpaired single backtick, literal before it is a mention                   0
+ok   pair split across two lines is never spliced                               []
+ok     ... and measures 0                                                       0
+ok   `` `` `x` carries nothing (all spans < 3 after trim)                       []
+
+--- CRLF and trimming ---
+ok   CRLF lines                                                                 ["alphaGate","betaGate"]
+ok   trimmed padding collapses                                                  ["abc"]
+ok   a padded span still mentions the trimmed literal                           0
+
+--- the samples cap and the direction ---
+ok   15 losses -> count 15, samples 10                                          {"count":15,"samples":["fact-0","fact-1","fact-2","fact-3","fact-4","fact-5","fact-6","fact-7","fact-8","fact-9"]}
+ok   directional                                                                1
+ok     ... and back                                                             0
+
+--- pathological input at the live cap (52,000 chars) ---
+  3540 distinct literals vs 52k prose: count=3540 in 7.3 ms
+  52k lone backticks: literals=0 in 1.5 ms
+
+failures: 0
+exit=0
+
+### probes/f4-lock-and-landed.mjs
+=== (a) the write did not land (external edit during the model call) ===
+report.memoryWritten: false
+report.missingLiterals: undefined (undefined = no observation at all)
+errors.log names the basis-key refusal: true
+errors.log carries a missing-literal line: false
+
+=== (b) landed bytes vs the reply text, one entry over the per-item cap ===
+report.status: updated | memoryWritten: true
+report.itemTruncated: 1
+reply text carries tailLiteral99: true
+landed bytes carry tailLiteral99: false
+measured against LANDED bytes: {"count":1,"samples":["tailLiteral99"]}
+measured against REPLY text  : {"count":0,"samples":[]}
+report.missingLiterals: {"count":1,"samples":["tailLiteral99"]}
+log line names the item-cap overlap: true
+exit=0

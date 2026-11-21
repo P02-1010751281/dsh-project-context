@@ -165,7 +165,8 @@ node -e 'const fs=require("fs");(async()=>{const {sectionsFromMarkdown,renderMem
 
 最终校准（落地实现本身，6 份 journal 66 次转换）：零丢失 30 次（45%），均值 5.41 个字面量/次，中位
 1，最大 67，p90 13；证据在 `.agents/evidence/2026-11-21-missing-literals-calibration/`。早先那份
-59 次 / 6.41 / 68 由 §9.1 的错配正则得出，不再引用。
+59 次 / 6.41 / 68 是「先配对、但不做裸文本检查」在 5 份归档上的口径（本轮复现一致），缺的是裸文本这
+一层；§8 那行「匹配阶段就过滤短 span」的正则在同一批上是 7.46 / 74。两者都不再引用。
 
 下一步仍是 §4 第 2 步：跑 3~5 次真实 pass，看这个数稳定在 0 还是常态非 0，再决定是否升级为拒绝
 （`generalized-refused`）。在此之前不拒绝、不写进承诺。

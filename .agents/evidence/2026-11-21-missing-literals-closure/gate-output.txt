@@ -1,0 +1,74 @@
+### gate 1: compile src to a temp dir and diff against the committed lib/
+$ rm -rf /tmp/ml-closure-tsc && mkdir -p /tmp/ml-closure-tsc && node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/ml-closure-tsc
+tsc exit=0
+$ diff -r --exclude=client.js /tmp/ml-closure-tsc lib
+diff exit=0
+
+### gate 2: typecheck (host + client, no emit)
+$ pnpm typecheck
+$ tsc --noEmit && tsc -p tsconfig.client.json --noEmit
+typecheck exit=0
+
+### gate 3: the suite (committed lib/, no rebuild needed)
+$ node --test 'test/**/*.test.mjs'
+✔ project-context: archiving disabled writes nothing on any lifecycle event (861.741172ms)
+ℹ tests 716
+ℹ suites 0
+ℹ pass 716
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7995.025505
+test exit=0
+
+### gate 4: mutation round (sandbox copy under /tmp, never the repository)
+$ node .agents/evidence/2026-11-21-missing-literals-closure/probes/mutate-closure.mjs
+
+### baseline (unmutated)
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=3 fail=0 GREEN (mutant survived)
+
+### M1 pair/filter inverted (filter short spans at the match stage)
+  unit: pass=8 fail=2 RED ["a short span does not steal the next span's opening backtick","spans shorter than three characters name no fact, and are trimmed before the length test"]
+  e2e : pass=3 fail=0 GREEN (mutant survived)
+
+### M2 token-boundary check removed (bare substring)
+  unit: pass=8 fail=2 RED ["a literal that only survives inside a longer word is a real loss","a CJK literal is a whole token, not a substring of the neighbouring word"]
+  e2e : pass=3 fail=0 GREEN (mutant survived)
+
+### M3 samples cap raised 10 -> 20
+  unit: pass=9 fail=1 RED ["the count is the whole loss even when the samples are capped"]
+  e2e : pass=3 fail=0 GREEN (mutant survived)
+
+### M4 report field not carried
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=0 fail=3 RED ["a rewrite that drops a backticked fact reports it after the write lands, and the receipt says so","a rewrite that keeps every backticked fact reports nothing, in neither the receipt nor the log","a deliberate retirement before the prompt is not reported as a silently lost fact"]
+
+### M5 receipt sentence not emitted
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=2 fail=1 RED ["a rewrite that drops a backticked fact reports it after the write lands, and the receipt says so"]
+
+### M6 errors.log line not written
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=2 fail=1 RED ["a rewrite that drops a backticked fact reports it after the write lands, and the receipt says so"]
+
+### M7 receipt condition inverted (reports a lossless pass)
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=0 fail=3 RED ["a rewrite that drops a backticked fact reports it after the write lands, and the receipt says so","a rewrite that keeps every backticked fact reports nothing, in neither the receipt nor the log","a deliberate retirement before the prompt is not reported as a silently lost fact"]
+
+### M8 baseline reverted to the stored document (basisKey)
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=2 fail=1 RED ["a deliberate retirement before the prompt is not reported as a silently lost fact"]
+
+### M9 the pre-prompt retirement plan is skipped
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=2 fail=1 RED ["a deliberate retirement before the prompt is not reported as a silently lost fact"]
+
+### M10 measured from memoryText instead of the read-back (the residual)
+  unit: pass=10 fail=0 GREEN (mutant survived)
+  e2e : pass=3 fail=0 GREEN (mutant survived)
+
+restored; mutants caught: 9/10
+baseline alive: yes
+mutation exit=0
