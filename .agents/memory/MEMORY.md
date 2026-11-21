@@ -116,6 +116,8 @@
 - 新增配置键要同时落四个面：`src/shared/config.ts`、`src/shared/settings.ts` 的 schema、`client/card-fields.ts` 的 `ProjectContextSettings` 接口（独立副本，缺了会让 `tsc -p tsconfig.client.json` 直接报错）与 `ROWS`/locales，以及 `test/settings-form.test.mjs` 的每键一行断言。（a2f）
 - `bindSkills` 返回 `{bound, skipped}`，`SkillFacts.bindable` 让 `unbaselined` 分成「没人跑过 bind」与「根本没有可绑锚点」两句不同的 detail——跳过规则是对的，沉默不是。（f0a）
 - dsh 上游设置表单是一项一块的竖排 flex column（`ConfigField.tsx` 的 `.field` 为 `flex-direction: column; gap: 6px`，label、控件、错误各占行，无 hint 位、无网格/折叠）；我们的卡片用同行 `.dshPcRow` 更密，多一行的真实成本是每行一条 hint。（b53）
+- 设置卡片用上游 `SegmentedTabs` 分三个页签（记忆 / 技能 / 交接），分组仍由 `client/card-fields.ts` 的 `SECTIONS` 决定；三个面板都留在 DOM 只切可见性，所以切换不丢已暂存编辑、底部仍是一次保存一次原子写（`bfea9cd`）。（5a4）
+- 让 memory / autolearn / handoff 各自导出 `Config` 出三张独立设置卡被否：共享 `project-context` 命名空间（一个 schema、一次保存、一个 revision）是有意的，拆成四份要迁移两个 profile 里已有的值，属单独一批、先出拆分 spec。（5e4）
 
 ## Pitfalls
 - 记忆丢失发生在写之前或写时，所以干净重渲染证明不了什么；五个点是 `fitMemoryInput` 首尾裁剪、`renderMemoryDocument` 按段落预算丢条目、存储的上下文在适配前被切成 `MAX_CONTEXT_CHARS`、`renderContextDocument` 裁段、`normalizeMemoryDocument` 写时封顶；`ConsolidateReport` 带六个丢失计数加 `memoryWritten`/`contextWritten`。（bbc）
@@ -183,6 +185,8 @@
 - 翻译或换措辞的 pass 可以在 `sectionDropped`/`droppedItems`/`itemTruncated` 全 0、状态 `updated` 的情况下丢掉代码标识符：tier C 只管结构丢失，`missing-literals.ts` 只报告不修，恢复只能手工并经插件自己的 `renderMemoryDocument` 做字节相同往返证明（`032d4a2` 补回 19 个仍成立的字面量）。（1e5）
 - 「永远绑不上」被印成「没人跑过 bind」是报告缺口不是规则缺口：跳过 `lib/`、`.agents/memory/` 与项目根外绝对路径是对的（构建产物每次都变），错的是 `bindSkills` 只报记了几条、`status` 用同一句话描述两种成因。（89f）
 - 重启验证脚本可能因为与本仓库无关的原因印 `RESULT: FAIL`：`/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 在另一个无关 desktop 活着时失败，验收脚本自己的 `title-load verify` 一半在重启后重跑判据前也失败。（005）
+- 卡片按 profile 钉住的 dsh 类型编译，上游 0.2.x 才声明的属性不能传——给 `SegmentedTabs` 传 `size` 会让 `tsc -p tsconfig.client.json` 报 `Property 'size' does not exist`。（08f）
+- 手工恢复 `MEMORY.md` 后宿主会印 `adopted an externally edited MEMORY.md into the memory journal` 与 `memory regression: N … entry(ies) are no longer present`（按条目精确文本比），这是它发现外部改写的方式，不是故障。（89a）
 
 ## Index
 - `README.md` / `CHANGELOG.md` 描述当前行为；已发布正文在 `docs/changelog/<version>.md`，`docs/README.md` 是文档索引；README 是 `package.json` 之外唯一写版本行的地方，并载 `## 致谢` 署名段。（b5b）
@@ -211,3 +215,4 @@
 - `docs/research/2026-11-19-aoci.md` §7.1 记着三项借鉴的落地状态（派生/权威标记、种子身份哈希、漂移词汇）与 A/B 未启动；漂移词汇那段的原始理由（本仓库没有 INDEX 对账报告面）也留在文里供复查。（a3c）
 - `.agents/memory/skill-bindings.json` 是学习型技能基线的唯一写入面（`readSkillBindings` / `bindSkills`，路径 → 指纹前缀），`expired-skills/` 是退役目录；两者都由插件写，并已进 `.agents/memory/.gitignore`。（f41）
 - `.agents/skills/dsh-readonly-state-core-extension/SKILL.md`（autolearn 提升、受跟踪）拥有给三个只读状态核加状态/裁定/回执字段的流程：核心保持纯、派生与读盘分离、回执带分母、变异轮证明。（450）
+- `client/settings-card.tsx` 是设置卡渲染入口（三个页签包 `SettingsForm`），行与分组在 `client/card-fields.ts`（`ROWS` / `SECTIONS`），几何在 `client/styles.ts`（`dshPcRow`）；套件 `test/settings-form.test.mjs` 与 `test/card-render.test.mjs`。（cb6）
