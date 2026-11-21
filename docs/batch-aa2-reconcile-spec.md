@@ -154,7 +154,7 @@
 
 ## 11. 落地状态（2026-11-21）
 
-- **AA2a + AA2c 已落地**：`403d6f9`（提交见 git）。`staleness.ts` 的 `judgeEntries` 单一判定 +
+- **AA2a + AA2c 已落地**：`29e8f90`。`staleness.ts` 的 `judgeEntries` 单一判定 +
   `staleEntriesOf`（逐条 + 已改路径）；`staleness-source.ts` 的 `measureStalenessDetail` +
   `acceptStaleness`（三种具名拒绝 + 比较并交换）；`/memory reconcile` 与 `--accept <id>`；并修掉
   `bindAndMeasure` 的合并丢更新（只写此前没有基线的 tid）。11 条测试、5 个变异全部具名打红，
