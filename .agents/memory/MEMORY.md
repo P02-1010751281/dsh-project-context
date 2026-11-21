@@ -119,6 +119,7 @@
 - 设置卡片用上游 `SegmentedTabs` 分三个页签（记忆 / 技能 / 交接），分组仍由 `client/card-fields.ts` 的 `SECTIONS` 决定；三个面板都留在 DOM 只切可见性，所以切换不丢已暂存编辑、底部仍是一次保存一次原子写（`bfea9cd`）。（5a4）
 - 让 memory / autolearn / handoff 各自导出 `Config` 出三张独立设置卡被否：共享 `project-context` 命名空间（一个 schema、一次保存、一个 revision）是有意的，拆成四份要迁移两个 profile 里已有的值，属单独一批、先出拆分 spec。（5e4）
 - 批次 AC 的修复闸在 `src/project-memory/lost-entry-repair.ts`：tier C 与 batch Z2 退休之后运行，只对 Invariants/Pitfalls 回填「规范化正文（去 id、压空白）消失、且它带的每个反引号字面量都从整篇消失」的条目，恢复旧原文含条目 id 并把 id 补进 `keepIds`；`supersedes:<id>` 点名的、`Project`/`Index` 的、回填后重渲染会丢东西的（`no-room`）都不回填，回执首行印 `Restored:`/`Not restored:` 各一行到 `errors.log`。
+- 406-12 的 desktop profile 用 `file:./vendor/` 下的同名 tgz 装本插件（**不是** git pin）：更新是三步——覆盖同名 tgz、把 `pnpm-lock.yaml` 里那条 `tarball: file:vendor/…` 的 integrity 换成新 tgz 的 sha512、再用新 tgz 重解包 `node_modules/dsh-project-context`（n 项逐个 sha256 对 `git show <sha>:lib/…`）；本机 desktop/web 是 `git+ssh://…#<sha>`、ctxdev 是 `link:`，三者互不相通，改一处到不了另一处。2026-11-21 现读 406-12 跑 0.2.2-rc.3（此前记忆写的 rc.1 已过期）。
 
 ## Pitfalls
 - 记忆丢失发生在写之前或写时，所以干净重渲染证明不了什么；五个点是 `fitMemoryInput` 首尾裁剪、`renderMemoryDocument` 按段落预算丢条目、存储的上下文在适配前被切成 `MAX_CONTEXT_CHARS`、`renderContextDocument` 裁段、`normalizeMemoryDocument` 写时封顶；`ConsolidateReport` 带六个丢失计数加 `memoryWritten`/`contextWritten`。（bbc）
