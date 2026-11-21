@@ -39,7 +39,8 @@ import {
 } from "./sections.js";
 import { normalizeMemoryWithDrop } from "./document.js";
 import { type Tombstone, readTombstones, tombstoneDigestLines } from "./retired.js";
-import { type RetirementResult, readEntryDates, retireReply, retireWithinBudget, stripEntryTid } from "./retirement.js";
+import { type RetirementResult, entryTid, readEntryDates, retireReply, retireWithinBudget, stripEntryTid } from "./retirement.js";
+import { type RestoredEntry, repairLostEntries } from "./lost-entry-repair.js";
 
 /**
  * Which entry produced the memory this pass would write, or `"none"` when the pass was refused before
@@ -149,6 +150,17 @@ export type ConsolidationOutcome = {
 	 * blocking: a compression pass is supposed to drop entries, and refusing that would be permanent.
 	 */
 	removedEntries?: { count: number; samples: string[] };
+	/**
+	 * Entries this pass put back verbatim because the reply dropped them and their literals went with
+	 * them (`lost-entry-repair.ts`). Present only when something was restored, and always smaller than
+	 * `removedEntries` when both are set: the difference is what the repair could not bring back.
+	 */
+	restoredEntries?: { count: number; samples: string[] };
+	/**
+	 * Entries the repair found lost but could not put back without the renderer dropping something
+	 * else. Reported so a document that stays lossy after the repair is never silent.
+	 */
+	unrestoredEntries?: { count: number; samples: string[] };
 	/**
 	 * Set when the pass refused before the model call because the read cap had shortened the stored
 	 * document: the view was incomplete, so a reply built from it would have deleted everything the cap
@@ -649,6 +661,11 @@ function removedSectionEntries(before: MemorySections, after: MemorySections): {
 	return { count: removed.length, samples: removed.slice(0, 3) };
 }
 
+/** One bounded line of an entry, for a log line that points at the document rather than copying it. */
+function entrySamples(entries: readonly RestoredEntry[]): string[] {
+	return entries.slice(0, 3).map(({ entry }) => (entry.length > 120 ? `${entry.slice(0, 120)}…` : entry));
+}
+
 /**
  * True when a resolved reply carries nothing worth storing.
  *
@@ -1107,6 +1124,8 @@ export function consolidateProjectState(
 		// *before clipping*, so an entry the renderer cuts is not counted as a removal. It reports and
 		// never blocks — see that function's own comment.
 		let removedEntries: { count: number; samples: string[] } | undefined;
+		let restoredEntries: { count: number; samples: string[] } | undefined;
+		let unrestoredEntries: { count: number; samples: string[] } | undefined;
 		if (!semanticEmpty && !partialRefused) {
 			// The baseline is what the model was shown, not the raw store: an entry the retirement pass
 			// removed is a deliberate deletion, and reporting it as a regression would misname the cause.
@@ -1116,9 +1135,39 @@ export function consolidateProjectState(
 			} else if (oldSections === undefined) {
 				if (existing.text.trim()) await logError(projectRoot, "memory", "memory regression guard skipped: the stored memory is not a plain four-section bullet document");
 			} else {
+				// Held in a local so every later read of it describes the document that will land, and so
+				// the repair below cannot widen the narrowing this branch already proved.
+				let current: MemorySections = resolved.sections;
+				// The mechanical half of the loss gate (batch AC). `MEMORY_KEEP_RULE` and
+				// `MEMORY_SURVIVAL_CAPTION` already ask for verbatim survival, and three real passes on
+				// 2026-11-21 dropped entries anyway, so a dropped entry whose literals vanished with it is
+				// put back verbatim. Placement is the design: after tier C (the reply that lands is the one
+				// repaired) and after batch Z2's retirement (a tombstone and a repair must never describe
+				// the same entry). A repair that does not fit is reported, never traded for another loss.
+				if (!memoryLossyRefused) {
+					const repair = repairLostEntries(oldSections, current, config.maxMemoryChars);
+					if (repair.kind === "restored") {
+						current = repair.sections;
+						resolved = { ...resolved, sections: repair.sections };
+						render = renderOf(resolved);
+						loss = memoryLoss(resolved, render, config.maxMemoryChars);
+						restoredEntries = { count: repair.entries.length, samples: entrySamples(repair.entries) };
+						// A restored line carries the id it always had, so the sidecar prune must keep it:
+						// dropping the date would reset a clock only the budget had postponed.
+						for (const { entry } of repair.entries) {
+							const id = entryTid(entry);
+							if (id !== undefined) applied?.keepIds.add(id);
+						}
+						await logError(projectRoot, "memory", `restored ${repair.entries.length} Invariants/Pitfalls entry(ies) this reply had dropped and whose backticked literals disappeared with them: ${restoredEntries.samples.join(" | ")}`);
+					} else if (repair.kind === "no-room") {
+						unrestoredEntries = { count: repair.entries.length, samples: entrySamples(repair.entries) };
+						await logError(projectRoot, "memory", `${repair.entries.length} Invariants/Pitfalls entry(ies) this reply dropped could not be restored: putting them back would have exceeded the memory cap or the per-item limit, so they stay lost: ${unrestoredEntries.samples.join(" | ")}`);
+					}
+				}
 				// Computed here, logged at the write site: a removal claim must describe a document that
-				// actually landed, and tier C / the basis-key race are decided later than this point.
-				removedEntries = removedSectionEntries(oldSections, resolved.sections);
+				// actually landed, and tier C / the basis-key race are decided later than this point. It
+				// reads the repaired sections, so the count names what is still missing, not what was.
+				removedEntries = removedSectionEntries(oldSections, current);
 			}
 		}
 		const result: ConsolidationResult = { ...resolved.result, memory: render === undefined ? resolved.result.memory : render.text };
@@ -1175,6 +1224,8 @@ export function consolidateProjectState(
 			...(resolved.partialRefusal === undefined ? {} : { partialRefusal: resolved.partialRefusal }),
 			mergedFromStore: resolved.mergedFromStore ?? [],
 			...(removedEntries === undefined ? {} : { removedEntries }),
+			...(restoredEntries === undefined ? {} : { restoredEntries }),
+			...(unrestoredEntries === undefined ? {} : { unrestoredEntries }),
 			...(retirement === undefined ? {} : { retirement }),
 		};
 		lastOutcome.set(projectRoot, { version, at: Date.now(), cap: config.maxMemoryChars, outcome });

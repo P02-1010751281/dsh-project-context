@@ -10,6 +10,23 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-memory（批次 AC：措辞级丢失的修复闸）**
+
+- 「修复」丢失闸的强制一半：模型在整理 pass 里可以合法地改写、合并条目，但**整条删掉一条仍成立的事实**
+  是错的，2026-11-21 一天内发生了三次（20:40 与 20:48 两次删掉同一条 pitfall）。此前 `missing-literals`
+  只报告、tier C 只数渲染期丢弃，两者都拦不住模型侧删除。
+- 判据（`src/project-memory/lost-entry-repair.ts`）：Invariants/Pitfalls 里某条的规范化正文消失、**且它
+  带的每一个反引号字面量都从整篇消失了**，才算丢失——合并/改写至少留下一个字面量，因此不会被误判。
+  恢复的是旧条目原文（含条目 id，时钟与 `supersedes:` 指针继续有效），追加回它原来的段落。
+- 三条拒绝：回复里 `supersedes:<id>` 点名的条目是替换不是丢失；`Project`/`Index` 每轮重写，永不恢复；
+  恢复后重渲染若会丢别的条目，报 `no-room` 而不写——绝不拿一次新的丢失换回旧的。
+- 位置：tier C 之后（落地的那份回复才被修复）、batch Z2 退休之后（墓碑与修复不会描述同一条）。恢复的
+  条目 id 补进 `keepIds`，否则侧车剪枝会重置它的年龄。
+- 回执：`/memory update` 首行新增 `Restored: N entry(ies) the reply had dropped (e.g. …)`，放不下时
+  `Not restored: N …`；`errors.log` 各一行。`pnpm test` **785/785**，7 个变异具名打红（字面量存活恒
+  false、无字面量条目也修、supersedes 失效、Project/Index 也修、放不下也当成功、用回复自身当基线、
+  找到但不追加）。
+
 **project-context 客户端（设置卡改为分组页签）**
 
 - 23 行排在一列已经要滚很久，而上游的 `SegmentedTabs` 正是插件页自己用的分组控件。设置卡现在按

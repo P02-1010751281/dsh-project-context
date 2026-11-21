@@ -44,6 +44,17 @@ export declare const MISSING_LITERAL_SAMPLES = 10;
  */
 export declare function backtickedLiterals(text: string): string[];
 /**
+ * Whether one literal still names the same fact somewhere in `text`.
+ *
+ * Single owner of the survival rule: backticked anywhere, or a whole token outside every backticked
+ * span. `missingLiteralsBetween` counts with it, and the lost-entry repair asks it per entry, so the
+ * two cannot drift into disagreeing about what "still mentioned" means.
+ * @param literal - a literal some document carried.
+ * @param text - the document to look for it in.
+ * @returns true when the literal is still mentioned.
+ */
+export declare function literalSurvives(literal: string, text: string): boolean;
+/**
  * The literals `previous` carried that `next` no longer mentions.
  *
  * "No longer mentions" means neither backticked nor as a bare token: a literal that lost only its

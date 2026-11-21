@@ -230,6 +230,14 @@ type ConsolidateReport = {
 	/** Invariants/Pitfalls entries a written reply no longer carries (batch Q2's report layer). */
 	removedEntries?: { count: number; samples: string[] };
 	/**
+	 * Entries this pass put back verbatim because the reply dropped them and their literals vanished
+	 * with them (batch AC, `lost-entry-repair.ts`). They are in the landed document — the receipt names
+	 * them so a repaired pass does not read like a clean one.
+	 */
+	restoredEntries?: { count: number; samples: string[] };
+	/** Entries the repair found lost but could not restore without exceeding the cap. */
+	unrestoredEntries?: { count: number; samples: string[] };
+	/**
 	 * The literals the memory this pass replaced carried and the document that landed no longer
 	 * mentions — the rewrite loss gate's observation half (`docs/memory-rewrite-loss-gate-spec.md`
 	 * §3 A). Measured from the landed bytes, never from the reply: the write path caps the document
@@ -477,6 +485,8 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// counts: a merge the write path then refused describes nothing on disk.
 				...(wroteMemory && outcome.mergedFromStore.length > 0 ? { mergedFromStore: outcome.mergedFromStore } : {}),
 				...(wroteMemory && outcome.removedEntries !== undefined ? { removedEntries: outcome.removedEntries } : {}),
+				...(wroteMemory && outcome.restoredEntries !== undefined ? { restoredEntries: outcome.restoredEntries } : {}),
+				...(wroteMemory && outcome.unrestoredEntries !== undefined ? { unrestoredEntries: outcome.unrestoredEntries } : {}),
 				...(wroteMemory && memoryLiteralLoss !== undefined ? { missingLiterals: memoryLiteralLoss } : {}),
 			};
 
@@ -1035,12 +1045,21 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	const missing = report.missingLiterals === undefined || report.missingLiterals.count === 0
 		? ""
 		: ` Missing literals: ${report.missingLiterals.count} backticked literal(s) the previous memory carried no longer appear (e.g. ${report.missingLiterals.samples.slice(0, 2).join(" | ")}).`;
+	// The repair's own sentence. It sits on the first line too: a pass that silently dropped an entry and
+	// had it put back is not a clean pass, and the reader needs to know the document grew without the
+	// model saying so. It never appears together with `unrestored` for the same entries.
+	const restored = report.restoredEntries === undefined || report.restoredEntries.count === 0
+		? ""
+		: ` Restored: ${report.restoredEntries.count} entry(ies) the reply had dropped (e.g. ${report.restoredEntries.samples.slice(0, 2).join(" | ")}).`;
+	const unrestored = report.unrestoredEntries === undefined || report.unrestoredEntries.count === 0
+		? ""
+		: ` Not restored: ${report.unrestoredEntries.count} entry(ies) the reply dropped did not fit back under the cap (e.g. ${report.unrestoredEntries.samples.slice(0, 2).join(" | ")}).`;
 	// The context half of the same measure. It names the document it came from because `/memory update`
 	// answers for both artifacts, and a bound session writes a task document instead of `CONTEXT.md`.
 	const contextMissing = report.contextMissingLiterals === undefined || report.contextMissingLiterals.count === 0
 		? ""
 		: ` Context missing literals: ${report.contextMissingLiterals.count} backticked literal(s) the previous ${report.contextTarget ?? "CONTEXT.md"} carried no longer appear (e.g. ${report.contextMissingLiterals.samples.slice(0, 2).join(" | ")}).`;
-	return { kind: "success", text: `${updated}${verdict}${missing}${contextMissing}` };
+	return { kind: "success", text: `${updated}${verdict}${missing}${restored}${unrestored}${contextMissing}` };
 }
 
 /**

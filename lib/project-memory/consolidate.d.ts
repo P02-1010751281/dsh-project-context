@@ -105,6 +105,23 @@ export type ConsolidationOutcome = {
         samples: string[];
     };
     /**
+     * Entries this pass put back verbatim because the reply dropped them and their literals went with
+     * them (`lost-entry-repair.ts`). Present only when something was restored, and always smaller than
+     * `removedEntries` when both are set: the difference is what the repair could not bring back.
+     */
+    restoredEntries?: {
+        count: number;
+        samples: string[];
+    };
+    /**
+     * Entries the repair found lost but could not put back without the renderer dropping something
+     * else. Reported so a document that stays lossy after the repair is never silent.
+     */
+    unrestoredEntries?: {
+        count: number;
+        samples: string[];
+    };
+    /**
      * Set when the pass refused before the model call because the read cap had shortened the stored
      * document: the view was incomplete, so a reply built from it would have deleted everything the cap
      * kept back, and tier C would have called that write clean — it measures a reply against a cap the

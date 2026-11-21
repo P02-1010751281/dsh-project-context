@@ -124,6 +124,20 @@ type ConsolidateReport = {
         samples: string[];
     };
     /**
+     * Entries this pass put back verbatim because the reply dropped them and their literals vanished
+     * with them (batch AC, `lost-entry-repair.ts`). They are in the landed document — the receipt names
+     * them so a repaired pass does not read like a clean one.
+     */
+    restoredEntries?: {
+        count: number;
+        samples: string[];
+    };
+    /** Entries the repair found lost but could not restore without exceeding the cap. */
+    unrestoredEntries?: {
+        count: number;
+        samples: string[];
+    };
+    /**
      * The literals the memory this pass replaced carried and the document that landed no longer
      * mentions — the rewrite loss gate's observation half (`docs/memory-rewrite-loss-gate-spec.md`
      * §3 A). Measured from the landed bytes, never from the reply: the write path caps the document
