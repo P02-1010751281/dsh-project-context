@@ -189,5 +189,15 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 		report.files.errorLogLines === undefined ? "errors.log unknown" : `errors.log ${plural(report.files.errorLogLines, "line", "lines")}`,
 	].join(" · "));
 	lines.push("no last-pass result (consolidation outcomes are not persisted)");
+	// Derived, not authoritative: the journal is append-only truth and this document is a projection of
+	// it. Borrowed from AOCI's `derived=true / authoritative=false` marker — the distinction is the one
+	// a reader needs before treating MEMORY.md as the record. Only when the loaded document really came
+	// from the journal: a journal file can exist and still lose (`loadMemory` falls back to MEMORY.md
+	// when the journal has no records, and adopts a newer render after an outside edit), and in both
+	// cases MEMORY.md is the source the receipt names — telling the reader "the authority is the
+	// journal" there would be a wrong cause.
+	if (!report.unreadable && !empty && report.source === report.journalPath) {
+		lines.push("derived view: MEMORY.md is a projection, the authority is the journal");
+	}
 	return { kind: report.unreadable ? "error" : "success", text: lines.join("\n") };
 }

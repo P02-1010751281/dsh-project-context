@@ -110,7 +110,12 @@ async function exportReply(projectRoot: string, args: string, maxMemoryChars: nu
 	const target = path.join(memoryDir(projectRoot), "EXPORT.md");
 	await writeAtomic(target, result.text);
 	const omitted = result.omitted === 0 ? "" : `; ${result.omitted} not shown (the digest is bounded)`;
-	return { kind: "success", text: `Exported ${result.written} entr${result.written === 1 ? "y" : "ies"} to ${projectRelative(projectRoot, target)}${omitted}.` };
+	// The marker is a claim about where the bytes came from, so it rides on the reader's own verdict
+	// (`fromJournal`), never on the export having succeeded: with no journal record, or after an
+	// outside edit that made MEMORY.md the newer render, MEMORY.md is the authority and the sentence
+	// would name the wrong one.
+	const derived = read.fromJournal ? " The export is a derived view; the authority is the memory journal." : "";
+	return { kind: "success", text: `Exported ${result.written} entr${result.written === 1 ? "y" : "ies"} to ${projectRelative(projectRoot, target)}${omitted}.${derived}` };
 }
 
 export const name = "project-context";

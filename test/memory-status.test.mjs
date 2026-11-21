@@ -21,7 +21,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -207,4 +207,64 @@ test("the core renders named absences for what the adapter could not measure", (
 	assert.match(reply.text, /archived sessions unknown/);
 	assert.match(reply.text, /errors\.log unknown/);
 	assert.match(reply.text, /10 entries \(Project 2, Invariants 3, Pitfalls 1, Index 4\)/);
+});
+
+test("the receipt marks the document as a derived view and names the journal as the authority", async () => {
+	// AOCI's `derived=true / authoritative=false` marker, in the one-line form a receipt can carry.
+	// Without it a reader treats MEMORY.md as the record, when the append-only journal is.
+	const root = await freshProject();
+	await mkdir(memoryDir(root), { recursive: true });
+	const document = renderMemoryDocument(FIXTURE, CAP).text;
+	await writeFile(memoryFile(root), document);
+	// A real journal record: without one MEMORY.md *is* the only store, and the marker would be a lie.
+	await writeFile(memoryJournalFile(root), `${JSON.stringify({ ts: new Date().toISOString(), op: "replace", text: document })}\n`);
+
+	const { reply } = await status(root);
+	assert.match(reply.text, /derived view: MEMORY\.md is a projection, the authority is the journal/, reply.text);
+	assert.ok(
+		reply.text.indexOf("journal ") < reply.text.indexOf("derived view:"),
+		"the marker follows the journal line it qualifies, so the reader sees the authority first",
+	);
+});
+
+test("an absent journal is not called an authority", async () => {
+	// The negative control: with no journal there is nothing to defer to, so the receipt must not claim
+	// an authority the store does not have.
+	const root = await freshProject();
+	const { reply } = await status(root);
+
+	assert.match(reply.text, /journal .*memory\.jsonl none yet/);
+	assert.doesNotMatch(reply.text, /derived view/, "no journal, no authority to name");
+});
+
+test("an empty journal file does not make the journal the authority", async () => {
+	// A journal path that exists but holds no records is not a source: `loadMemory` falls back to
+	// MEMORY.md, so calling the journal the authority would contradict the `source` line above it.
+	const root = await freshProject();
+	await mkdir(memoryDir(root), { recursive: true });
+	await writeFile(memoryFile(root), renderMemoryDocument(FIXTURE, CAP).text);
+	await writeFile(memoryJournalFile(root), "", "utf8");
+
+	const { reply } = await status(root);
+	assert.match(reply.text, /journal .*memory\.jsonl 0 lines/, "the empty journal is still reported");
+	assert.doesNotMatch(reply.text, /derived view/, "an empty journal is not the authority; MEMORY.md is the source");
+});
+
+test("a newer MEMORY.md after an outside edit is the source, so the journal is not called the authority", async () => {
+	const root = await freshProject();
+	await mkdir(memoryDir(root), { recursive: true });
+	const journalText = renderMemoryDocument(FIXTURE, CAP).text;
+	await writeFile(
+		memoryJournalFile(root),
+		`${JSON.stringify({ ts: new Date(Date.now() - 60_000).toISOString(), op: "replace", text: journalText })}\n`,
+	);
+	// Written after the journal with an explicitly newer mtime, so `loadMemory` adopts it as the source
+	// (a same-millisecond write can fall inside the comparison's granularity).
+	await writeFile(memoryFile(root), `${journalText}- an outside edit added this entry\n`);
+	const ahead = new Date(Date.now() + 5_000);
+	await utimes(memoryFile(root), ahead, ahead);
+
+	const { reply } = await status(root);
+	assert.match(reply.text, /^source .*MEMORY\.md$/m, "the receipt names MEMORY.md as the source");
+	assert.doesNotMatch(reply.text, /derived view/, "the source line and the marker must not contradict each other");
 });

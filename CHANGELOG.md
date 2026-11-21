@@ -10,6 +10,17 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-context / project-memory（回执标注派生视图：权威是 journal）**
+
+- 动机：AOCI 调研（`docs/research/2026-11-19-aoci.md` §5）建议借它的 `derived=true / authoritative=false`
+  标记。`/memory status` 与 `/context export --write` 展示的都是派生视图，但回执里没有一句说明权威在哪。
+- 改法：`formatMemoryStatus` 末行加 `derived view: MEMORY.md is a projection, the authority is the journal`，
+  **仅当** `loadMemory` 确实从 journal 读出（`source === journalPath`）；`/context export --write` 同理，
+  依据 `readMemoryExport` 新增的 `fromJournal`。空 journal、外部改动后较新的 `MEMORY.md`、归档回退三种
+  情况下都不标——否则回执会与它自己的 `source` 行矛盾，正是「报错因」而不是「缺信息」。
+- 测试：新增 6 条（有 journal / 无 journal / 空 journal / 外部改动 / 导出正负），变异验证：把条件退回
+  「journal 文件存在即标」时，空 journal 与外部改动两条变红；删掉导出那半句时导出正例变红。
+
 **project-memory（`record_memory` 参数 JSON 非法时，退一次无工具重试）**
 
 - 现象：`errors.log` 记 `plugin model call failed (MALFORMED_RESPONSE): Tool call "record_memory":

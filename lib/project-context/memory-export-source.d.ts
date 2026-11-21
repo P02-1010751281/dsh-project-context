@@ -24,6 +24,8 @@ export type MemoryExportRead = {
     readonly kind: "document";
     readonly document: ExportDocument;
     readonly mask: (text: string) => string;
+    /** True only when `loadMemory` answered from the journal, not from MEMORY.md or an archive. */
+    readonly fromJournal: boolean;
 }
 /** Nothing stored yet: an empty file is not a document to digest. */
  | {

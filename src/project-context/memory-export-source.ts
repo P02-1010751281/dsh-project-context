@@ -21,6 +21,7 @@
 
 import path from "node:path";
 import { MEMORY_SECTIONS } from "../project-memory/memory-schema.js";
+import { memoryJournalFile } from "../project-memory/journal.js";
 import { loadMemory } from "../project-memory/load.js";
 import { sectionsFromMarkdown } from "../project-memory/sections.js";
 import { memoryFile, redactSecrets } from "../shared/project-state.js";
@@ -31,7 +32,13 @@ const EXCLUDED_SECTION = "Index";
 
 /** What the shim could make of the stored memory. */
 export type MemoryExportRead =
-	| { readonly kind: "document"; readonly document: ExportDocument; readonly mask: (text: string) => string }
+	| {
+			readonly kind: "document";
+			readonly document: ExportDocument;
+			readonly mask: (text: string) => string;
+			/** True only when `loadMemory` answered from the journal, not from MEMORY.md or an archive. */
+			readonly fromJournal: boolean;
+	  }
 	/** Nothing stored yet: an empty file is not a document to digest. */
 	| { readonly kind: "missing"; readonly sourcePath: string }
 	/** A document this schema cannot read section by section — opaque, so exporting would guess. */
@@ -60,6 +67,10 @@ export async function readMemoryExport(projectRoot: string, maxMemoryChars: numb
 	return {
 		kind: "document",
 		mask: redactSecrets,
+		// `loadMemory` names where the document it returned came from: the journal when it folded one,
+		// MEMORY.md when the journal had no records or an outside edit was newer, an archive or legacy
+		// file when the render was rotated. Only the first case makes the journal the authority.
+		fromJournal: memory.source === memoryJournalFile(projectRoot),
 		document: {
 			sourcePath,
 			sections: MEMORY_SECTIONS
