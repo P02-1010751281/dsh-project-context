@@ -25,7 +25,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { anchorCandidates } from "../lib/project-memory/anchors.js";
+import { anchorCandidates } from "../lib/shared/anchors.js";
 import { readEntrySidecar } from "../lib/project-memory/entry-sidecar.js";
 import { memoryUpdateReply } from "../lib/project-memory/index.js";
 import { anchorDriftReasons } from "../lib/project-memory/retirement.js";

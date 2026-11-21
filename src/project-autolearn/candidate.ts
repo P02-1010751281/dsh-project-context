@@ -9,6 +9,7 @@ import { MAX_SKILL_BODY_CHARS, memoryDir, readOptional, skillsDir, validSkillNam
 import { conflictFindings, conflictText, evidenceText, normalizeEvidence } from "./evidence.js";
 import { evidenceOfDocument, readEvidenceCorpus, withEvidenceFrontmatter } from "./evidence-source.js";
 import { collectSkillInventory, type SkillInventory } from "./inventory.js";
+import { bindSkills } from "./skill-state-source.js";
 import { MAX_SKILL_DESCRIPTION_CHARS, type ProposedSkill, autolearnProvenance, promotedDocument, skillBody, skillBodyUnsafe, skillDescription, skillDocument } from "./skill.js";
 
 /** A live skill must be grounded in at least two archived sessions; a candidate in one. */
@@ -198,6 +199,9 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	const corpus = await readEvidenceCorpus(projectRoot, { exclude: name });
 	const conflicts = conflictFindings({ name, text: body }, corpus.skills, corpus.memory);
 	await writeAtomic(destination, withEvidenceFrontmatter(promotedDocument(name, description, body), evidence));
+	// The baseline is taken here, once, from the document that actually landed: a skill approved today
+	// must not be judged against a body it never had, and a later refresh would erase drift.
+	await bindSkills(projectRoot, [name]);
 	await rm(file, { force: true });
 	// Approving is a human decision that runs no prompt, so when it replaces a file the overwrite is
 	// blind by construction and the message says so instead of implying the body was merged. It is

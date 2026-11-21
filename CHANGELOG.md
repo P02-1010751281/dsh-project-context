@@ -10,6 +10,31 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-autolearn（批次 AA4：学习型技能有了状态，过期由系统移出服役）**
+
+- 问题：被提升的技能只能靠「下一次 autolearn pass 取代」，所以一条描述已删代码的技能会永久生效——
+  每轮被注入、还被 memory 指针指着。技能核此前既没有判定也没有转移。
+- 判定：新增 `skill-state.ts`（纯）+ `skill-state-source.ts`（I/O），五态
+  `unbaselined / expired / drifted / orphan / intact`。锚点词法来自记忆核，已挪到 `src/shared/anchors.ts`
+  ——`shared/` 是允许跨插件复用的唯一位置，直接 import `project-memory` 会违反分段约定。
+- 转移：**只有 `expired` 会被系统移出服役**——把 `.agents/skills/<name>/` 移到
+  `.agents/memory/expired-skills/<name>/` 并丢基线，autolearn pass 在花模型调用之前做，`errors.log`
+  各写一行。两道拒绝让自动化为安全：**只动带 `autolearn-generated` 标记的技能**，且**父目录已消失的引用
+  不算过期**（那是一次搬家，不是删除）——与记忆核的锚点规则同源。
+- 命令：`/autolearn status`（只读，报五态与最坏若干条）、`/autolearn bind`（为尚无基线的技能补基线；
+  状态命令不写盘，否则它自己会改变下一次读到的东西）、`/autolearn expire <name>`（显式移出）。
+  提升路径（`approveCandidate`）在写盘后立刻取基线，从落地的文档取，不从候选取。
+- 测试：7 条（五态与回执顺序、搬家不算过期、bind→drift→expire 端到端、命令拒绝搬家态、手写技能不入语料、
+  命令接线、空闲事件真的会把过期技能移走）。变异 6 个全部具名打红：搬家算过期、未基线读成 intact、
+  命令搬走 drifted、手写技能混入、引用计数失效、pass 不退役。`pnpm test` **763/763**。
+- 现场：18 个学习型技能全部 `unbaselined`（第一个基线要人等 `/autolearn bind` 或有新技能被批准）。
+
+**docs/research/2026-11-19-aoci.md §7.1（修订）**
+
+- **漂移分类词汇从「不实现」改为「已吸收」**：当初的理由（没有 INDEX 对账报告面）成立，所以先建了报告面
+  `session-state.ts` 与 `/session-log status`，四个名字各有判据；技能核复用同一套命名。只借词汇、
+  不借代码、无运行时依赖。
+
 **project-context（批次 AA3：会话日志的状态判定，含 AOCI 的四个失败名）**
 
 - 问题：会话日志的「状态」一直是「目录在不在」。AOCI 调研带来的四个失败名（Missing / Orphan / Stale /

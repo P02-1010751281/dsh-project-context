@@ -286,3 +286,27 @@ export function entryStateOf(tid: string, facts: EntryStateFacts): { state: Entr
 detail 里点名。
 
 现场：211 个会话、10 live、201 settled、0 需修。
+
+## 13. 落地：技能核的状态与转移（AA4，2026-11-21）
+
+`src/project-autolearn/skill-state.ts`（纯）+ `skill-state-source.ts`（I/O）。五态：
+
+| 状态 | 判据 | 谁动它 |
+|---|---|---|
+| `unbaselined` | 没有指纹基线（提升前的老技能） | `/autolearn bind`（显式） |
+| `expired` | **每一个**引用路径都不存在，且**每个都从其父目录仍在的目录里消失** | 系统（autolearn pass 开始前）/ `/autolearn expire` |
+| `drifted` | 有引用文件变了，或部分消失 | 只报告 |
+| `orphan` | memory / context 里没有任何一行引用它 | 只报告 |
+| `intact` | 基线存在、全部未变、仍被引用 | — |
+
+两条拒绝是这套自动化的地基：**只动带 `autolearn-generated` 标记的技能**（手写技能只读），
+**父目录消失不算过期**（与记忆核 `anchorDriftReasons` 的 rule 2 同源，否则一次搬家会被读成删除）。
+
+`/autolearn status` 只读；`/autolearn bind` 补基线；`/autolearn expire <name>` 显式移出（移到
+`.agents/memory/expired-skills/`，可搬回）。现场：18 个学习型技能全部 `unbaselined`。
+
+### 13.1 与 AOCI 的关系
+
+这是 AOCI 那笔账的落点：四个失败名（Missing / Orphan / Stale / Unbaselined）只是词汇，当初被拒是因为
+没有报告面；AA3 建了会话日志那一面，AA4 复用了同一套命名。**不借代码、不引依赖**（FSL-1.1-MIT），
+边界与记忆 `4c9` 一致。

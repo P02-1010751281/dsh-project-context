@@ -23,7 +23,7 @@ import { logsDir } from "../shared/project-state.js";
 import type { MemorySections } from "./sections.js";
 import { normalizeMemoryEntry, renderMemoryDocument } from "./sections.js";
 import type { RetirementReason, Tombstone } from "./retired.js";
-import { anchorCandidates, isLocalArtifact } from "./anchors.js";
+import { anchorCandidates, isLocalArtifact } from "../shared/anchors.js";
 import { entryStateOf, retiresEntry } from "./entry-state.js";
 import { pruneSidecar, readEntrySidecar, updateEntrySidecar } from "./entry-sidecar.js";
 

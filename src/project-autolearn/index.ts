@@ -23,6 +23,8 @@ import { approveCandidate, listCandidateDetails, rejectCandidate } from "./candi
 import { evidenceText } from "./evidence.js";
 import { readEvidenceCorpus } from "./evidence-source.js";
 import { autolearnProjectSkills, type AutolearnOutcome } from "./pass.js";
+import { bindSkills, expireSkill, measureSkillStates, retireExpiredSkills } from "./skill-state-source.js";
+import { skillStatusReceipt } from "./skill-state.js";
 import { diagnosticMessage, getProjectRoot, logError, skillsDir } from "../shared/project-state.js";
 
 export const name = "project-autolearn";
@@ -51,6 +53,9 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 	return updates.run(async () => {
 		const projectRoot = await getProjectRoot(projectCwd(agent.session));
 		try {
+			// The system-fired transition, before the pass spends a model call: a learned skill whose
+			// cited files are all gone is moved out of the harness's view and logged.
+			await retireExpiredSkills(projectRoot);
 			outcome = await autolearnProjectSkills(ctx, agent, config, { force: options.force, signal: options.signal, track: options.track });
 			if (outcome?.candidate && !options.silent) {
 				ctx.logger.info(`dsh-project-context: skill candidate saved for review: /autolearn approve ${outcome.skill?.name ?? ""}`);
@@ -90,8 +95,8 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 
 	ctx.commands.register({
 		name: "autolearn",
-		description: "Distill a project skill from memory, context, and archived sessions; also: list | approve <name> | reject <name>",
-		input: { hint: "list | approve <name> | reject <name>" },
+		description: "Distill a project skill from memory, context, and archived sessions; also: list | status | bind | expire <name> | approve <name> | reject <name>",
+		input: { hint: "list | status | bind | expire <name> | approve <name> | reject <name>" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const parts = (rawInput ?? "").trim().split(/\s+/).filter(Boolean);
 			const verb = (parts[0] ?? "").toLowerCase();
@@ -111,6 +116,26 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 			if (verb === "approve") {
 				const result = await approveCandidate(projectRoot, parts[1]);
 				return result.ok ? { kind: "success" as const, text: result.message } : { kind: "error" as const, text: result.message };
+			}
+			if (verb === "status") {
+				// Read-only on purpose: a status that bound a baseline would change what the next status says.
+				// A corpus that predates the baselines is reported as unbaselined with `/autolearn bind` as
+				// its remedy, never silently adopted.
+				return { kind: "success" as const, text: skillStatusReceipt(await measureSkillStates(projectRoot)) };
+			}
+			if (verb === "bind") {
+				const bound = await bindSkills(projectRoot);
+				const total = bound.reduce((sum, entry) => sum + entry.paths, 0);
+				return bound.length === 0
+					? { kind: "success" as const, text: "Learned skills: every skill already carries a baseline; nothing to bind." }
+					: { kind: "success" as const, text: `Learned skills: recorded a baseline for ${bound.length} skill(s) (${total} cited file(s)): ${bound.map((entry) => entry.name).join(", ")}` };
+			}
+			if (verb === "expire") {
+				const result = await expireSkill(projectRoot, parts[1] ?? "");
+				if (result.status === "moved") return { kind: "success" as const, text: `Learned skill "${parts[1]}" moved out of service: ${result.to}` };
+				if (result.status === "no-such-skill") return { kind: "error" as const, text: `No learned skill named "${parts[1] ?? ""}".` };
+				if (result.status === "unbaselined") return { kind: "error" as const, text: `Skill "${parts[1]}" has no baseline yet; run /autolearn bind first so expiry has something to judge.` };
+				return { kind: "error" as const, text: `Skill "${parts[1]}" is ${result.state}, not expired; nothing was moved.` };
 			}
 			if (verb === "reject") {
 				const result = await rejectCandidate(projectRoot, parts[1]);

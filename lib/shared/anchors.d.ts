@@ -2,10 +2,11 @@
  * The lexical half of "which files does this memory entry point at": one pure pass over the entry's
  * text, with no disk access at all.
  *
- * Two consumers need the same answer and must never drift apart:
+ * The consumers span two plugins and must never drift apart:
  *
  * - `retirement.ts` decides whether a cited path still exists (a missing path retires the entry);
- * - the staleness pass (batch V) decides whether a cited file changed after the entry was written.
+ * - the staleness pass (batch V) decides whether a cited file changed after the entry was written;
+ * - the skill-expiry pass asks the same question of a learned skill's body.
  *
  * They differ only in what they do with a candidate — one stats it, the other hashes it — so the
  * recognition rules (the boundary character, the extension whitelist, the `{`/`*` skip) live here and
