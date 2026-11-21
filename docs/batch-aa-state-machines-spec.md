@@ -129,3 +129,63 @@
    B 常开会每轮多花 token，C 纯手动容易忘。
 6. **批次字母与顺序？** 推荐：**AA1 → AA2 → AA4**（先统一、再治理内容、再管技能），
    AA3/AA5/AA6 视前三条的结果再排；字母 `AA` 若无异议即定，否则用 `Z9`。
+
+### 7.1 裁定结果（2026-11-21，用户已答）
+
+| # | 裁定 | 落地含义 |
+|---|---|---|
+| 1 | **AA1 先做** | 先统一状态层，不改判据 |
+| 2 | **显式 `/memory reconcile` + 自动维护**（自定义组合） | 见下方合并说明 |
+| 3 | **改写指针，先出候选** | 不自动退役 |
+| 4 | **只产候选 + 自动标记**（自定义组合） | 见下方合并说明 |
+| 5 | **AA1 → AA2 → AA4**，字母用 `AA` | AA3/AA5/AA6 后续排期 |
+
+**第 2 问的合并（「显式通道 + 自动维护」怎么同时成立）**：两条通道分权，不互相越界——
+
+- 显式：`/memory reconcile` 按需跑，可以改写正文（改写成指针或按当前代码重述），走 tier C 与整篇重写
+  损失闸，逐条可预览。
+- 自动：整理 pass 在**到达触发条件**时（与取用顺序同一阈值，≥90% 上限）把内容漂移条目**重述/指针化**，
+  **不删条目**；仍是「无证据不删」。自动通道不退役任何仍成立的事实，退役只能来自
+  supersede、anchor-drift（路径消失）或显式 reconcile 的裁定。
+
+**第 4 问的合并（「只产候选 + 自动标记」）**：按证据强弱分权——
+
+- 强证据（技能引用的锚点**全部**消失或行号全部越界）→ 允许自动标记 `expired`，生成一条 tombstone 记录，
+  这份技能不再被注入、也不再作为 memory 指针的目标；
+- 弱证据（部分锚点漂移、内容可能只是变化）→ 只产候选，仍走 `/autolearn approve`。
+- 不变量保持不变：**内容替换**（同名新正文）仍只有 `/autolearn approve` 这一条路；`expired` 是
+  「失效标记」，不是「用新内容取代」。两者的区别必须写进命令回执。
+
+## 8. AA1 的实现契约（已裁定，下一轮直接照此落地）
+
+**新增** `src/project-memory/entry-state.ts`（纯函数，无 I/O）：
+
+```ts
+export type EntryState = "superseded" | "anchor-drift" | "content-stale" | "age-unconfirmed" | "healthy";
+export interface EntryStateFacts {
+  readonly superseded?: ReadonlyMap<string, string>;   // 被取代的 id -> 取代者
+  readonly drifted?: ReadonlyMap<string, readonly string[]>; // id -> anchorDriftReasons
+  readonly stale?: ReadonlySet<string>;                // StalenessFacts.staleIds
+  readonly unconfirmed?: ReadonlySet<string>;          // 过 180 天且扫描完整的 id
+}
+export function entryStateOf(tid: string, facts: EntryStateFacts): { state: EntryState; detail: string };
+```
+
+- **优先级**（与现有退役顺序一致，也是「越确定越先」）：superseded → anchor-drift → age-unconfirmed →
+  content-stale → healthy。`content-stale` 排在最后，因为它是唯一**不行动**的状态（AA2 才给它出口）。
+- **消费者**：退役（`retireSections` 三条循环各问一次，顺序与 tombstone 文案不变）、`/memory status`
+  （只能供 superseded + content-stale，drift/不确认需要异步扫描，回执里注明是子集）、`/memory` 回执
+  （暂保持文件级计数不变，AA1b 再统一）。
+- **验收**：纯函数用例覆盖优先级与四种事实来源；`retireSections` 行为不变（现有用例全绿、无需改写）；
+  变异两个必须打红：① 优先级里把 content-stale 提到 anchor-drift 之前；② `retireSections` 忽略 drift。
+- **残余**：`/memory status` 报的是子集（drift 要读盘、不确认要扫会话），这点写进回执文案，
+  不能假装它与退役看到的是全量。
+
+### 8.1 落地状态（2026-11-21）
+
+- **AA1a 已落地**（`2119010`）：`src/project-memory/entry-state.ts`（`entryStateOf` / `retiresEntry` /
+  `countEntryStates`，零新探测）+ `retireSections` 三条触发循环改为向它提问，tombstone 文案与顺序不变；
+  7 条新测试（6 纯核心 + 1 退役引擎仲裁），4 个变异各自被命名用例打红，`pnpm test` **732/732**。
+- **AA1b 未做**：`/memory status` 与 `/memory` 回执仍说文件级词汇。接入时必须注明「drift 与不确认
+  需要异步扫描，回执只报 superseded + content-stale 子集」，不得用一个 0 让人以为扫过。
+- 下一批按裁定是 **AA2**（内容漂移的显式 + 自动两条通道），`AA4`（技能过期）在其后。
