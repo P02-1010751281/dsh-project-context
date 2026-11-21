@@ -21,7 +21,7 @@ import { assertSessionSettled, turnOpenNow } from "./guard.js";
 import { countFileIndex } from "./receipt.js";
 import { type SessionControllerLike } from "./runtime.js";
 import { handedOff, handoffReceipts } from "./state.js";
-import { continuation, renderHandoff } from "./summary.js";
+import { continuation, renderHandoff, seedIdentityOf } from "./summary.js";
 import { type ContinuationNotice } from "./language.js";
 
 /**
@@ -47,19 +47,22 @@ export function handoffArtifacts(args: {
 	notice?: ContinuationNotice;
 }): { document: string; prompt: string } {
 	const carry = handoffCarry(args.session, args.config.handoffPendingQuestion === "wait");
+	const prompt = continuation(
+		String(args.session.id),
+		args.fileOperations,
+		args.tail,
+		args.pointers,
+		args.language,
+		carry.pending,
+		carry.decision,
+		args.trimmedTail === true,
+		args.notice,
+	);
+	// The seed stamps its own digest; the document records the same id so a child found later can be
+	// matched to the handoff that produced it (the document itself is overwritten by the next one).
 	return {
-		document: renderHandoff(args.session, args.fileOperations, args.archive, args.language),
-		prompt: continuation(
-			String(args.session.id),
-			args.fileOperations,
-			args.tail,
-			args.pointers,
-			args.language,
-			carry.pending,
-			carry.decision,
-			args.trimmedTail === true,
-			args.notice,
-		),
+		document: renderHandoff(args.session, args.fileOperations, args.archive, args.language, seedIdentityOf(prompt)?.id),
+		prompt,
 	};
 }
 

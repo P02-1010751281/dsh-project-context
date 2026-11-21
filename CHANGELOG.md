@@ -10,6 +10,21 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**project-handoff（种子自带身份哈希：子会话可自证「读的是哪一次交接」）**
+
+- 问题：`HANDOFF.md` 每个项目只有一份、下一次交接即被覆盖，而子会话的种子消息永久保留；此前没有任何
+  东西记录「这个子会话读到的种子是哪一次交接产出的」，取证只能按当前 scaffolding 重新渲染一遍再比文本。
+- 改法：`continuation()` 生成正文后，把 `<handoff>` 块内会话 id 行下面插入一行 `- handoff-seed: <12 hex>`，
+  取值为正文（去掉该行后逐字节相同）的 sha256 前 12 位；`seedIdentityOf(seed)` 从消息本身重算并比对，
+  种子因此可自证完整。`renderHandoff` 记同一个 id（文档会被下一次交接覆盖，种子才是权威）。
+- 边界：链式交接时尾巴里会带上一代的 id 行，`seedIdentityOf` 只认第一处、也只移除第一条，仍是本代的 id；
+  该行两语言同为 ASCII，六个收尾与 `<handoff>` 标记不变，`isHandoffContinuationText` 仍为 true。
+- 测试：新增 7 条（六种形态自证、篡改后不自证、确定性与父会话区分、结构判定不受影响及其负控制、旧种子
+  无该行、链式交接、文档记同一 id）。变异 4 个全部精确命中：删掉 stamp（5 红）、摘要不覆盖正文（3 红）、
+  规范化多留空行（3 红）、验证恒真（2 红）。
+- 残余：id 证明的是「种子没被改过」，不是「种子内容完整」——完整性仍要靠 `handoffSplit` 重建比对
+  （skill `dsh-handoff-seed-completeness-forensics`）。
+
 **project-memory（记忆满额时的取用顺序：先指针化，不靠压缩措辞）**
 
 - 问题：提示词里有两处把「整篇压缩措辞」写成标准解法——`MEMORY_KEEP_RULE` 的 `then condense the
