@@ -15,8 +15,8 @@
 | [vocabulary-conventions.md](./vocabulary-conventions.md) | 配置键与命令的用词约定（改名不许只改一半） |
 | [batch-v-memory-staleness-spec.md](./batch-v-memory-staleness-spec.md) | 记忆条目的内容漂移（Batch V 规格）：源绑定、四态判定、只标不删；预检证据在 `.agents/evidence/2026-11-20-batch-v-preflight/` |
 | [memory-rewrite-loss-gate-spec.md](./memory-rewrite-loss-gate-spec.md) | 记忆整篇重写会静默概括（规格）：tier C 的盲区、标识符存活校验、首版只报不拒 |
-| [batch-aa-state-machines-spec.md](./batch-aa-state-machines-spec.md) | 批次 AA 规格（2026-11-21）：三个核的状态机、两只过期探测器、碎片整理与核心间咬合；含 6 个待裁定问题，**尚未动 `src/`** |
-| [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md) | AA2 规格：内容漂移 → **七态状态机**。实测 25 条有绑定、6 条已漂移（精度 1/6，故不自动退役）；§12 是最终形状（七态、五类事实、谁能点转移、每个状态必须有出口），AA2a–AA2e 已落地；AA3（会话日志状态判定，含 AOCI 的 Missing/Orphan/Stale/Unbaselined）见 §12，未落地 |
+| [batch-aa-state-machines-spec.md](./batch-aa-state-machines-spec.md) | 批次 AA 规格（2026-11-21）：三个核的状态机、两只过期探测器、碎片整理与核心间咬合；§7/§11 是裁定与落地状态，§12–§14 已落地 AA3（会话日志状态判定）、AA4（技能核）、AA6（两个设置项） |
+| [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md) | AA2 规格：内容漂移 → **七态状态机**。实测 25 条有绑定、6 条已漂移（精度 1/6，故不自动退役）；§12 是最终形状（七态、五类事实、谁能点转移、每个状态必须有出口），AA2a–AA2e 已落地；会话日志状态判定（AA3）见批次 AA 规格 §12 |
 | [batch-ac-settings-split-spec.md](./batch-ac-settings-split-spec.md) | 设置卡片拆分的规格（四份 schema / 四个命名空间 / 四张卡）；含 6 个待拍板点，**尚未动 `src/`** |
 | [batch-z-six-problems-spec.md](./batch-z-six-problems-spec.md) | 批次 Z 的六个结构性缺陷诊断与批次切分 |
 | [batch-w-decision-seam-spec.md](./batch-w-decision-seam-spec.md) | 交接判定缝的规格；仍被 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用，故不归档 |
