@@ -23,7 +23,7 @@
 ## 3 文件与目录
 
 - **3.1 命名与放置**：文件名 kebab-case；一个插件一个 `index.ts` 入口；测试按主题命名 `test/<subject>.test.mjs`。
-- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/index.ts` 1246 行、`src/project-memory/consolidate.ts` 1242 行。判据：`node scripts/check-docs.mjs` 的 baseline 检查 exit 0（现读行数与本条基线比对，并拒绝任何未声明的 >900 文件）。
+- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/index.ts` 1236 行、`src/project-memory/consolidate.ts` 1242 行。判据：`node scripts/check-docs.mjs` 的 baseline 检查 exit 0（现读行数与本条基线比对，并拒绝任何未声明的 >900 文件）。
 - **3.3 大文件只减不增**：超过 400 行的文件若本提交净增长，须在 `CHANGELOG.md` 未发布说明为何不拆。
   判据：`git show --numstat <commit>`（未提交时 `git diff HEAD --numstat`）里该文件新增行数大于删除行数。
 - **3.4 测试按主题分文件**：新主题新建 `test/<subject>.test.mjs`；`test/logic.test.mjs` 只收跨主题纯逻辑（软规则，评审核对放置）。
@@ -35,13 +35,18 @@
 
 ## 4 依赖与可见性
 
-- **4.1 结构固定**：4 个插件（`project-context` / `project-memory` / `project-autolearn` / `project-handoff`）+ `src/shared/`。新增插件须同时改 `cordis.patch.yml`、`package.json` 的 `exports`、`README.md` 与 `docs/architecture.md`。
+- **4.1 结构固定**：4 个插件（`project-context` / `project-memory` / `project-autolearn` / `project-handoff`）+ `src/shared/`
+  + `src/host/`（宿主适配层）。新增插件或宿主接口须同时改 `cordis.patch.yml`、`package.json` 的 `exports`、
+  `README.md` 与 `docs/architecture.md`。
 - **4.2 依赖方向白名单**：只允许 [docs/architecture.md](./docs/architecture.md) 第 2 节表里列出的 import 边（7 条边、
   12 个不同 specifier、共 14 处；含 `shared → project-handoff/language` 这一条共享层例外）。判据：
   `node scripts/check-docs.mjs` 的 edges 检查 exit 0（把第 2 节表的 14 条 `文件:行` 与 12 个 specifier 跟 `src/` 逐条比对）。
 - **4.3 设置命名空间唯一**：只有 `src/project-context/index.ts` 导出 `Config` 并发布 schema，其余插件用 `effectivePluginConfig(entry)`；每个 schema 字段必须带 `volatile`。判据：`grep -c 'export const Config' src/*/index.ts` 只在 `project-context` 命中 1。
 - **4.4 公开面最小**：`exports` 只暴露 `.`、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - **4.5 shared 不持有插件专属逻辑（软规则）**：只放跨插件原语（配置、设置 schema、路径、锁、原子写、日志、生命周期）；评审核对新增模块是否被两个以上插件使用。
+- **4.6 核心与宿主解耦**：只有 `src/host/contract.ts` 可以 import 宿主包；`ctx` 的服务读取一律走 `src/host/dsh/*`；
+  事件、命令与提示词注册只在各插件 `index.ts`；`src/host/` 不得反向依赖插件或 shared 模块。
+  判据：`node scripts/check-boundary.mjs` exit 0。
 
 ## 5 代码风格与命名
 
@@ -60,7 +65,7 @@
 > 本节是权威条文；逐条操作细节与产物纪律见 [docs/development.md](./docs/development.md)。
 
 - **6.1 推送前三命令 exit 0**：`pnpm typecheck`、`pnpm build`、`pnpm test`（用例数读 `pnpm test` 的 `ℹ tests` 行，
-  不写进本文件）；改动文档的提交另跑 `pnpm docs:check`。
+  不写进本文件）；改动文档的提交另跑 `pnpm docs:check`，改动 `src/` 的提交另跑 `pnpm boundary:check`。
 - **6.2 产物同步**：`pnpm build` 后 `git diff --exit-code -- lib` 为空；改过 `src/` 或 `client/` 的提交必须带重建的 `lib/`。
 - **6.3 修复必须能反证**：新增行为有具名用例；修 bug 的用例必须能把修复改回后变红，并把变红用例（文件 + 用例名）
   与所做变异写进 `CHANGELOG.md` 未发布条目。

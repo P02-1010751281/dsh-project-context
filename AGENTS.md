@@ -28,10 +28,11 @@ pnpm build         # tsc → lib/**/*.js|d.ts，再 esbuild → lib/client.js
 pnpm test          # 先 tsc，再 node --test 'test/**/*.test.mjs'
 pnpm build:client  # 只重建 lib/client.js
 pnpm docs:check    # 文档门禁：链接 / 锚点+符号 / 3.2 基线 / 4.2 白名单
+pnpm boundary:check  # 核心/宿主边界：host 包 import、ctx 服务读取、注册归属
 ```
 
 - 改 `src/` / `client/` 必须带重建的 `lib/`；`git diff --exit-code -- lib` 为空。
-- UI 改动要过 `test/card-render.test.mjs`（唯一真渲染）。文档改动跑 `pnpm docs:check`。
+- UI 改动要过 `test/card-render.test.mjs`（唯一真渲染）。文档改动跑 `pnpm docs:check`；改 `src/` 跑 `pnpm boundary:check`。
 - 修复或新增行为要有具名用例；修复要做变异验证（改回原样该用例必须变红），用例名写进 `CHANGELOG.md` 未发布条目。
 
 ## 4 交付什么

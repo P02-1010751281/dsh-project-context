@@ -10,6 +10,20 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**core-host-boundary（核心与宿主解耦，2026-11-22）**
+
+- 新增 `src/host/`：`contract.ts` 是唯一 import 宿主包的文件；`dsh/services.ts` 收口全部 22 处
+  `ctx.get(...)`（12 个窄 getter），`log.ts` / `llm.ts` / `lifecycle.ts` 分别收口 `ctx.logger`（30 处）、
+  `ctx.llm`（4 处）与 `ctx.effect`（1 处）；`llm.ts` 自带回复流 chunk 联合，不再借用宿主类型。
+- 30 个核心文件的宿主 import 全部改经 `contract.ts`；插件入口仍只做 `ctx.on` / `ctx.commands` /
+  `ctx.systemPrompt` 接线。
+- 新增 `scripts/check-boundary.mjs` 与 `pnpm boundary:check`：四条规则（单扇门、核心无宿主包、核心无
+  `ctx` 服务读取、注册只在入口、host 不反向依赖）逐文件检查。
+- `test/host-boundary.test.mjs` 7 个用例：仓库通过 + 5 条失败夹具 + 入口注册放行；变异（关掉
+  service-access 的 fail 分支）只让该用例变红。
+- `RULES.md` 新增 4.6 与 6.1 的 `boundary:check`；3.2 基线随 `src/project-memory/index.ts` 降到 1236 行；
+  `docs/architecture.md` 与 `docs/core-host-boundary.md` 记录分层与第二阶段候选。
+
 **repo-governance（文档门禁脚本与残余收口，2026-11-22）**
 
 - 新增 `scripts/check-docs.mjs` 与 `pnpm docs:check`：链接按文档自身目录解析（跳过代码块与反引号示例）、

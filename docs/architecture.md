@@ -11,6 +11,7 @@ src/project-context/   ① 归档：turn/end 追加、idle/disposed 落盘、/co
 src/project-memory/    ② 整理：整理 pass、/memory、/memory update、todo 机械行、退休与侧车
 src/project-autolearn/ ③ 沉淀：低频 pass、/autolearn、候选与受管技能
 src/project-handoff/   ④ 交接：turn/end 评估、/handoff、种子与子会话
+src/host/              宿主适配层：contract.ts（唯一命名宿主包）+ dsh/（服务、日志、模型、生命周期视图）
 src/shared/            四个插件共用的原语：配置、设置 schema、路径、锁、原子写、日志、生命周期
 client/                设置卡片：字段表、渲染、zh/en 文案（bundle 进 lib/client.js）
 scripts/               build-client.mjs（唯一产出 lib/client.js）、import-archives.mjs
@@ -22,7 +23,8 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 ## 2 分层与依赖方向
 
-- 层：插件入口（`index.ts`）→ 实现模块 → 调用点；`src/shared/` 在最底层，不持有插件业务。
+- 层：插件入口（`index.ts`）→ 实现模块 → 调用点；`src/host/` 是宿主适配层，核心只经 `contract.ts`
+  与 `dsh/*` 视图认识宿主；`src/shared/` 是不持有插件业务的通用原语。`src/host/` 不得反向依赖插件或 shared。
   唯一例外是 `shared → project-handoff/language`（纯字符串判定 `isHandoffContinuationText`，见下表末行），
   该边已列进白名单；shared 不得再新增对插件的引用。
 - 允许的跨插件 import（白名单：7 条边、12 个不同 specifier、共 14 处）：
@@ -31,7 +33,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 |---|---|
 | `project-autolearn → project-memory` | `src/project-autolearn/pass.ts:16` |
 | `project-autolearn → project-context` | `src/project-autolearn/pass.ts:17`、`src/project-autolearn/pass.ts:18` |
-| `project-context → project-memory` | `src/project-context/index.ts:22`、`src/project-context/index.ts:23`、`src/project-context/memory-export-source.ts:23`、`src/project-context/memory-export-source.ts:24`、`src/project-context/memory-export-source.ts:25`、`src/project-context/memory-export-source.ts:26`、`src/project-context/task-usage-source.ts:18` |
+| `project-context → project-memory` | `src/project-context/index.ts:21`、`src/project-context/index.ts:22`、`src/project-context/memory-export-source.ts:23`、`src/project-context/memory-export-source.ts:24`、`src/project-context/memory-export-source.ts:25`、`src/project-context/memory-export-source.ts:26`、`src/project-context/task-usage-source.ts:18` |
 | `project-context → project-handoff/language` | `src/project-context/session-index.ts:16` |
 | `project-handoff → project-memory/tasks` | `src/project-handoff/binding.ts:25` |
 | `project-handoff → project-context/session-meta` | `src/project-handoff/binding.ts:26` |
