@@ -28,12 +28,12 @@
 
 | 面 | 事实 | 位置 |
 |---|---|---|
-| 身份 | 条目 id 是正文 sha256 派生的 **3 hex**，尾标 `（abc）`；`supersedes:` 目标解析到迁移后的 id | `retirement.ts:48`、`:60`、`:71`、`:131` |
+| 身份 | 条目 id 是正文 sha256 派生的 **3 hex**，条目 id `（abc）`；`supersedes:` 目标解析到迁移后的 id | `retirement.ts:48`、`:60`、`:71`、`:131` |
 | 会行动的过期 | ① 显式 `supersedes` → 退役；② **anchor drift** → 退役（原因 `anchor-drift`）；③ **180 天不确认** + 提及扫描（只在扫描完整时成立） | `retirement.ts:418`、`:419`、`:30`、`:438` |
 | anchor drift 判据 | 词法候选必须带可检查扩展名；**父目录必须存在**；只判「不存在」与「行号越过文件尾」 | `retirement.ts:179-224`、`anchors.ts:39` |
 | 只上报的过期 | 写入成功后绑定 shc 指纹（16 hex），测出 `stale / missing / unverifiable / bound`，进 `/memory` 回执与 `/memory status` | `staleness-source.ts:45`、`:57`、`index.ts:447`、`:986`、`status-report.ts:175` |
 | 绑定范围 | 排除 `.agents/memory/`（自身产物）与 `lib/`（生成物）；**包含** `src/`、`docs/`、`.agents/skills/` | `staleness-source.ts:34`、`:42`、`:63` |
-| 年龄时钟 | 日期存在 `entries.json`，**正文一改写就重置**（id 由正文派生 ⇒ 改字就换标）；现存尾标多数与按当前正文重算的结果不同 | `retirement.ts:60`、`entries.json` 的读写 |
+| 年龄时钟 | 日期存在 `entries.json`，**正文一改写就重置**（id 由正文派生 ⇒ 改字就换标）；现存条目 id 多数与按当前正文重算的结果不同 | `retirement.ts:60`、`entries.json` 的读写 |
 
 **两只探测器的分工（关键）**：存在性/行号那只**行动**，内容指纹那只**只报**。因此
 「文件还在但内容换了」这一类过期，既不会退役、也不会触发任何改写——它只出现在回执的一行计数里。

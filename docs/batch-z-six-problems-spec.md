@@ -541,7 +541,7 @@ Z1–Z7 取代 §10.9 的表。
 **裁定**：一个短的入口技能（用户选乙），渐进式披露。
 
 - 位置 `.agents/skills/dsh-project-context-maintenance/SKILL.md`（名字要避开 autolearn 已生成的名字）。
-- 正文只有一张判断表：**要做的事 → 跑哪条命令 / 读哪个文件 / 加载哪个技能**（记忆维护、索引与归档、交接、技能沉淀四块）。
+- 正文只有一张判断表：**要做的事 → 跑哪条命令 / 读哪个文件 / 加载哪个技能**（记忆维护、索引与归档、交接、沉淀四块）。
 - 专项细节**不复制**，指向既有技能（`dsh-project-memory-cap-guard`、`agents-memory-recovery`、`dsh-handoff-auto-trigger-forensics`、`dsh-skill-corpus-consolidation` 等）。
 - `MEMORY.md` 的 `## Index` 节加一行指针，保证它被看见；不靠模型的自觉。
 - 不使用 `ctx.skills.register` 注入（用户 2026-11-10 明确否决：要的是磁盘上可 review 的技能）。

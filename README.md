@@ -13,7 +13,7 @@
 [development](./docs/development.md)（门禁、依赖边界、破坏性变更）。
 收口的批次档案在 `docs/archive/`，唯一索引是 [docs/README.md](./docs/README.md)。
 仓库根另有两份给改代码的人看的文档：[AGENTS.md](./AGENTS.md) 是仓库事实导览（代码在哪、怎么跑、
-有什么坑），[RULES.md](./RULES.md) 是 ≤150 行的行为准则（改代码前该守的约束与门禁）。
+有什么坑），[RULES.md](./RULES.md) 是行为准则（改代码前该守的约束与门禁，篇幅现读）。
 逐版本变更：未发布看 [CHANGELOG.md](./CHANGELOG.md)，已发布版本各一份
 `docs/changelog/<version>.md`（目录在 CHANGELOG 末尾）。**长段说明不再写进本文件。**
 

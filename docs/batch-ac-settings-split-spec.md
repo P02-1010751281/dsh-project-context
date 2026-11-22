@@ -66,7 +66,7 @@ dsh 0.1.7-rc.2 起没有 `settings.installSection()` 这类运行时注册。设
 | desktop | `~/.dsh/profiles/desktop/cordis.patch.yml:1191-1199` | `consolidateTurns: 1`、`maxMemoryChars: 52000`、`maxOutputTokens: 49152`、`handoffThreshold: "400000"`、`handoffBudgetRecentTokens: 20000`、`handoffPendingQuestion: wait` |
 | web | `~/.dsh/profiles/web/cordis.patch.yml:54-60` | `maxMemoryChars: 52000`、`maxOutputTokens: 49152`、`handoffBudgetRecentTokens: 20000`、`handoffPendingQuestion: wait` |
 
-这两个文件的值会随设置卡保存而整份重写（`settings.mutate` 带 revision 重写 patch）；迁移前必须重读，不要把上表当结论抄。
+这两个文件的值会随设置卡片保存而整份重写（`settings.mutate` 带 revision 重写 patch）；迁移前必须重读，不要把上表当结论抄。
 
 ---
 
@@ -277,7 +277,7 @@ publishProjectContextSettings(ctx, entry);   // 内部 live = () => livePluginCo
 ### 3.3 迁移步骤（每个 profile 一次，宿主停止时）
 
 1. **备份并记哈希**：`cp cordis.patch.yml cordis.patch.yml.bak-$(date +%Y%m%d-%H%M)-settings-split`，`sha256sum` 两个文件写进证据目录。
-2. **重读现块**：用 `sed -n` 读 §1.5 的行区间，确认值没被设置卡写回改过。
+2. **重读现块**：用 `sed -n` 读 §1.5 的行区间，确认值没被设置卡片写回改过。
 3. **改 YAML**：把现有 `- id: project-context` 块瘦成只留共用键，新增 `- id: project-memory` / `- id: project-handoff`（web 只加 handoff）。保留原来的 `name:` 行，`applyEntryPatches` 会在 `name` 与目标不一致时跳过该补丁（`include/lib/index.js:95-99`），所以写错名字会响亮失败。
 4. **不要创建同 id 的第二个块**：后一个会整份替换前一个，肉眼很难发现丢键。
 5. **跑只读校验探针**（§3.6），确认四个 id 的键集合与允许集合一致、没有重复键、键值与备份一致。
