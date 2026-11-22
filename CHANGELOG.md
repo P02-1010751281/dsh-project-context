@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-context-2c-3（`ServiceHost` 与 project-memory 移植，2c 第三片，2026-11-22）**
+
+- 契约新增 `ServiceHost`（只有 `services`）：只读一个具名服务的 helper 收它，`HostPorts` 仍是
+  `log` / `services` / `llm` 三件设施的全集，`HostContext` 照旧最宽。
+- `project-memory` 移植：`apply` 体移进 `start.ts`（278 行，两个 `host.addPromptContext` 保持
+  order 190 / 210 与 `interpolate: false`、五个 `host.on`、一个 `host.registerCommand`）；
+  `index.ts` 40 行纯入口，并保留原有 re-export 面（`consolidateProject`、六个回执构造器、
+  `writeTodoSnapshot` 与三个类型），因为别的模块和测试从它取符号。memory 从不发布设置命名空间
+  （所有者是 `project-context`），所以入口里没有 `publishProjectContextSettings`。
+- `consolidateProject` / `consolidateProjectState` / `requestConsolidationText` 收 `HostPorts`，
+  `writeTodoSnapshot` 收 `ServiceHost`；memory 侧不再 import `llmOf`，模型调用走 `host.llm`。
+- 测试不为 84 个假 ctx 逐处补字段：新增 `test/host-ports.mjs` 的 `portsOf(ctx)`（惰性 `log` /
+  `llm` 加 `services: ctx`，与适配器同形），只在直接调 helper 的十个测试文件里包一层；
+  `apply()` 驱动的假 ctx 一字未动。
+- 行为不变的机械证据：搬移代码归一化后逐段 diff、编译产物字符串字面量多重集比对（唯一消失的
+  specifier 是 `../host/dsh/log.js`）、注册顺序逐条一致。
+- `consolidate.ts` 仍 1241 行（删一行 import、补一行 `@param`），`RULES.md` 3.2 的大文件基线不动。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 120 源文件 0 失败、`pnpm docs:check` 137 项
+  0 失败、`pnpm test` 806 全过、两次构建 `lib/` 241 文件同一 sha256。
+
 **host-context-2c-2（`HostPorts` 与 project-autolearn 移植，2c 第二片，2026-11-22）**
 
 - `contract.ts` 把核心真正读取的三件设施拆成 `HostPorts`（`log` / `services` / `llm`），

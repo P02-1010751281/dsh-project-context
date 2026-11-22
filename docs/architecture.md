@@ -56,7 +56,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 - 包导出 7 个键（`package.json:8-30`）：`.` → project-context、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - 入口导出 `name` / `inject` / `apply`：
   - project-context：`src/project-context/index.ts:20`、`src/project-context/index.ts:21`、`src/project-context/index.ts:35`
-  - project-memory：`src/project-memory/index.ts:56`、`src/project-memory/index.ts:57`、`src/project-memory/index.ts:153`
+  - project-memory：`src/project-memory/index.ts:28`、`src/project-memory/index.ts:29`、`src/project-memory/index.ts:38`
   - project-autolearn：`src/project-autolearn/index.ts:21`、`src/project-autolearn/index.ts:22`、`src/project-autolearn/index.ts:30`
   - project-handoff：`src/project-handoff/index.ts:93`、`src/project-handoff/index.ts:95`、`src/project-handoff/index.ts:103`
 - 调用点：宿主按 `cordis.patch.yml:8-16` 的 `insert` 装载四个条目（`project-context` → 包主入口，其余为子路径）；插件之间只走第 2 节的边。
