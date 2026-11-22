@@ -10,17 +10,13 @@
  * Commands: /memory (status | update | prune [--apply])
  */
 import type { Context } from "../host/contract.js";
-import type { Agent } from "../host/contract.js";
 import type { Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
-import { type ConsolidateOptions, type ConsolidateReport } from "./report.js";
 export { acceptEntryState, memoryAcceptReply, memoryPruneReply, memoryReconcileReply, memoryStatusReply, memoryUpdateReply } from "./report.js";
 export type { ConsolidateReport, ConsolidateStatus, RefusedLoss } from "./report.js";
+export { consolidateProject } from "./update.js";
 export declare const name = "project-memory";
 export declare const inject: string[];
-/** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
-/** One consolidation pass. Exported so the version-claim/backoff behaviour is testable. */
-export declare function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<ConsolidateReport>;
 /**
  * Copy one session's todo snapshot into the context document it owns.
  *
