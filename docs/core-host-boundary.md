@@ -28,9 +28,11 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
 - 宿主 API 的每一处读取都有名字（`services.ts` 的 12 个 getter），不再散落在 8 个模块里；
 - `ctx.logger` / `ctx.llm` / `ctx.effect` 各有窄接口，宿主方法签名变化只影响对应 shim。
 
-第二阶段候选（未开工，也不阻塞本批）：把 `Session` / 事件类型换成自有结构接口，让 `contract.ts`
-不再 import 宿主包，而由 `src/host/dsh/*` 做结构映射。触发条件：真的要接第二个宿主，或宿主类型
-再次成为升级阻塞点。
+第二阶段的 2a 已落地（2026-11-22）：宿主类型搬进 `src/host/dsh/types.ts`，`contract.ts` 只
+re-export、不再命名宿主包，门禁从「只有 contract.ts 可以」收紧成「只有 `src/host/<harness>/` 可以」。
+2b（未开工）：把这些 alias 换成 `contract.ts` 里的自有结构接口（会话视图、事件信封、LLM 词表），
+由适配器做映射而不是别名；2c（未开工）：注册面（`ctx.on` / `ctx.commands` / `ctx.systemPrompt`）
+也收到 `HostContext` 后面，入口变薄包装。触发条件：真的要接第二个宿主。
 
 ## 3 规则（`RULES.md` 4.6）
 

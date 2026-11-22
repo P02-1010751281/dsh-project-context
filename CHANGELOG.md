@@ -10,6 +10,22 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-adapter-split（宿主类型移进适配器目录，边界第二步 2a，2026-11-22）**
+
+- `src/host/contract.ts` 从「唯一命名宿主包的文件」改成「核心读到的公开面」：它只
+  `export * from "./dsh/types.js"`，自身零宿主 import——宿主名字不再出现在每个核心模块的类型
+  import 路径上。
+- 新增 `src/host/dsh/types.ts`：dsh 的七个包导入与两个纯事件判定函数（`isReplacementSurfaceEvent` /
+  `isSurfaceEligibleType`）的 re-export 全在这里；两个 load-bearing 的 side-effect import
+  （`dsh-commands` / `dsh-session-projection` 的 Context 增强）随之搬入，注释写明不许清掉。
+- 门禁改判：`scripts/check-boundary.mjs` 的 single-door 从「只有 `contract.ts` 可以命名宿主包」
+  改成「只有 `src/host/<harness>/` 可以」；`test/host-boundary.test.mjs` 现 9 个用例，新增两向——
+  `contract.ts` 命名宿主包失败、`src/host/dsh/` 命名宿主包放行。
+- 行为不变：`pnpm typecheck` / `pnpm boundary:check`（116 源文件 0 失败）/ `pnpm docs:check` /
+  `pnpm test`（800 通过）全绿；`RULES.md` 4.6 与 `docs/core-host-boundary.md` 同步。
+- 这不是终点：2b（自有结构接口替换这些 alias）与 2c（注册面收到 `HostContext` 后面）仍未开工，
+  触发条件是接第二个宿主。
+
 **memory-report-split（`/memory` 报告层移出 `index.ts`，2026-11-22）**
 
 - `src/project-memory/index.ts` 1236 → 301 行，拆成两个新模块：

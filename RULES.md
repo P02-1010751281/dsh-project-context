@@ -44,7 +44,8 @@
 - **4.3 设置命名空间唯一**：只有 `src/project-context/index.ts` 导出 `Config` 并发布 schema，其余插件用 `effectivePluginConfig(entry)`；每个 schema 字段必须带 `volatile`。判据：`grep -c 'export const Config' src/*/index.ts` 只在 `project-context` 命中 1。
 - **4.4 公开面最小**：`exports` 只暴露 `.`、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - **4.5 shared 不持有插件专属逻辑（软规则）**：只放跨插件原语（配置、设置 schema、路径、锁、原子写、日志、生命周期）；评审核对新增模块是否被两个以上插件使用。
-- **4.6 核心与宿主解耦**：只有 `src/host/contract.ts` 可以 import 宿主包；`ctx` 的服务读取一律走 `src/host/dsh/*`；
+- **4.6 核心与宿主解耦**：只有 `src/host/<harness>/` 下的文件可以 import 宿主包（今天是 `src/host/dsh/`），
+  `src/host/contract.ts` 是核心读到的公开面、不得命名宿主包；`ctx` 的服务读取一律走 `src/host/dsh/*`；
   事件、命令与提示词注册只在各插件 `index.ts`；`src/host/` 不得反向依赖插件或 shared 模块。
   判据：`node scripts/check-boundary.mjs` exit 0。
 
