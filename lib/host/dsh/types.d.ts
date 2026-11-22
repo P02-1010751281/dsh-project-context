@@ -1,8 +1,8 @@
 export type { Context } from "@deepseek-ai/cordis";
-export type { Agent } from "@deepseek-ai/dsh-agent";
-export type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, Message, ToolCallBlock, UserMessage, } from "@deepseek-ai/dsh-llm";
 import { isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
 export { isSurfaceEligibleType };
+import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
+import type { SessionEventMap } from "@deepseek-ai/dsh-session";
 import type { EventEnvelope } from "../contract.js";
 /**
  * Whether a logged event is a replacement copy rather than an append-origin record.
@@ -20,11 +20,21 @@ import type { EventEnvelope } from "../contract.js";
  * `surfaceOp` doc and this body are what to re-read.
  */
 export declare function isReplacementSurfaceEvent(event: EventEnvelope): boolean;
-export type { Session } from "@deepseek-ai/dsh-session";
-export type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
-export type { ContextBreakdownProjection } from "@deepseek-ai/dsh-token-meter";
-import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
-import type { SessionEventMap } from "@deepseek-ai/dsh-session";
+/**
+ * This package's own message-source kind.
+ *
+ * `MessageSourceMap` is merge-extensible and every producer declares its own kind in its own module
+ * (in-tree, `compact-checkpoint` does the same). The kind deliberately is not `user`:
+ * `userTurnCount` counts human turns by `source.kind === "user"`, so tagging this package's synthetic
+ * message `user` would inflate the consolidation and autolearn turn counters.
+ */
+declare module "@deepseek-ai/dsh-llm" {
+    interface MessageSourceMap {
+        "dsh-project-context": {
+            kind: "dsh-project-context";
+        };
+    }
+}
 declare module "../contract.js" {
     interface OpaqueBlockTypes extends Record<Exclude<keyof ContentBlockMap, "text" | "tool-call">, true> {
     }

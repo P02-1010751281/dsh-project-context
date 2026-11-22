@@ -6,10 +6,13 @@
  * host-neutral: it names no harness package, and `scripts/check-boundary.mjs` fails the repository if
  * it does.
  *
- * Every interface below is the **subset the cores read**, attributed member by member with the type
- * checker (the property's declaration site), not a mirror of the host's declaration. A member that no
- * core reads is absent on purpose: adding one "for completeness" would make a second harness provide
- * something nothing consumes. The dsh adapter (`src/host/dsh/`) owns the mapping; where a dsh object
+ * Every interface below is the subset the cores **name** — a member earns its place by being read,
+ * written or forwarded by a core or by the adapter on a core's behalf, attributed with the type
+ * checker rather than copied from the host's declaration. A member nothing names is absent on
+ * purpose: adding one "for completeness" would make a second harness provide something nothing
+ * consumes. (An output shape qualifies: `GenerateOptions` is built by the adapter from these fields,
+ * and a message's `id` is written by the core that constructs it.) The dsh adapter (`src/host/dsh/`)
+ * owns the mapping; where a dsh object
  * already satisfies a shape structurally — the session, the agent, every message and event the host
  * hands a core — no runtime wrapper exists and the assignability is checked wherever the host passes
  * one in.
@@ -194,6 +197,14 @@ export interface Session {
 	requestHeader(): RequestHeader | undefined;
 	/** The whole durable log, in seq order. */
 	snapshotEvents(): readonly EventEnvelope[];
+	/**
+	 * Only the events this session produced, excluding a fork's inherited prefix.
+	 *
+	 * Optional because the archive readers and the test fixtures hand this package plain session-like
+	 * objects that carry only a durable log; a caller falls back to `snapshotEvents()` there, which is
+	 * the conservative answer (the inherited prefix included, never fewer events).
+	 */
+	ownEvents?(): readonly EventEnvelope[];
 	/** The model-visible conversation, with surface replacements applied. */
 	deriveMessages(): readonly Message[];
 	/** The message one logged event projects to, or `null` when it projects none. */

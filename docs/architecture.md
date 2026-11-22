@@ -109,7 +109,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 ## 9 外部服务
 
-- 唯一外部调用是宿主 LLM 服务：`requestPluginTextWithMeta`（`src/shared/model-call.ts:206`）经 `ctx.llm.stream`；无直接网络、无数据库。
+- 唯一外部调用是宿主 LLM 服务：`requestPluginTextWithMeta`（`src/shared/model-call.ts:192`）经 `ctx.llm.stream`；无直接网络、无数据库。
 - 预算读 `maxOutputTokens`；重试头寸固定；插件内无 timeout（见 `RULES.md` 第 11 章未决）。
 
 ## 10 一条端到端数据流：`/memory update`
@@ -119,7 +119,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 2. 单飞 + 节流：同项目单飞（`activeConsolidation`，`src/project-memory/consolidate.ts:710`）、
    `throttle` 表（`src/project-memory/consolidate.ts:205`）。
 3. 读入：`loadMemory`（`src/project-memory/load.ts:151`）+ 上下文，再经 `fitMemoryInput` 按输出预算裁一次（`src/shared/conversation.ts:41`）。
-4. 模型调用：`requestPluginTextWithMeta`（`src/shared/model-call.ts:206`）；`tools` 被拒时换一次无工具重试。
+4. 模型调用：`requestPluginTextWithMeta`（`src/shared/model-call.ts:192`）；`tools` 被拒时换一次无工具重试。
 5. 解析回复：`resolveReply`（`src/project-memory/consolidate.ts:533`）优先 `record_memory` 工具调用，其次四段 Markdown，最后不透明文本。
 6. 有损闸（tier C）：会丢整条目的回复先定向重试，仍丢则整次拒绝、零写入，状态 `lossy-refused`
    （判定 `src/project-memory/consolidate.ts:1111` 的 `memoryLossyRefused`，回执行 `memoryUpdateReply`（`src/project-memory/report.ts:284`））。

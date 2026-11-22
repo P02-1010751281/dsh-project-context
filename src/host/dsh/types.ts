@@ -1,42 +1,31 @@
 /**
  * The dsh adapter's type vocabulary.
  *
- * This is the one place in `src/` that names a harness package, and it lives inside the adapter
+ * This is the one place in `src/` allowed to name a harness package, and it lives inside the adapter
  * directory on purpose: a second harness gets `src/host/<harness>/types.ts` with its own imports and
- * its own mapping, while `src/host/contract.ts` stays the host-neutral surface the cores import from.
- * `scripts/check-boundary.mjs` enforces the direction: host imports are legal under `src/host/<name>/`
- * and illegal in `contract.ts`.
+ * its own mapping, while `src/host/contract.ts` stays the host-neutral surface the cores import.
+ * `scripts/check-boundary.mjs` enforces the direction: host imports are legal under
+ * `src/host/<name>/`, illegal in `contract.ts`, and — since this file now also owns the module
+ * augmentations — a `declare module "@deepseek-ai/…"` outside the adapter is a boundary break too.
  *
- * Today the entries below are re-exports, because the cores still read the harness's own shapes (a
- * session's event log, an agent's session, the LLM message vocabulary). The next step — own structural
- * interfaces declared in `contract.ts` and mapped here — is tracked in `docs/core-host-boundary.md`
- * §2; it changes these entries into mappings rather than aliases. Splitting the file out is what makes
- * that change local to this directory instead of a rewrite of the contract's importers.
- *
- * Two of the imports are side-effect only and load-bearing — do not "clean them up": they pull the
- * `Context` augmentations this package reads (`ctx.commands`, the session-projection map). Without
- * them the service reads stop typechecking.
+ * The registries at the bottom are what let the contract's own interfaces stay closed unions: the
+ * contract declares the members the cores name and leaves the rest of each vocabulary opaque, and the
+ * adapter closes those opaque halves from the host's own maps.
  */
 import type {} from "@deepseek-ai/dsh-commands";
 import type {} from "@deepseek-ai/dsh-session-projection";
+// Side-effect only and load-bearing — do not "clean it up": the augmentation below targets this
+// module, and the `Context` service reads depend on the declaration being part of the program.
+import type {} from "@deepseek-ai/dsh-llm";
 
 export type { Context } from "@deepseek-ai/cordis";
-
-export type { Agent } from "@deepseek-ai/dsh-agent";
-
-export type {
-	ContentBlock,
-	GenerateOptions,
-	LlmResolvedModelInfo,
-	Message,
-	ToolCallBlock,
-	UserMessage,
-} from "@deepseek-ai/dsh-llm";
 
 import { isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
 
 export { isSurfaceEligibleType };
 
+import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
+import type { SessionEventMap } from "@deepseek-ai/dsh-session";
 import type { EventEnvelope } from "../contract.js";
 
 /**
@@ -57,11 +46,20 @@ import type { EventEnvelope } from "../contract.js";
 export function isReplacementSurfaceEvent(event: EventEnvelope): boolean {
 	return isSurfaceEligibleType(event.type) && event.surfaceOp !== undefined && event.surfaceOp !== "append";
 }
-export type { Session } from "@deepseek-ai/dsh-session";
 
-export type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
-
-export type { ContextBreakdownProjection } from "@deepseek-ai/dsh-token-meter";
+/**
+ * This package's own message-source kind.
+ *
+ * `MessageSourceMap` is merge-extensible and every producer declares its own kind in its own module
+ * (in-tree, `compact-checkpoint` does the same). The kind deliberately is not `user`:
+ * `userTurnCount` counts human turns by `source.kind === "user"`, so tagging this package's synthetic
+ * message `user` would inflate the consolidation and autolearn turn counters.
+ */
+declare module "@deepseek-ai/dsh-llm" {
+	interface MessageSourceMap {
+		"dsh-project-context": { kind: "dsh-project-context" };
+	}
+}
 
 // ── Contract registries ──────────────────────────────────────────────────────────────────────────
 //
@@ -72,9 +70,6 @@ export type { ContextBreakdownProjection } from "@deepseek-ai/dsh-token-meter";
 //
 // Both are computed from the host's own maps, so a new upstream block or event keeps compiling
 // without a hand-maintained list going stale.
-import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
-import type { SessionEventMap } from "@deepseek-ai/dsh-session";
-
 declare module "../contract.js" {
 	interface OpaqueBlockTypes extends Record<Exclude<keyof ContentBlockMap, "text" | "tool-call">, true> {}
 	interface OpaqueEventTypes extends Record<Exclude<keyof SessionEventMap, "user/message">, true> {}

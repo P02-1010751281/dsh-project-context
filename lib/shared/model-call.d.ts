@@ -8,21 +8,6 @@ import { type GenerateOptions, type LlmResolvedModelInfo, type PluginTool, type 
 export type { PluginTool } from "../host/contract.js";
 import { type PluginConfig } from "./config.js";
 /**
- * This producer's message-source kind.
- *
- * dsh 0.1.7-rc.2 dropped the shared catch-all `plugin` kind: `MessageSourceMap` is merge-extensible and
- * each producer declares its own kind in its own module (in-tree, `compact-checkpoint` does the same).
- * The kind deliberately is not `user`: `userTurnCount` counts human turns by `source.kind === "user"`,
- * so tagging this synthetic message `user` would inflate the consolidation/autolearn turn counters.
- */
-declare module "@deepseek-ai/dsh-llm" {
-    interface MessageSourceMap {
-        "dsh-project-context": {
-            kind: "dsh-project-context";
-        };
-    }
-}
-/**
  * What one auxiliary call carries besides its prompt: the session identity it routes on, the tools it
  * offers, and the reasoning effort it overrides.
  */

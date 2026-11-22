@@ -73,8 +73,7 @@ export function outstandingSubagents(events: readonly unknown[], now: number, ho
  * goes to the original parent, so the inherited prefix must not read as this session's work.
  */
 function ownEventsOf(session: Session): readonly unknown[] {
-	const withOwn = session as { ownEvents?: () => readonly unknown[] };
-	return withOwn.ownEvents?.() ?? session.snapshotEvents();
+	return session.ownEvents?.() ?? session.snapshotEvents();
 }
 
 /**
