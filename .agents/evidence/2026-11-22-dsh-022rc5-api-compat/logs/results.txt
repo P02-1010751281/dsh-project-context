@@ -1,0 +1,20 @@
+2026-11-22  dsh 0.2.2-rc.5 type-level probe
+
+store tree: /nix/store/wr0q0vjd3hxvq08z7ns67dsryywcmz1y-dsh-desktop-0.2.2-rc.5
+running line: dsh --version -> 0.2.2-rc.5
+repo pin: devDependencies 0.1.7-rc.2, peer >=0.1.7-rc.2
+
+leg                       exit  errors  dsh/schemastery resolutions  from store  from repo node_modules
+control (pnpm typecheck)     0       0   (repo's own node_modules)          -              -
+host half, 8 mapped pkgs     0       0                              90        90              0
+client half, 21 mapped       0       0                             425       425              0
+sensitivity (session->llm)   2      25  n/a (expected RED)            -              -
+
+peer gate (dsh --profile <p> --dump-config):
+  web     rc=0  four rows present, 0 skipped lines
+  ctxdev  rc=0  four rows present, 0 skipped lines
+  desktop refused by the CLI: "profile desktop is managed exclusively by the Electron application"
+          -> the running desktop host IS 0.2.2-rc.5 and serves this session with the plugin's
+             injection active, so the line admits the rows; there is no dump to read.
+
+not probed: 0.2.3-alpha.1 - no /nix/store/*dsh-desktop-0.2.3* tree exists on this machine.

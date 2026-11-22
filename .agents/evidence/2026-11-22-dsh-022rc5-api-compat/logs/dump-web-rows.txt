@@ -1,0 +1,10 @@
+- id: project-context
+  name: dsh-project-context
+  config:
+    maxMemoryChars: 52000
+    maxOutputTokens: 49152
+    handoffBudgetRecentTokens: 20000
+- id: project-context
+  name: dsh-project-context
+  config:
+    consolidateTurns: 1

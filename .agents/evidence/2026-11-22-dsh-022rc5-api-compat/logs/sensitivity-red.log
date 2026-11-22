@@ -1,0 +1,25 @@
+src/host/contract.ts(31,10): error TS2614: Module '"@deepseek-ai/dsh-llm"' has no exported member 'isReplacementSurfaceEvent'. Did you mean to use 'import isReplacementSurfaceEvent from "@deepseek-ai/dsh-llm"' instead?
+src/host/contract.ts(31,37): error TS2614: Module '"@deepseek-ai/dsh-llm"' has no exported member 'isSurfaceEligibleType'. Did you mean to use 'import isSurfaceEligibleType from "@deepseek-ai/dsh-llm"' instead?
+src/host/contract.ts(32,15): error TS2614: Module '"@deepseek-ai/dsh-llm"' has no exported member 'Session'. Did you mean to use 'import Session from "@deepseek-ai/dsh-llm"' instead?
+src/project-autolearn/index.ts(121,9): error TS2345: Argument of type '"session/flush"' is not assignable to parameter of type 'keyof Events'.
+src/project-autolearn/index.ts(121,27): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-context/index.ts(174,9): error TS2345: Argument of type '"session/event"' is not assignable to parameter of type 'keyof Events'.
+src/project-context/index.ts(174,27): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-context/index.ts(174,36): error TS7006: Parameter 'event' implicitly has an 'any' type.
+src/project-context/index.ts(196,9): error TS2345: Argument of type '"session/flush"' is not assignable to parameter of type 'keyof Events'.
+src/project-context/index.ts(196,27): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-context/index.ts(198,9): error TS2345: Argument of type '"session/disposed"' is not assignable to parameter of type 'keyof Events'.
+src/project-context/index.ts(198,30): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-context/session-log.ts(190,46): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+src/project-context/session-log.ts(220,59): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+src/project-handoff/index.ts(209,9): error TS2345: Argument of type '"session/event"' is not assignable to parameter of type 'keyof Events'.
+src/project-handoff/index.ts(209,27): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-handoff/index.ts(209,36): error TS7006: Parameter 'event' implicitly has an 'any' type.
+src/project-handoff/index.ts(235,9): error TS2345: Argument of type '"session/disposed"' is not assignable to parameter of type 'keyof Events'.
+src/project-handoff/index.ts(235,30): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-memory/index.ts(243,9): error TS2345: Argument of type '"session/event"' is not assignable to parameter of type 'keyof Events'.
+src/project-memory/index.ts(243,27): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/project-memory/index.ts(243,36): error TS7006: Parameter 'event' implicitly has an 'any' type.
+src/project-memory/index.ts(251,9): error TS2345: Argument of type '"session/flush"' is not assignable to parameter of type 'keyof Events'.
+src/project-memory/index.ts(251,27): error TS7006: Parameter 'session' implicitly has an 'any' type.
+src/shared/conversation.ts(298,42): error TS7006: Parameter 'event' implicitly has an 'any' type.
