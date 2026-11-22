@@ -10,6 +10,20 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**repo-governance（文档门禁脚本与残余收口，2026-11-22）**
+
+- 新增 `scripts/check-docs.mjs` 与 `pnpm docs:check`：链接按文档自身目录解析（跳过代码块与反引号示例）、
+  `path:line` 锚点现读行存在、紧邻锚点声称的符号必须落在该行窗口内、`RULES.md` 3.2 的基线行数现读比对、
+  `docs/architecture.md` §2 的 14 条 `文件:行` 与 12 个 specifier 逐条比对。
+- `RULES.md` 3.2 / 3.6 / 4.2 的判据改指该命令，6.1 加「文档改动另跑 `pnpm docs:check`」；`AGENTS.md` 与
+  `docs/development.md` 各加一行文档门禁，并声明 RULES 第 6 章为权威条文。
+- `test/doc-governance.test.mjs` 6 个用例：仓库自身通过，加坏链、越界锚点、符号不在位、基线不符、
+  白名单外 import 五条失败路径；变异（关掉链接的 `fail` 调用）只让链接用例变红，其余 5 条保持绿。
+- 冻结档案 `batch-aa`、`batch-ac`、`batch-z-six` 里 5 处旧术语统一为术语表写法；`README.md` 去掉
+  「≤150 行」这类会漂的数字。
+- 审查留档：`.agents/evidence/2026-11-22-governance-docs-adversarial-review/`（三份报告与处置表）。
+
+
 **repo-governance（批次 AD：三份治理文档重建 + 术语表）**
 
 - 重写 `RULES.md`：补齐固定 11 章（新增「提交与发布」「兼容与弃用」「未决」，禁令移到第 10 章），

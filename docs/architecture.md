@@ -37,7 +37,11 @@ docs/                  机制文档、规格与索引（docs/README.md）
 | `project-handoff → project-context/session-meta` | `src/project-handoff/binding.ts:26` |
 | `shared → project-handoff/language` | `src/shared/conversation.ts:9` |
 
-- 判据见 `RULES.md` 4.2；新增一条边或一个 specifier 即失败。
+- specifier 集合（12）：`../project-context/archive.js`、`../project-context/session-index.js`、
+  `../project-context/session-meta.js`、`../project-handoff/language.js`、`../project-memory/context-doc.js`、
+  `../project-memory/journal.js`、`../project-memory/load.js`、`../project-memory/memory-schema.js`、
+  `../project-memory/memory-store.js`、`../project-memory/sections.js`、`../project-memory/tasks.js`、
+  `../project-memory/todo.js`。判据：`node scripts/check-docs.mjs`（把上面的 `文件:行` 与这份名单和树逐条比对）。
 
 ## 3 工具链版本
 
