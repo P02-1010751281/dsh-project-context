@@ -6,7 +6,9 @@
 import { randomUUID } from "node:crypto";
 import { type Context } from "../host/contract.js";
 import { type Agent } from "../host/contract.js";
-import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "../host/contract.js";
+import { type GenerateOptions, type LlmResolvedModelInfo, type PluginTool, type UserMessage } from "../host/contract.js";
+
+export type { PluginTool } from "../host/contract.js";
 import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "./config.js";
 
@@ -49,14 +51,6 @@ export type PluginCallOptions = {
 	reasoningEffort?: string;
 	/** Tools to offer this call; omitted means the request carries none at all. */
 	tools?: readonly PluginTool[];
-};
-
-/** One tool offered to a plugin-authored call: the declaration the adapter forwards to the provider. */
-export type PluginTool = {
-	name: string;
-	description: string;
-	/** JSON Schema object for the arguments. */
-	parameters: Record<string, unknown>;
 };
 
 /**

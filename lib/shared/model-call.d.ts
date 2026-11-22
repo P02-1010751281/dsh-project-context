@@ -4,7 +4,8 @@
  */
 import { type Context } from "../host/contract.js";
 import { type Agent } from "../host/contract.js";
-import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "../host/contract.js";
+import { type GenerateOptions, type LlmResolvedModelInfo, type PluginTool, type UserMessage } from "../host/contract.js";
+export type { PluginTool } from "../host/contract.js";
 import { type PluginConfig } from "./config.js";
 /**
  * This producer's message-source kind.
@@ -44,13 +45,6 @@ export type PluginCallOptions = {
     reasoningEffort?: string;
     /** Tools to offer this call; omitted means the request carries none at all. */
     tools?: readonly PluginTool[];
-};
-/** One tool offered to a plugin-authored call: the declaration the adapter forwards to the provider. */
-export type PluginTool = {
-    name: string;
-    description: string;
-    /** JSON Schema object for the arguments. */
-    parameters: Record<string, unknown>;
 };
 /**
  * One tool call the reply carried, with its arguments left as the raw JSON text the adapter
@@ -226,4 +220,3 @@ export declare function pickToolCall(toolCalls: readonly PluginToolCall[] | unde
  * half-written, so both are refused. A reply that carries no call is not this predicate's business.
  */
 export declare function toolCallIsTruncated(completion: CompletionOutcome): boolean;
-export {};

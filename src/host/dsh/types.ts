@@ -33,9 +33,42 @@ export type {
 	UserMessage,
 } from "@deepseek-ai/dsh-llm";
 
-export { isReplacementSurfaceEvent, isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
+export { isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
+
+import type { EventEnvelope } from "../contract.js";
+
+/**
+ * Whether a logged event is a replacement copy rather than an append-origin record.
+ *
+ * This mirrors the host's own `isReplacementSurfaceEvent` (upstream `core/session/src/surface.ts`:
+ * `isSurfaceEvent(event) && event.surfaceOp !== "append"`, where `isSurfaceEvent` is
+ * `event.surfaceOp !== undefined`). It is written out here instead of re-exported because the host
+ * signature takes its own `SessionEvent`, while a core holds the contract's {@link EventEnvelope};
+ * the marker it reads is carried into the contract for exactly this test. If upstream changes the
+ * marker, the contract's `surfaceOp` doc and this body are what to re-read.
+ */
+export function isReplacementSurfaceEvent(event: EventEnvelope): boolean {
+	return event.surfaceOp !== undefined && event.surfaceOp !== "append";
+}
 export type { Session } from "@deepseek-ai/dsh-session";
 
 export type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
 
 export type { ContextBreakdownProjection } from "@deepseek-ai/dsh-token-meter";
+
+// ── Contract registries ──────────────────────────────────────────────────────────────────────────
+//
+// `src/host/contract.ts` models two host vocabularies as "declared members + an opaque rest": the
+// content-block kinds and the session-event kinds a core does not narrow on. The adapter is what
+// closes those unions, by naming the host's own key sets here. Without this augmentation the opaque
+// half is `never`, and no host block or event is assignable to the contract.
+//
+// Both are computed from the host's own maps, so a new upstream block or event keeps compiling
+// without a hand-maintained list going stale.
+import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
+import type { SessionEventMap } from "@deepseek-ai/dsh-session";
+
+declare module "../contract.js" {
+	interface OpaqueBlockTypes extends Record<Exclude<keyof ContentBlockMap, "text" | "tool-call">, true> {}
+	interface OpaqueEventTypes extends Record<Exclude<keyof SessionEventMap, "user/message">, true> {}
+}
