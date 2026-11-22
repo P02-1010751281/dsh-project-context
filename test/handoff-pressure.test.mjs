@@ -22,6 +22,7 @@ import { apply } from "../lib/project-handoff/index.js";
 import { clearHandoffPressure, handoffPressureIsOver, handoffPressureText, recordHandoffDeferral, recordHandoffGate } from "../lib/project-handoff/display.js";
 import { resolveHandoffGate } from "../lib/project-handoff/gate.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
+import { portsOf } from "./host-ports.mjs";
 
 const WINDOW = 200_000;
 const OVER = 199_000;
@@ -68,7 +69,7 @@ const CONFIG = () => resolvePluginConfig(RAW_CONFIG);
 async function gateFor(id, tokens, options = {}) {
 	const occupancy = { value: tokens };
 	const session = fakeSession(id, options);
-	const gate = await resolveHandoffGate(gateContext(occupancy), session, CONFIG());
+	const gate = await resolveHandoffGate(portsOf(gateContext(occupancy)), session, CONFIG());
 	assert.notEqual(gate, undefined, "the fixture must be measurable");
 	return { session, gate };
 }

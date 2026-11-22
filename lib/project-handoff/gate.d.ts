@@ -8,7 +8,7 @@
  * this repo keeps paying for: the numbers the user reads are then a right value under a wrong
  * attribution, and no test can tell the two apart by comparing constants.
  */
-import { type Context } from "../host/contract.js";
+import { type HostPorts } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type MeasuredContext } from "./runtime.js";
@@ -34,10 +34,10 @@ export interface ResolvedHandoffGate {
  * A route the llm service refuses to resolve is *not* one of those exits: it throws
  * {@link HandoffRouteError}, because a dead route blocks every future attempt and reporting it as
  * "unmeasurable" would hide a repeatable failure behind the quiet half of this function.
- * @param ctx - Host context.
+ * @param host - the ports; the service lookups and the model port.
  * @param session - the session to measure.
  * @param config - effective plugin config.
  * @param signal - optional cooperative cancellation for the model-info read.
  * @returns the resolved gate, or `undefined` when the session is not measurable.
  */
-export declare function resolveHandoffGate(ctx: Context, session: Session, config: PluginConfig, signal?: AbortSignal): Promise<ResolvedHandoffGate | undefined>;
+export declare function resolveHandoffGate(host: HostPorts, session: Session, config: PluginConfig, signal?: AbortSignal): Promise<ResolvedHandoffGate | undefined>;

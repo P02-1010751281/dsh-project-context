@@ -5,8 +5,7 @@
  * failed by configuration that could not be carried.
  */
 
-import { type Context } from "../host/contract.js";
-import { logOf } from "../host/dsh/log.js";
+import { type HostPorts, type ServiceHost } from "../host/contract.js";
 import {
 	CUSTOM_PERMISSION_PRESET,
 	permissionPresetsOf,
@@ -22,19 +21,19 @@ import { pendingRetire } from "./state.js";
 
 /**
  * Resolve the workspace owning `cwd`, or undefined when no registry/none matches.
- * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param host - the ports carrying the optional workspace registry service.
  * @param cwd - the parent session's cwd, when it has one.
  * @returns the owning workspace id, or undefined when the lookup does not apply.
  */
-async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promise<string | undefined> {
+async function resolveWorkspaceId(host: HostPorts, cwd: string | undefined): Promise<string | undefined> {
 	if (cwd === undefined) return undefined;
-	const registry = workspaceRegistryOf(ctx);
+	const registry = workspaceRegistryOf(host.services);
 	if (typeof registry?.resolveByPath !== "function") return undefined;
 	try {
 		const workspace = await registry.resolveByPath(cwd);
 		return workspace === undefined ? undefined : String(workspace.id);
 	} catch (error: unknown) {
-		logOf(ctx).warn(
+		host.log.warn(
 			"dsh-project-context: workspace lookup for %s failed: %s",
 			cwd,
 			error instanceof Error ? error.message : String(error),
@@ -60,7 +59,7 @@ async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promis
  * parent link, and pi's ever-deepening handoff tree (its 8a2e6e4 flattens a chain
  * that grew one level per handoff in the selector) has no dsh counterpart. The
  * workstream stays reachable through the handoff prompt, `HANDOFF.md` and the index.
- * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param host - the ports carrying the optional workspace registry service.
  * @param controller - the session controller that creates the child.
  * @param cwd - the parent session's cwd, when it has one.
  * @param agentPreset - the parent's agent preset, when dsh composed this session
@@ -69,14 +68,14 @@ async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promis
  * @returns the created child session id.
  */
 export async function createChildSession(
-	ctx: Context,
+	host: HostPorts,
 	controller: SessionControllerLike,
 	cwd: string | undefined,
 	agentPreset?: string,
 ): Promise<string> {
 	// `agentPreset` is orthogonal to cwd/workspaceId, so it rides along in both branches.
 	const preset = agentPreset === undefined ? {} : { agentPreset };
-	const workspaceId = await resolveWorkspaceId(ctx, cwd);
+	const workspaceId = await resolveWorkspaceId(host, cwd);
 	if (workspaceId !== undefined) {
 		const attached = await controller.create({ workspaceId, ...preset });
 		return String(attached.sessionId);
@@ -97,21 +96,21 @@ export async function createChildSession(
  * before it returns, so the child is reachable here. Fail-open in every direction: no service, a
  * child that is not resident, a derived `custom` combination (which the service refuses as a switch
  * target), or a rejected switch must never fail a handoff whose child already exists.
- * @param ctx - plugin context, for the optional services and the warning log.
+ * @param host - the ports, for the optional services and the warning log.
  * @param childId - the child session to configure.
  * @param session - the parent session being handed off.
  */
-export function carryPermissionPreset(ctx: Context, childId: string, session: Session): void {
-	const presets = permissionPresetsOf(ctx);
+export function carryPermissionPreset(host: HostPorts, childId: string, session: Session): void {
+	const presets = permissionPresetsOf(host.services);
 	if (presets === undefined || typeof presets.current !== "function" || typeof presets.set !== "function") return;
-	const child = sessionsOf(ctx)?.get?.(childId);
+	const child = sessionsOf(host.services)?.get?.(childId);
 	if (child === undefined || child === null) return;
 	try {
 		const preset = presets.current(session);
 		if (preset === CUSTOM_PERMISSION_PRESET) return;
 		presets.set(child, preset);
 	} catch (error: unknown) {
-		logOf(ctx).warn("dsh-project-context: handoff could not carry the permission preset: %s", error instanceof Error ? error.message : String(error));
+		host.log.warn("dsh-project-context: handoff could not carry the permission preset: %s", error instanceof Error ? error.message : String(error));
 	}
 }
 
@@ -140,13 +139,13 @@ function parentModelSelection(session: Session): { provider: string; model: stri
  * Apply {@link parentModelSelection} to the freshly created child. Fail-open in every direction: a
  * runtime without `selectModel`, a parent that never routed a request, or a rejected selection must
  * never fail a handoff whose child already exists.
- * @param ctx - plugin context, for the warning log.
+ * @param host - the ports, for the warning log.
  * @param controller - the session controller that owns the child.
  * @param childId - the child session to configure.
  * @param session - the parent session being handed off.
  */
 export async function carryModelSelection(
-	ctx: Context,
+	host: HostPorts,
 	controller: SessionControllerLike,
 	childId: string,
 	session: Session,
@@ -157,7 +156,7 @@ export async function carryModelSelection(
 	try {
 		await controller.selectModel({ sessionId: childId, ...selection });
 	} catch (error: unknown) {
-		logOf(ctx).warn("dsh-project-context: handoff could not carry the parent's model selection: %s", error instanceof Error ? error.message : String(error));
+		host.log.warn("dsh-project-context: handoff could not carry the parent's model selection: %s", error instanceof Error ? error.message : String(error));
 	}
 }
 
@@ -182,12 +181,12 @@ export async function carryModelSelection(
  * The registry is read directly with no fallback to the RPC: falling back would silently reinstate
  * exactly the human authority this exists to remove, so a child that is not resident fails the
  * handoff loudly instead.
- * @param ctx - plugin context carrying the host's live `agents` registry.
+ * @param host - the ports carrying the host's live `agents` registry.
  * @param childId - the child session that receives the seed.
  * @param prompt - the continuation prompt.
  */
-export function seedChildSession(ctx: Context, childId: string, prompt: string): void {
-	const agents = seedAgentsOf(ctx);
+export function seedChildSession(host: ServiceHost, childId: string, prompt: string): void {
+	const agents = seedAgentsOf(host.services);
 	const child = agents?.get?.(childId);
 	if (child === undefined || typeof child.followup !== "function") {
 		throw new Error(`the handoff child ${childId} is not resident in this process, so its continuation prompt was not admitted`);
@@ -202,7 +201,7 @@ export function seedChildSession(ctx: Context, childId: string, prompt: string):
  * the workspace list. Every step is best effort, but the *decision to hide* a child is not: a child
  * whose seed could not be cancelled keeps running a duplicate continuation, so it stays visible
  * instead of being quietly archived. Cancelling an unseeded child is a no-op, so it is always tried.
- * @param ctx - plugin context, for the optional registry and the warning log.
+ * @param host - the ports, for the optional registry and the warning log.
  * @param controller - the session controller that owns the child.
  * @param childId - the abandoned child.
  * @param parentLabel - the parent's short label, for the title.
@@ -211,7 +210,7 @@ export function seedChildSession(ctx: Context, childId: string, prompt: string):
  *   call rejects, so a rejection is not proof that the child is idle).
  */
 export async function abandonChild(
-	ctx: Context,
+	host: HostPorts,
 	controller: SessionControllerLike,
 	childId: string,
 	parentLabel: string,
@@ -226,7 +225,7 @@ export async function abandonChild(
 			await controller.cancel({ sessionId: childId });
 			cancelled = true;
 		} catch (cancelError: unknown) {
-			logOf(ctx).warn("dsh-project-context: handoff could not cancel the abandoned child: %s", cancelError instanceof Error ? cancelError.message : String(cancelError));
+			host.log.warn("dsh-project-context: handoff could not cancel the abandoned child: %s", cancelError instanceof Error ? cancelError.message : String(cancelError));
 		}
 	}
 	if (controller.rename) {
@@ -240,12 +239,12 @@ export async function abandonChild(
 	// A genuine failure, and a child that may still be running, stay visible so the user can see it.
 	// Archiving only hides (it does not delete), and the client can undo it via unarchiveSession.
 	if (!deferred || !cancelled) return;
-	const registry = workspaceRegistryOf(ctx);
+	const registry = workspaceRegistryOf(host.services);
 	if (registry?.archiveSession === undefined) return;
 	try {
 		await registry.archiveSession(childId);
 	} catch (archiveError: unknown) {
-		logOf(ctx).warn("dsh-project-context: handoff could not archive the abandoned child: %s", archiveError instanceof Error ? archiveError.message : String(archiveError));
+		host.log.warn("dsh-project-context: handoff could not archive the abandoned child: %s", archiveError instanceof Error ? archiveError.message : String(archiveError));
 	}
 }
 
@@ -260,36 +259,36 @@ export async function abandonChild(
  * workspace position all survive, and the client can undo it.
  *
  * Failures are logged, never thrown: the handoff itself already succeeded.
- * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param host - the ports carrying the optional workspace registry service.
  * @param session - the session that was handed off.
  */
-async function retireSession(ctx: Context, session: Session): Promise<void> {
-	const registry = workspaceRegistryOf(ctx);
+async function retireSession(host: HostPorts, session: Session): Promise<void> {
+	const registry = workspaceRegistryOf(host.services);
 	if (registry?.archiveSession === undefined) return;
 	try {
 		await registry.archiveSession(String(session.id), { stopActivity: true });
-		logOf(ctx).info("dsh-project-context: retired the handed-off session %s (archived; unarchive it in the client to bring it back)", String(session.id));
+		host.log.info("dsh-project-context: retired the handed-off session %s (archived; unarchive it in the client to bring it back)", String(session.id));
 	} catch (error: unknown) {
-		logOf(ctx).warn("dsh-project-context: could not retire the handed-off session %s: %s", String(session.id), error instanceof Error ? error.message : String(error));
+		host.log.warn("dsh-project-context: could not retire the handed-off session %s: %s", String(session.id), error instanceof Error ? error.message : String(error));
 	}
 }
 
 /**
  * Retire the handed-off session now, or — when its own turn is still open — when that turn ends.
- * @param ctx - plugin context.
+ * @param host - the ports.
  * @param session - the session that was handed off.
  * @param turnOpen - whether the handoff ran inside that session's own open turn (the manual path).
  */
-export function scheduleRetirement(ctx: Context, session: Session, turnOpen: boolean): void {
+export function scheduleRetirement(host: HostPorts, session: Session, turnOpen: boolean): void {
 	if (!turnOpen) {
-		void retireSession(ctx, session);
+		void retireSession(host, session);
 		return;
 	}
 	pendingRetire.add(String(session.id));
 }
 
 /** Consume a scheduled retirement; called on every `turn/end` so a deferred one is not forgotten. */
-export function retireIfPending(ctx: Context, session: Session): void {
+export function retireIfPending(host: HostPorts, session: Session): void {
 	if (!pendingRetire.delete(String(session.id))) return;
-	void retireSession(ctx, session);
+	void retireSession(host, session);
 }

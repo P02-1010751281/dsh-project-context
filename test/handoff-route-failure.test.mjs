@@ -40,6 +40,7 @@ import {
 } from "../lib/project-handoff/route-failure.js";
 import { statusText } from "../lib/project-handoff/command.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
+import { portsOf } from "./host-ports.mjs";
 
 const WINDOW = 200_000;
 const OVER = 199_000;
@@ -88,7 +89,7 @@ function harnessError(message, code) {
 async function gateFor(id, tokens, options = {}) {
 	const occupancy = { value: tokens };
 	const session = fakeSession(id, options);
-	const gate = await resolveHandoffGate(pluginContext(occupancy), session, CONFIG());
+	const gate = await resolveHandoffGate(portsOf(pluginContext(occupancy)), session, CONFIG());
 	assert.notEqual(gate, undefined, "the fixture must be measurable");
 	return { session, gate };
 }
@@ -101,7 +102,7 @@ test("a dead route throws a named failure carrying the route, the harness code a
 		throw adapter;
 	});
 	await assert.rejects(
-		() => resolveHandoffGate(ctx, fakeSession("session-route-throw-001"), CONFIG()),
+		() => resolveHandoffGate(portsOf(ctx), fakeSession("session-route-throw-001"), CONFIG()),
 		(error) => {
 			assert.ok(error instanceof HandoffRouteError, `expected a HandoffRouteError, got ${error?.name}`);
 			assert.deepEqual(error.failure, { provider: "test-provider", model: "test-model", code: "UNKNOWN_MODEL" });
@@ -120,7 +121,7 @@ test("a cancelled read is rethrown as it was: the wrapper must not call a stop a
 		throw abort;
 	});
 	await assert.rejects(
-		() => resolveHandoffGate(ctx, fakeSession("session-route-abort-001"), CONFIG(), controller.signal),
+		() => resolveHandoffGate(portsOf(ctx), fakeSession("session-route-abort-001"), CONFIG(), controller.signal),
 		(error) => {
 			assert.equal(error, abort, "an aborted read is not a route failure");
 			return true;
@@ -185,7 +186,7 @@ test("the /handoff status receipt reports a dead route instead of throwing it", 
 	const dead = pluginContext({ value: UNDER }, async () => {
 		throw harnessError('pi-ai provider "test-provider" has no configured model "test-model"', "UNKNOWN_MODEL");
 	});
-	const receipt = await statusText(dead, session, CONFIG(), signal);
+	const receipt = await statusText(portsOf(dead), session, CONFIG(), signal);
 	assert.match(receipt, /route `test-provider\/test-model` cannot be resolved \(UNKNOWN_MODEL\)/, "the receipt names the pair");
 	assert.match(receipt, /has no configured model/, "and quotes the adapter's message, which the prompt line omits");
 	assert.match(receipt, /automatic handoff cannot run until an available model is selected/);
@@ -194,7 +195,7 @@ test("the /handoff status receipt reports a dead route instead of throwing it", 
 	// Control: the same receipt over a resolvable route answers with the numbers, so the assertion above
 	// cannot be satisfied by a receipt that never renders anything.
 	const live = pluginContext({ value: 120_000 });
-	const healthy = await statusText(live, fakeSession("session-route-receipt-2"), CONFIG(), signal);
+	const healthy = await statusText(portsOf(live), fakeSession("session-route-receipt-2"), CONFIG(), signal);
 	assert.match(healthy, /context 120000\/200000 \(60%\)/);
 	assert.doesNotMatch(healthy, /cannot be resolved/);
 

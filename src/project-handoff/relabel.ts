@@ -30,10 +30,9 @@
  * never how often.
  */
 
-import { type Context } from "../host/contract.js";
+import { type HostPorts } from "../host/contract.js";
 import { sessionTitleOf } from "../host/dsh/services.js";
 import { type Session } from "../host/contract.js";
-import { logOf } from "../host/dsh/log.js";
 import { firstHandoffInput } from "./conversation.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { retitleAfterRename } from "./perform.js";
@@ -67,17 +66,17 @@ export function storedHandoffLabel(title: unknown): string | undefined {
  * Best-effort by construction: a title is a display nicety, so a service that refuses the write (a
  * session that is no longer live, a store that rejects it) is logged and dropped rather than allowed
  * to fail the turn that carried the input. The reads before the write are not wrapped because neither
- * can raise a failure this path introduces: `ctx.get` never throws for an absent service, and folding
+ * can raise a failure this path introduces: `host.services.get` never throws for an absent service, and folding
  * the title is what the host itself does on the very same event.
  *
  * The write itself is deferred past the dispatch envelope (see the module comment). The methods are
  * read once and invoked with their own receiver, because the service resolves `this` when it appends.
- * @param ctx - plugin context; the title service is read undeclared and may be absent.
+ * @param host - the ports; the title service is read undeclared and may be absent.
  * @param session - the session whose `user/message` just landed.
  * @param triggerSeq - that event's seq, which must be the first naming input's own.
  */
-export function relabelHandoffChild(ctx: Context, session: Session, triggerSeq: number): void {
-	const titles = sessionTitleOf(ctx);
+export function relabelHandoffChild(host: HostPorts, session: Session, triggerSeq: number): void {
+	const titles = sessionTitleOf(host.services);
 	if (titles === undefined) return;
 	const { get, rename } = titles;
 	if (get === undefined || rename === undefined) return;
@@ -100,7 +99,7 @@ export function relabelHandoffChild(ctx: Context, session: Session, triggerSeq: 
 			const restore = retitleAfterRename(accepted, label, stored);
 			if (restore !== undefined) rename.call(titles, session, restore);
 		} catch (error: unknown) {
-			logOf(ctx).warn("dsh-project-context: handoff continuation title not updated: %s", error instanceof Error ? error.message : String(error));
+			host.log.warn("dsh-project-context: handoff continuation title not updated: %s", error instanceof Error ? error.message : String(error));
 		}
 	});
 }

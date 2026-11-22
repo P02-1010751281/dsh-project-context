@@ -68,14 +68,21 @@
  *
  * Commands: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]
  */
-import { type Context } from "../host/contract.js";
-import { REPLAY_MARKER, isHandoffContinuationText } from "./language.js";
+import type { Context } from "../host/contract.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
+import { isHandoffContinuationText, REPLAY_MARKER } from "./language.js";
 export declare const name = "project-handoff";
 export declare const inject: string[];
 /** Stable title prefix for the fresh handoff session (the browser half switches on it). */
 export { HANDOFF_TITLE_PREFIX };
 /** Re-exported so the handoff-owned literals stay reachable from one module. */
 export { isHandoffContinuationText, REPLAY_MARKER };
+/** The settings whose value the status receipt threshold resolution reads; the core owns it. */
+export { movesThreshold } from "./start.js";
+/**
+ * Cordis entry: resolve the plugin config and hand the core a façade over this context. This plugin
+ * publishes no settings namespace — the archive entry (`project-context`) owns it.
+ * @param ctx - the plugin context.
+ * @param rawConfig - the raw config the Loader passed.
+ */
 export declare function apply(ctx: Context, rawConfig: unknown): void;
-export declare function movesThreshold(patch: Record<string, unknown> | undefined): boolean;

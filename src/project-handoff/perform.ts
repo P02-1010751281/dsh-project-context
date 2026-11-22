@@ -8,9 +8,8 @@
 
 import path from "node:path";
 import { sessionControllerOf } from "../host/dsh/services.js";
-import { type Context } from "../host/contract.js";
+import { type HostPorts } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
-import { logOf } from "../host/dsh/log.js";
 import { type PluginConfig } from "../shared/config.js";
 import { getProjectRoot, logsDir, memoryDir, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
 import { type HandoffLanguage } from "./language.js";
@@ -125,7 +124,7 @@ export function retitleAfterRename(accepted: unknown, label: string, fallback: s
  *   `/handoff now` runs *inside* a turn, so "a turn is open" cannot mean the user moved on.
  */
 export async function performHandoff(
-	ctx: Context,
+	host: HostPorts,
 	session: Session,
 	config: PluginConfig,
 	reason: "auto" | "manual",
@@ -133,7 +132,7 @@ export async function performHandoff(
 	split?: HandoffSplit,
 	triggerSeq?: number,
 ): Promise<{ childId: string; file: string }> {
-	const controller = sessionControllerOf(ctx);
+	const controller = sessionControllerOf(host.services);
 	if (!controller) throw new Error("the session controller is unavailable in this profile; handoff needs the web/API session runtime");
 	assertSessionSettled(session, triggerSeq);
 
@@ -173,7 +172,7 @@ export async function performHandoff(
 	};
 	const { document, prompt } = handoffArtifacts({ session, config, language, fileOperations: files, archive, pointers, tail, trimmedTail, notice });
 
-	const childId = await createChildSession(ctx, controller, session.header.cwd, session.header.agentPreset);
+	const childId = await createChildSession(host, controller, session.header.cwd, session.header.agentPreset);
 	const parentLabel = String(session.id).replace(/^session-/, "").slice(0, 8);
 	const label = handoffLabel(session, parentLabel);
 
@@ -187,14 +186,14 @@ export async function performHandoff(
 	try {
 		binding = await bindHandoffChild(projectRoot, String(session.id), childId, `${HANDOFF_TITLE_PREFIX}${label}`);
 	} catch (error: unknown) {
-		logOf(ctx).warn("dsh-project-context: handoff could not record the continuation's parent link and task: %s", error instanceof Error ? error.message : String(error));
+		host.log.warn("dsh-project-context: handoff could not record the continuation's parent link and task: %s", error instanceof Error ? error.message : String(error));
 	}
 
 	// The child starts on the deployment defaults: `create` takes neither a model nor a permission
 	// preset. Carry what the user had switched to before any work can be admitted, so the
 	// continuation does not silently drop the model/thinking level or re-ask for every approval.
-	carryPermissionPreset(ctx, childId, session);
-	await carryModelSelection(ctx, controller, childId, session);
+	carryPermissionPreset(host, childId, session);
+	await carryModelSelection(host, controller, childId, session);
 
 	// Admit the seed prompt before publishing the switch marker. The title prefix
 	// IS the browser half's switch signal, so a handoff that fails here would
@@ -211,7 +210,7 @@ export async function performHandoff(
 		promptAttempted = true;
 		// Deliberately not `controller.prompt`: the RPC hardcodes `source.kind = "user"`, which would
 		// hand the seed the person's authority (and their turn count). See `seedChildSession`.
-		seedChildSession(ctx, childId, prompt);
+		seedChildSession(host, childId, prompt);
 		// Reading the parent again closes the same window from the other side: a turn that opened
 		// there while the child was being configured means the user moved on.
 		assertSessionSettled(session, triggerSeq);
@@ -223,7 +222,7 @@ export async function performHandoff(
 		// The binding is ours alone: nothing else has written into the child's directory yet, so it
 		// goes back before the child is abandoned (see `discardHandoffBinding` for the archive guard).
 		await discardHandoffBinding(binding);
-		await abandonChild(ctx, controller, childId, parentLabel, error, promptAttempted);
+		await abandonChild(host, controller, childId, parentLabel, error, promptAttempted);
 		// Stamp the retryable verdict here, where the failing step is known: the child already
 		// existed and its seed was refused, so a transient controller error (a turn still open, a
 		// queue hiccup) has usually left nothing behind that a second `/handoff now` cannot redo.
@@ -246,11 +245,11 @@ export async function performHandoff(
 				} catch (error: unknown) {
 					// Its own message: the service's version *is* stored here, so reporting "not set"
 					// would name the wrong cause. The switch stays lost, which is what this reports.
-					logOf(ctx).warn("dsh-project-context: handoff session title not corrected: %s", error instanceof Error ? error.message : String(error));
+					host.log.warn("dsh-project-context: handoff session title not corrected: %s", error instanceof Error ? error.message : String(error));
 				}
 			}
 		} catch (error: unknown) {
-			logOf(ctx).warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));
+			host.log.warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));
 		}
 	}
 
@@ -259,7 +258,7 @@ export async function performHandoff(
 	// session ("contains event type ... unknown to this harness and not marked
 	// ignorable"), and `Session.append` offers no way to set that marker. The
 	// handoff is durable in HANDOFF.md, the session archive and the index.
-	logOf(ctx).info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
+	host.log.info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
 	handedOff.add(String(session.id));
 	// The receipt belongs to the **child**: after this the parent is retired, and `/handoff status` is
 	// read in the continuation. It is recorded here, after the seed and the document landed, so a
@@ -282,6 +281,6 @@ export async function performHandoff(
 	// hiding it is the retirement's whole job, so the `stopActivity` half has nothing left to serve once
 	// the archive is gone. The cost is the symptom this step exists to fix — the old session sorts above
 	// its continuation — so the switch is documented as a trade, not as a free choice.
-	if (config.handoffRetireReplaced) scheduleRetirement(ctx, session, turnOpenNow(session));
+	if (config.handoffRetireReplaced) scheduleRetirement(host, session, turnOpenNow(session));
 	return { childId, file };
 }

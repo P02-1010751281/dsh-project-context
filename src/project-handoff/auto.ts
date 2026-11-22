@@ -10,9 +10,8 @@
  * numbers; this function adds only the guards, the split and the handoff.
  */
 
-import { type Context } from "../host/contract.js";
+import { type HostPorts, type ServiceHost } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
-import { logOf } from "../host/dsh/log.js";
 import { type PluginConfig } from "../shared/config.js";
 import { CHARS_PER_TOKEN, type HandoffSplit, handoffSplit, pendingQuestion, resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { type GateInputs, decideAutoHandoff } from "./decide.js";
@@ -51,9 +50,9 @@ interface GatheredDecisionInputs {
  * open, a message that lands inside the await changes the outcome. No test can see that difference, so
  * it has to be preserved by construction rather than by a pinned case.
  */
-async function gatherDecisionInputs(ctx: Context, session: Session, config: PluginConfig, gate: ResolvedHandoffGate): Promise<GatheredDecisionInputs> {
+async function gatherDecisionInputs(host: ServiceHost, session: Session, config: PluginConfig, gate: ResolvedHandoffGate): Promise<GatheredDecisionInputs> {
 	const question = pendingQuestion(session);
-	const subagents = await pendingSubagentWork(ctx, session);
+	const subagents = await pendingSubagentWork(host, session);
 	const split = handoffSplit(session, Math.round(config.handoffBudgetRecentTokens * CHARS_PER_TOKEN));
 	return {
 		split,
@@ -87,25 +86,25 @@ async function gatherDecisionInputs(ctx: Context, session: Session, config: Plug
  * concludes what it used to; but "no observable effect" would be too strong a claim, because the read
  * *order* against the await is observable (§`gatherDecisionInputs`) and the extra reads are a real,
  * accepted cost. See §7 of the spec for the residual.
- * @param ctx - plugin context, for the meter, the projections and the subagent registry.
+ * @param host - the ports, for the meter, the projections and the subagent registry.
  * @param session - the session to measure.
  * @param config - effective plugin config.
  * @param triggerSeq - the `turn/end` that caused this attempt, carried into the handoff.
  * @returns nothing; the outcome is a handoff, a recorded deferral or a recorded skip.
  */
-export async function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void> {
+export async function maybeAutoHandoff(host: HostPorts, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void> {
 	const key = String(session.id);
 	const now = Date.now();
 
 	// One resolution, shared with the injected pressure line (`gate.ts`), so the number the user reads
 	// is the number this decision used.
-	const gate = await resolveHandoffGate(ctx, session, config);
+	const gate = await resolveHandoffGate(host, session, config);
 	if (!gate) return;
 	// The language is resolved here, once, and frozen with the crossing: the context provider must not
 	// re-derive it per assembly (see `display.ts`).
 	recordHandoffGate(session, gate, resolveHandoffLanguage(sessionLanguageMessages(session), config));
 
-	const { inputs, split, subagents } = await gatherDecisionInputs(ctx, session, config, gate);
+	const { inputs, split, subagents } = await gatherDecisionInputs(host, session, config, gate);
 	const decision = decideAutoHandoff(inputs, config);
 
 	switch (decision.kind) {
@@ -117,9 +116,9 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 		case "defer":
 			recordHandoffDeferral(key, decision.reason);
 			if (decision.reason === "question") {
-				logOf(ctx).info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
+				host.log.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
 			} else {
-				logOf(ctx).info("dsh-project-context: handoff deferred — %d background subagent(s) still running", subagents.length);
+				host.log.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", subagents.length);
 			}
 			return;
 		case "skip":
@@ -130,13 +129,13 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 			if (!skippedSince.has(key)) skippedSince.set(key, now);
 			if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 				skippedLoggedAt.set(key, now);
-				logOf(ctx).info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to drop");
+				host.log.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to drop");
 			}
 			return;
 		case "handoff":
 			// This idle found something to drop, so any earlier skip no longer describes the session.
 			skippedSince.delete(key);
-			await performHandoff(ctx, session, config, "auto", undefined, split, triggerSeq);
+			await performHandoff(host, session, config, "auto", undefined, split, triggerSeq);
 			return;
 	}
 	assertNever(decision);

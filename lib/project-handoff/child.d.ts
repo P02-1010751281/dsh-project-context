@@ -4,7 +4,7 @@
  * handoff is abandoned. Every step fails open — a child that already exists must not be
  * failed by configuration that could not be carried.
  */
-import { type Context } from "../host/contract.js";
+import { type HostPorts, type ServiceHost } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 import { type SessionControllerLike } from "./runtime.js";
 /**
@@ -24,7 +24,7 @@ import { type SessionControllerLike } from "./runtime.js";
  * parent link, and pi's ever-deepening handoff tree (its 8a2e6e4 flattens a chain
  * that grew one level per handoff in the selector) has no dsh counterpart. The
  * workstream stays reachable through the handoff prompt, `HANDOFF.md` and the index.
- * @param ctx - plugin context carrying the optional workspace registry service.
+ * @param host - the ports carrying the optional workspace registry service.
  * @param controller - the session controller that creates the child.
  * @param cwd - the parent session's cwd, when it has one.
  * @param agentPreset - the parent's agent preset, when dsh composed this session
@@ -32,7 +32,7 @@ import { type SessionControllerLike } from "./runtime.js";
  *   would resume the work under the deployment default instead.
  * @returns the created child session id.
  */
-export declare function createChildSession(ctx: Context, controller: SessionControllerLike, cwd: string | undefined, agentPreset?: string): Promise<string>;
+export declare function createChildSession(host: HostPorts, controller: SessionControllerLike, cwd: string | undefined, agentPreset?: string): Promise<string>;
 /**
  * Carry the parent's permission preset into the continuation. `SessionCreateRequest` has no
  * permission field either, so the child otherwise starts on the deployment/user default: a parent
@@ -45,21 +45,21 @@ export declare function createChildSession(ctx: Context, controller: SessionCont
  * before it returns, so the child is reachable here. Fail-open in every direction: no service, a
  * child that is not resident, a derived `custom` combination (which the service refuses as a switch
  * target), or a rejected switch must never fail a handoff whose child already exists.
- * @param ctx - plugin context, for the optional services and the warning log.
+ * @param host - the ports, for the optional services and the warning log.
  * @param childId - the child session to configure.
  * @param session - the parent session being handed off.
  */
-export declare function carryPermissionPreset(ctx: Context, childId: string, session: Session): void;
+export declare function carryPermissionPreset(host: HostPorts, childId: string, session: Session): void;
 /**
  * Apply {@link parentModelSelection} to the freshly created child. Fail-open in every direction: a
  * runtime without `selectModel`, a parent that never routed a request, or a rejected selection must
  * never fail a handoff whose child already exists.
- * @param ctx - plugin context, for the warning log.
+ * @param host - the ports, for the warning log.
  * @param controller - the session controller that owns the child.
  * @param childId - the child session to configure.
  * @param session - the parent session being handed off.
  */
-export declare function carryModelSelection(ctx: Context, controller: SessionControllerLike, childId: string, session: Session): Promise<void>;
+export declare function carryModelSelection(host: HostPorts, controller: SessionControllerLike, childId: string, session: Session): Promise<void>;
 /**
  * Admit the continuation prompt to the freshly created child.
  *
@@ -81,11 +81,11 @@ export declare function carryModelSelection(ctx: Context, controller: SessionCon
  * The registry is read directly with no fallback to the RPC: falling back would silently reinstate
  * exactly the human authority this exists to remove, so a child that is not resident fails the
  * handoff loudly instead.
- * @param ctx - plugin context carrying the host's live `agents` registry.
+ * @param host - the ports carrying the host's live `agents` registry.
  * @param childId - the child session that receives the seed.
  * @param prompt - the continuation prompt.
  */
-export declare function seedChildSession(ctx: Context, childId: string, prompt: string): void;
+export declare function seedChildSession(host: ServiceHost, childId: string, prompt: string): void;
 /**
  * Undo a child whose handoff was abandoned. The child is already published and dsh has no delete
  * RPC, so the visible facts are reversed instead: a possibly admitted seed is cancelled, the switch
@@ -93,7 +93,7 @@ export declare function seedChildSession(ctx: Context, childId: string, prompt: 
  * the workspace list. Every step is best effort, but the *decision to hide* a child is not: a child
  * whose seed could not be cancelled keeps running a duplicate continuation, so it stays visible
  * instead of being quietly archived. Cancelling an unseeded child is a no-op, so it is always tried.
- * @param ctx - plugin context, for the optional registry and the warning log.
+ * @param host - the ports, for the optional registry and the warning log.
  * @param controller - the session controller that owns the child.
  * @param childId - the abandoned child.
  * @param parentLabel - the parent's short label, for the title.
@@ -101,13 +101,13 @@ export declare function seedChildSession(ctx: Context, childId: string, prompt: 
  * @param promptAttempted - whether the seed prompt was already sent (it can be admitted before the
  *   call rejects, so a rejection is not proof that the child is idle).
  */
-export declare function abandonChild(ctx: Context, controller: SessionControllerLike, childId: string, parentLabel: string, error: unknown, promptAttempted: boolean): Promise<void>;
+export declare function abandonChild(host: HostPorts, controller: SessionControllerLike, childId: string, parentLabel: string, error: unknown, promptAttempted: boolean): Promise<void>;
 /**
  * Retire the handed-off session now, or — when its own turn is still open — when that turn ends.
- * @param ctx - plugin context.
+ * @param host - the ports.
  * @param session - the session that was handed off.
  * @param turnOpen - whether the handoff ran inside that session's own open turn (the manual path).
  */
-export declare function scheduleRetirement(ctx: Context, session: Session, turnOpen: boolean): void;
+export declare function scheduleRetirement(host: HostPorts, session: Session, turnOpen: boolean): void;
 /** Consume a scheduled retirement; called on every `turn/end` so a deferred one is not forgotten. */
-export declare function retireIfPending(ctx: Context, session: Session): void;
+export declare function retireIfPending(host: HostPorts, session: Session): void;

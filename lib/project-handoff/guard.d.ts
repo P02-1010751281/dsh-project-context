@@ -3,7 +3,7 @@
  * while the handoff was being prepared both mean two sessions would work the same project
  * at once (the 2026-09-17 incident); both are read here.
  */
-import { type Context } from "../host/contract.js";
+import { type ServiceHost } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 /**
  * The event-log **fallback** for {@link runningContinuableChildren}: this session's continuable
@@ -40,7 +40,7 @@ export declare function turnStartedAfter(session: Session, seq: number): boolean
  * open" left its retirement waiting for a `turn/end` that could never arrive, and nothing recorded
  * the loss. This reads the last turn boundary in the log instead of the caller's identity.
  *
- * Deliberately log-based rather than `ctx.agents.turnBoundaryOf()`, whose `openTurnStartSeq` answers
+ * Deliberately log-based rather than the host context's `agents.turnBoundaryOf()`, whose `openTurnStartSeq` answers
  * the same question off the same events. Two reasons, both about this predicate being the one that
  * runs: the projection would make the *fallback* the path every retirement fixture exercises — the
  * green-suite-covers-the-wrong-branch trap this repo has already been bitten by — and a host-side
@@ -59,8 +59,8 @@ export declare function assertSessionSettled(session: Session, triggerSeq: numbe
  * the event log otherwise. One function owns that fallback because two callers act on it — the
  * automatic path defers, the manual path refuses — and a private copy in either would let one of
  * them read a different answer than the other.
- * @param ctx - plugin context, for the optional `subagents` lookup.
+ * @param host - the service lookup, for the optional `subagents` lookup.
  * @param session - the session about to be handed off.
  * @returns the outstanding child session ids.
  */
-export declare function pendingSubagentWork(ctx: Context, session: Session): Promise<string[]>;
+export declare function pendingSubagentWork(host: ServiceHost, session: Session): Promise<string[]>;

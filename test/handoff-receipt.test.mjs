@@ -32,6 +32,7 @@ import { countFileIndex, seedReceiptLine } from "../lib/project-handoff/receipt.
 import { handoffReceipts } from "../lib/project-handoff/state.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { sessionViews } from "./session-views.mjs";
+import { portsOf } from "./host-ports.mjs";
 
 const PARENT = "session-receipt-parent-1";
 const CHILD = "session-receipt-child-1";
@@ -97,7 +98,7 @@ async function handoff(root, messages, config, options = {}) {
 	const ctx = fakeHost(state);
 	const session = parentSession(root, messages);
 	const split = options.split ?? handoffSplit(session, options.keep ?? 0);
-	await performHandoff(ctx, session, config, "manual", undefined, split);
+	await performHandoff(portsOf(ctx), session, config, "manual", undefined, split);
 	return { state, session, ctx };
 }
 
@@ -180,10 +181,10 @@ test("a real handoff records the seed for the continuation, and `/handoff status
 	assert.equal(handoffReceipts.get(childId)?.files, 2, "one read and one write are two index entries");
 	assert.equal(handoffReceipts.get(childId)?.question, "deferred");
 
-	const receipt = await statusText(fakeHost({ seeded: 0 }), childSession(root, childId), CONFIG(), new AbortController().signal);
+	const receipt = await statusText(portsOf(fakeHost({ seeded: 0 })), childSession(root, childId), CONFIG(), new AbortController().signal);
 	assert.match(receipt, /seed: tail 0 message\(s\), 2 file\(s\), question deferred/);
 	// The parent that was replaced must not inherit the child's numbers.
-	const parent = await statusText(fakeHost({ seeded: 0 }), session, CONFIG(), new AbortController().signal);
+	const parent = await statusText(portsOf(fakeHost({ seeded: 0 })), session, CONFIG(), new AbortController().signal);
 	assert.match(parent, /already handed off in this process/);
 	assert.doesNotMatch(parent, /seed: /, "the receipt is the child's, not the parent's");
 });
@@ -196,7 +197,7 @@ test("a carried tail reports the count the split used, not a re-count of the ren
 	const childId = "session-receipt-child-tail";
 	await handoff(root, messages, CONFIG({ handoffBudgetRecentTokens: 20_000 }), { keep: 1, childId });
 	assert.equal(handoffReceipts.get(childId)?.tailMessages, 1);
-	const receipt = await statusText(fakeHost({ seeded: 0 }), childSession(root, childId), CONFIG({ handoffBudgetRecentTokens: 20_000 }), new AbortController().signal);
+	const receipt = await statusText(portsOf(fakeHost({ seeded: 0 })), childSession(root, childId), CONFIG({ handoffBudgetRecentTokens: 20_000 }), new AbortController().signal);
 	assert.match(receipt, /seed: tail 1 message\(s\)/);
 });
 
@@ -204,7 +205,7 @@ test("the receipt is rendered in the session's own language", async () => {
 	const root = await tempRoot();
 	const childId = "session-receipt-child-zh";
 	await handoff(root, [userMessage("把 release 收尾"), QUESTION], CONFIG({ handoffLang: "zh" }), { childId });
-	const receipt = await statusText(fakeHost({ seeded: 0 }), childSession(root, childId), CONFIG({ handoffLang: "zh" }), new AbortController().signal);
+	const receipt = await statusText(portsOf(fakeHost({ seeded: 0 })), childSession(root, childId), CONFIG({ handoffLang: "zh" }), new AbortController().signal);
 	assert.match(receipt, /种子：尾料 0 条消息、文件 0 个、问题处置 待答/);
 });
 
@@ -255,9 +256,9 @@ test("a pending question under `defer` defers the handoff and records no seed", 
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "defer", handoffBudgetRecentTokens: 20_000 });
 	// A deferral is a silent *skip*, not a rejected promise: the trigger records why and returns, so the
 	// assertion is about the metric that matters — no receipt, and no `seed:` line to read as a handoff.
-	await maybeAutoHandoff(ctx, session, config, 1);
+	await maybeAutoHandoff(portsOf(ctx), session, config, 1);
 	assert.equal(handoffReceipts.size, before, "a deferral writes no receipt");
-	const receipt = await statusText(ctx, session, config, new AbortController().signal);
+	const receipt = await statusText(portsOf(ctx), session, config, new AbortController().signal);
 	assert.doesNotMatch(receipt, /seed: /, "and the session still reads as un-handed-off");
 });
 
@@ -267,7 +268,7 @@ test("a transient failure abandons the attempt and records no seed", async () =>
 	const ctx = fakeHost(state);
 	const session = parentSession(root, [userMessage("把 release 收尾"), assistantMessage("好")]);
 	const before = handoffReceipts.size;
-	const reply = await runManual(ctx, session, CONFIG(), new AbortController().signal);
+	const reply = await runManual(portsOf(ctx), session, CONFIG(), new AbortController().signal);
 	assert.equal(reply.kind, "error", "the attempt is reported as a failure");
 	assert.match(reply.text, /safe to retry/, "a transient cause is named as transient");
 	assert.equal(handoffReceipts.size, before, "a failed attempt leaves no receipt behind");
@@ -280,7 +281,7 @@ test("a manual handoff computes its own split and still states the dropped count
 	const state = { seeded: 0, seed: undefined };
 	const ctx = fakeHost(state);
 	const session = parentSession(root, [userMessage("第一步"), userMessage("第二步")]);
-	const reply = await runManual(ctx, session, CONFIG({ handoffBudgetRecentTokens: 0 }), new AbortController().signal);
+	const reply = await runManual(portsOf(ctx), session, CONFIG({ handoffBudgetRecentTokens: 0 }), new AbortController().signal);
 	assert.equal(reply.kind, "success");
 	const text = state.seed.content.map((block) => block.text ?? "").join("");
 	assert.match(text, /The earlier 2 message\(s\) are \*\*not\*\* in this session/);
@@ -292,7 +293,7 @@ test("the receipt lives and dies with the process, exactly like the handed-off m
 	// Documented lifetime: process memory keyed by the child, nothing persisted. A fresh id simply has
 	// no entry, which is how a restarted host (and any other session) reads.
 	assert.equal(handoffReceipts.get("session-never-seeded"), undefined);
-	const receipt = await statusText(fakeHost({ seeded: 0 }), childSession(process.cwd(), "session-never-seeded"), CONFIG(), new AbortController().signal);
+	const receipt = await statusText(portsOf(fakeHost({ seeded: 0 })), childSession(process.cwd(), "session-never-seeded"), CONFIG(), new AbortController().signal);
 	assert.doesNotMatch(receipt, /seed: /);
 	assert.match(receipt, /Auto handoff ON/, "the rest of the receipt is unaffected");
 });

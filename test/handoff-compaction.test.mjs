@@ -24,6 +24,7 @@ import { compactionStatusLine, foldCompactions } from "../lib/project-handoff/co
 import { readCompactionFeed } from "../lib/project-handoff/compaction-events.js";
 import { statusText } from "../lib/project-handoff/command.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
+import { portsOf } from "./host-ports.mjs";
 
 const feed = (...records) => ({ kind: "records", records });
 const line = (records, language = "en") => compactionStatusLine(feed(...records), language);
@@ -188,7 +189,7 @@ test("the status receipt reports the compaction history next to the occupancy", 
 	const signal = new AbortController().signal;
 	const session = fakeSession("session-compaction-receipt-1", dshEvents);
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffLang: "en", handoffBudgetRecentTokens: 0 });
-	const receipt = await statusText(pluginContext({ occupancy: 900_000 }), session, config, signal);
+	const receipt = await statusText(portsOf(pluginContext({ occupancy: 900_000 })), session, config, signal);
 	const parts = receipt.split(" · ");
 	const context = parts.findIndex((part) => part.startsWith("context "));
 	const compactions = parts.findIndex((part) => part.startsWith("compactions "));
@@ -200,7 +201,7 @@ test("the line still renders when there is no route or meter to measure — that
 	const signal = new AbortController().signal;
 	const session = fakeSession("session-compaction-receipt-2", [{ type: "compaction/prune", data: { shadowedRange: { start: 3, end: 3 }, shadowedSeqs: [3], shadowedTokenCount: 750 } }]);
 	const config = resolvePluginConfig({ handoffLang: "en", handoffBudgetRecentTokens: 0 });
-	const receipt = await statusText(pluginContext({ occupancy: 0, meter: false }), session, config, signal);
+	const receipt = await statusText(portsOf(pluginContext({ occupancy: 0, meter: false })), session, config, signal);
 	assert.ok(!receipt.includes("context "), "the fixture must not have a context line");
 	assert.match(receipt, /compactions 1 \(summarized 0, pruned 1\), last shadowed 750 tokens/);
 });

@@ -2,7 +2,7 @@
  * The `/handoff` surface: argument parsing, the `/handoff status` receipt and the manual
  * handoff the bare command and `now` share.
  */
-import { type Context } from "../host/contract.js";
+import { type HostPorts, type ServiceHost } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { parseTokenCount } from "../shared/threshold-spec.js";
@@ -24,7 +24,7 @@ export declare function settingPatch(args: string): {
 } | undefined;
 export declare const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|<tokens>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
 /** Persist one settings patch through the mounted settings service. */
-export declare function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined>;
+export declare function writeSetting(host: ServiceHost, patch: Record<string, unknown>): Promise<string | undefined>;
 /** Human-readable handoff state for the current session. */
 /**
  * The `/handoff status` receipt. Exported so a test can read the skip report without going through
@@ -36,14 +36,14 @@ export declare function writeSetting(ctx: Context, patch: Record<string, unknown
  * set — a fresh misattribution in the place a misattribution is least tolerable. `/handoff status`
  * passes nothing and reports exactly what is in force.
  */
-export declare function statusText(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal, 
+export declare function statusText(host: HostPorts, session: Session, entry: PluginConfig, signal: AbortSignal, 
 /** The raw patch a just-completed write will put in force — stored spellings, not resolved values. */
 pending?: Partial<Record<keyof PluginConfig, unknown>>): Promise<string>;
 /**
  * Manual handoff shared by the bare command and `now`. Exported so a test can drive the whole reply
  * path (an empty span must come back as an error reply, not as a fabricated child).
  */
-export declare function runManual(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<{
+export declare function runManual(host: HostPorts, session: Session, entry: PluginConfig, signal: AbortSignal): Promise<{
     kind: "error";
     text: string;
 } | {

@@ -1,7 +1,7 @@
 /**
  * The one failure the automatic trigger can hit that repeats forever without saying anything.
  *
- * `resolveHandoffGate` reads the routed window through `llmOf(ctx).resolveModelInfo`, and that read
+ * `resolveHandoffGate` reads the routed window through `host.llm.resolveModelInfo`, and that read
  * throws when the session's provider/model pair is not resolvable in this profile — the state a
  * mid-session model switch leaves behind, because `resolveTarget` falls back to the session's *stored*
  * request header and nothing rewrites it. Until this module existed the whole consequence was one

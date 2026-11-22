@@ -39,6 +39,7 @@ import { isHandoffContinuationText, SCAFFOLDING } from "../lib/project-handoff/l
 import { HANDOFF_TITLE_PREFIX } from "../lib/project-handoff/marker.js";
 import { relabelHandoffChild, storedHandoffLabel } from "../lib/project-handoff/relabel.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
+import { portsOf } from "./host-ports.mjs";
 
 const P = "↪ handoff · ";
 /** A legacy seed banner: written by the prompt RPC, which hardcoded `source.kind = "user"`. */
@@ -132,7 +133,7 @@ test("an input the label may not be read from leaves the title alone, and a visi
 	assert.deepEqual(label([userEvent(10, "真的 \u200B 有字")]), { seq: 10, label: "真的 \u200B 有字" }, "a label is not stripped, only judged");
 
 	const titles = fakeTitles(`${P}a099c90d`);
-	relabelHandoffChild(fakeContext(titles), fakeSession([userEvent(8, "\u200B \u200B")]), 8);
+	relabelHandoffChild(portsOf(fakeContext(titles)), fakeSession([userEvent(8, "\u200B \u200B")]), 8);
 	await flush();
 	assert.deepEqual(titles.calls, [], "nothing names it, so nothing is written");
 });
@@ -148,7 +149,7 @@ test("a legacy kind=user seed banner does not name the continuation", async () =
 	assert.deepEqual(firstHandoffInput(fakeSession([userEvent(11, BANNER), userEvent(12, "按档 5 动手")])), { seq: 12, label: "按档 5 动手" });
 
 	const titles = fakeTitles(`${P}a099c90d`);
-	relabelHandoffChild(fakeContext(titles), fakeSession([userEvent(11, BANNER)]), 11);
+	relabelHandoffChild(portsOf(fakeContext(titles)), fakeSession([userEvent(11, BANNER)]), 11);
 	await flush();
 	assert.deepEqual(titles.calls, [], "a banner-only continuation keeps the title it was given");
 });
@@ -164,15 +165,15 @@ test("a title that is not a continuation's is never overwritten", async () => {
 	const child = () => fakeSession([userEvent(13, "按档 5 动手")]);
 	// Positive control first: the same input on a title this plugin wrote is renamed.
 	const mine = fakeTitles(`${P}a099c90d`);
-	relabelHandoffChild(fakeContext(mine), child(), 13);
+	relabelHandoffChild(portsOf(fakeContext(mine)), child(), 13);
 	await flush();
 	assert.deepEqual(mine.calls, [`${P}按档 5 动手`]);
 	const renamed = fakeTitles("用户自己起的名字");
-	relabelHandoffChild(fakeContext(renamed), child(), 13);
+	relabelHandoffChild(portsOf(fakeContext(renamed)), child(), 13);
 	await flush();
 	assert.deepEqual(renamed.calls, [], "a user's own rename wins");
 	const untitled = fakeTitles(undefined);
-	relabelHandoffChild(fakeContext(untitled), child(), 13);
+	relabelHandoffChild(portsOf(fakeContext(untitled)), child(), 13);
 	await flush();
 	assert.deepEqual(untitled.calls, [], "a title that has not landed yet is left for a later event");
 });
@@ -186,25 +187,25 @@ test("the write fires once per continuation, whatever the service stores", async
 	const strip = (title) => title.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/gu, "").replace(/\s+/gu, " ").trim();
 	const titles = fakeTitles(`${P}a099c90d`, strip);
 	const child = fakeSession([userEvent(2, "abc\u0001def"), userEvent(9, "后来的话")]);
-	relabelHandoffChild(fakeContext(titles), child, 2);
+	relabelHandoffChild(portsOf(fakeContext(titles)), child, 2);
 	await flush();
 	assert.deepEqual(titles.calls, [`${P}abc\u0001def`]);
 	assert.equal(titles.get().title, `${P}abcdef`, "the fixture really does model a service that rewrites the label");
-	relabelHandoffChild(fakeContext(titles), child, 9);
+	relabelHandoffChild(portsOf(fakeContext(titles)), child, 9);
 	await flush();
 	assert.deepEqual(titles.calls, [`${P}abc\u0001def`], "a later input does not write a second title");
 	// "Once" is the trigger's doing, not the comparison's: a handler that ran again for the *same*
 	// seq would write again, because the stored title legitimately differs from what was asked for.
 	// The host delivers each event once, and this is why the guard below is the seq rather than the
 	// stored text — the title can never reach a fixed point with a service that rewrites it.
-	relabelHandoffChild(fakeContext(titles), child, 2);
+	relabelHandoffChild(portsOf(fakeContext(titles)), child, 2);
 	await flush();
 	assert.equal(titles.calls.length, 2, "the same seq re-run writes again; the seq gate is what makes that unreachable in the host");
 
 	// The trigger is an equality, not "at or after": a seq that is not the first naming input's is
 	// refused even when it is smaller, so nothing here depends on the order events arrive in.
 	const early = fakeTitles(`${P}a099c90d`);
-	relabelHandoffChild(fakeContext(early), child, 1);
+	relabelHandoffChild(portsOf(fakeContext(early)), child, 1);
 	await flush();
 	assert.deepEqual(early.calls, [], "a seq that is not the first naming input's writes nothing");
 });
@@ -216,7 +217,7 @@ test("a label the service strips restores the title the continuation already had
 	// the same backstop the handoff's own write carries, with the title this session already had.
 	const titles = fakeTitles(`${P}a099c90d`, () => P.trimEnd());
 	const warnings = [];
-	relabelHandoffChild(fakeContext(titles, warnings), fakeSession([userEvent(3, "\u001B[31m")]), 3);
+	relabelHandoffChild(portsOf(fakeContext(titles, warnings)), fakeSession([userEvent(3, "\u001B[31m")]), 3);
 	await flush();
 	assert.deepEqual(titles.calls, [`${P}\u001B[31m`, `${P}a099c90d`]);
 	assert.deepEqual(warnings, [], "the restore is not a failure and must not be reported as one");
@@ -232,7 +233,7 @@ test("a refusing title service is logged, not thrown", async () => {
 			throw new Error('session "session-child-1" is not live in this store');
 		},
 	};
-	assert.doesNotThrow(() => relabelHandoffChild(fakeContext(titles, warnings), fakeSession([userEvent(13, "按档 5 动手")]), 13));
+	assert.doesNotThrow(() => relabelHandoffChild(portsOf(fakeContext(titles, warnings)), fakeSession([userEvent(13, "按档 5 动手")]), 13));
 	await flush();
 	assert.equal(warnings.length, 1);
 	assert.match(warnings[0], /not live/);
@@ -349,7 +350,7 @@ test("the write leaves the dispatch envelope, because `rename` appends", async (
 	const child = handoffChild(ctx, "deferred-write");
 	ctx.on("session/event", (observed, event) => {
 		if (observed !== child || event.type !== "user/message" || event.data.source.kind !== "user") return;
-		relabelHandoffChild(ctx, observed, event.seq);
+		relabelHandoffChild(portsOf(ctx), observed, event.seq);
 	});
 	child.append("user/message", humanMessage("deferred-human", "按档 5 动手"), { surfaceOp: "append" });
 	assert.deepEqual(titlesOf(child), [`${HANDOFF_TITLE_PREFIX}9f80b44`], "nothing is written while the envelope is open");

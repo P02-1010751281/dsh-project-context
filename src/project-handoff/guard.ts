@@ -4,7 +4,7 @@
  * at once (the 2026-09-17 incident); both are read here.
  */
 
-import { type Context } from "../host/contract.js";
+import { type ServiceHost } from "../host/contract.js";
 import { agentsOf, subagentsOf } from "../host/dsh/services.js";
 import { type Session } from "../host/contract.js";
 import { HandoffDeferred } from "./classify.js";
@@ -106,7 +106,7 @@ export function turnStartedAfter(session: Session, seq: number): boolean {
  * open" left its retirement waiting for a `turn/end` that could never arrive, and nothing recorded
  * the loss. This reads the last turn boundary in the log instead of the caller's identity.
  *
- * Deliberately log-based rather than `ctx.agents.turnBoundaryOf()`, whose `openTurnStartSeq` answers
+ * Deliberately log-based rather than the host context's `agents.turnBoundaryOf()`, whose `openTurnStartSeq` answers
  * the same question off the same events. Two reasons, both about this predicate being the one that
  * runs: the projection would make the *fallback* the path every retirement fixture exercises — the
  * green-suite-covers-the-wrong-branch trap this repo has already been bitten by — and a host-side
@@ -157,13 +157,13 @@ export function assertSessionSettled(session: Session, triggerSeq: number | unde
  * replaced `listChildren`'s classified row with the bare catalog row; the bare row keeps `mode`, but
  * a guard that insisted on `kind` answered `[]` — an answer the caller's `??` accepts — and the
  * live-registry half of this guard went silent for two releases.)
- * @param ctx - plugin context, for the optional `subagents` and `agents` lookups.
+ * @param host - the service lookup, for the optional `subagents` and `agents` lookups.
  * @param session - the session about to be handed off.
  * @returns the running continuable child ids, or `undefined` when the log must be consulted.
  */
-async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
-	const service = subagentsOf(ctx);
-	const agents = agentsOf(ctx);
+async function runningContinuableChildren(host: ServiceHost, session: Session): Promise<string[] | undefined> {
+	const service = subagentsOf(host.services);
+	const agents = agentsOf(host.services);
 	// Without the live registry there is no way to tell a working child from a resident one, and the
 	// residency proxy must not stand in for it: read the log instead.
 	if (service === undefined || typeof service.listChildren !== "function") return undefined;
@@ -191,10 +191,10 @@ async function runningContinuableChildren(ctx: Context, session: Session): Promi
  * the event log otherwise. One function owns that fallback because two callers act on it — the
  * automatic path defers, the manual path refuses — and a private copy in either would let one of
  * them read a different answer than the other.
- * @param ctx - plugin context, for the optional `subagents` lookup.
+ * @param host - the service lookup, for the optional `subagents` lookup.
  * @param session - the session about to be handed off.
  * @returns the outstanding child session ids.
  */
-export async function pendingSubagentWork(ctx: Context, session: Session): Promise<string[]> {
-	return await runningContinuableChildren(ctx, session) ?? outstandingSubagents(ownEventsOf(session), Date.now());
+export async function pendingSubagentWork(host: ServiceHost, session: Session): Promise<string[]> {
+	return await runningContinuableChildren(host, session) ?? outstandingSubagents(ownEventsOf(session), Date.now());
 }

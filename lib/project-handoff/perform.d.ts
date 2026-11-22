@@ -5,7 +5,7 @@
  * binding and the seed happen before the marker, and the document is written last, so an abandoned
  * attempt leaves nothing behind in the project (the binding is taken back, see `binding.ts`).
  */
-import { type Context } from "../host/contract.js";
+import { type HostPorts } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type HandoffLanguage } from "./language.js";
@@ -88,7 +88,7 @@ export declare function retitleAfterRename(accepted: unknown, label: string, fal
  *   (never performed) once this session has started a turn after it. Absent on the manual path:
  *   `/handoff now` runs *inside* a turn, so "a turn is open" cannot mean the user moved on.
  */
-export declare function performHandoff(ctx: Context, session: Session, config: PluginConfig, reason: "auto" | "manual", signal: AbortSignal | undefined, split?: HandoffSplit, triggerSeq?: number): Promise<{
+export declare function performHandoff(host: HostPorts, session: Session, config: PluginConfig, reason: "auto" | "manual", signal: AbortSignal | undefined, split?: HandoffSplit, triggerSeq?: number): Promise<{
     childId: string;
     file: string;
 }>;

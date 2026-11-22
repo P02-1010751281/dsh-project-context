@@ -1020,7 +1020,7 @@ test("the handoff child is created inside the parent's workspace", async () => {
 	const requests = [];
 	const { ctx } = handoffContext({ resolveByPath: async (cwd) => (cwd === "/project" ? { id: "ws-1" } : undefined) });
 
-	const childId = await createChildSession(ctx, recordingController(requests), "/project");
+	const childId = await createChildSession(portsOf(ctx), recordingController(requests), "/project");
 
 	assert.equal(childId, "session-child");
 	assert.deepEqual(requests, [{ workspaceId: "ws-1" }], "workspaceId replaces cwd on the wire");
@@ -1030,7 +1030,7 @@ test("the handoff child falls back to the parent cwd outside any workspace", asy
 	const requests = [];
 	const { ctx } = handoffContext({ resolveByPath: async () => undefined });
 
-	await createChildSession(ctx, recordingController(requests), "/elsewhere");
+	await createChildSession(portsOf(ctx), recordingController(requests), "/elsewhere");
 
 	assert.deepEqual(requests, [{ cwd: "/elsewhere" }]);
 });
@@ -1039,10 +1039,10 @@ test("the handoff child survives a missing or failing workspace registry", async
 	const requests = [];
 	const controller = recordingController(requests);
 
-	await createChildSession({ get: () => undefined, logger: { warn() {} } }, controller, "/project");
+	await createChildSession(portsOf({ get: () => undefined, logger: { warn() {} } }), controller, "/project");
 	const { ctx, warnings } = handoffContext({ resolveByPath: async () => { throw new Error("lookup exploded"); } });
-	await createChildSession(ctx, controller, "/project");
-	await createChildSession(ctx, controller, undefined);
+	await createChildSession(portsOf(ctx), controller, "/project");
+	await createChildSession(portsOf(ctx), controller, undefined);
 
 	assert.deepEqual(requests, [{ cwd: "/project" }, { cwd: "/project" }, {}]);
 	assert.equal(warnings.length, 1, "a failing lookup warns without failing the handoff");
@@ -1054,9 +1054,9 @@ test("the handoff child keeps the parent's agent preset", async () => {
 	const requests = [];
 	const { ctx } = handoffContext({ resolveByPath: async () => ({ id: "ws-1" }) });
 
-	await createChildSession(ctx, recordingController(requests), "/project", "anchored-standard");
-	await createChildSession({ get: () => undefined, logger: { warn() {} } }, recordingController(requests), "/project", "anchored-standard");
-	await createChildSession({ get: () => undefined, logger: { warn() {} } }, recordingController(requests), undefined);
+	await createChildSession(portsOf(ctx), recordingController(requests), "/project", "anchored-standard");
+	await createChildSession(portsOf({ get: () => undefined, logger: { warn() {} } }), recordingController(requests), "/project", "anchored-standard");
+	await createChildSession(portsOf({ get: () => undefined, logger: { warn() {} } }), recordingController(requests), undefined);
 
 	assert.deepEqual(requests, [
 		{ workspaceId: "ws-1", agentPreset: "anchored-standard" },
@@ -1075,7 +1075,7 @@ test("the handoff seed carries the plugin's own source kind, never the human one
 	const child = { followup: (message) => delivered.push(message) };
 	const ctx = { get: (name) => (name === "agents" ? { get: (id) => (id === "session-child" ? child : undefined) } : undefined) };
 
-	seedChildSession(ctx, "session-child", "从会话 session-parent 交接。");
+	seedChildSession(portsOf(ctx), "session-child", "从会话 session-parent 交接。");
 
 	assert.equal(delivered.length, 1);
 	assert.equal(delivered[0].source.kind, "dsh-project-context", "the seed must not borrow the human kind");
@@ -1088,7 +1088,7 @@ test("the delivered seed is invisible to the human-turn reader, unlike a real us
 	// simply never counts anything.
 	const delivered = [];
 	const ctx = { get: (name) => (name === "agents" ? { get: () => ({ followup: (message) => delivered.push(message) }) } : undefined) };
-	seedChildSession(ctx, "session-child", "seed text");
+	seedChildSession(portsOf(ctx), "session-child", "seed text");
 	const asSeeded = { snapshotEvents: () => [{ type: "user/message", data: { source: delivered[0].source, content: delivered[0].content } }] };
 	assert.equal(userTurnCount(asSeeded), 0, "a plugin seed is not a human turn");
 	const asHuman = { snapshotEvents: () => [{ type: "user/message", data: { source: { kind: "user" }, content: delivered[0].content } }] };
@@ -1099,12 +1099,12 @@ test("a non-resident handoff child fails the seed loudly instead of falling back
 	// A fallback would silently restore the human-kind source this change removes, so an absent child
 	// must raise. Each case is a different way the registry can fail to answer.
 	const noService = { get: () => undefined };
-	assert.throws(() => seedChildSession(noService, "session-child", "seed"), /not resident/);
+	assert.throws(() => seedChildSession(portsOf(noService), "session-child", "seed"), /not resident/);
 	const emptyRegistry = { get: (name) => (name === "agents" ? { get: () => undefined } : undefined) };
-	assert.throws(() => seedChildSession(emptyRegistry, "session-child", "seed"), /not resident/);
+	assert.throws(() => seedChildSession(portsOf(emptyRegistry), "session-child", "seed"), /not resident/);
 	// An entry that cannot queue a turn (another dsh version's shape) is not a seed target either.
 	const inert = { get: (name) => (name === "agents" ? { get: () => ({}) } : undefined) };
-	assert.throws(() => seedChildSession(inert, "session-child", "seed"), /not resident/);
+	assert.throws(() => seedChildSession(portsOf(inert), "session-child", "seed"), /not resident/);
 });
 
 test("readArchivedConversation streams a file and tolerates a missing one", async () => {
@@ -3579,14 +3579,14 @@ test("the automatic handoff never runs under its trigger, however droppable the 
 	// call is *not* wrapped: this path must return normally, and a throw before `create` would make
 	// `created.length === 0` true for the wrong reason — the silence has to be the gate's, not a crash's.
 	caseId += 1;
-	await maybeAutoHandoff(ctxFor(50_000), session(), config);
+	await maybeAutoHandoff(portsOf(ctxFor(50_000)), session(), config);
 	assert.equal(created.length, 0, "a session under its trigger must not hand off, however much it could drop");
 
 	// Positive control: the same conversation one measurement over the trigger *does* create a child,
 	// so the zero above cannot be a fixture that never hands off at all. The seed then fails (this
 	// fixture has no live agent registry), which is why the call is caught — creation is the proof.
 	caseId += 1;
-	await maybeAutoHandoff(ctxFor(120_000), session(), config).catch(() => undefined);
+	await maybeAutoHandoff(portsOf(ctxFor(120_000)), session(), config).catch(() => undefined);
 	assert.equal(created.length, 1, "the same fixture over the trigger creates a child session");
 	// Negative control: removing `decide.ts`'s below-threshold early return turns the first half into
 	// 1 and leaves the second green — the trigger is the only difference between the two cases.
@@ -3623,14 +3623,14 @@ test("the automatic handoff waits for background subagents to settle", async () 
 
 	const running = makeSession([spawned]);
 	// Resolves without a model call: the guard returns before the handoff is prepared.
-	await maybeAutoHandoff(ctxFor(), running, config);
+	await maybeAutoHandoff(portsOf(ctxFor()), running, config);
 	assert.equal(created.length, 0, "no child session is created while a subagent is still running");
 
 	// The same session with the child settled proceeds past the guard and creates a child session;
 	// this fixture has no live agent registry, so the seed then fails. The creation is the proof
 	// that only the guard stopped it above.
 	const done = makeSession([spawned, settledEvent]);
-	await maybeAutoHandoff(ctxFor(), done, config).catch(() => undefined);
+	await maybeAutoHandoff(portsOf(ctxFor()), done, config).catch(() => undefined);
 	assert.equal(created.length, 1, "the settled child lets the run create a child session");
 });
 
@@ -3675,7 +3675,7 @@ test("subagent work is read as turn activity, not as residency", async () => {
 	const createsFor = async (ctx, events) => {
 		caseId += 1;
 		const before = created.length;
-		await maybeAutoHandoff(ctx, session(events), config).catch(() => undefined);
+		await maybeAutoHandoff(portsOf(ctx), session(events), config).catch(() => undefined);
 		return created.length - before;
 	};
 
@@ -3744,14 +3744,14 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	};
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait" });
 
-	await maybeAutoHandoff(ctx, session, config);
+	await maybeAutoHandoff(portsOf(ctx), session, config);
 	assert.equal(logs.filter((line) => line.includes("automatic handoff skipped")).length, 1);
 	assert.match(logs.join("\n"), /handoffBudgetRecentTokens/, "the log names the setting that decides it");
 	assert.match(logs.join("\n"), /nothing older to drop/, "the log does not claim a summary is coming");
 
 	// The log is not a surface the user can read, so the same skip is reported by `/handoff status`.
 	const signal = new AbortController().signal;
-	const status = await statusText(ctx, session, config, signal);
+	const status = await statusText(portsOf(ctx), session, config, signal);
 	assert.match(status, /auto skipped since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, "status reports when the skip started");
 	assert.match(status, /everything is inside "Recent tokens kept"/, "status names the reason and the setting by its card label");
 	assert.doesNotMatch(status, /keep ~/, "the internal shorthand never reaches the receipt");
@@ -3759,8 +3759,8 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	// The skip repeats on every idle; the receipt must keep the first occurrence rather than
 	// reporting a session that looks skipped "just now" at every read.
 	await new Promise((resolve) => setTimeout(resolve, 5));
-	await maybeAutoHandoff(ctx, session, config);
-	assert.equal(await statusText(ctx, session, config, signal), status, "a repeated skip keeps the first timestamp");
+	await maybeAutoHandoff(portsOf(ctx), session, config);
+	assert.equal(await statusText(portsOf(ctx), session, config, signal), status, "a repeated skip keeps the first timestamp");
 
 	// Once an idle finds something to drop, the marker is cleared: the receipt describes the
 	// session as it is now, not a condition it has left. Every rendered message is clipped to
@@ -3769,8 +3769,8 @@ test("a skipped automatic handoff says why in the server log", async () => {
 	const grown = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
 	const many = Array.from({ length: 12 }, (_, index) => message(index % 2 === 0 ? "user" : "assistant", "x".repeat(4_000)));
 	const grownSession = { ...session, deriveMessages: () => many };
-	await maybeAutoHandoff(ctx, grownSession, grown).catch(() => undefined);
-	assert.doesNotMatch(await statusText(ctx, grownSession, grown, signal), /auto skipped since/, "a droppable idle clears the skip report");
+	await maybeAutoHandoff(portsOf(ctx), grownSession, grown).catch(() => undefined);
+	assert.doesNotMatch(await statusText(portsOf(ctx), grownSession, grown, signal), /auto skipped since/, "a droppable idle clears the skip report");
 });
 
 test("the status receipt names the term that refused the threshold, not always the window", async () => {
@@ -3801,7 +3801,7 @@ test("the status receipt names the term that refused the threshold, not always t
 				: undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
 		};
-		return statusText(ctx, session, config, signal);
+		return statusText(portsOf(ctx), session, config, signal);
 	};
 	const adaptive = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 	// W=27_000: usable = 27_000 − 16_384 = 10_616 > floor = 0 + 8_000, but the capacity cap
@@ -3982,7 +3982,7 @@ test("the status receipt follows the handoff language and names the setting by i
 	// `handoffBudgetRecentTokens: 149_001` at a 1M window is the reachable knee refusal whose lever *is* the
 	// setting, so this fixture exercises the `lower …` sentence rather than the inert-lever branch.
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 149_001 });
-	const status = await statusText(ctx, session, config, signal);
+	const status = await statusText(portsOf(ctx), session, config, signal);
 	assert.match(status, /lang auto \(zh\)/, "the receipt reports the language it resolved");
 	assert.match(status, /阈值不可用：不是窗口的问题/);
 	assert.match(status, /调小「保留最近对话（token）」/, "the lever is named by the card's own zh label");
@@ -4021,7 +4021,7 @@ test("the receipt names whether the harness envelope was read, because the thres
 				: undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow: 1_000_000 } }) },
 		};
-		return statusText(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model" }), signal);
+		return statusText(portsOf(ctx), session, resolvePluginConfig({ provider: "test-provider", model: "test-model" }), signal);
 	};
 	const plain = { totalTokens: 120_000, surfaceTokens: 60_000 };
 	const withEnvelope = await statusWith(plain, oneProjection({ systemTokens: 40_000, toolsTokens: 5_000 }));
@@ -4079,7 +4079,7 @@ test("a guardrail override of the manual threshold is warned about, not silent",
 			get: (name) => (name === "tokenMeter" ? { measure: () => ({ totalTokens: 26_000, surfaceTokens: 20_000 }) } : undefined),
 			llm: { resolveModelInfo: async () => ({ context: { contextWindow } }) },
 		};
-		return statusText(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over }), signal);
+		return statusText(portsOf(ctx), session, resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over }), signal);
 	};
 
 	// Quality guardrail wins: at 1M the knee allows 157_000 while a 200_000 target needs 220_000.
@@ -4185,7 +4185,7 @@ test("a manual handoff on a conversation that fits the carried window is refused
 		requestHeader: () => undefined,
 	};
 	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model" });
-	const reply = await runManual(ctx, session, entry, new AbortController().signal);
+	const reply = await runManual(portsOf(ctx), session, entry, new AbortController().signal);
 	assert.equal(reply.kind, "error");
 	assert.match(reply.text, /nothing to hand off/);
 	assert.match(reply.text, /budget recent 0/, "the reply names the escape hatch");
@@ -4237,7 +4237,7 @@ test("the manual path is gated by neither the auto switch nor the auto threshold
 	assert.notEqual(resolveThreshold(entry, { totalTokens: 11_800, surfaceTokens: 11_800 }, 40_000), undefined, "the fixture's own window resolves");
 	assert.equal(resolveThreshold(entry, { totalTokens: 11_800, surfaceTokens: 11_800 }, 27_000), undefined, "the auto threshold refuses here");
 
-	const reply = await runManual(ctx, session, entry, new AbortController().signal);
+	const reply = await runManual(portsOf(ctx), session, entry, new AbortController().signal);
 	assert.equal(reply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(reply)}`);
 	assert.deepEqual(calls, ["create", "seed"], "the one-shot command creates and seeds the child");
 	model.assertNone("the manual path");
@@ -4289,7 +4289,7 @@ test("a manual handoff retires the session it replaced, and only holds back whil
 	// Arm 1 — the log ends on `turn/end`, which is what the failing session looked like after
 	// `command/done`: the retirement must run inside the command, not wait for a later event.
 	const idle = fixture([{ type: "turn/start", seq: 1 }, { type: "turn/end", seq: 9 }]);
-	const idleReply = await runManual(idle.ctx, idle.session, entry, new AbortController().signal);
+	const idleReply = await runManual(portsOf(idle.ctx), idle.session, entry, new AbortController().signal);
 	assert.equal(idleReply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(idleReply)}`);
 	assert.deepEqual(archivesOf(idle), [`archive:${idle.session.id}:true`], "an idle session is retired at once, with the stop the host needs");
 	assert.equal(pendingRetire.has(idle.session.id), false, "nothing is left waiting for a turn/end that will never come");
@@ -4299,12 +4299,12 @@ test("a manual handoff retires the session it replaced, and only holds back whil
 	// This is the positive control the bare predicate cannot give: a fix that simply always retired
 	// would pass arm 1 and be wrong here.
 	const busy = fixture([{ type: "turn/start", seq: 1 }, { type: "turn/end", seq: 9 }, { type: "turn/start", seq: 12 }]);
-	const busyReply = await runManual(busy.ctx, busy.session, entry, new AbortController().signal);
+	const busyReply = await runManual(portsOf(busy.ctx), busy.session, entry, new AbortController().signal);
 	assert.equal(busyReply.kind, "success", `expected the manual handoff to run, got ${JSON.stringify(busyReply)}`);
 	assert.deepEqual(archivesOf(busy), [], "an open turn holds the archive back");
 	assert.equal(pendingRetire.has(busy.session.id), true, "it waits for the turn/end that closes that turn");
 	// Consuming it is what the plugin's `turn/end` listener does; the deferred retirement must still run.
-	retireIfPending(busy.ctx, busy.session);
+	retireIfPending(portsOf(busy.ctx), busy.session);
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	assert.deepEqual(archivesOf(busy), [`archive:${busy.session.id}:true`], "the deferred retirement still lands, unchanged");
 	assert.equal(pendingRetire.has(busy.session.id), false, "and it is consumed exactly once");
@@ -4414,8 +4414,8 @@ test("a manual handoff refuses while a background subagent is still running", as
 	const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 
 	// A registry reporting a running continuable child refuses before any child session exists.
-	const listed = await runManual(
-		ctxFor({ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] }),
+	const listed = await runManual(portsOf(
+		ctxFor({ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] })),
 		sessionFor([]),
 		entry,
 		new AbortController().signal,
@@ -4429,11 +4429,11 @@ test("a manual handoff refuses while a background subagent is still running", as
 	// A resident child with no turn running is the normal state of a teammate between messages: the
 	// listing's `activity` says `running` for it, but only the live registry knows that nothing is
 	// executing, so the handoff proceeds.
-	const resident = await runManual(
+	const resident = await runManual(portsOf(
 		ctxFor(
 			{ listChildren: async () => [{ kind: "child", id: "child-live", mode: "continuable", activity: "running", hasChildren: false }] },
 			{ get: (id) => (id === "child-live" ? { status: "idle" } : seedTarget) },
-		),
+		)),
 		sessionFor([]),
 		entry,
 		new AbortController().signal,
@@ -4443,8 +4443,8 @@ test("a manual handoff refuses while a background subagent is still running", as
 	calls.length = 0;
 
 	// A listing that cannot be read is not an answer: the log's unsettled continuable child refuses too.
-	const logged = await runManual(
-		ctxFor({ listChildren: async () => { throw new Error("projections unavailable"); } }),
+	const logged = await runManual(portsOf(
+		ctxFor({ listChildren: async () => { throw new Error("projections unavailable"); } })),
 		sessionFor([{ type: "subagent/catalog", time: Date.now() - 60_000, data: { childId: "child-logged", mode: "continuable" } }]),
 		entry,
 		new AbortController().signal,
@@ -4454,7 +4454,7 @@ test("a manual handoff refuses while a background subagent is still running", as
 	assert.deepEqual(calls, []);
 
 	// The same fixture with nothing running hands off, so the refusals above are caused by the child.
-	const allowed = await runManual(ctxFor({ listChildren: async () => [] }), sessionFor([]), entry, new AbortController().signal);
+	const allowed = await runManual(portsOf(ctxFor({ listChildren: async () => [] })), sessionFor([]), entry, new AbortController().signal);
 	assert.equal(allowed.kind, "success", `expected the idle session to hand off, got ${JSON.stringify(allowed)}`);
 	assert.deepEqual(calls, ["create", "seed"]);
 	model.assertNone("the subagent-guard path");
@@ -4502,7 +4502,7 @@ test("a handoff child inherits the parent's session-local model and permission p
 			deriveEventMessage: () => null,
 		};
 		const entry = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffPendingQuestion: "wait", handoffBudgetRecentTokens: 0 });
-		const reply = await runManual(ctx, session, entry, new AbortController().signal);
+		const reply = await runManual(portsOf(ctx), session, entry, new AbortController().signal);
 		return { calls, reply, sessionId: session.id };
 	};
 
@@ -4640,7 +4640,7 @@ test("the automatic handoff yields to a session that is already on its next turn
 		};
 		let error;
 		try {
-			await maybeAutoHandoff(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), 10);
+			await maybeAutoHandoff(portsOf(ctx), session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), 10);
 		} catch (caught) {
 			error = caught;
 		}
@@ -5148,11 +5148,11 @@ test("an open question defers the handoff, and the answer’s first idle takes i
 	};
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 });
 
-	await maybeAutoHandoff(ctx, session, config);
+	await maybeAutoHandoff(portsOf(ctx), session, config);
 	assert.deepEqual(calls, [], "an open question defers before any child exists");
 
 	conversation = [...conversation, message("user", "yes, go ahead")];
-	await maybeAutoHandoff(ctx, session, config);
+	await maybeAutoHandoff(portsOf(ctx), session, config);
 	assert.deepEqual(calls, ["create", "seed"], "the answer’s first idle completes the handoff");
 	model.assertNone("the pending-question gate");
 });
@@ -5189,7 +5189,7 @@ test("a retryable manual handoff failure is not reported with the terminal wordi
 			},
 			logger: { info() {}, warn() {} },
 		};
-		return runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), new AbortController().signal);
+		return runManual(portsOf(ctx), session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), new AbortController().signal);
 	};
 
 	// Retryable: a turn is still open on the child, which is exactly the condition the automatic
@@ -5479,7 +5479,7 @@ test("the manual handoff stays exempt from the settle guard", async () => {
 		},
 		logger: { info() {}, warn() {} },
 	};
-	const reply = await runManual(ctx, session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), new AbortController().signal);
+	const reply = await runManual(portsOf(ctx), session, resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 0 }), new AbortController().signal);
 	assert.equal(reply.kind, "success", `expected a handoff, got ${JSON.stringify(reply)}`);
 	assert.deepEqual(calls, ["create", "seed"]);
 	assert.equal(turnStartedAfter(session, 0), true, "the fixture really does look busy");

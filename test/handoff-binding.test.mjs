@@ -36,6 +36,7 @@ import { performHandoff } from "../lib/project-handoff/perform.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 import { logsDir, sessionIndexFile, sessionMetaFileFor, taskFile } from "../lib/shared/project-state.js";
 import { sessionViews } from "./session-views.mjs";
+import { portsOf } from "./host-ports.mjs";
 
 const PARENT = "session-parent-0001";
 const CHILD = "session-child-0001";
@@ -134,7 +135,7 @@ async function runHandoff(root, options = {}) {
 		trimmedTail: false,
 	};
 	try {
-		await performHandoff(ctx, session, DEFAULT_CONFIG, "manual", undefined, split);
+		await performHandoff(portsOf(ctx), session, DEFAULT_CONFIG, "manual", undefined, split);
 		return { state, error: undefined };
 	} catch (error) {
 		return { state, error };

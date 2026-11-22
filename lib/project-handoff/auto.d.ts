@@ -9,7 +9,7 @@
  * The measurement itself lives in `gate.ts` because the injected pressure line reports the same
  * numbers; this function adds only the guards, the split and the handoff.
  */
-import { type Context } from "../host/contract.js";
+import { type HostPorts } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 /**
@@ -30,10 +30,10 @@ import { type PluginConfig } from "../shared/config.js";
  * concludes what it used to; but "no observable effect" would be too strong a claim, because the read
  * *order* against the await is observable (§`gatherDecisionInputs`) and the extra reads are a real,
  * accepted cost. See §7 of the spec for the residual.
- * @param ctx - plugin context, for the meter, the projections and the subagent registry.
+ * @param host - the ports, for the meter, the projections and the subagent registry.
  * @param session - the session to measure.
  * @param config - effective plugin config.
  * @param triggerSeq - the `turn/end` that caused this attempt, carried into the handoff.
  * @returns nothing; the outcome is a handoff, a recorded deferral or a recorded skip.
  */
-export declare function maybeAutoHandoff(ctx: Context, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void>;
+export declare function maybeAutoHandoff(host: HostPorts, session: Session, config: PluginConfig, triggerSeq?: number): Promise<void>;

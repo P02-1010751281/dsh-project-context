@@ -9,10 +9,9 @@
  * attribution, and no test can tell the two apart by comparing constants.
  */
 
-import { type Context } from "../host/contract.js";
+import { type HostPorts } from "../host/contract.js";
 import { projectionsOf, sessionControllerOf, tokenMeterOf } from "../host/dsh/services.js";
 import { type Session } from "../host/contract.js";
-import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "../shared/config.js";
 import { withRouteFailure } from "./route-failure.js";
 import { type MeasuredContext, measuredContext, resolveTarget } from "./runtime.js";
@@ -40,21 +39,21 @@ export interface ResolvedHandoffGate {
  * A route the llm service refuses to resolve is *not* one of those exits: it throws
  * {@link HandoffRouteError}, because a dead route blocks every future attempt and reporting it as
  * "unmeasurable" would hide a repeatable failure behind the quiet half of this function.
- * @param ctx - Host context.
+ * @param host - the ports; the service lookups and the model port.
  * @param session - the session to measure.
  * @param config - effective plugin config.
  * @param signal - optional cooperative cancellation for the model-info read.
  * @returns the resolved gate, or `undefined` when the session is not measurable.
  */
 export async function resolveHandoffGate(
-	ctx: Context,
+	host: HostPorts,
 	session: Session,
 	config: PluginConfig,
 	signal?: AbortSignal,
 ): Promise<ResolvedHandoffGate | undefined> {
-	const controller = sessionControllerOf(ctx);
-	const meter = tokenMeterOf(ctx);
-	const projections = projectionsOf(ctx);
+	const controller = sessionControllerOf(host.services);
+	const meter = tokenMeterOf(host.services);
+	const projections = projectionsOf(host.services);
 	if (!controller || !meter) return undefined;
 	const target = resolveTarget(session, config);
 	if (!target) return undefined;
@@ -63,7 +62,7 @@ export async function resolveHandoffGate(
 	// route blocks every future attempt and "nothing to decide" would hide a repeatable failure. The
 	// wrap lives in `withRouteFailure` so the `/handoff status` receipt reports the same failure the
 	// same way (a caller-cancelled read stays a cancellation, in both).
-	const resolved = await withRouteFailure(target, () => llmOf(ctx).resolveModelInfo(target.provider, target.model, signal), signal);
+	const resolved = await withRouteFailure(target, () => host.llm.resolveModelInfo(target.provider, target.model, signal), signal);
 	const contextWindow = resolved.context?.contextWindow;
 	if (contextWindow === undefined || contextWindow <= 0) return undefined;
 

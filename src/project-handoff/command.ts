@@ -3,10 +3,9 @@
  * handoff the bare command and `now` share.
  */
 
-import { type Context } from "../host/contract.js";
+import { type HostPorts, type ServiceHost } from "../host/contract.js";
 import { projectionsOf, sessionControllerOf, settingsServiceOf, tokenMeterOf } from "../host/dsh/services.js";
 import { type Session } from "../host/contract.js";
-import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "../shared/config.js";
 import {
 	MAX_HANDOFF_RECENT_TOKENS,
@@ -90,8 +89,8 @@ export function settingPatch(args: string): { patch?: Record<string, unknown>; e
 export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|<tokens>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
 
 /** Persist one settings patch through the mounted settings service. */
-export async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined> {
-	const settings = settingsServiceOf(ctx);
+export async function writeSetting(host: ServiceHost, patch: Record<string, unknown>): Promise<string | undefined> {
+	const settings = settingsServiceOf(host.services);
 	if (settings === undefined) return "the settings service is unavailable in this profile; edit the plugin config instead";
 	try {
 		await settings.update(SETTINGS_NAMESPACE, patch);
@@ -113,7 +112,7 @@ export async function writeSetting(ctx: Context, patch: Record<string, unknown>)
  * passes nothing and reports exactly what is in force.
  */
 export async function statusText(
-	ctx: Context,
+	host: HostPorts,
 	session: Session,
 	entry: PluginConfig,
 	signal: AbortSignal,
@@ -133,12 +132,12 @@ export async function statusText(
 	const language = resolveHandoffLanguage(sessionLanguageMessages(session), config);
 	const parts: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const target = resolveTarget(session, config);
-	const meter = tokenMeterOf(ctx);
-	const projections = projectionsOf(ctx);
+	const meter = tokenMeterOf(host.services);
+	const projections = projectionsOf(host.services);
 	if (target !== undefined && meter !== undefined) {
 		let contextWindow: number | undefined;
 		try {
-			contextWindow = (await withRouteFailure(target, () => llmOf(ctx).resolveModelInfo(target.provider, target.model, signal), signal)).context?.contextWindow;
+			contextWindow = (await withRouteFailure(target, () => host.llm.resolveModelInfo(target.provider, target.model, signal), signal)).context?.contextWindow;
 		} catch (error: unknown) {
 			// The receipt is the surface a user opens *because* handoff stopped; it must survive the very
 			// failure it exists to explain. A stale provider/model pair used to throw out of this handler,
@@ -224,7 +223,7 @@ export async function statusText(
  * Manual handoff shared by the bare command and `now`. Exported so a test can drive the whole reply
  * path (an empty span must come back as an error reply, not as a fabricated child).
  */
-export async function runManual(ctx: Context, session: Session, entry: PluginConfig, signal: AbortSignal) {
+export async function runManual(host: HostPorts, session: Session, entry: PluginConfig, signal: AbortSignal) {
 	const key = String(session.id);
 	if (inFlight.has(key)) return { kind: "error" as const, text: "A handoff is already running for this session." };
 
@@ -232,7 +231,7 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 	// No routed model is needed: nothing is generated any more. Only the automatic path resolves a
 	// model, and only for its `contextWindow` (the threshold reads it); `/handoff now` proceeds with
 	// whatever route the session is on, exactly as pi does.
-	const controller = sessionControllerOf(ctx);
+	const controller = sessionControllerOf(host.services);
 	if (!controller) {
 		return { kind: "error" as const, text: "The session controller is unavailable in this profile; handoff needs the web/API session runtime." };
 	}
@@ -242,7 +241,7 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 	// work with nothing to show for it. The automatic path defers for the same reason. The manual path
 	// is the user's explicit request, so it **refuses by name** and names the lever instead of quietly
 	// destroying the work — the one reply that cannot be undone is the one that must not be silent.
-	const pending = await pendingSubagentWork(ctx, session);
+	const pending = await pendingSubagentWork(host, session);
 	if (pending.length > 0) {
 		const named = pending.slice(0, 3).join(", ");
 		const more = pending.length > 3 ? `, +${pending.length - 3} more` : "";
@@ -254,7 +253,7 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 
 	inFlight.add(key);
 	try {
-		const result = await performHandoff(ctx, session, config, "manual", signal);
+		const result = await performHandoff(host, session, config, "manual", signal);
 		return { kind: "success" as const, text: `Handoff session created: ${result.childId}\nHandoff document: ${result.file}` };
 	} catch (error: unknown) {
 		// A retryable cause must not be reported with the terminal wording: "Handoff failed" tells
