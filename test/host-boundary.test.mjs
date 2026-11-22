@@ -71,11 +71,29 @@ test("the host layer must not import a core module", async () => {
 	assert.match(result.stderr, /FAIL layering: src\/host\/dsh\/leak\.ts imports \.\.\/\.\.\/project-memory\/tasks\.js/);
 });
 
-test("only contract.ts inside the host layer may name a host package", async () => {
+test("a harness adapter may name a host package", async () => {
 	const root = await fixture({
-		"src/host/dsh/leak.ts": 'import type { Session } from "@deepseek-ai/dsh-session";\nexport type S = Session;\n',
+		"src/host/dsh/types.ts": 'import type { Session } from "@deepseek-ai/dsh-session";\nexport type S = Session;\n',
+		"src/host/contract.ts": 'export * from "./dsh/types.js";\n',
+	});
+	const result = run(root);
+	assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test("the host-neutral contract may not name a host package", async () => {
+	const root = await fixture({
+		"src/host/contract.ts": 'import type { Session } from "@deepseek-ai/dsh-session";\nexport type S = Session;\n',
 	});
 	const result = run(root);
 	assert.equal(result.status, 1);
-	assert.match(result.stderr, /FAIL single-door: src\/host\/dsh\/leak\.ts imports @deepseek-ai\/dsh-session/);
+	assert.match(result.stderr, /FAIL single-door: src\/host\/contract\.ts imports @deepseek-ai\/dsh-session/);
+});
+
+test("a host file outside any harness directory may not name a host package", async () => {
+	const root = await fixture({
+		"src/host/leak.ts": 'import type { Session } from "@deepseek-ai/dsh-session";\nexport type S = Session;\n',
+	});
+	const result = run(root);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /FAIL single-door: src\/host\/leak\.ts imports @deepseek-ai\/dsh-session/);
 });

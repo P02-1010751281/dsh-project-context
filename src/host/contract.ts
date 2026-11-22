@@ -1,36 +1,18 @@
 /**
- * The host contract.
+ * The host contract — the only vocabulary the cores may name.
  *
- * This is the **only** module in `src/` allowed to name the harness packages. Everything else
- * imports the vocabulary from here, so a second host can implement the same contract without
- * touching the cores, and the boundary is enforceable by a script (`scripts/check-boundary.mjs`)
- * rather than by convention.
+ * Everything under `src/` outside `src/host/` imports the host-facing types from here, so a second
+ * harness can satisfy the same names without the cores branching on the host. The contract itself is
+ * host-neutral: it may not import a harness package, and `scripts/check-boundary.mjs` fails the
+ * repository if it does.
  *
- * What the contract names is deliberately narrow: the data shapes the cores read (a session's id,
- * header, event log; an agent's session and status), the service views they need (`services.ts`),
- * and the few pure predicates that belong to the host's event model. The dsh adapter currently
- * mirrors these from the pinned packages; when a shape differs on another host, the adapter maps
- * it here rather than the core branching on the host.
+ * Where the names come from is the adapter's business: `src/host/dsh/types.ts` holds the dsh aliases
+ * today, and a second adapter would add `src/host/<harness>/types.ts` beside it. The re-export below
+ * is deliberately the whole file — the point of this module is the surface, not the mapping.
+ *
+ * Phase 2 of `docs/core-host-boundary.md` replaces these aliases with structural interfaces declared
+ * here (a session view, an agent view, an event envelope) so that a harness adapter maps rather than
+ * aliases. Until that lands, a type change in dsh still reaches the cores through this file; what the
+ * split guarantees today is that the *import* is in the adapter, so the change lands in one directory.
  */
-import type {} from "@deepseek-ai/dsh-commands";
-import type {} from "@deepseek-ai/dsh-session-projection";
-
-export type { Context } from "@deepseek-ai/cordis";
-
-export type { Agent } from "@deepseek-ai/dsh-agent";
-
-export type {
-	ContentBlock,
-	GenerateOptions,
-	LlmResolvedModelInfo,
-	Message,
-	ToolCallBlock,
-	UserMessage,
-} from "@deepseek-ai/dsh-llm";
-
-export { isReplacementSurfaceEvent, isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
-export type { Session } from "@deepseek-ai/dsh-session";
-
-export type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
-
-export type { ContextBreakdownProjection } from "@deepseek-ai/dsh-token-meter";
+export * from "./dsh/types.js";

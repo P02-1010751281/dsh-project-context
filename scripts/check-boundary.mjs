@@ -3,8 +3,11 @@
  * The core/host boundary gate.
  *
  * `src/host/` is the adapter layer: it owns every host package import, every `ctx.get(...)` lookup
- * and the plugin-lifecycle seam. Everything else is core and may reach the host only through
- * `host/contract.ts`, `host/dsh/*` and the `index.ts` wiring file of its own plugin.
+ * and the plugin-lifecycle seam. Within it, only a harness directory (`src/host/<harness>/`) may name
+ * a host package — `src/host/contract.ts` is the host-neutral surface the cores import from, so a
+ * harness name there would put the host back into every core module's type import. Everything
+ * outside `src/host/` is core and may reach the host only through `host/contract.ts`, `host/dsh/*`
+ * and the `index.ts` wiring file of its own plugin.
  *
  * The script exists because a boundary that is only described in a document decays: one convenient
  * `import type { Session } from "@deepseek-ai/dsh-session"` in a core module re-couples it silently.
@@ -61,12 +64,12 @@ function check(root) {
 		const rel = relative(root, file);
 		const text = code(readFileSync(file, "utf8"));
 		const inHost = rel.startsWith("src/host/");
-		const isContract = rel === "src/host/contract.ts";
+		const inHarness = /^src\/host\/[^/]+\//.test(rel);
 		const isEntry = /^src\/[^/]+\/index\.ts$/.test(rel);
 
 		for (const match of text.matchAll(HOST_IMPORT)) {
 			if (inHost) {
-				if (!isContract) fail("single-door", `${rel} imports ${match[1]}; only src/host/contract.ts may name a host package`);
+				if (!inHarness) fail("single-door", `${rel} imports ${match[1]}; only a harness adapter under src/host/<harness>/ may name a host package`);
 			} else if (match[1] !== LIBRARY_IMPORT) {
 				fail("host-import", `${rel} imports ${match[1]}; route it through src/host/contract.ts`);
 			}
