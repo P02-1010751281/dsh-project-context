@@ -145,3 +145,20 @@ cordis 4.0.5 所以看起来干净。**真实锁文件把 cordis 钉在 4.0.2**�
 - **真 shim 只剩 2 条**（`SH-2`、`SH-3`），全在 dsh 侧；`SH-1` 已于 2026-11-05 拆除，条件不再「不成立」。
 - 上一轮 9 条 shim 里有 2 条分类错误、4 条归属错误；修正后这个数字才能用来判断技术债。
 - 数字要现读，不抄：`grep -rc SessionProjectionsLike src/` 应为 `0`，`pnpm peers check` 的未满足条数要拿 HEAD 状态跑一遍再比，不要直接引用本节的数字。
+
+---
+
+## 6. 运行线兼容（每次换线前先量）
+
+`devDependencies` 钉的是**地板**（当前 `0.1.7-rc.2`），宿主跑到哪条线是另一件事，所以
+`pnpm typecheck` 绿不能回答「新线还认不认我们」。判据是把 `src/` 与 `client/` 的模块解析临时指到
+候选 store 树的 `.d.ts` 上再编译，并同时给两条控制：解析来源必须是候选树（不是本仓
+`node_modules`），以及同一配置能被改红。
+
+2026-11-22 对 **`0.2.2-rc.5`**（宿主实际运行线）：两半 0 error，host 90/90、client 425/425 解析自
+候选树，敏感度控制 25 error，`web`/`ctxdev` 两个 profile 的四行都在、0 skip。结论是 rc.5 没有打坏
+我们使用的类型面，不需要为它改 `src/`；`0.2.3-alpha.1` 本机没有可指向的树，未量。
+
+探针与判据见 [../../.agents/evidence/2026-11-22-dsh-022rc5-api-compat/README.md](../../.agents/evidence/2026-11-22-dsh-022rc5-api-compat/README.md)，
+复用脚本是同一个目录下的 `run-probe.sh`（它映射了全部直接 import，而 2026-10-03 的旧脚本少映射
+两个包，会让探针悄悄量回地板）。
