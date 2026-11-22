@@ -1,0 +1,19 @@
+../../../../tmp/audit2b.ZC4mi3/src/audit-witness.ts(9,88): error TS2322: Type 'import("/nix/store/wr0q0vjd3hxvq08z7ns67dsryywcmz1y-dsh-desktop-0.2.2-rc.5/lib/dsh-desktop/repo/packages/session/session-projection/lib/types/index", { with: { "resolution-mode": "import" } }).SessionProjectionRegistry' is not assignable to type 'import("/tmp/audit2b.ZC4mi3/src/host/contract", { with: { "resolution-mode": "import" } }).SessionProjectionRegistry'.
+  Types of property 'snapshot' are incompatible.
+    Type '(session: Session, keys?: ProjectionKeySelection | undefined) => ProjectionSnapshot' is not assignable to type '(session: Session, keys: readonly string[]) => { readonly values: ProjectionValues; }'.
+      Types of parameters 'keys' and 'keys' are incompatible.
+        Type 'readonly string[]' is not assignable to type 'ProjectionKeySelection | undefined'.
+          Type 'readonly string[]' is not assignable to type 'readonly (keyof SessionProjectionMap)[]'.
+            Type 'string' is not assignable to type 'keyof SessionProjectionMap'.
+../../../../tmp/audit2b.ZC4mi3/src/audit-witness.ts(10,70): error TS2322: Type 'GenerateOptions' is not assignable to type 'GenerateOptions<never>'.
+  Types of property 'reasoningEffort' are incompatible.
+    Type 'string | undefined' is not assignable to type 'ReasoningEffortId | undefined'.
+      Type 'string' is not assignable to type 'ReasoningEffortId'.
+        Type 'string' is not assignable to type '{ readonly [BRAND]: "ReasoningEffortId"; }'.
+../../../../tmp/audit2b.ZC4mi3/src/audit-witness.ts(11,59): error TS2322: Type 'EventEnvelope' is not assignable to type 'SessionEvent<keyof SessionEventMap>'.
+  Type 'UserMessageEvent' is not assignable to type 'SessionEvent<keyof SessionEventMap>'.
+    Type 'UserMessageEvent' is not assignable to type '{ type: "user/message"; seq: SessionSeq; time: number; data: UserMessage; ignorable?: true | undefined; } & { surfaceOp: SurfaceOp; } & { sourceEventSeqs?: SessionSeq[] | undefined; }'.
+      Type 'UserMessageEvent' is not assignable to type '{ type: "user/message"; seq: SessionSeq; time: number; data: UserMessage; ignorable?: true | undefined; }'.
+        Types of property 'seq' are incompatible.
+          Type 'number' is not assignable to type 'SessionSeq'.
+            Type 'number' is not assignable to type '{ readonly [BRAND]: "SessionSeq"; }'.

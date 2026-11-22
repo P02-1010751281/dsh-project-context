@@ -28,11 +28,22 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
 - 宿主 API 的每一处读取都有名字（`services.ts` 的 12 个 getter），不再散落在 8 个模块里；
 - `ctx.logger` / `ctx.llm` / `ctx.effect` 各有窄接口，宿主方法签名变化只影响对应 shim。
 
-第二阶段的 2a 已落地（2026-11-22）：宿主类型搬进 `src/host/dsh/types.ts`，`contract.ts` 只
-re-export、不再命名宿主包，门禁从「只有 contract.ts 可以」收紧成「只有 `src/host/<harness>/` 可以」。
-2b（未开工）：把这些 alias 换成 `contract.ts` 里的自有结构接口（会话视图、事件信封、LLM 词表），
-由适配器做映射而不是别名；2c（未开工）：注册面（`ctx.on` / `ctx.commands` / `ctx.systemPrompt`）
-也收到 `HostContext` 后面，入口变薄包装。触发条件：真的要接第二个宿主。
+第二阶段分三片，前两片已落地（2026-11-22）：
+
+- **2a**：宿主类型搬进 `src/host/dsh/types.ts`，`contract.ts` 只 re-export、不再命名宿主包；门禁从
+  「只有 contract.ts 可以」收紧成「只有 `src/host/<harness>/` 可以」。
+- **2b**：`contract.ts` 现在**声明自有结构接口**（内容块、消息联合、事件信封、`Session` / `Agent`
+  视图、辅助调用请求、投影面），零宿主 import；两处开放词表（块类型、事件类型）由适配器用宿主自己的
+  `ContentBlockMap` / `SessionEventMap` 增补关闭，所以上游新增一种块或事件不需要改核心、也不会留下
+  过期清单。独立审计（[证据](../.agents/evidence/2026-11-22-host-contract-audit/README.md)）：
+  所有权成立；32 例谓词差分从 6 处不一致修到 0；并发现并修复了 `ownEvents()` 的隐藏读与一处
+  写在适配器之外的 `declare module`。
+- **2b 的已知残余（登记为 2d 候选，不在 2b 修）**：正向（核心 → 宿主）仍有两处方向不匹配——契约的
+  `GenerateOptions` 不可赋给上游同名类型（`reasoningEffort` 放宽、消息形状不同），真实投影注册表
+  不接受任意字符串键；两者今天分别由 `src/host/dsh/llm.ts` 的断言与通用服务 getter 遮住。彻底修法
+  二选一：适配器逐字段构造宿主请求，或在入站边界包装每个宿主对象（`2d` 设计决定）。
+- **2c**（进行中）：注册面（`ctx.on` / `ctx.commands` / `ctx.systemPrompt` / `ctx.get`）收到
+  `HostContext` 后面，入口变薄包装。触发条件：真的要接第二个宿主。
 
 ## 3 规则（`RULES.md` 4.6）
 

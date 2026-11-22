@@ -10,6 +10,28 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-contract-2b（核心自有结构接口，边界第二步 2b，2026-11-22）**
+
+- `src/host/contract.ts` 从「re-export dsh 类型」改成**声明自有结构接口**：内容块（`TextBlock` /
+  `ToolCallBlock` / 不透明块）、消息联合、事件信封（`EventEnvelope`，含 `surfaceOp` 标记）、
+  `Session` / `Agent` 视图、辅助调用请求 `GenerateOptions`、投影面；零 `@deepseek-ai` import。
+- 两处开放词表由适配器关闭：`src/host/dsh/types.ts` 用宿主自己的 `ContentBlockMap` /
+  `SessionEventMap` 增补 `OpaqueBlockTypes` / `OpaqueEventTypes`，上游新增一种块或事件不需要改核心，
+  也不会留下一份会过期的清单。
+- `PluginTool` 收到契约里一份定义，`model-call.ts` 改为 re-export；`MessageSourceMap` 的
+  `declare module` 从 `src/shared/model-call.ts` 搬进适配器——审计发现门禁的正则只匹配
+  `from "@deepseek-ai/…`，看不见 `declare module`，登记为门禁缺口。
+- 独立审计（`.agents/evidence/2026-11-22-host-contract-audit/`）判定所有权成立，并抓出两处真缺陷：
+  `isReplacementSurfaceEvent` 漏了上游 `isSurfaceEvent` 的类型集合判断（32 例差分 6 处不一致 → 修复后
+  0），`Session.ownEvents()` 是绕过视图的隐藏读（已声明为可选成员、去掉 cast，保留对 log-only 夹具的
+  回退）。
+- 已知残余（登记为 2d）：核心 → 宿主方向仍有两处方向不匹配——契约 `GenerateOptions` 不可赋给上游同名
+  类型（`reasoningEffort` 放宽、消息形状不同），真实投影注册表不接受任意字符串键；今天分别由
+  `src/host/dsh/llm.ts` 的断言与通用服务 getter 遮住。彻底修法要么适配器逐字段构造宿主请求，要么在
+  入站边界包装宿主对象。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 116 源文件 0 失败、`pnpm test` 802 全绿、
+  `pnpm docs:check` 0、`pnpm build` 后 `lib/` 可复现。
+
 **host-adapter-split（宿主类型移进适配器目录，边界第二步 2a，2026-11-22）**
 
 - `src/host/contract.ts` 从「唯一命名宿主包的文件」改成「核心读到的公开面」：它只

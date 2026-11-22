@@ -1,0 +1,70 @@
+36 TextBlock.type core-read=src/shared/text.ts:152,src/shared/conversation.ts:245,src/project-context/archive.ts:136,src/project-handoff/conversation.ts:240 core-write=src/shared/model-call.ts:91
+37 TextBlock.text core-read=src/shared/text.ts:152 core-write=src/shared/model-call.ts:91
+42 ToolCallBlock.type core-read=src/shared/text.ts:152,src/shared/conversation.ts:245,src/project-context/archive.ts:136,src/project-handoff/conversation.ts:240 core-write=src/shared/model-call.ts:91
+43 ToolCallBlock.id core-read=src/project-handoff/conversation.ts:242
+44 ToolCallBlock.name core-read=src/shared/conversation.ts:246,src/project-context/archive.ts:137,src/project-handoff/conversation.ts:240,src/project-handoff/conversation.ts:468
+45 ToolCallBlock.arguments core-read=src/project-handoff/conversation.ts:241,src/project-handoff/conversation.ts:471
+57 OpaqueBlock.type core-read=src/shared/text.ts:152,src/shared/conversation.ts:245,src/project-context/archive.ts:136,src/project-handoff/conversation.ts:240 core-write=src/shared/model-call.ts:91
+66 MessageSource.kind core-read=src/shared/conversation.ts:233,src/shared/conversation.ts:240,src/shared/conversation.ts:291,src/project-context/session-index.ts:111 core-write=src/shared/model-call.ts:92
+71 MessageBase.id core-write=src/shared/model-call.ts:89
+72 MessageBase.content core-read=src/shared/conversation.ts:234,src/shared/conversation.ts:239,src/shared/conversation.ts:243,src/shared/conversation.ts:244 core-write=src/shared/model-call.ts:91
+73 MessageBase.source core-read=src/shared/conversation.ts:233,src/shared/conversation.ts:240,src/shared/conversation.ts:291,src/project-context/session-index.ts:111 core-write=src/shared/model-call.ts:92
+77 SystemMessage.role core-read=src/shared/conversation.ts:232,src/project-handoff/conversation.ts:238,src/project-handoff/conversation.ts:251,src/project-handoff/conversation.ts:266
+81 DeveloperMessage.role core-read=src/shared/conversation.ts:232,src/shared/conversation.ts:238,src/project-handoff/conversation.ts:238,src/project-handoff/conversation.ts:251
+85 UserMessage.role core-read=src/shared/conversation.ts:232,src/shared/conversation.ts:238,src/project-handoff/conversation.ts:238,src/project-handoff/conversation.ts:251 core-write=src/shared/model-call.ts:90
+89 AssistantMessage.role core-read=src/shared/conversation.ts:232,src/shared/conversation.ts:238,src/project-handoff/conversation.ts:238,src/project-handoff/conversation.ts:386
+93 ToolResultMessage.role core-read=src/shared/conversation.ts:232,src/shared/conversation.ts:238,src/project-handoff/conversation.ts:238,src/project-handoff/conversation.ts:251
+95 ToolResultMessage.toolCallId core-read=src/project-handoff/conversation.ts:256
+96 ToolResultMessage.isError core-read=src/project-handoff/conversation.ts:255
+106 PluginTool.name core-write=src/project-autolearn/schema.ts:20,src/project-memory/sections.ts:637 core-read=src/project-autolearn/prompt.ts:47,src/project-autolearn/prompt.ts:89,src/project-autolearn/pass.ts:218,src/project-autolearn/pass.ts:225
+107 PluginTool.description core-write=src/project-autolearn/schema.ts:21,src/project-memory/sections.ts:638
+109 PluginTool.parameters core-write=src/project-autolearn/schema.ts:23,src/project-memory/sections.ts:640
+114 GenerateOptions.provider core-write=src/shared/model-call.ts:215
+115 GenerateOptions.model core-write=src/shared/model-call.ts:216
+117 GenerateOptions.sessionId core-write=src/shared/model-call.ts:217
+118 GenerateOptions.messages core-write=src/shared/model-call.ts:218
+119 GenerateOptions.maxTokens core-write=src/shared/model-call.ts:219
+120 GenerateOptions.reasoningEffort core-write=src/shared/model-call.ts:220
+121 GenerateOptions.tools core-write=src/shared/model-call.ts:223
+122 GenerateOptions.signal core-write=src/shared/model-call.ts:224
+127 LlmResolvedModelInfo.context core-read=src/project-handoff/gate.ts:67,src/project-handoff/command.ts:141
+127 LlmResolvedModelInfo.context.contextWindow core-read=src/project-handoff/gate.ts:67,src/project-handoff/command.ts:141
+128 LlmResolvedModelInfo.defaultMaxTokens core-read=src/project-autolearn/pass.ts:165,src/project-memory/consolidate.ts:820
+129 LlmResolvedModelInfo.reasoning core-read=src/shared/model-call.ts:167,src/project-autolearn/pass.ts:164,src/project-memory/consolidate.ts:820
+129 LlmResolvedModelInfo.reasoning.efforts core-read=src/shared/model-call.ts:167
+129 LlmResolvedModelInfo.reasoning.efforts.id core-read=src/shared/model-call.ts:168
+143 EventBase.seq core-read=src/project-handoff/conversation.ts:444
+145 EventBase.time core-read=src/project-context/session-log.ts:80
+152 EventBase.surfaceOp adapter-read=src/host/dsh/types.ts:51
+157 UserMessageEvent.type core-read=src/shared/conversation.ts:208,src/shared/conversation.ts:291,src/project-context/session-index.ts:105,src/project-context/session-index.ts:111
+158 UserMessageEvent.data core-read=src/shared/conversation.ts:291,src/shared/conversation.ts:292,src/project-context/session-index.ts:107,src/project-context/session-index.ts:111
+163 OpaqueEvent.type core-read=src/shared/conversation.ts:208,src/shared/conversation.ts:291,src/project-context/session-index.ts:105,src/project-context/session-index.ts:111
+164 OpaqueEvent.data core-read=src/project-context/session-index.ts:107
+174 SessionHeader.version core-read=src/project-context/session-log.ts:47
+175 SessionHeader.createdAt core-read=src/project-context/session-index.ts:162,src/project-context/session-index.ts:290,src/project-context/session-log.ts:48
+176 SessionHeader.cwd core-read=src/shared/lifecycle.ts:17,src/project-autolearn/pass.ts:90,src/project-context/session-log.ts:49,src/project-context/session-log.ts:177
+177 SessionHeader.parentSession core-read=src/project-context/session-log.ts:52
+178 SessionHeader.isSeeded core-read=src/project-context/session-log.ts:50
+180 SessionHeader.origin core-read=src/shared/lifecycle.ts:13,src/project-context/session-index.ts:292,src/project-context/session-log.ts:53
+181 SessionHeader.agentPreset core-read=src/project-context/session-log.ts:54,src/project-handoff/perform.ts:176
+186 RequestHeader.config core-read=src/shared/model-call.ts:99,src/project-handoff/runtime.ts:98,src/project-handoff/child.ts:129
+186 RequestHeader.config.provider core-read=src/shared/model-call.ts:100,src/project-handoff/runtime.ts:99
+186 RequestHeader.config.model core-read=src/shared/model-call.ts:100,src/project-handoff/runtime.ts:99
+186 RequestHeader.config.reasoningEffort
+191 Session.id core-read=src/shared/lifecycle.ts:71,src/shared/lifecycle.ts:80,src/project-context/session-index.ts:162,src/project-context/session-index.ts:289
+192 Session.header core-read=src/shared/lifecycle.ts:13,src/shared/lifecycle.ts:17,src/project-context/session-index.ts:162,src/project-context/session-index.ts:290
+194 Session.requestHeader core-read=src/shared/model-call.ts:99,src/project-handoff/runtime.ts:98,src/project-handoff/child.ts:129
+196 Session.snapshotEvents core-read=src/shared/conversation.ts:203,src/shared/conversation.ts:298,src/shared/conversation.ts:303,src/project-context/session-index.ts:141
+198 Session.deriveMessages core-read=src/shared/conversation.ts:201,src/shared/conversation.ts:220
+200 Session.deriveEventMessage core-read=src/shared/conversation.ts:210
+205 Agent.session core-read=src/shared/model-call.ts:99,src/project-autolearn/pass.ts:90,src/project-autolearn/pass.ts:99,src/project-autolearn/pass.ts:204
+206 Agent.options core-read=src/shared/model-call.ts:101
+206 Agent.options.provider core-read=src/shared/model-call.ts:102
+206 Agent.options.model core-read=src/shared/model-call.ts:102
+213 ContextBreakdownProjection.systemTokens core-read=src/project-handoff/runtime.ts:52
+214 ContextBreakdownProjection.toolsTokens core-read=src/project-handoff/runtime.ts:53
+219 ProjectionValues.contextBreakdown core-read=src/project-handoff/runtime.ts:46
+220 ProjectionValues.[key]
+225 SessionProjectionRegistry.snapshot core-read=src/project-memory/todo.ts:100,src/project-handoff/runtime.ts:46
+225 SessionProjectionRegistry.snapshot.values core-read=src/project-memory/todo.ts:100,src/project-handoff/runtime.ts:46
+ANY RECEIVERS: src/project-autolearn/skill-state-source.ts:64 left.localeCompare

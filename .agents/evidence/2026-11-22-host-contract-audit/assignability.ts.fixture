@@ -1,0 +1,11 @@
+import type * as C from './host/contract.js';
+import type * as L from '@deepseek-ai/dsh-llm';
+import type * as S from '@deepseek-ai/dsh-session';
+import type * as A from '@deepseek-ai/dsh-agent';
+import type * as P from '@deepseek-ai/dsh-session-projection';
+import type * as T from '@deepseek-ai/dsh-token-meter';
+export type Check<T extends true> = T;
+export type Inbound = Check<[S.Session,A.Agent,L.Message,L.ContentBlock,S.SessionEvent,L.LlmResolvedModelInfo,T.ContextBreakdownProjection] extends [C.Session,C.Agent,C.Message,C.ContentBlock,C.EventEnvelope,C.LlmResolvedModelInfo,C.ContextBreakdownProjection] ? true:false>;
+export const projection = (p:P.SessionProjectionRegistry):C.SessionProjectionRegistry=>p;
+export const outbound=(options:C.GenerateOptions):L.GenerateOptions=>options;
+export const eventArg=(e:C.EventEnvelope):S.SessionEvent=>e;
