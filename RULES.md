@@ -23,7 +23,7 @@
 ## 3 文件与目录
 
 - **3.1 命名与放置**：文件名 kebab-case；一个插件一个 `index.ts` 入口；测试按主题命名 `test/<subject>.test.mjs`。
-- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/index.ts` 1236 行、`src/project-memory/consolidate.ts` 1242 行。判据：`node scripts/check-docs.mjs` 的 baseline 检查 exit 0（现读行数与本条基线比对，并拒绝任何未声明的 >900 文件）。
+- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/consolidate.ts` 1242 行。判据：`node scripts/check-docs.mjs` 的 baseline 检查 exit 0（现读行数与本条基线比对，并拒绝任何未声明的 >900 文件）。
 - **3.3 大文件只减不增**：超过 400 行的文件若本提交净增长，须在 `CHANGELOG.md` 未发布说明为何不拆。
   判据：`git show --numstat <commit>`（未提交时 `git diff HEAD --numstat`）里该文件新增行数大于删除行数。
 - **3.4 测试按主题分文件**：新主题新建 `test/<subject>.test.mjs`；`test/logic.test.mjs` 只收跨主题纯逻辑（软规则，评审核对放置）。
@@ -119,6 +119,6 @@
 ## 11 未决
 
 - **7.3 的超时**：`src/shared/model-call.ts` 目前只透传 `signal`，没有插件内 timeout。需裁定「由宿主网关保证」还是插件自加 `AbortSignal.timeout`；2026-12-31 复查。
-- **3.2 的两个超限文件**：`src/project-memory/index.ts`（1246 行）与 `consolidate.ts`（1242 行）的拆分计划未定；2026-12-31 复核基线是否下降。
+- **3.2 的超限文件**：`src/project-memory/index.ts` 已于 2026-11-22 拆到 700 行（报告层移入 `src/project-memory/report.ts`），基线只剩 `consolidate.ts`（1242 行）待拆；2026-12-31 复核基线是否下降。
 - **3.7 的历史回改**：`6458173`、`06a5d12`、`f0ac43e` 在规则冻结前改过 evidence 正文，已记入 `CHANGELOG.md`
   未发布例外、不再回改；2026-12-31 复核规则是否需要「冻结前豁免」的明文。
