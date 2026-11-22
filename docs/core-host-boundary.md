@@ -42,13 +42,14 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
   `GenerateOptions` 不可赋给上游同名类型（`reasoningEffort` 放宽、消息形状不同），真实投影注册表
   不接受任意字符串键；两者今天分别由 `src/host/dsh/llm.ts` 的断言与通用服务 getter 遮住。彻底修法
   二选一：适配器逐字段构造宿主请求，或在入站边界包装每个宿主对象（`2d` 设计决定）。
-- **2c（第一片已落地，2026-11-22）**：`HostContext` 声明在 `contract.ts`（`on` / `registerCommand` /
-  `addPromptContext` / `onDispose` / `log` / `services`），实现是 `src/host/dsh/host-context.ts`；
-  `project-context` 已按 `apply(ctx) → hostContextOf(ctx) → start(host)` 切开，入口 39 行、核心
-  `start.ts` 377 行。其余三个插件未移植（它们的核心 helper 仍收整个 `Context` 去取日志、LLM 与服务，
-  测试以假 context 调这些 helper 约 150 次），逐文件清单在
-  [host-context-2c-design.md](./host-context-2c-design.md) §5。接第二个宿主前还缺四件：`HostContext`
-  要有 `llm` 成员、`fiber.config` 设置读取要换成中性接口、服务 getter 要成契约接口、事件时序要写进
+- **2c（已落地两片，2026-11-22）**：`HostContext` 声明在 `contract.ts`（`on` / `registerCommand` /
+  `addPromptContext` / `onDispose`），并 `extends HostPorts`——核心真正读的三件事 `log` / `services` /
+  `llm` 单独成接口，所以只取设施的 helper 收 `HostPorts` 而不是整个注册面；实现是
+  `src/host/dsh/host-context.ts`，`llm` 成员由 `llmOf(ctx)` 惰性读取。`project-context` 与
+  `project-autolearn` 已按 `apply(ctx) → hostContextOf(ctx) → start(host)` 切开：入口分别 39 / 32 行，
+  核心 `start.ts` 分别 377 / 192 行。`project-memory`、`project-handoff` 未移植（其核心 helper 仍收
+  整个 `Context`），逐文件清单在 [host-context-2c-design.md](./host-context-2c-design.md) §5。接第二个
+  宿主前还缺三件：`fiber.config` 设置读取要换成中性接口、服务 getter 要成契约接口、事件时序要写进
   契约（同文 §6）。
 
 ## 3 规则（`RULES.md` 4.6）
@@ -56,10 +57,12 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
 1. 只有 `src/host/contract.ts` 可以 import `@deepseek-ai/*`（`schemastery` 是库依赖，不在此列）。
 2. 核心模块不得出现 `ctx.get` / `ctx.logger` / `ctx.llm` / `ctx.agents` / `ctx.skills` / `ctx.effect`。
 3. `ctx.on` / `ctx.commands` / `ctx.systemPrompt` 只允许出现在 `src/<plugin>/index.ts`。
-4. `src/host/` 不得 import `../project-*` 或 `../shared/*`。
+4. 已移植的核心 `src/<plugin>/start.ts` 只 name `HostContext` / `HostPorts`，不得 import 原生 `Context`。
+5. `src/host/` 不得 import `../project-*` 或 `../shared/*`。
 
 判据：`node scripts/check-boundary.mjs` 退出码 0；`test/host-boundary.test.mjs` 钉住每条失败方向
-（核心 import 宿主包、核心读服务、非入口注册、host 反向依赖、host 侧第二扇门）。
+（核心 import 宿主包、核心读服务、非入口注册、入口外建 façade、已移植核心 name 原生 `Context`、
+host 反向依赖、host 侧第二扇门），并各留一个放行方向。
 
 ## 4 本批改动
 

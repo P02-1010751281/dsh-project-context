@@ -1,8 +1,9 @@
 # Phase 2c: the registration façade (`HostContext`)
 
-Status: first slice landed in the working tree (not committed). The façade and the dsh adapter are
-in place, and `project-context` is ported. `project-memory`, `project-autolearn` and
-`project-handoff` are not ported yet; their edit lists are in §5.
+Status: two slices landed (2026-11-22). The façade and the dsh adapter are in place; `HostContext`
+extends `HostPorts`, so a helper that only logs, looks up a service or calls the model takes the
+ports instead of the registration surface. `project-context` and `project-autolearn` are ported.
+`project-memory` and `project-handoff` are not; their edit lists are in §5.
 
 ## 1 The façade
 
@@ -43,15 +44,23 @@ export interface PromptContribution {
 export interface HostLog { info(format: string, ...args: readonly unknown[]): void; warn(format: string, ...args: readonly unknown[]): void }
 export interface ServiceRegistry { get(name: string): unknown }
 
-export interface HostContext {
+/** The facilities a core reads besides registration. */
+export interface HostPorts {
+	readonly log: HostLog;
+	readonly services: ServiceRegistry;
+	readonly llm: LlmPort;
+}
+
+export interface HostContext extends HostPorts {
 	on<K extends keyof HostEvents>(name: K, listener: HostEvents[K]): void;
 	registerCommand(command: CommandRegistration): void;
 	addPromptContext(contribution: PromptContribution): void;
 	onDispose(cleanup: () => void, label?: string): void;
-	readonly log: HostLog;
-	readonly services: ServiceRegistry;
 }
 ```
+
+`LlmPort` and its reply-chunk union are declared in `contract.ts` next to `GenerateOptions` (§6
+item 1 closed), and `src/shared/model-call.ts` takes the port rather than a context.
 
 Design rules:
 
@@ -66,6 +75,9 @@ Design rules:
   rule `service-access` still forbids `ctx.get` outside `src/host/`.
 - **`HostLog` moved into the contract.** `src/host/dsh/log.ts` re-exports it, so existing importers
   keep working.
+- **Two narrowing levels.** A core that registers takes `HostContext`; a helper deeper down that only
+  logs, looks up a named service or calls the model takes `HostPorts`. `HostContext extends
+  HostPorts`, so the entry passes the same object down without rebuilding anything.
 
 ## 2 The dsh adapter
 
@@ -80,6 +92,7 @@ forwards to the cordis call that the entry used to make itself:
 | `onDispose(fn, label)` | `onDispose(ctx, fn, label)` (`lifecycle.ts`) |
 | `log` | `logOf(ctx)`, read on each access |
 | `services` | `ctx` itself |
+| `llm` | `llmOf(ctx)`, read on each access — the one widening (`as unknown as`), so no core casts |
 
 Registrations are made on the same fiber with the same arguments, in the same order, so the plugin
 behaves exactly as before. The tests' fake contexts keep working unchanged because the adapter calls
@@ -105,6 +118,12 @@ stops compiling. A core would not find out at runtime.
 | `src/host/dsh/log.ts` | `HostLog` is now imported from the contract and re-exported. |
 | `src/project-context/start.ts` | New file: the core. `start(host: HostContext, entry: PluginConfig)` holds the former body of `apply`, with `ctx.on` → `host.on` (6 calls) and `ctx.commands.register` → `host.registerCommand` (2 calls). It imports no cordis type. |
 | `src/project-context/index.ts` | Now a thin entry: `name`, `inject` and `Config` are unchanged, and `apply(ctx, raw)` runs `resolvePluginConfig` → `publishProjectContextSettings(ctx, entry)` → `start(hostContextOf(ctx), entry)`. |
+| `src/project-autolearn/start.ts` | New file: the former body of `apply`, now `start(host: HostContext, entry)`. Three `host.on` calls and one `host.registerCommand`. |
+| `src/project-autolearn/index.ts` | Thin entry: `name`, `inject` and `apply` → `start(hostContextOf(ctx), resolvePluginConfig(raw))`. |
+| `src/project-autolearn/pass.ts` | `autolearnProjectSkills(ports: HostPorts, …)`; the log line and the two model calls read `ports.log` / `ports.llm`, so the module names no `Context`. |
+| `src/host/dsh/llm.ts` | `LlmPort` and the chunk union now come from the contract; the file owns the single `ctx.llm` widening plus `llmOf`. |
+| `src/shared/model-call.ts` | `resolveModelMetadata` / `requestPluginText(WithMeta)` take an `LlmPort`, not a context. The memory pass passes `llmOf(ctx)` until it is ported. |
+| `scripts/check-boundary.mjs` | New `raw-context` rule under `wiring`: a ported core (`src/<plugin>/start.ts`) must not import the raw `Context`. |
 | `scripts/check-boundary.mjs` | Adds the rule in §4. |
 | `test/host-boundary.test.mjs` | Adds two cases: a fail fixture and a pass fixture. |
 | `test/routing-skill.test.mjs` | `registeredCommands()` now reads every `.ts` file in a `project-*` directory and matches both `ctx.commands.register({name` and `host.registerCommand({name`. Before, it read only `index.ts`. |
@@ -159,10 +178,10 @@ Each port follows the `project-context` pattern. Move the body of `apply` into `
 - About 84 test call sites pass fake contexts with `{ get, logger, llm }`. The ported signatures
   must accept those, or the fakes must be wrapped.
 
-**project-autolearn** (`src/project-autolearn/index.ts`)
-- Three `ctx.on` calls and one `ctx.commands.register`. Five `logOf(ctx)` calls → `host.log`.
-- `autolearnProjectSkills(ctx, …)` (`pass.ts`) needs `llmOf(ctx)`. That requires an LLM member on
-  the façade (§6) or a separate port argument. Tests call it 43 times with fakes.
+**project-autolearn** — ported 2026-11-22. Three `ctx.on` + one `ctx.commands.register` moved into
+`start.ts`; `pass.ts` takes `HostPorts` and reads `ports.log` / `ports.llm`. The direct-call fakes in
+`test/autolearn.test.mjs` gained a `log` field; the `apply()` fakes did not change, because the
+adapter still reads `logger` / `llm` off the context they stand in for.
 
 **project-handoff** (`src/project-handoff/index.ts`)
 - Two `ctx.on` calls, one `ctx.commands.register`, and one `ctx.systemPrompt.context` →
@@ -180,9 +199,8 @@ Each port follows the `project-context` pattern. Move the body of `apply` into `
 
 ## 6 Gap to a real second adapter
 
-1. **LLM.** `llmOf(ctx)` (`src/host/dsh/llm.ts`) is not on the façade yet. The port types are
-   host-neutral already, so adding `readonly llm: LlmPort` to `HostContext` (with the chunk types
-   moved into the contract) closes this gap.
+1. ~~**LLM.**~~ Closed 2026-11-22: `HostPorts.llm` is an `LlmPort`, the chunk union and the request
+   vocabulary live in the contract, and `src/host/dsh/llm.ts` owns the single widening.
 2. **Settings publication.** The live config reader depends on the cordis Loader's `fiber.config`.
    A second harness needs its own way to read config updates; today that lives in the entry.
 3. **Service getters.** `src/host/dsh/services.ts` maps dsh service names to the `*Like` views.
