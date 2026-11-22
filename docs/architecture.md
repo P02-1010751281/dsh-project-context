@@ -56,7 +56,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 - 包导出 7 个键（`package.json:8-30`）：`.` → project-context、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - 入口导出 `name` / `inject` / `apply`：
   - project-context：`src/project-context/index.ts:126`、`src/project-context/index.ts:127`、`src/project-context/index.ts:136`
-  - project-memory：`src/project-memory/index.ts:74`、`src/project-memory/index.ts:75`、`src/project-memory/index.ts:552`
+  - project-memory：`src/project-memory/index.ts:56`、`src/project-memory/index.ts:57`、`src/project-memory/index.ts:153`
   - project-autolearn：`src/project-autolearn/index.ts:30`、`src/project-autolearn/index.ts:31`、`src/project-autolearn/index.ts:91`
   - project-handoff：`src/project-handoff/index.ts:93`、`src/project-handoff/index.ts:95`、`src/project-handoff/index.ts:103`
 - 调用点：宿主按 `cordis.patch.yml:8-16` 的 `insert` 装载四个条目（`project-context` → 包主入口，其余为子路径）；插件之间只走第 2 节的边。
@@ -114,7 +114,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 ## 10 一条端到端数据流：`/memory update`
 
-1. 命令 → `consolidateProject`（`src/project-memory/index.ts:147`，命令与回执的包装）→
+1. 命令 → `consolidateProject`（`src/project-memory/update.ts:56`，命令与回执的包装）→
    `consolidateProjectState`（`src/project-memory/consolidate.ts:698`，模型 pass）。
 2. 单飞 + 节流：同项目单飞（`activeConsolidation`，`src/project-memory/consolidate.ts:710`）、
    `throttle` 表（`src/project-memory/consolidate.ts:205`）。
@@ -125,7 +125,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
    （判定 `src/project-memory/consolidate.ts:1111` 的 `memoryLossyRefused`，回执行 `memoryUpdateReply`（`src/project-memory/report.ts:284`））。
 7. 回填闸：tier C 与退休之后补回措辞级丢失（`src/project-memory/lost-entry-repair.ts:119`），`no-room` 时不写。
 8. 渲染：`renderMemoryDocument` 只在到 cap 时丢整条目（`src/project-memory/sections.ts:173`）。
-9. 落盘：`withMemoryLock`（`src/shared/lock.ts:213`）→ `backupMemoryBeforeWrite`（`src/project-memory/backup.ts:33`）→ `recordMemoryDocument`（`src/project-memory/record.ts:97`，基线变了就拒绝 `src/project-memory/record.ts:116`）→ `writeAtomic`（`src/shared/files.ts:68`）→ 上下文文档（`contextPath`，`src/project-memory/index.ts:373`）。
+9. 落盘：`withMemoryLock`（`src/shared/lock.ts:213`）→ `backupMemoryBeforeWrite`（`src/project-memory/backup.ts:33`）→ `recordMemoryDocument`（`src/project-memory/record.ts:97`，基线变了就拒绝 `src/project-memory/record.ts:116`）→ `writeAtomic`（`src/shared/files.ts:68`）→ 上下文文档（`contextPath`，`src/project-memory/update.ts:282`）。
 10. 回执只报真正落地部分；每次拒绝或裁剪另写一行到 `errors.log`。
 - 失败分支：tier C 拒绝（零写入）、输出上限拒绝（`cut off by the model output limit`）、基线变化拒绝、回填 `no-room`、输出预算装不下两份文档（`fit-capped-refused`）。
 

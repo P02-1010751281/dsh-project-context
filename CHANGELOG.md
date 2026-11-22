@@ -12,13 +12,17 @@
 
 **memory-report-split（`/memory` 报告层移出 `index.ts`，2026-11-22）**
 
-- `src/project-memory/index.ts` 1236 → 700 行：报告形状（`ConsolidateOptions` / `ConsolidateStatus` /
-  `RefusedLoss` / `ConsolidateReport` / `ConsolidateLoss` / `NO_LOSS` / `cleanReport`）与全部回执
-  （`memoryStatusReply` / `memoryUpdateReply` / `memoryPruneReply` / `memoryReconcileReply` /
-  `memoryAcceptReply` / `acceptEntryState`）移入新文件 `src/project-memory/report.ts`（570 行）。
-- 入口公开面不变：`index.ts` 原样 re-export 这些符号，`test/logic.test.mjs` 的既有 import 一处未改。
+- `src/project-memory/index.ts` 1236 → 301 行，拆成两个新模块：
+  报告形状（`ConsolidateOptions` / `ConsolidateStatus` / `RefusedLoss` / `ConsolidateReport` /
+  `ConsolidateLoss` / `NO_LOSS` / `cleanReport`）与全部回执（`memoryStatusReply` / `memoryUpdateReply` /
+  `memoryPruneReply` / `memoryReconcileReply` / `memoryAcceptReply` / `acceptEntryState`）→
+  `src/project-memory/report.ts`（574 行）；单次整理 pass（`consolidateProject` 连同它独占的串行队列与
+  version 声明）→ `src/project-memory/update.ts`（430 行）。入口只剩 `name` / `inject`、两个注入 provider、
+  `writeTodoSnapshot` 与 `apply` 接线。
+- 入口公开面不变：`index.ts` 原样 re-export 这些符号（`acceptEntryState`、五个回执、`consolidateProject`），
+  `test/logic.test.mjs` 的既有 import 一处未改。
 - 行为等价（纯移动 + import 收口，无逻辑改动）：`pnpm test` 800 通过 / 0 失败；
-  `pnpm boundary:check` 114 文件 0 失败（新文件同样不 import 宿主包、不读 `ctx` 服务）。
+  `pnpm boundary:check` 115 文件 0 失败（两个新文件同样只经 `contract.ts` 认识宿主、不读 `ctx` 服务）。
 - `RULES.md` 3.2 的基线只剩 `consolidate.ts`（1242 行）；第 11 章的待裁定项从两项减为一项。
 
 **core-host-boundary（核心与宿主解耦，2026-11-22）**

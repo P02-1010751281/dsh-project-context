@@ -119,6 +119,6 @@
 ## 11 未决
 
 - **7.3 的超时**：`src/shared/model-call.ts` 目前只透传 `signal`，没有插件内 timeout。需裁定「由宿主网关保证」还是插件自加 `AbortSignal.timeout`；2026-12-31 复查。
-- **3.2 的超限文件**：`src/project-memory/index.ts` 已于 2026-11-22 拆到 700 行（报告层移入 `src/project-memory/report.ts`），基线只剩 `consolidate.ts`（1242 行）待拆；2026-12-31 复核基线是否下降。
+- **3.2 的超限文件**：`src/project-memory/index.ts` 已于 2026-11-22 从 1236 行拆到 301 行（报告层 → `report.ts`，整理 pass → `update.ts`），基线只剩 `consolidate.ts`（1242 行）待拆；2026-12-31 复核基线是否下降。
 - **3.7 的历史回改**：`6458173`、`06a5d12`、`f0ac43e` 在规则冻结前改过 evidence 正文，已记入 `CHANGELOG.md`
   未发布例外、不再回改；2026-12-31 复核规则是否需要「冻结前豁免」的明文。
