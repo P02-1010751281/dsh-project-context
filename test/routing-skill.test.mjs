@@ -74,15 +74,16 @@ function referencedCommands(body) {
 /** The command names the four plugins register, read from the source that registers them. */
 function registeredCommands() {
 	const names = new Set();
+	// A plugin registers either in its cordis entry (`ctx.commands.register`) or, once its core sits
+	// behind the host façade, from the core it starts (`host.registerCommand`, phase 2c), so every
+	// module of the plugin directory is read.
 	for (const plugin of readdirSync(path.join(repositoryRoot, "src"))) {
-		const file = path.join(repositoryRoot, "src", plugin, "index.ts");
-		let source;
-		try {
-			source = readFileSync(file, "utf8");
-		} catch {
-			continue;
+		if (!plugin.startsWith("project-")) continue;
+		const dir = path.join(repositoryRoot, "src", plugin);
+		for (const file of readdirSync(dir).filter((name) => name.endsWith(".ts"))) {
+			const source = readFileSync(path.join(dir, file), "utf8");
+			for (const match of source.matchAll(/(?:ctx\.commands\.register|host\.registerCommand)\(\{\s*name:\s*"([^"]+)"/g)) names.add(match[1]);
 		}
-		for (const match of source.matchAll(/ctx\.commands\.register\(\{\s*name:\s*"([^"]+)"/g)) names.add(match[1]);
 	}
 	return names;
 }

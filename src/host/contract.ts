@@ -23,8 +23,11 @@
  * {@link OpaqueEventTypes} / {@link OpaqueBlockTypes} registries. That keeps `event.type === "…"`
  * a real discriminant for the cores while every host event or block stays assignable.
  *
- * `Context` is still the harness's own plugin context, re-exported from the adapter: registration
- * (`ctx.on`, `ctx.commands`, `ctx.systemPrompt`) is phase 2c of `docs/core-host-boundary.md`.
+ * Registration goes through {@link HostContext} at the bottom of this file (phase 2c of
+ * `docs/core-host-boundary.md`): a plugin entry adapts its harness context once and hands the core a
+ * `HostContext`, so a core subscribes, registers and logs without naming the framework. `Context` is
+ * still re-exported for the cores not yet moved behind the façade; see
+ * `docs/host-context-2c-design.md` for which ones.
  */
 
 export type { Context } from "./dsh/types.js";
@@ -234,4 +237,106 @@ export interface ProjectionValues {
 /** The session-projection registry's one read face. */
 export interface SessionProjectionRegistry {
 	snapshot(session: Session, keys: readonly string[]): { readonly values: ProjectionValues };
+}
+
+// ── Registration façade ───────────────────────────────────────────────────────────────────────────
+//
+// What a core needs from the plugin runtime besides the objects above: subscribe to lifecycle events,
+// register a human command, contribute dynamic prompt context, release state on dispose, log, and
+// look up a service by name for the getters in the adapter. A second harness implements exactly this
+// interface; nothing here names a framework type.
+
+/** An agent's run status; `idle` means nothing is scheduled or running. */
+export type AgentStatus = "idle" | "running";
+
+/**
+ * The lifecycle events the cores subscribe to, with the payload each listener receives. The names
+ * are the host-neutral vocabulary; an adapter maps them onto its own event bus.
+ */
+export interface HostEvents {
+	/** A new agent finished setup. The listener returns `undefined`; asynchronous work is fire-and-forget. */
+	"agent/created"(payload: { readonly agent: Agent }): undefined;
+	/** The agent's status changed to `status`. */
+	"agent/status"(payload: { readonly agent: Agent; readonly status: AgentStatus }): void;
+	/** The agent left the registry. */
+	"agent/disposed"(payload: { readonly agent: Agent }): void;
+	/** One event was appended to the session's durable log. */
+	"session/event"(session: Session, event: EventEnvelope): void;
+	/** The host is about to rely on the session being durable; pending writes should settle. */
+	"session/flush"(session: Session): Promise<void> | void;
+	/** The session was released by the host. */
+	"session/disposed"(session: Session): void;
+}
+
+/** A command's reply: a receipt string, or an error the client shows as a failure. */
+export type CommandResult =
+	| { readonly kind: "success"; readonly text?: string }
+	| { readonly kind: "error"; readonly text: string };
+
+/** One invocation of a registered command. */
+export interface CommandInvocation {
+	/** The agent whose UI received the command. */
+	readonly agent: Agent;
+	/** Exact text after the command name. */
+	readonly rawInput: string;
+	/** Cancellation owned by the dispatching request. */
+	readonly signal: AbortSignal;
+}
+
+/** A human command (`/name …`) a core registers. */
+export interface CommandRegistration {
+	/** Lowercase name without the leading slash. */
+	readonly name: string;
+	readonly description: string;
+	/** Free-form input hint shown by capable clients. */
+	readonly input?: { readonly hint: string };
+	readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;
+}
+
+/** What a prompt-context provider is given at each assembly. */
+export interface PromptAssembly {
+	/** The agent the prompt is assembled for, when there is one. */
+	readonly agent?: Agent;
+}
+
+/** One dynamic prompt-context contribution. */
+export interface PromptContribution {
+	/** Unique name; a duplicate registration is a host error. */
+	readonly name: string;
+	/** Contributions are joined in ascending order. */
+	readonly order: number;
+	/** `false` keeps `{{…}}` literal instead of interpolating host prompt variables. */
+	readonly interpolate?: boolean;
+	/** Static text or a synchronous provider evaluated per assembly; `""` contributes nothing. */
+	readonly text: string | ((assembly: PromptAssembly) => string);
+}
+
+/** The logging surface a core writes console lines through. */
+export interface HostLog {
+	info(format: string, ...args: readonly unknown[]): void;
+	warn(format: string, ...args: readonly unknown[]): void;
+}
+
+/** Named service lookup; `undefined` means this profile does not ship that service. */
+export interface ServiceRegistry {
+	get(name: string): unknown;
+}
+
+/**
+ * The registration façade a plugin core starts with. Every registration is owned by the plugin
+ * instance: the adapter releases it when the plugin is disposed, so the core never unregisters.
+ */
+export interface HostContext {
+	/** Subscribe to one lifecycle event for the plugin's lifetime. */
+	on<K extends keyof HostEvents>(name: K, listener: HostEvents[K]): void;
+	/** Register one human command for the plugin's lifetime. */
+	registerCommand(command: CommandRegistration): void;
+	/** Contribute one dynamic prompt-context section for the plugin's lifetime. */
+	addPromptContext(contribution: PromptContribution): void;
+	/** Run `cleanup` once when the plugin is disposed. */
+	onDispose(cleanup: () => void, label?: string): void;
+	/** The plugin's log. */
+	readonly log: HostLog;
+	/** Service lookup for the adapter's named getters (`src/host/<harness>/services.ts`). */
+	readonly services: ServiceRegistry;
 }

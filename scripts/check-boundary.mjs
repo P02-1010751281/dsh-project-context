@@ -58,6 +58,8 @@ const HOST_IMPORT = /from\s+"(@deepseek-ai\/[^"]+)"/g;
 const LIBRARY_IMPORT = "@deepseek-ai/schemastery";
 const SERVICES = /ctx\.(get|logger|llm|agents|skills|effect)\b/g;
 const WIRING = /ctx\.(on|commands|systemPrompt)\b/g;
+/** Building the registration façade from a harness context is the entry's job (phase 2c). */
+const FACADE_BUILD = /\bhostContextOf\s*\(/g;
 
 function check(root) {
 	for (const file of sourceFiles(root)) {
@@ -82,6 +84,9 @@ function check(root) {
 			if (!isEntry) {
 				for (const match of text.matchAll(WIRING)) {
 					fail("wiring", `${rel} uses ctx.${match[1]}; registration belongs in its plugin's index.ts`);
+				}
+				for (const _ of text.matchAll(FACADE_BUILD)) {
+					fail("wiring", `${rel} calls hostContextOf; only a plugin's index.ts adapts the harness context, a core receives the HostContext`);
 				}
 			}
 		}

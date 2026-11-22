@@ -97,3 +97,19 @@ test("a host file outside any harness directory may not name a host package", as
 	assert.equal(result.status, 1);
 	assert.match(result.stderr, /FAIL single-door: src\/host\/leak\.ts imports @deepseek-ai\/dsh-session/);
 });
+
+test("a core module building the host façade itself fails", async () => {
+	const root = await fixture({ "src/project-x/start.ts": 'const host = hostContextOf(ctx);\n' });
+	const result = run(root);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /FAIL wiring: src\/project-x\/start\.ts calls hostContextOf/);
+});
+
+test("a core registering through the façade it was handed is allowed, and the entry builds it", async () => {
+	const root = await fixture({
+		"src/project-x/index.ts": 'export function apply(ctx) { start(hostContextOf(ctx)); }\n',
+		"src/project-x/start.ts": 'export function start(host) { host.on("session/event", () => {}); host.registerCommand({ name: "x" }); }\n',
+	});
+	const result = run(root);
+	assert.equal(result.status, 0, result.stdout + result.stderr);
+});

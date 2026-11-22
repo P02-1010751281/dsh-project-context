@@ -67,4 +67,9 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
     handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>>;
+/**
+ * The cordis entry: resolve the config, publish the shared settings namespace, adapt the context to
+ * the host-neutral façade and start the core (`start.ts`). This file is the only one in the plugin
+ * that names the framework.
+ */
 export declare function apply(ctx: Context, rawConfig: unknown): void;
