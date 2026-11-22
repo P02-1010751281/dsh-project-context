@@ -135,6 +135,61 @@ export interface LlmResolvedModelInfo {
 	readonly reasoning?: { readonly efforts: readonly { readonly id: string }[] };
 }
 
+/** One text delta of a streamed reply. */
+export interface TextDeltaChunk {
+	readonly type: "text-delta";
+	readonly text: string;
+}
+
+/** One fragment of a streamed tool call; the arguments arrive in pieces. */
+export interface ToolCallDeltaChunk {
+	readonly type: "tool-call-delta";
+	readonly index: number;
+	/** Only the first delta of a block names the tool. */
+	readonly name?: string;
+	readonly argumentsDelta: string;
+}
+
+/** The assembled end of one content block, authoritative when it arrives. */
+export interface BlockEndChunk {
+	readonly type: "block-end";
+	readonly index: number;
+	/** Only the tool-call block is read by the reply loop; other block kinds are ignored. */
+	readonly block: { readonly type: "tool-call"; readonly name: string; readonly arguments: string };
+}
+
+/** A usage report for the reply so far. */
+export interface UsageChunk {
+	readonly type: "usage";
+	readonly usage: { readonly reasoningTokens?: number };
+}
+
+/** How the reply ended, including the failure an error or abort carries. */
+export interface FinishChunk {
+	readonly type: "finish";
+	readonly reason: {
+		readonly kind: string;
+		/** Present whenever `kind` is an error or an abort; the reply loop reads it only there. */
+		readonly failure: { readonly message: string; readonly code: string };
+	};
+}
+
+/** One streamed reply event: the vocabulary the reply loop narrows on, declared here rather than borrowed. */
+export type StreamChunk = TextDeltaChunk | ToolCallDeltaChunk | BlockEndChunk | UsageChunk | FinishChunk;
+
+/**
+ * The model port: the two calls a core makes, named host-neutrally.
+ *
+ * An adapter maps its own service onto this, and a mapping mismatch is a loud adapter failure rather
+ * than a silently faked reply. `src/shared/model-call.ts` is the single consumer.
+ */
+export interface LlmPort {
+	/** Resolve one route's catalogue metadata; a failing route rejects rather than guessing. */
+	resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;
+	/** Stream one reply for `options`. */
+	stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
+}
+
 // ── Session events ────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -323,10 +378,27 @@ export interface ServiceRegistry {
 }
 
 /**
+ * What a core needs from the host besides registration: where it logs, the named-service lookup the
+ * adapter's getters take, and the model port.
+ *
+ * {@link HostContext} is the full façade a plugin entry hands its core. A helper deeper in a core
+ * that only reads these three takes this narrower type, so it stays callable from a test fake that
+ * never registers anything.
+ */
+export interface HostPorts {
+	/** The plugin's log. */
+	readonly log: HostLog;
+	/** Service lookup for the adapter's named getters (`src/host/<harness>/services.ts`). */
+	readonly services: ServiceRegistry;
+	/** The model port. */
+	readonly llm: LlmPort;
+}
+
+/**
  * The registration façade a plugin core starts with. Every registration is owned by the plugin
  * instance: the adapter releases it when the plugin is disposed, so the core never unregisters.
  */
-export interface HostContext {
+export interface HostContext extends HostPorts {
 	/** Subscribe to one lifecycle event for the plugin's lifetime. */
 	on<K extends keyof HostEvents>(name: K, listener: HostEvents[K]): void;
 	/** Register one human command for the plugin's lifetime. */
@@ -335,8 +407,4 @@ export interface HostContext {
 	addPromptContext(contribution: PromptContribution): void;
 	/** Run `cleanup` once when the plugin is disposed. */
 	onDispose(cleanup: () => void, label?: string): void;
-	/** The plugin's log. */
-	readonly log: HostLog;
-	/** Service lookup for the adapter's named getters (`src/host/<harness>/services.ts`). */
-	readonly services: ServiceRegistry;
 }

@@ -9,8 +9,16 @@
  * description enters the prompt while the body loads on demand.
  *
  * Commands: /autolearn
+ *
+ * The body is `start.ts`: this file is the cordis entry and nothing else.
  */
 import type { Context } from "../host/contract.js";
 export declare const name = "project-autolearn";
 export declare const inject: string[];
+/**
+ * Cordis entry: resolve the plugin config, publish nothing (the memory card owns the namespace), and
+ * hand the core a façade over this context.
+ * @param ctx - the plugin context.
+ * @param rawConfig - the raw config the Loader passed.
+ */
 export declare function apply(ctx: Context, rawConfig: unknown): void;

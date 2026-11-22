@@ -4,9 +4,7 @@
  * autolearn pass reuses the model plumbing from there; the pass itself belongs to the memory
  * plugin, and the plumbing it shares now sits in `shared/model-call.ts`.
  */
-import { type Context } from "../host/contract.js";
-import { type Agent } from "../host/contract.js";
-import { type Session } from "../host/contract.js";
+import { type Agent, type Context, type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type MemoryEntryState } from "./entry-states.js";
 import { type ConsolidationResult, type ContextUpdate } from "../shared/reply-json.js";

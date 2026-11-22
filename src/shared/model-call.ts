@@ -4,12 +4,10 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type Context } from "../host/contract.js";
 import { type Agent } from "../host/contract.js";
-import { type GenerateOptions, type LlmResolvedModelInfo, type PluginTool, type UserMessage } from "../host/contract.js";
+import { type GenerateOptions, type LlmPort, type LlmResolvedModelInfo, type PluginTool, type UserMessage } from "../host/contract.js";
 
 export type { PluginTool } from "../host/contract.js";
-import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "./config.js";
 
 const LEARN_PLUGIN_NAME = "dsh-project-context";
@@ -94,18 +92,18 @@ export function resolveTarget(agent: Agent, config: PluginConfig): { provider: s
  * efforts. Model metadata is advisory, so an unknown or failing provider simply yields
  * `undefined` and the pass falls back to the configured ceiling. Consolidation reads one resolve
  * for both facts rather than spending two RPCs.
- * @param ctx - the plugin context holding the `llm` service.
+ * @param llm - the host's model port.
  * @param target - the resolved provider/model route.
  * @param signal - the pass's abort signal.
  * @returns the resolved info, or `undefined` when the adapter cannot answer.
  */
 export async function resolveModelMetadata(
-	ctx: Context,
+	llm: LlmPort,
 	target: { provider: string; model: string },
 	signal: AbortSignal | undefined,
 ): Promise<LlmResolvedModelInfo | undefined> {
 	try {
-		return await llmOf(ctx).resolveModelInfo(target.provider, target.model, signal);
+		return await llm.resolveModelInfo(target.provider, target.model, signal);
 	} catch {
 		return undefined;
 	}
@@ -162,14 +160,14 @@ export function auxiliaryReasoningEffort(info: LlmResolvedModelInfo | undefined)
  * naming a live session used to create.
  */
 export async function requestPluginText(
-	ctx: Context,
+	llm: LlmPort,
 	target: { provider: string; model: string },
 	maxTokens: number,
 	prompt: string,
 	signal: AbortSignal | undefined,
 	options: PluginCallOptions,
 ): Promise<string> {
-	return (await requestPluginTextWithMeta(ctx, target, maxTokens, prompt, signal, options)).text;
+	return (await requestPluginTextWithMeta(llm, target, maxTokens, prompt, signal, options)).text;
 }
 
 /**
@@ -180,7 +178,7 @@ export async function requestPluginText(
  * names that reason `max-tokens` — **not** pi's `length` — and it is deliberately not an error
  * here: the caller decides whether to retry with more headroom (a genuine `error`/`aborted`
  * finish still throws, with the message this plugin has always used).
- * @param ctx - the plugin context holding the `llm` service.
+ * @param llm - the host's model port.
  * @param target - the resolved provider/model route.
  * @param maxTokens - the output cap to request.
  * @param prompt - the plugin-authored user message.
@@ -190,7 +188,7 @@ export async function requestPluginText(
  * @returns the trimmed visible text, the finish reason kind, hidden reasoning tokens, and any tool calls.
  */
 export async function requestPluginTextWithMeta(
-	ctx: Context,
+	llm: LlmPort,
 	target: { provider: string; model: string },
 	maxTokens: number,
 	prompt: string,
@@ -216,7 +214,7 @@ export async function requestPluginTextWithMeta(
 	let failure: { message: string; code: string } | undefined;
 	/** Assembled tool calls by block index: deltas arrive fragmented, `block-end` carries the join. */
 	const toolCalls = new Map<number, PluginToolCall>();
-	for await (const chunk of llmOf(ctx).stream(requestOptions)) {
+	for await (const chunk of llm.stream(requestOptions)) {
 		if (chunk.type === "text-delta") {
 			text += chunk.text;
 		} else if (chunk.type === "tool-call-delta") {

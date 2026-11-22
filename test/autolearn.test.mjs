@@ -115,6 +115,9 @@ function fakeContext(replies, { modelLimit, efforts } = {}) {
 	return {
 		calls,
 		logger: { info() {}, warn() {} },
+		// The pass takes `HostPorts`: its log and the model port. The entry still maps a fake ctx
+		// through the adapter, so `logger`/`llm` stay for the `apply()` sites in this file.
+		log: { info() {}, warn() {} },
 		llm: {
 			async resolveModelInfo() {
 				if (modelLimit === undefined && efforts === undefined) throw new Error("no model catalog");

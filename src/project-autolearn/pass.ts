@@ -3,10 +3,7 @@
  */
 
 import path from "node:path";
-import { type Context } from "../host/contract.js";
-import { type Agent } from "../host/contract.js";
-import { logOf } from "../host/dsh/log.js";
-// Type-only: pulls the llm service Context merge (llmOf(ctx).resolveModelInfo) for this module.
+import { type Agent, type HostPorts } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
 import { type CompletionOutcome, type ToolsFallbackState, auxiliaryReasoningEffort, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
@@ -82,7 +79,7 @@ const throttle = new Map<string, AutolearnState>();
  * count across sessions or wall-clock interval). Commands force the pass.
  */
 export function autolearnProjectSkills(
-	ctx: Context,
+	ports: HostPorts,
 	agent: Agent,
 	config: PluginConfig,
 	options: AutolearnOptions = {},
@@ -154,7 +151,7 @@ export function autolearnProjectSkills(
 			// the JSON off mid-string. Bounded by the model's own limit and the configured ceiling.
 			// The ceiling stays a *growth* boundary (`Math.max` inside `adaptiveOutputTokens`), not a
 			// hard cap: the configured maxTokens remains the base budget.
-			const info = await resolveModelMetadata(ctx, target, options.signal);
+			const info = await resolveModelMetadata(ports.llm, target, options.signal);
 			// Same resolve, second fact: the route's cheapest *enabled* effort. Naming none, or naming the
 			// disabled level, makes dsh emit disabled thinking, which a gateway may refuse outright
 			// (`auxiliaryReasoningEffort` carries the mechanism and the measured case).
@@ -198,7 +195,7 @@ export function autolearnProjectSkills(
 			/** One decision call. `withTools` is false for the retry, which asks for the text shape. */
 			const call = (prompt: string, withTools: boolean): Promise<CompletionOutcome> =>
 				callWithToolsFallback(toolsState, withTools, (useTools) =>
-					requestPluginTextWithMeta(ctx, target, maxTokens, prompt, options.signal, {
+					requestPluginTextWithMeta(ports.llm, target, maxTokens, prompt, options.signal, {
 						// The live session this pass was triggered for: the route may require it (opencode
 						// maps it to `x-opencode-session` and answers 400 without it).
 						sessionId: agent.session.id,
@@ -329,7 +326,7 @@ export function autolearnProjectSkills(
 			throw error;
 		}
 	})().catch((error: unknown) => {
-		logOf(ctx).warn("dsh-project-context: autolearn pass failed: %s", error instanceof Error ? error.message : String(error));
+		ports.log.warn("dsh-project-context: autolearn pass failed: %s", error instanceof Error ? error.message : String(error));
 		return undefined;
 	}).finally(() => {
 		activeAutolearn.delete(projectKey);

@@ -113,3 +113,20 @@ test("a core registering through the façade it was handed is allowed, and the e
 	const result = run(root);
 	assert.equal(result.status, 0, result.stdout + result.stderr);
 });
+
+test("a ported core that names the raw host context fails", async () => {
+	const root = await fixture({
+		"src/project-x/start.ts": 'import type { Context } from "../host/contract.js";\nexport function start(host: Context): void { void host; }\n',
+	});
+	const result = run(root);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /FAIL raw-context: src\/project-x\/start\.ts names the raw host context/);
+});
+
+test("a ported core starting from the façade is allowed", async () => {
+	const root = await fixture({
+		"src/project-x/start.ts": 'import type { HostContext } from "../host/contract.js";\nexport function start(host: HostContext): void { host.on("session/flush", () => undefined); }\n',
+	});
+	const result = run(root);
+	assert.equal(result.status, 0, result.stdout + result.stderr);
+});

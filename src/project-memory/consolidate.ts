@@ -6,9 +6,8 @@
  */
 
 import path from "node:path";
-import { type Context } from "../host/contract.js";
-import { type Agent } from "../host/contract.js";
-import { type Session } from "../host/contract.js";
+import { type Agent, type Context, type Session } from "../host/contract.js";
+import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "../shared/config.js";
 import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional, taskFile } from "../shared/project-state.js";
 import { boundTaskSync, dateStamp } from "./tasks.js";
@@ -509,7 +508,7 @@ async function requestConsolidationText(
 ): Promise<CompletionOutcome> {
 	const target = resolveTarget(agent, config);
 	if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
-	return requestPluginTextWithMeta(ctx, target, maxTokens, prompt, signal, {
+	return requestPluginTextWithMeta(llmOf(ctx), target, maxTokens, prompt, signal, {
 		// The live session this pass was triggered for. The route may require it (opencode maps it to
 		// `x-opencode-session` and answers 400 without it), and naming it is what makes the
 		// checkpoint-policy half of `SessionWorkTracker`'s contract load-bearing for this pass.
@@ -816,7 +815,7 @@ export function consolidateProjectState(
 		if (!target) throw new Error("no provider/model available for the learn pass: route one request, set AgentOptions, or configure provider+model");
 		// One resolve for both facts: the adapter's own output cap bounds the adaptive cap, and its
 		// reasoning metadata decides whether hidden thinking must be reserved out of the same budget.
-		const info = await resolveModelMetadata(ctx, target, options.signal);
+		const info = await resolveModelMetadata(llmOf(ctx), target, options.signal);
 		const auxModel = { maxTokens: info?.defaultMaxTokens, reasoning: info?.reasoning !== undefined };
 		// Same resolve, third fact: the route's cheapest *enabled* effort. Naming none, or naming the
 		// disabled level, makes dsh emit disabled thinking, which a gateway may refuse outright

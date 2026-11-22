@@ -1,8 +1,7 @@
 /**
  * The pass itself: one throttled, single-flight distillation per project.
  */
-import { type Context } from "../host/contract.js";
-import { type Agent } from "../host/contract.js";
+import { type Agent, type HostPorts } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type LearnedSkill } from "./skill.js";
 interface AutolearnOptions {
@@ -49,5 +48,5 @@ export interface AutolearnOutcome {
  * CONTEXT.md touched since the last pass) plus one open cadence gate (turn
  * count across sessions or wall-clock interval). Commands force the pass.
  */
-export declare function autolearnProjectSkills(ctx: Context, agent: Agent, config: PluginConfig, options?: AutolearnOptions): Promise<AutolearnOutcome | undefined>;
+export declare function autolearnProjectSkills(ports: HostPorts, agent: Agent, config: PluginConfig, options?: AutolearnOptions): Promise<AutolearnOutcome | undefined>;
 export {};

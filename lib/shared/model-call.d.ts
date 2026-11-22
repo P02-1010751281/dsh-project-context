@@ -2,9 +2,8 @@
  * One plugin-sourced auxiliary model call: which route to use, what metadata the adapter
  * exposes, the output limit for that route, and the single-shot and meta-returning calls.
  */
-import { type Context } from "../host/contract.js";
 import { type Agent } from "../host/contract.js";
-import { type GenerateOptions, type LlmResolvedModelInfo, type PluginTool, type UserMessage } from "../host/contract.js";
+import { type GenerateOptions, type LlmPort, type LlmResolvedModelInfo, type PluginTool, type UserMessage } from "../host/contract.js";
 export type { PluginTool } from "../host/contract.js";
 import { type PluginConfig } from "./config.js";
 /**
@@ -74,12 +73,12 @@ export declare function resolveTarget(agent: Agent, config: PluginConfig): {
  * efforts. Model metadata is advisory, so an unknown or failing provider simply yields
  * `undefined` and the pass falls back to the configured ceiling. Consolidation reads one resolve
  * for both facts rather than spending two RPCs.
- * @param ctx - the plugin context holding the `llm` service.
+ * @param llm - the host's model port.
  * @param target - the resolved provider/model route.
  * @param signal - the pass's abort signal.
  * @returns the resolved info, or `undefined` when the adapter cannot answer.
  */
-export declare function resolveModelMetadata(ctx: Context, target: {
+export declare function resolveModelMetadata(llm: LlmPort, target: {
     provider: string;
     model: string;
 }, signal: AbortSignal | undefined): Promise<LlmResolvedModelInfo | undefined>;
@@ -118,7 +117,7 @@ export declare function auxiliaryReasoningEffort(info: LlmResolvedModelInfo | un
  * {@link PluginCallOptions.sessionId} for why it is mandatory and for the checkpoint cycle that
  * naming a live session used to create.
  */
-export declare function requestPluginText(ctx: Context, target: {
+export declare function requestPluginText(llm: LlmPort, target: {
     provider: string;
     model: string;
 }, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options: PluginCallOptions): Promise<string>;
@@ -130,7 +129,7 @@ export declare function requestPluginText(ctx: Context, target: {
  * names that reason `max-tokens` — **not** pi's `length` — and it is deliberately not an error
  * here: the caller decides whether to retry with more headroom (a genuine `error`/`aborted`
  * finish still throws, with the message this plugin has always used).
- * @param ctx - the plugin context holding the `llm` service.
+ * @param llm - the host's model port.
  * @param target - the resolved provider/model route.
  * @param maxTokens - the output cap to request.
  * @param prompt - the plugin-authored user message.
@@ -139,7 +138,7 @@ export declare function requestPluginText(ctx: Context, target: {
  * and the tools to offer this call.
  * @returns the trimmed visible text, the finish reason kind, hidden reasoning tokens, and any tool calls.
  */
-export declare function requestPluginTextWithMeta(ctx: Context, target: {
+export declare function requestPluginTextWithMeta(llm: LlmPort, target: {
     provider: string;
     model: string;
 }, maxTokens: number, prompt: string, signal: AbortSignal | undefined, options: PluginCallOptions): Promise<CompletionOutcome>;

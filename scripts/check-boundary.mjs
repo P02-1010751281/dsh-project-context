@@ -60,6 +60,8 @@ const SERVICES = /ctx\.(get|logger|llm|agents|skills|effect)\b/g;
 const WIRING = /ctx\.(on|commands|systemPrompt)\b/g;
 /** Building the registration façade from a harness context is the entry's job (phase 2c). */
 const FACADE_BUILD = /\bhostContextOf\s*\(/g;
+/** A ported core starts from the façade; naming the raw host context would put the framework back. */
+const RAW_CONTEXT = /import\s+(?:type\s+)?\{[^}]*\bContext\b[^}]*\}\s+from\s+"\.\.\/host\/contract\.js"/g;
 
 function check(root) {
 	for (const file of sourceFiles(root)) {
@@ -68,6 +70,7 @@ function check(root) {
 		const inHost = rel.startsWith("src/host/");
 		const inHarness = /^src\/host\/[^/]+\//.test(rel);
 		const isEntry = /^src\/[^/]+\/index\.ts$/.test(rel);
+		const isPortedCore = /^src\/[^/]+\/start\.ts$/.test(rel);
 
 		for (const match of text.matchAll(HOST_IMPORT)) {
 			if (inHost) {
@@ -80,6 +83,11 @@ function check(root) {
 		if (!inHost) {
 			for (const match of text.matchAll(SERVICES)) {
 				fail("service-access", `${rel} touches ctx.${match[1]} directly; use src/host/dsh/*`);
+			}
+			if (isPortedCore) {
+				for (const match of text.matchAll(RAW_CONTEXT)) {
+					fail("raw-context", `${rel} names the raw host context (${match[0].slice(0, 40)}…); a ported core starts from the HostContext its entry built`);
+				}
 			}
 			if (!isEntry) {
 				for (const match of text.matchAll(WIRING)) {

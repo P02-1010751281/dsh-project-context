@@ -14,8 +14,9 @@
 import type { Events } from "@deepseek-ai/cordis";
 import type { CommandDefinition } from "@deepseek-ai/dsh-commands";
 import type { PromptContext } from "@deepseek-ai/dsh-system-prompt";
-import type { CommandRegistration, Context, HostContext, HostEvents, HostLog, PromptContribution } from "../contract.js";
+import type { CommandRegistration, Context, HostContext, HostEvents, HostLog, LlmPort, PromptContribution } from "../contract.js";
 import { onDispose } from "./lifecycle.js";
+import { llmOf } from "./llm.js";
 import { logOf } from "./log.js";
 
 /** Fails to compile when a contract listener is not a valid listener for the host event of that name. */
@@ -72,5 +73,9 @@ export function hostContextOf(ctx: Context): HostContext {
 			return logOf(ctx);
 		},
 		services: ctx,
+		// Read on use, as `llmOf(ctx)` was at every former call site.
+		get llm(): LlmPort {
+			return llmOf(ctx);
+		},
 	};
 }
