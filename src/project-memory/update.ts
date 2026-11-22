@@ -7,9 +7,7 @@
  */
 
 import { projectionsOf } from "../host/dsh/services.js";
-import type { Agent } from "../host/contract.js";
-import type { Context } from "../host/contract.js";
-import { logOf } from "../host/dsh/log.js";
+import type { Agent, HostPorts } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { contextClipNotice, contextTruncationDropped } from "./context-schema.js";
 import { SerialQueue, projectCwd } from "../shared/lifecycle.js";
@@ -53,7 +51,7 @@ const updates = new SerialQueue();
 
 /** One pass updates both artifacts so MEMORY.md and CONTEXT.md never disagree about the pass. */
 /** One consolidation pass. Exported so the version-claim/backoff behaviour is testable. */
-export function consolidateProject(ctx: Context, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<ConsolidateReport> {
+export function consolidateProject(host: HostPorts, config: PluginConfig, agent: Agent, options: ConsolidateOptions): Promise<ConsolidateReport> {
 	return updates.run(async (): Promise<ConsolidateReport> => {
 		const session = agent.session;
 		const projectRoot = await getProjectRoot(projectCwd(session));
@@ -321,7 +319,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 				// mechanic lines the turn/end write just placed: re-apply the projection, or — when it has
 				// no opinion this turn — the lines the stored document already carried. Without this every
 				// pass (which runs on the idle right after a turn end) would silently undo the write.
-				const plannedTodoLines = projectTodoLines(projectionsOf(ctx), session) ?? todoLinesIn(existing);
+				const plannedTodoLines = projectTodoLines(projectionsOf(host.services), session) ?? todoLinesIn(existing);
 				const mechanic = withTodoLines(renderedContext, plannedTodoLines);
 				const contextDocument = mechanic.text;
 				if (mechanic.droppedItems > 0) {
@@ -361,7 +359,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			if (!options.silent && wrote) {
 				// Name what actually landed: a kept memory must not be reported as written.
 				const target = wroteMemory && wroteContext ? "project memory and context" : wroteMemory ? "project memory" : "project context";
-				logOf(ctx).info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}`);
+				host.log.info(`dsh-project-context: ${target} updated: ${memoryFile(projectRoot)}`);
 			}
 			// The counts still describe only what landed: a refused memory write dropped nothing from
 			// the stored file, and a context that was never written kept all of its characters.
@@ -402,7 +400,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			return wrote ? { status: "updated", ...loss } : cleanReport("unchanged");
 		};
 		try {
-			const outcome = await consolidateProjectState(ctx, agent, config, { force: options.force, signal: options.signal });
+			const outcome = await consolidateProjectState(host, agent, config, { force: options.force, signal: options.signal });
 			// A deduped pass has nothing to write, so it never reaches the tracker: there is no pending
 			// write to await, and the report already says the artifacts are unchanged.
 			if (!outcome || (written.get(projectRoot) ?? 0) >= outcome.version) return cleanReport("deduped");
@@ -415,7 +413,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// business mentioning a deletion — `purge.log` is where a removal is recorded.
 			const cleanup = await pruneProjectMemory(projectRoot, { apply: true, reason: "auto" });
 			if (cleanup.status === "failed" && !options.silent) {
-				logOf(ctx).warn(`dsh-project-context: memory cleanup failed: ${cleanup.error ?? "unknown"}`);
+				host.log.warn(`dsh-project-context: memory cleanup failed: ${cleanup.error ?? "unknown"}`);
 			}
 			return report;
 		} catch (error) {
@@ -423,7 +421,7 @@ export function consolidateProject(ctx: Context, config: PluginConfig, agent: Ag
 			// inside `forceDedupeMs` would answer "already up to date" for a write that never landed.
 			if (!wroteMemory) written.delete(projectRoot);
 			await logError(projectRoot, "memory", error);
-			if (!options.silent) logOf(ctx).warn(`dsh-project-context: project memory update failed: ${diagnosticMessage(error)}`);
+			if (!options.silent) host.log.warn(`dsh-project-context: project memory update failed: ${diagnosticMessage(error)}`);
 			return { status: "failed", ...loss };
 		}
 	});

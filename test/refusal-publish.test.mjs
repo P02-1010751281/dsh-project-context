@@ -22,6 +22,7 @@ import { consolidateProject } from "../lib/project-memory/index.js";
 import { memoryJournalFile, recordMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { contextFile, memoryFile } from "../lib/shared/project-state.js";
+import { portsOf } from "./host-ports.mjs";
 
 const SEED = "# Project Memory\n\n- the memory this pass read before the model call.\n";
 const HAND_EDIT = "# Project Memory\n\n- the hand edit that landed while the reply was being built.\n";
@@ -74,7 +75,7 @@ test("a refused reply leaves a curated CONTEXT.md byte-identical", async () => {
 	const { root, ctx, agent, config, errors } = await fixture({ reply: REPLY_WITH_CONTEXT, race: true });
 	await writeFile(contextFile(root), CURATED_CONTEXT, "utf8");
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "stale", `a refusal publishes nothing (got ${JSON.stringify(report)})`);
 	assert.equal(report.memoryWritten, false);
@@ -88,7 +89,7 @@ test("a fresh project gets no placeholder context from a refused pass", async ()
 	// pass decides nothing, and the line must not call the session-derived placeholder the reply's section.
 	const { root, ctx, agent, config, errors } = await fixture({ reply: REPLY_WITHOUT_CONTEXT, race: true });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "stale", `the memory raced, so nothing is published (got ${JSON.stringify(report)})`);
 	assert.equal(report.contextWritten, false);
@@ -103,7 +104,7 @@ test("the same fresh-project shape publishes the fallback when nothing was refus
 	// above is the refusal and not "a context is never written from the fallback".
 	const { root, ctx, agent, config } = await fixture({ reply: REPLY_WITHOUT_CONTEXT });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
 	assert.equal(report.memoryWritten, true);

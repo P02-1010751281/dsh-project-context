@@ -348,12 +348,24 @@ export interface ServiceRegistry {
     get(name: string): unknown;
 }
 /**
+ * What a helper needs when it reads nothing but a named service — a projection read, say: the
+ * service lookup alone.
+ *
+ * {@link HostPorts} is the full facility set; this is the one member of it a read-only helper takes,
+ * so the helper stays callable from a test fake that never logs, registers or calls a model.
+ */
+export interface ServiceHost {
+    /** Service lookup for the adapter's named getters (`src/host/<harness>/services.ts`). */
+    readonly services: ServiceRegistry;
+}
+/**
  * What a core needs from the host besides registration: where it logs, the named-service lookup the
  * adapter's getters take, and the model port.
  *
  * {@link HostContext} is the full façade a plugin entry hands its core. A helper deeper in a core
  * that only reads these three takes this narrower type, so it stays callable from a test fake that
- * never registers anything.
+ * never registers anything; one that reads only {@link ServiceHost.services} takes
+ * {@link ServiceHost} instead.
  */
 export interface HostPorts {
     /** The plugin's log. */

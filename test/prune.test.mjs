@@ -23,6 +23,7 @@ import { resolvePluginConfig } from "../lib/shared/config.js";
 import { consolidateProject, apply as applyMemory, memoryPruneReply } from "../lib/project-memory/index.js";
 import { PRUNE_BACKUPS_KEPT, planPrune, pruneProjectMemory } from "../lib/project-memory/prune.js";
 import { MAX_ERROR_LOG_BYTES } from "../lib/shared/error-log.js";
+import { portsOf } from "./host-ports.mjs";
 
 const DAY = 86_400_000;
 
@@ -376,7 +377,7 @@ test("the automatic path runs after a pass and still never touches the session a
 	for (const index of [1, 2, 3, 4]) await writeFile(mem(root, backupName(index)), `backup ${index}`, "utf8");
 	const { ctx, agent } = consolidationFixture({ root, reply: replyText() });
 
-	const report = await consolidateProject(ctx, resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	// The pass writes its own backup first (5 total), then the cleaning channel trims to 3.

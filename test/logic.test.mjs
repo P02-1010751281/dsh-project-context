@@ -61,6 +61,7 @@ import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStat
 import { bindAndMeasure } from "../lib/project-memory/staleness-source.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { sessionViews } from "./session-views.mjs";
+import { portsOf } from "./host-ports.mjs";
 
 /**
  * The handoff plugin declares `systemPrompt` (its pressure-line contribution), so a fixture that
@@ -778,7 +779,7 @@ test("the prompt states the cross-project boundary, at the rule and at the conve
 	const root = await memoryProject("dsh-memory-foreign-state-", "# Project Memory\n\n## Project\n- original\n");
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: FITTING_TEXT_REPLY }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
-	await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	const captionAt = prompt.indexOf(CONVERSATION_CAPTION);
@@ -1738,7 +1739,7 @@ test("tier C: a reply that would be stored lossily is refused after one retry, a
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const first = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.equal(calls.length, 2, "one targeted retry, and no more");
 	assert.equal(first.status, "lossy-refused", `a lossy reply must not land (got ${JSON.stringify(first)})`);
 	assert.equal(first.memoryWritten, false, "nothing was written");
@@ -1764,7 +1765,7 @@ test("tier C: a reply that would be stored lossily is refused after one retry, a
 	assert.notEqual(receipt, memoryUpdateReply(plainReport("updated")).text, "a refusal cannot read as a clean pass");
 
 	// The version claim is released on a refusal, so a second forced pass really re-runs.
-	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const second = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.equal(second.status, "lossy-refused", `the second pass is not deduped away (got ${JSON.stringify(second)})`);
 	const refusals = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
@@ -1797,7 +1798,7 @@ test("a rewrite that drops a backticked fact reports it after the write lands, a
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: DROPS_ONE_REPLY }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
 	assert.equal(report.memoryWritten, true);
@@ -1824,7 +1825,7 @@ test("a rewrite that keeps every backticked fact reports nothing, in neither the
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: KEEPS_BOTH_REPLY }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
 	assert.deepEqual(report.missingLiterals, { count: 0, samples: [] }, "no literal left the document");
@@ -1854,7 +1855,7 @@ test("a context rewrite that drops a backticked fact reports it, and the receipt
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: contextReply("a point that drops the symbol") }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
 	assert.equal(report.contextWritten, true);
@@ -1876,7 +1877,7 @@ test("a context rewrite that keeps every literal reports nothing, in neither the
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: contextReply("`isHeadingOnlyDocument` still keeps the gate honest") }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated");
 	assert.deepEqual(report.contextMissingLiterals, { count: 0, samples: [] }, "no literal left the context");
@@ -1908,7 +1909,7 @@ test("the retention ladder reaches the live prompt only when the stored memory i
 		const root = await memoryProject("dsh-memory-ladder-", memory);
 		const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply }] });
 		const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: 4000 });
-		await consolidateProject(ctx, config, agent, { force: true, silent: true });
+		await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 		assert.ok(calls.length > 0, "fixture: the pass really ran");
 		return calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	};
@@ -1943,7 +1944,7 @@ test("a deliberate retirement before the prompt is not reported as a silently lo
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", `the reply lands (got ${JSON.stringify(report)})`);
 	const landed = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
@@ -1970,7 +1971,7 @@ test("a consolidation route that refuses the tools parameter is retried once wit
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2, "the refused tools call is retried once");
 	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offered the tool");
@@ -1993,7 +1994,7 @@ test("a record_memory reply whose arguments do not parse is retried once without
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2, "the unusable reply is retried once");
 	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offered the tool");
@@ -2020,7 +2021,7 @@ test("a tools-free retry after a malformed reply can still be refused, leaving t
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 3, "the malformed retry, then tier C's own targeted retry");
 	assert.equal(report.status, "lossy-refused", `a lossy text answer is still refused (got ${JSON.stringify(report)})`);
@@ -2041,7 +2042,7 @@ test("only a request-shape refusal buys the tools-free retry on the memory side 
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1, "an auth failure is not re-asked without tools");
 	assert.equal(report.status, "failed", `the pass reports the failure rather than papering over it (got ${JSON.stringify(report)})`);
@@ -2063,7 +2064,7 @@ test("a per-item truncation with no section overflow still logs a complete loss 
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.equal(calls.length, 2, "a per-item truncation is retry-worthy even though it is not refusal-worthy");
 	assert.equal(report.status, "updated", `fixture: a clipped item is not an input clip (got ${JSON.stringify(report)})`);
 	assert.equal(report.itemTruncated, 1, "fixture: the single over-long entry is clipped and kept");
@@ -2092,7 +2093,7 @@ test("tier C: one targeted retry fixes a lossy reply, and the retry names the ov
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2, "the first reply was lossy, so exactly one retry happened");
 	assert.equal(calls[1].tools, undefined, "the retry asks for the JSON text shape, not another tool call");
@@ -2121,7 +2122,7 @@ test("tier C: the loss retry is the pass's last call — three at most, never ch
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 3, "the truncation retry, the loss retry, and then no more");
 	assert.equal(report.status, "lossy-refused", JSON.stringify(report));
@@ -2143,7 +2144,7 @@ test("tier C: the refusal is cap-driven, which is what keeps a refusing tier fro
 			replies: [{ toolCall: { name: "record_memory", arguments: reply }, reason: { kind: "tool-calls" } }],
 		});
 		const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
-		return { calls, root, report: await consolidateProject(ctx, config, agent, { force: true, silent: true }) };
+		return { calls, root, report: await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true }) };
 	};
 
 	const small = await run(4000);
@@ -2170,7 +2171,7 @@ test("tier C: a cap marker the reply already carried is not this pass's loss", a
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1, "nothing was cut, so nothing was retried");
 	assert.equal(report.status, "updated", JSON.stringify(report));
@@ -2198,7 +2199,7 @@ test("tier C: a retry that would be worse never costs a reply that could have la
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2, "the first reply was lossy, so the retry happened");
 	assert.equal(report.status, "updated", JSON.stringify(report));
@@ -2220,7 +2221,7 @@ test("tier C: a reply carrying no entries is the empty-skeleton gate's case, not
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1, "a body-less reply is not worth a retry");
 	assert.equal(report.refusedLoss, undefined, "the cap is not named as what stopped the write");
@@ -2251,7 +2252,7 @@ test("a conversational reply cannot replace a stored memory", async () => {
 		});
 		const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-		const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+		const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 		assert.equal(calls.length, 1, `${label}: a refused reply is not worth a retry`);
 		assert.equal(report.status, "unchanged", `${label}: a conversational reply publishes neither artifact`);
@@ -2274,7 +2275,7 @@ test("a conversational reply cannot replace a stored memory", async () => {
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const controlReport = await consolidateProject(control.ctx, config, control.agent, { force: true, silent: true });
+	const controlReport = await consolidateProject(portsOf(control.ctx), config, control.agent, { force: true, silent: true });
 
 	assert.equal(controlReport.memoryWritten, true, JSON.stringify(controlReport));
 
@@ -2286,7 +2287,7 @@ test("a conversational reply cannot replace a stored memory", async () => {
 		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\nI'll review the frozen revision and record the durable lessons now.", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
 
-	const smallReport = await consolidateProject(smallFixture.ctx, config, smallFixture.agent, { force: true, silent: true });
+	const smallReport = await consolidateProject(portsOf(smallFixture.ctx), config, smallFixture.agent, { force: true, silent: true });
 
 	assert.equal(smallReport.memoryWritten, true, "a store below the floor has nothing to protect");
 	assert.match(await readFile(path.join(small, ".agents", "memory", "MEMORY.md"), "utf8"), /I'll review the frozen revision/);
@@ -2304,7 +2305,7 @@ test("a conversational reply cannot replace a stored memory", async () => {
 	});
 	const tight = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4_000, forceDedupeMs: 0 });
 
-	const matureReport = await consolidateProject(mature.ctx, tight, mature.agent, { force: true, silent: true });
+	const matureReport = await consolidateProject(portsOf(mature.ctx), tight, mature.agent, { force: true, silent: true });
 
 	assert.equal(mature.calls.length, 1, "the shape gate closes it before tier C, so the over-cap reply gets no retry");
 	assert.equal(matureReport.status, "unchanged", `the shape gate publishes neither artifact, so nothing landed: ${JSON.stringify(matureReport)}`);
@@ -2325,7 +2326,7 @@ test("batch Q2: a partial document merges into the stored memory instead of repl
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	const after = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
 
 	assert.equal(calls.length, 1, "a merge needs no second model call");
@@ -2350,7 +2351,7 @@ test("batch Q2: a shape that cannot be merged is refused instead of written over
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1, "a shape refusal is not a cap retry");
 	assert.equal(report.status, "partial-refused", JSON.stringify(report));
@@ -2379,7 +2380,7 @@ test("batch Q2: an entry-level removal is reported, never blocked", async () => 
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.memoryWritten, true, "the rewrite still lands: compression is the point");
 	assert.equal(report.removedEntries?.count, 1, JSON.stringify(report.removedEntries));
@@ -2397,7 +2398,7 @@ test("batch Q2: an entry-level removal is reported, never blocked", async () => 
 		replies: [{ text: JSON.stringify({ memory_markdown: controlReply, context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
 
-	const controlReport = await consolidateProject(control.ctx, config, control.agent, { force: true, silent: true });
+	const controlReport = await consolidateProject(portsOf(control.ctx), config, control.agent, { force: true, silent: true });
 
 	assert.equal(controlReport.memoryWritten, true);
 	assert.equal(controlReport.removedEntries?.count, 0, "an Index rewrite is not a regression");
@@ -2443,7 +2444,7 @@ test("batch Z8d: a deferred id stamping is not a memory regression", async () =>
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1, "a document inside the cap needs no retry");
 	assert.equal(report.memoryWritten, true, JSON.stringify(report));
@@ -2471,7 +2472,7 @@ test("batch Q2: a retry that answers with an unmergeable partial cannot replace 
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	const after = await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8");
 
 	assert.equal(calls.length, 2, "fixture: the first reply is lossy enough to be retried");
@@ -2495,7 +2496,7 @@ test("a refused pass never touches CONTEXT.md, so an unwritable one cannot turn 
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "lossy-refused", JSON.stringify(report));
 	assert.equal(report.memoryWritten, false);
@@ -2520,8 +2521,8 @@ test("tier C: a refusal releases the pass claim, so a forced re-run re-reports i
 	// landed, which is the claim that matters; the model call count stays 2 either way.
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 60_000 });
 
-	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
-	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const first = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
+	const second = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
 	assert.equal(second.status, "lossy-refused", `a refusal must not be reported as deduped (got ${JSON.stringify(second)})`);
@@ -2542,7 +2543,7 @@ test("tier C: a loss retry that fails for its own reason does not hide the refus
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2, "the retry was attempted exactly once");
 	assert.equal(report.status, "lossy-refused", `the first reply's refusal must outlive the retry failure (got ${JSON.stringify(report)})`);
@@ -2573,7 +2574,7 @@ test("tier C: a loss retry that fails for its own reason does not discard a stor
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2);
 	assert.equal(report.status, "updated", `the truncation-only first reply still lands (got ${JSON.stringify(report)})`);
@@ -2594,7 +2595,7 @@ test("tier C: an aborted loss retry still fails the pass instead of landing the 
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true, signal: AbortSignal.abort() });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true, signal: AbortSignal.abort() });
 
 	assert.equal(calls.length, 2);
 	assert.equal(report.status, "failed", `an abort is not the retry's own failure (got ${JSON.stringify(report)})`);
@@ -2618,8 +2619,8 @@ test("tier C: raising maxMemoryChars inside forceDedupeMs re-runs the pass inste
 	const small = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 60_000 });
 	const big = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 60_000 });
 
-	const first = await consolidateProject(ctx, small, agent, { force: true, silent: true });
-	const raised = await consolidateProject(ctx, big, agent, { force: true, silent: true });
+	const first = await consolidateProject(portsOf(ctx), small, agent, { force: true, silent: true });
+	const raised = await consolidateProject(portsOf(ctx), big, agent, { force: true, silent: true });
 
 	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
 	assert.equal(calls.length, 3, "the raised cap makes a real model call inside the window");
@@ -2640,9 +2641,9 @@ test("tier C: a cached refusal names the cap it was measured under, not the curr
 	const small = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 60_000 });
 	const big = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 60_000 });
 
-	const first = await consolidateProject(ctx, small, agent, { force: true, silent: true });
+	const first = await consolidateProject(portsOf(ctx), small, agent, { force: true, silent: true });
 	// No `force`: the pass is throttled, so the cached refusal is re-reported under the new cap.
-	const cached = await consolidateProject(ctx, big, agent, { silent: true });
+	const cached = await consolidateProject(portsOf(ctx), big, agent, { silent: true });
 
 	assert.equal(first.status, "lossy-refused", JSON.stringify(first));
 	assert.equal(cached.status, "lossy-refused", JSON.stringify(cached));
@@ -2675,7 +2676,7 @@ test("counts describe only what landed, and a receipt never claims an artifact t
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	assert.equal(report.memoryWritten, true, "the memory landed");
@@ -2684,7 +2685,7 @@ test("counts describe only what landed, and a receipt never claims an artifact t
 	assert.equal(memoryUpdateReply(report).text, "Memory: updated MEMORY.md.", "the receipt must not claim the context was updated");
 	const unusable = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("context whose shape is unusable"));
 	assert.equal(unusable.length, 1, "the first pass reports it");
-	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const second = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.equal(second.contextWritten, false);
 	const repeated = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8")).split("\n").filter((line) => line.includes("context whose shape is unusable"));
 	assert.equal(repeated.length, 2, `a third once-per-project gate would leave only one line, got ${JSON.stringify(repeated)}`);
@@ -2710,7 +2711,7 @@ test("an input the output budget cannot hold whole refuses the pass before the m
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 0, "the gate runs before the model call: a pass that cannot see its own input spends none");
 	assert.equal(report.status, "fit-capped-refused", `got ${JSON.stringify(report)}`);
@@ -2746,7 +2747,7 @@ test("an input the output budget cannot hold whole refuses the pass before the m
 		replies: [{ text: JSON.stringify({ memory_markdown: "# Project Memory\n\n## Project\n- rewritten\n\n## Invariants\n- i\n\n## Pitfalls\n- p\n\n## Index\n- x\n", context: { title: "t", summary: "s", key_points: [], open_tasks: [] } }), reason: { kind: "stop" } }],
 	});
 	const wide = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 200_000, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
-	const controlReport = await consolidateProject(control.ctx, wide, control.agent, { force: true, silent: true });
+	const controlReport = await consolidateProject(portsOf(control.ctx), wide, control.agent, { force: true, silent: true });
 	assert.equal(control.calls.length, 1, "with room in the budget the pass runs");
 	assert.equal(controlReport.status, "updated", `the control must land, got ${JSON.stringify(controlReport)}`);
 });
@@ -2768,7 +2769,7 @@ test("the fit refusal leaves an existing CONTEXT.md byte-identical", async () =>
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "fit-capped-refused", `got ${JSON.stringify(report)}`);
 	assert.equal(report.contextWritten, false);
@@ -2790,7 +2791,7 @@ test("the context read cap is counted as characters the model was not shown", as
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 0, "the gate runs before the model call");
 	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
@@ -2829,7 +2830,7 @@ test("the memory read cap is counted as characters the model was not shown", asy
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 0, "the gate runs before the model call");
 	assert.equal(report.memoryWritten, false, "a refusal publishes no memory");
@@ -2865,7 +2866,7 @@ test("the read cap and the input fit are counted separately, never substituted f
 	const { calls, ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: cap, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	// Both caps still describe one pass, but the pass no longer runs on the shortened view: the read cap
 	// refuses it first, and the fit below is measured on the same text the gate would have sent. The
@@ -2896,12 +2897,12 @@ test("a clipped CONTEXT.md render reaches the receipt and logs on every pass", a
 	const { ctx, agent } = await consolidationFixture({ root, replies: [{ text: reply, reason: { kind: "stop" } }] });
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const first = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const first = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.ok(first.contextDroppedChars > 0, `the context render dropped characters (got ${JSON.stringify(first)})`);
 	assert.match(memoryUpdateReply(first).text, /character\(s\) of the context were dropped to fit its section budgets/);
 	assert.notEqual(memoryUpdateReply(first).text, memoryUpdateReply(plainReport("updated")).text, "a clipped context must not read as a clean pass");
 
-	const second = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const second = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.ok(second.contextDroppedChars > 0, `the second pass drops too: ${JSON.stringify(second)}`);
 	const logged = (await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"))
 		.split("\n")
@@ -2924,7 +2925,7 @@ test("an over-cap opaque reply is refused instead of landing a capped document",
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 2, "the write-cap loss gets the one retry too");
 	assert.match(JSON.stringify(calls[1].messages), /over the memory cap/, "and the retry names the cap");
@@ -2946,7 +2947,7 @@ test("a reply below the length floor is logged instead of discarded silently", a
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.memoryWritten, false, "the floor keeps the stored memory");
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored);
@@ -2970,7 +2971,7 @@ test("a failure after the memory landed keeps the landed loss in the receipt", a
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 4000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "failed", JSON.stringify(report));
 	assert.equal(report.memoryWritten, true, "the memory landed before the failure");
@@ -5702,7 +5703,7 @@ test("a reply cut off by the output limit is retried once with more headroom", a
 	let outcome;
 	let failure;
 	try {
-		outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+		outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 	} catch (error) {
 		failure = error;
 	}
@@ -5764,7 +5765,7 @@ test("the truncation retry carries the hidden reasoning the first attempt actual
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 131_072, consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 	assert.equal(calls.length, 2, "one retry after the truncation");
 	// The fixture's ceiling (131072) does not bind here, so the requested cap grows by exactly the
 	// headroom the retry passes: asserting equality (not a tolerance) is what rules out an
@@ -5795,7 +5796,7 @@ test("the truncation retry never asks for less than the flat headroom", async ()
 		});
 		const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 131_072, consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-		const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+		const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 		assert.equal(calls.length, 2, `one retry after the truncation (reported ${reported})`);
 		assert.equal(
 			calls[1].maxTokens - calls[0].maxTokens,
@@ -5818,7 +5819,7 @@ test("a reply cut off twice is reported as an output-limit failure and writes no
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
 	await assert.rejects(
-		() => consolidateProjectState(ctx, agent, config, { force: true }),
+		() => consolidateProjectState(portsOf(ctx), agent, config, { force: true }),
 		(error) => {
 			assert.match(error.message, /cut off by the model output limit/, "the failure names the output limit");
 			assert.match(error.message, /\d+ tokens requested/, "it reports the cap it asked for");
@@ -5844,7 +5845,7 @@ test("a complete JSON reply is accepted even when the model stopped on max-token
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 
 	assert.equal(calls.length, 1, "a parseable reply is never retried");
 	assert.equal(outcome.result.memory, "# Project Memory\n\nkept\n");
@@ -5878,7 +5879,7 @@ test("a truncation retry whose extra headroom would hide stored content is not s
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-	const failure = await consolidateProjectState(ctx, agent, config, { force: true }).then(() => undefined, (error) => error);
+	const failure = await consolidateProjectState(portsOf(ctx), agent, config, { force: true }).then(() => undefined, (error) => error);
 
 	assert.equal(calls.length, 1, `the retry must not be sent (got ${calls.length} call(s))`);
 	assert.ok(failure !== undefined, "the pass fails instead of writing a reply built from a shortened view");
@@ -5914,7 +5915,7 @@ test("the pass offers record_memory first and renders its call into the four sec
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 
 	assert.equal(calls.length, 1, "a tool call needs no retry");
 	assert.deepEqual(calls[0].tools?.map((tool) => tool.name), ["record_memory"], "the first call offers the tool");
@@ -5952,7 +5953,7 @@ test("a tool call cut off at the output cap is refused, and the retry carries no
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 
 	assert.equal(calls.length, 2, "the truncated call is retried rather than accepted");
 	assert.equal(calls[1].tools, undefined, "the retry asks for the JSON text shape, so it drops the tool");
@@ -5967,7 +5968,7 @@ test("a tool call the pass did not ask for falls back to text, and fails loudly 
 		replies: [{ toolCall: { name: "other_tool", arguments: "{}" }, text: COMPLETE_REPLY, reason: { kind: "tool-calls" } }],
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1 });
-	const outcome = await consolidateProjectState(first.ctx, first.agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(first.ctx), first.agent, config, { force: true });
 	assert.equal(first.calls.length, 1);
 	assert.equal(outcome.kind, "fallback-opaque", "readable text is the fail-open path");
 
@@ -5978,7 +5979,7 @@ test("a tool call the pass did not ask for falls back to text, and fails loudly 
 		replies: [{ toolCall: { name: "other_tool", arguments: "{}" }, reason: { kind: "tool-calls" } }],
 	});
 	await assert.rejects(
-		() => consolidateProjectState(second.ctx, second.agent, config, { force: true }),
+		() => consolidateProjectState(portsOf(second.ctx), second.agent, config, { force: true }),
 		/model called other_tool without text; expected record_memory/,
 	);
 });
@@ -6003,11 +6004,11 @@ test("a record_memory call whose sections carry no content never replaces a stor
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 	assert.equal(outcome.semanticEmpty, true, "the pass judges the normalized sections, not the array lengths");
 
 	// The write decision lives in the feature's own pass: a body-less reply must not land on disk.
-	await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
 });
 
@@ -6033,10 +6034,10 @@ test("a headings-only record_memory call never replaces a stored memory either",
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 	assert.equal(outcome.semanticEmpty, true, "the gate judges the rendered document, not only the arrays");
 
-	await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	assert.equal(await readFile(path.join(root, ".agents", "memory", "MEMORY.md"), "utf8"), stored, "the stored memory is untouched");
 });
 
@@ -6061,7 +6062,7 @@ test("a skeleton reply never replaces an existing CONTEXT.md", async () => {
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
 
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1);
 	assert.equal(report.memoryWritten, false);
@@ -6084,7 +6085,7 @@ test("a skeleton reply never replaces an existing CONTEXT.md", async () => {
 			reason: { kind: "stop" },
 		}],
 	});
-	const controlReport = await consolidateProject(control.ctx, config, control.agent, { force: true, silent: true });
+	const controlReport = await consolidateProject(portsOf(control.ctx), config, control.agent, { force: true, silent: true });
 	assert.equal(controlReport.memoryWritten, false, "the skeleton is still not a memory");
 	assert.equal(controlReport.contextWritten, true, "but the first context write has nothing to overwrite, so it lands");
 });
@@ -6103,7 +6104,7 @@ test("a tool call cut off with no finish reason at all is refused too", async ()
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 
 	assert.equal(calls.length, 2, "the unsignalled call is retried rather than accepted");
 	assert.equal(calls[1].tools, undefined, "the retry drops the tool");
@@ -6123,7 +6124,7 @@ test("a complete record_memory call beside a max-tokens finish is refused, even 
 	});
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 
 	assert.equal(calls.length, 2, "the call is refused despite the readable text");
 	assert.equal(calls[1].tools, undefined, "the retry asks for the text shape");
@@ -6504,7 +6505,7 @@ test("the pass names entries with an expiry reason only when the document is nea
 
 	const tightRoot = await staleProject("dsh-memory-expiry-tight-");
 	const tight = await consolidationFixture({ root: tightRoot, replies: [{ text: FITTING_TEXT_REPLY }] });
-	await consolidateProject(tight.ctx, resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: near, maxOutputTokens: 49_152 }), tight.agent, { force: true, silent: true });
+	await consolidateProject(portsOf(tight.ctx), resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: near, maxOutputTokens: 49_152 }), tight.agent, { force: true, silent: true });
 	const tightPrompt = promptOf(tight.calls);
 	assert.match(tightPrompt, /evidence that they may no longer hold/, "a near-cap pass must name the entries");
 	assert.match(tightPrompt, /content-stale/, "and say which reason, not just that something is wrong");
@@ -6512,6 +6513,6 @@ test("the pass names entries with an expiry reason only when the document is nea
 
 	const roomyRoot = await staleProject("dsh-memory-expiry-roomy-");
 	const roomy = await consolidationFixture({ root: roomyRoot, replies: [{ text: FITTING_TEXT_REPLY }] });
-	await consolidateProject(roomy.ctx, resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: 200_000, maxOutputTokens: 49_152 }), roomy.agent, { force: true, silent: true });
+	await consolidateProject(portsOf(roomy.ctx), resolvePluginConfig({ consolidateTurns: 1, forceDedupeMs: 0, maxMemoryChars: 200_000, maxOutputTokens: 49_152 }), roomy.agent, { force: true, silent: true });
 	assert.doesNotMatch(promptOf(roomy.calls), /evidence that they may no longer hold/, "a roomy pass must not spend the tokens");
 });

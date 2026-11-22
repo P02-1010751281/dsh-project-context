@@ -23,6 +23,7 @@ import { loadMemory, memoryJournalFile, readMemoryJournal, recordMemoryDocument 
 import { nextRenderSupersedes } from "../lib/project-memory/record.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { memoryFile } from "../lib/shared/project-state.js";
+import { portsOf } from "./host-ports.mjs";
 
 const SEED = "# Project Memory\n\n- the memory this pass read before the model call.\n";
 const HAND_EDIT = "# Project Memory\n\n- the hand edit that landed while the reply was being built.\n";
@@ -73,7 +74,7 @@ test("nextRenderSupersedes refuses only a different, non-empty render that is no
 
 test("an edit landing during the model call is kept and the reply is not published", async () => {
 	const { root, ctx, agent, config, errors, infos } = await fixture({ beforeReply: () => writeFile(memoryFile(root), HAND_EDIT, "utf8") });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: false });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: false });
 
 	assert.equal(report.status, "stale", "a refused reply publishes nothing, so there is no stale-context status left");
 	const stored = await readFile(memoryFile(root), "utf8");
@@ -95,7 +96,7 @@ test("an edit landing during the model call is kept and the reply is not publish
 
 test("the same pass publishes the reply when nothing changed under it", async () => {
 	const { root, ctx, agent, config } = await fixture();
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: false });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: false });
 
 	assert.equal(report.status, "updated");
 	const stored = await readFile(memoryFile(root), "utf8");

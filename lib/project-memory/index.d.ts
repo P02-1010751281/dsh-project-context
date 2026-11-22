@@ -8,27 +8,21 @@
  * feature (`project-autolearn`), and the raw archive is `project-context`.
  *
  * Commands: /memory (status | update | prune [--apply])
+ *
+ * The body is `start.ts`: this file is the cordis entry and nothing else.
  */
 import type { Context } from "../host/contract.js";
-import type { Session } from "../host/contract.js";
-import { type PluginConfig } from "../shared/config.js";
 export { acceptEntryState, memoryAcceptReply, memoryPruneReply, memoryReconcileReply, memoryStatusReply, memoryUpdateReply } from "./report.js";
 export type { ConsolidateReport, ConsolidateStatus, RefusedLoss } from "./report.js";
 export { consolidateProject } from "./update.js";
+export { writeTodoSnapshot } from "./start.js";
 export declare const name = "project-memory";
 export declare const inject: string[];
 /**
- * Copy one session's todo snapshot into the context document it owns.
- *
- * The document is the session's task's when the binding is in use, else `CONTEXT.md`; a missing
- * document stays missing — this is a mechanical patch on the pass's artifact, not a second creator
- * of one. A `null` projection (no todo write this turn) or an unchanged document writes nothing.
- *
- * No model call and no lock: the write is a read-modify-write of a few lines, and the pass applies
- * the same projection after its own rewrite, so the two can only ever converge on the same block.
- * @param ctx - the plugin context (for the projection read and the error log).
- * @param config - the effective config; `taskMode` decides which document the session owns.
- * @param session - the session whose turn just ended.
+ * Cordis entry: resolve the plugin config and hand the core a façade over this context. This plugin
+ * publishes no settings namespace — the archive entry (`project-context`) owns it, and
+ * `effectivePluginConfig` is what the core reads.
+ * @param ctx - the plugin context.
+ * @param rawConfig - the raw config the Loader passed.
  */
-export declare function writeTodoSnapshot(ctx: Context, config: PluginConfig, session: Session): Promise<void>;
 export declare function apply(ctx: Context, rawConfig: unknown): void;

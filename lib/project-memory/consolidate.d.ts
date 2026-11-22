@@ -4,7 +4,7 @@
  * autolearn pass reuses the model plumbing from there; the pass itself belongs to the memory
  * plugin, and the plumbing it shares now sits in `shared/model-call.ts`.
  */
-import { type Agent, type Context, type Session } from "../host/contract.js";
+import { type Agent, type HostPorts, type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type MemoryEntryState } from "./entry-states.js";
 import { type ConsolidationResult, type ContextUpdate } from "../shared/reply-json.js";
@@ -266,6 +266,7 @@ export declare function fallbackUpdate(session: Session): ContextUpdate;
  * Run the consolidation pass (durable memory + session context).
  * Callers own persisting their artifact; results are cached per project so the memory and
  * session-context plugins can consume the same pass without a second model call.
+ * @param host - the ports; the model port is the only facility this pass reads.
  */
-export declare function consolidateProjectState(ctx: Context, agent: Agent, config: PluginConfig, options?: ConsolidationOptions): Promise<ConsolidationOutcome | undefined>;
+export declare function consolidateProjectState(host: HostPorts, agent: Agent, config: PluginConfig, options?: ConsolidationOptions): Promise<ConsolidationOutcome | undefined>;
 export {};

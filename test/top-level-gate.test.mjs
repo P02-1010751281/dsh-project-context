@@ -48,6 +48,7 @@ import { apply as applyHandoff } from "../lib/project-handoff/index.js";
 import { apply as applyMemory, consolidateProject } from "../lib/project-memory/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { contextFile, logsDir, memoryFile, sessionIndexFile } from "../lib/shared/project-state.js";
+import { portsOf } from "./host-ports.mjs";
 
 /** A complete consolidation reply: a memory rewrite plus a context update. */
 const COMPLETE_REPLY = '{"memory_markdown":"# Project Memory\\n\\n- keep the suite green\\n","context":{"title":"t","summary":"s","key_points":[],"open_tasks":[]}}';
@@ -378,7 +379,7 @@ test("the pass hands the tracker its write phase alone", async () => {
 	const registered = [];
 	const agent = fakeAgent(root, { id: "session-aux-register" });
 	const pass = consolidateProject(
-		{
+		portsOf({
 			get: () => undefined,
 			logger: { info() {}, warn() {} },
 			systemPrompt: { context: () => undefined },
@@ -391,7 +392,7 @@ test("the pass hands the tracker its write phase alone", async () => {
 					yield { type: "finish", reason: { kind: "stop" } };
 				})(),
 			},
-		},
+		}),
 		resolvePluginConfig({ consolidateTurns: 1, consolidateIntervalMs: 1000, provider: "test-provider", model: "test-model" }),
 		agent,
 		{ force: false, silent: false, track: (work) => registered.push(work) },

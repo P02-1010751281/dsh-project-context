@@ -19,6 +19,7 @@ import { recordMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { appendTombstones, MAX_DIGEST_ENTRIES, MAX_RETIRED_LINES, parseTombstones, readArchivedTombstones, readTombstones, renderTombstones, tombstoneDigest, tombstoneLine } from "../lib/project-memory/retired.js";
 import { entryTid, mentionNeedle, readEntryDates, recordEntryDates, retireReply, retireSections, retireWithinBudget, scanMentions, stampEntryIds, supersededIds } from "../lib/project-memory/retirement.js";
 import { sectionsFromMarkdown, renderMemoryDocument } from "../lib/project-memory/sections.js";
+import { portsOf } from "./host-ports.mjs";
 
 const DAY = 86_400_000;
 const NOW = Date.parse("2026-11-10T00:00:00Z");
@@ -477,7 +478,7 @@ async function pass(root, memoryMarkdown, config) {
 			requestHeader: () => undefined,
 		},
 	};
-	const outcome = await consolidateProjectState(ctx, agent, config, { force: true });
+	const outcome = await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	return { outcome, prompt, config };
 }

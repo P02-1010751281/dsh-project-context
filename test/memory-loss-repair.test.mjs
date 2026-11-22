@@ -23,6 +23,7 @@ import { consolidateProject, memoryUpdateReply } from "../lib/project-memory/ind
 import { recordMemoryDocument } from "../lib/project-memory/memory-store.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { memoryFile } from "../lib/shared/project-state.js";
+import { portsOf } from "./host-ports.mjs";
 
 const CAP = 40000;
 
@@ -241,7 +242,7 @@ async function wiredFixture(invariants, beforeReply) {
 		},
 	};
 	const config = resolvePluginConfig({ maxTokens: 8_192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 	const errors = await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8").catch(() => "");
 	return { root, report, landed: await readFile(memoryFile(root), "utf8"), errors };
 }

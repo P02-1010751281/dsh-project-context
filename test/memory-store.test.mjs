@@ -39,6 +39,7 @@ import { consolidateProject, memoryUpdateReply } from "../lib/project-memory/ind
 import { consolidateProjectState } from "../lib/project-memory/consolidate.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { fitMemoryInput } from "../lib/shared/conversation.js";
+import { portsOf } from "./host-ports.mjs";
 
 /** A project root with the memory directory present. */
 async function project() {
@@ -546,10 +547,10 @@ test("a failed pass releases its version claim so the next forced pass retries",
 	// outcome (same version), which is exactly the case the release protects.
 	const config = resolvePluginConfig({ maxTokens: 8192 });
 
-	assert.equal((await consolidateProject(ctx, config, agent, { force: true, silent: true })).status, "failed");
+	assert.equal((await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true })).status, "failed");
 	// Without the release this would answer "deduped" — a false "already up to date" after a write
 	// that never landed.
-	assert.notEqual((await consolidateProject(ctx, config, agent, { force: true, silent: true })).status, "deduped");
+	assert.notEqual((await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true })).status, "deduped");
 });
 
 test("a malformed model reply cannot leak credentials into the logs", async () => {
@@ -582,7 +583,7 @@ test("a malformed model reply cannot leak credentials into the logs", async () =
 	};
 	const config = resolvePluginConfig({ maxTokens: 8192 });
 
-	assert.equal((await consolidateProject(ctx, config, agent, { force: true, silent: false })).status, "failed");
+	assert.equal((await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: false })).status, "failed");
 	assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
 
 	// The console is the unguarded sink: mask and bound there.
@@ -627,7 +628,7 @@ test("the console copy of a failure is redacted even when its source is not", as
 	};
 	const config = resolvePluginConfig({ maxTokens: 8192 });
 
-	assert.equal((await consolidateProject(ctx, config, agent, { force: true, silent: false })).status, "failed");
+	assert.equal((await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: false })).status, "failed");
 	assert.equal(warnings.length, 1, `expected one warning, got ${JSON.stringify(warnings)}`);
 	assert.ok(warnings[0].includes(".agents/memory"), "the failure is the memory write, not something else");
 	assert.ok(!warnings[0].includes(key), "the console sink must mask a secret it was not given masked");
@@ -677,7 +678,7 @@ test("the consolidation prompt sends the fitted artifacts inside the configured 
 	};
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1 });
 
-	await consolidateProjectState(ctx, agent, config, { force: true });
+	await consolidateProjectState(portsOf(ctx), agent, config, { force: true });
 
 	assert.equal(calls.length, 1, "one model call");
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
@@ -1169,7 +1170,7 @@ test("a read-capped stored memory refuses the pass instead of writing the trunca
 
 	const { calls, ctx, agent } = await viewEchoFixture(root);
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000 });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 0, "the gate runs before the model call: a refusal must not spend one");
 	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
@@ -1194,7 +1195,7 @@ test("the read-cap gate is not always on: a document inside the cap still consol
 	await writeFile(memoryFile(root), stored, "utf8");
 	const { calls, ctx, agent } = await viewEchoFixture(root);
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 1, "nothing is hidden, so the pass runs");
 	assert.equal(report.status, "updated", JSON.stringify(report));
@@ -1213,7 +1214,7 @@ test("the context read cap refuses the same way, with its own lever", async () =
 
 	const { calls, ctx, agent } = await viewEchoFixture(root);
 	const config = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(calls.length, 0, "the gate runs before the model call");
 	assert.equal(report.status, "read-capped-refused", JSON.stringify(report));
@@ -1233,11 +1234,11 @@ test("raising maxMemoryChars re-runs a cached read-cap refusal", async () => {
 	await writeFile(memoryFile(root), stored, "utf8");
 	const { calls, ctx, agent } = await viewEchoFixture(root);
 	const small = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: 4000 });
-	const first = await consolidateProject(ctx, small, agent, { force: true, silent: true });
+	const first = await consolidateProject(portsOf(ctx), small, agent, { force: true, silent: true });
 	assert.equal(first.status, "read-capped-refused", JSON.stringify(first));
 
 	const roomy = resolvePluginConfig({ maxTokens: 8192, maxOutputTokens: 32_768, consolidateTurns: 1, maxMemoryChars: MAX_MEMORY_CHARS });
-	const second = await consolidateProject(ctx, roomy, agent, { force: true, silent: true });
+	const second = await consolidateProject(portsOf(ctx), roomy, agent, { force: true, silent: true });
 	assert.equal(calls.length, 1, "the raised cap re-runs the pass instead of re-reporting the refusal");
 	assert.equal(second.status, "updated", JSON.stringify(second));
 });
@@ -1253,7 +1254,7 @@ test("an auxiliary call names the route's cheapest enabled reasoning effort", as
 	const root = await project();
 	await writeFile(memoryFile(root), overCapMemory(), "utf8");
 	const enabled = await viewEchoFixture(root, { efforts: ["off", "low", "high", "max"] });
-	const report = await consolidateProject(enabled.ctx, config, enabled.agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(enabled.ctx), config, enabled.agent, { force: true, silent: true });
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	assert.equal(enabled.calls.length, 1, "one model call");
 	assert.equal(enabled.calls[0].reasoningEffort, "low", "the disabled level is skipped, not sent as the cheapest");
@@ -1262,7 +1263,7 @@ test("an auxiliary call names the route's cheapest enabled reasoning effort", as
 	const offOnlyRoot = await project();
 	await writeFile(memoryFile(offOnlyRoot), overCapMemory(), "utf8");
 	const offOnly = await viewEchoFixture(offOnlyRoot, { efforts: ["off"] });
-	const offOnlyReport = await consolidateProject(offOnly.ctx, config, offOnly.agent, { force: true, silent: true });
+	const offOnlyReport = await consolidateProject(portsOf(offOnly.ctx), config, offOnly.agent, { force: true, silent: true });
 	assert.equal(offOnlyReport.status, "updated", JSON.stringify(offOnlyReport));
 	assert.equal(offOnly.calls.length, 1, "one model call");
 	assert.equal("reasoningEffort" in offOnly.calls[0], false, "a route with no enabled level carries no effort field");

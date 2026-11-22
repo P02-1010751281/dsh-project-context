@@ -37,6 +37,7 @@ import { apply as applyMemory, consolidateProject } from "../lib/project-memory/
 import { apply as applyContext } from "../lib/project-context/index.js";
 import { queueSessionIndexEntry, setSessionTask } from "../lib/project-context/session-index.js";
 import { getProjectRoot } from "../lib/shared/project-state.js";
+import { portsOf } from "./host-ports.mjs";
 
 /** A project root with the memory directory in place. */
 async function memoryRoot(prefix, memory) {
@@ -342,7 +343,7 @@ test("a bound session's pass writes its task file and does not touch CONTEXT.md"
 	// would pass whether or not the pass bumped it.
 	await writeFile(path.join(root, ".agents", "memory", "tasks", "release.md"), taskDocument("release", { created: "2026-02-02", lastSeen: "2026-02-02", title: "Release prep" }), "utf8");
 
-	const report = await consolidateProject(ctx, resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	assert.equal(report.contextWritten, true);
@@ -361,7 +362,7 @@ test("a bound session's pass writes its task file and does not touch CONTEXT.md"
 test("an unbound session's pass writes CONTEXT.md and leaves the tasks directory alone", async () => {
 	const root = await memoryRoot("dsh-tasks-write-unbound-");
 	const { ctx, agent } = consolidationFixture({ root, reply: replyWith("project level state") });
-	const report = await consolidateProject(ctx, resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	assert.equal(report.contextTarget, undefined, "no task file is named");
@@ -377,7 +378,7 @@ test("a binding to an archived task writes the project context, so the pass cann
 	const { ctx, agent } = consolidationFixture({ root, reply: replyWith("the pass wrote the project document") });
 	await setSessionTask(root, agent.session, "release");
 
-	const report = await consolidateProject(ctx, resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated", JSON.stringify(report));
 	assert.equal(report.contextTarget, undefined);
@@ -395,7 +396,7 @@ test("the task file itself is what the next pass reads as its existing context",
 	const { calls, ctx, agent } = consolidationFixture({ root, reply: replyWith("state") });
 	await setSessionTask(root, agent.session, "release");
 
-	await consolidateProject(ctx, resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
+	await consolidateProject(portsOf(ctx), resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 }), agent, { force: true, silent: true });
 
 	const prompt = calls[0].messages[0].content.map((block) => block.text ?? "").join("\n");
 	assert.match(prompt, /TASK-MARKER/, "the prompt carries the task's document");

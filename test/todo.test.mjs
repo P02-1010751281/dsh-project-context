@@ -28,6 +28,7 @@ import { setSessionTask } from "../lib/project-context/session-index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { contextFile, memoryFile, taskFile } from "../lib/shared/project-state.js";
 import { MAX_LIST_ENTRIES, MAX_LIST_ITEM_CHARS } from "../lib/shared/limits.js";
+import { portsOf } from "./host-ports.mjs";
 
 /** A rendered context document, in the shape the plugin's own renderer produces. */
 function document({ openTasks = [], summary = "Doing the thing.", keyPoints = ["a fact"] } = {}) {
@@ -400,7 +401,7 @@ test("the pass keeps the mechanic lines the turn end just wrote", async () => {
 		text: reply(["the model's own next step"]),
 	});
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated");
 	const written = await readFile(contextFile(root), "utf8");
@@ -412,7 +413,7 @@ test("a pass with no todo opinion keeps the stored mechanic lines instead of era
 	await writeFile(contextFile(root), document({ openTasks: ["[todo] ship the batch", "model task"] }));
 	const { ctx, agent } = consolidationFixture({ root, todos: null, text: reply(["the model's own next step"]) });
 	const config = resolvePluginConfig({ consolidateTurns: 1, maxMemoryChars: 40_000, forceDedupeMs: 0 });
-	const report = await consolidateProject(ctx, config, agent, { force: true, silent: true });
+	const report = await consolidateProject(portsOf(ctx), config, agent, { force: true, silent: true });
 
 	assert.equal(report.status, "updated");
 	const written = await readFile(contextFile(root), "utf8");
