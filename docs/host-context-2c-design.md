@@ -1,9 +1,9 @@
 # Phase 2c: the registration façade (`HostContext`)
 
-Status: two slices landed (2026-11-22). The façade and the dsh adapter are in place; `HostContext`
-extends `HostPorts`, so a helper that only logs, looks up a service or calls the model takes the
-ports instead of the registration surface. `project-context` and `project-autolearn` are ported.
-`project-memory` and `project-handoff` are not; their edit lists are in §5.
+Status: three slices landed (2026-11-22). The façade and the dsh adapter are in place; `HostContext`
+extends `HostPorts`, and `ServiceHost` is the one-member port for a helper that only reads a named
+service. `project-context`, `project-autolearn` and `project-memory` are ported. `project-handoff` is
+not; its edit list is in §5.
 
 ## 1 The façade
 
@@ -51,6 +51,11 @@ export interface HostPorts {
 	readonly llm: LlmPort;
 }
 
+/** A helper that reads nothing but a named service (a projection read, say). */
+export interface ServiceHost {
+	readonly services: ServiceRegistry;
+}
+
 export interface HostContext extends HostPorts {
 	on<K extends keyof HostEvents>(name: K, listener: HostEvents[K]): void;
 	registerCommand(command: CommandRegistration): void;
@@ -75,9 +80,10 @@ Design rules:
   rule `service-access` still forbids `ctx.get` outside `src/host/`.
 - **`HostLog` moved into the contract.** `src/host/dsh/log.ts` re-exports it, so existing importers
   keep working.
-- **Two narrowing levels.** A core that registers takes `HostContext`; a helper deeper down that only
-  logs, looks up a named service or calls the model takes `HostPorts`. `HostContext extends
-  HostPorts`, so the entry passes the same object down without rebuilding anything.
+- **Three narrowing levels.** A core that registers takes `HostContext`; a helper deeper down that
+  logs, looks up a service or calls the model takes `HostPorts`; one that reads only a service takes
+  `ServiceHost`. `HostContext extends HostPorts`, and both are satisfied by the same object, so the
+  entry passes it down without rebuilding anything.
 
 ## 2 The dsh adapter
 
@@ -123,6 +129,11 @@ stops compiling. A core would not find out at runtime.
 | `src/project-autolearn/pass.ts` | `autolearnProjectSkills(ports: HostPorts, …)`; the log line and the two model calls read `ports.log` / `ports.llm`, so the module names no `Context`. |
 | `src/host/dsh/llm.ts` | `LlmPort` and the chunk union now come from the contract; the file owns the single `ctx.llm` widening plus `llmOf`. |
 | `src/shared/model-call.ts` | `resolveModelMetadata` / `requestPluginText(WithMeta)` take an `LlmPort`, not a context. The memory pass passes `llmOf(ctx)` until it is ported. |
+| `src/project-memory/start.ts` | New file (278 lines): the former body of `apply` as `start(host, entry)` — two `host.addPromptContext` (orders 190 / 210, `interpolate: false`), five `host.on`, one `host.registerCommand`. |
+| `src/project-memory/index.ts` | Thin entry (40 lines): `name`, `inject`, the unchanged re-export surface, and `apply` → `start(hostContextOf(ctx), resolvePluginConfig(raw))`. It publishes no settings namespace, so `publishProjectContextSettings` does not appear here. |
+| `src/project-memory/update.ts` | `consolidateProject(host: HostPorts, …)`; the two log lines read `host.log`, the projection read `projectionsOf(host.services)`. |
+| `src/project-memory/consolidate.ts` | `consolidateProjectState(host: HostPorts, …)` and `requestConsolidationText(host, …)`; the `llmOf` import is gone — the pass calls `host.llm`. |
+| `test/host-ports.mjs` | New fixture: `portsOf(ctx)` returns `{ get log, get llm, services: ctx }`, the same lazy shape as the adapter, so a direct helper call takes one wrapper instead of a hand-built fake. |
 | `scripts/check-boundary.mjs` | New `raw-context` rule under `wiring`: a ported core (`src/<plugin>/start.ts`) must not import the raw `Context`. |
 | `scripts/check-boundary.mjs` | Adds the rule in §4. |
 | `test/host-boundary.test.mjs` | Adds two cases: a fail fixture and a pass fixture. |
@@ -167,16 +178,12 @@ only place that names them. Turning that rule on today would make the three unpo
 Each port follows the `project-context` pattern. Move the body of `apply` into `start.ts`, keep the
 `name` / `inject` exports and config resolution in `index.ts`, and add `start(hostContextOf(ctx), entry)`.
 
-**project-memory** (`src/project-memory/index.ts`)
-- Five `ctx.on` calls → `host.on`. One `ctx.commands.register` → `host.registerCommand`.
-- `registerLiteralContext` → `host.addPromptContext({..., interpolate: false})`, and delete the local
-  `LiteralContext` type (the adapter now owns the `interpolate` widening).
-- `logOf(ctx)` → `host.log`.
-- `consolidateProject(ctx, …)` and `writeTodoSnapshot(ctx, …)` take a `Context`. Change their
-  parameter to a narrower port, either `HostContext` or `{ services, log }` plus the LLM port. This
-  touches `update.ts`, `consolidate.ts` and `src/shared/model-call.ts` (`llmOf(ctx)`).
-- About 84 test call sites pass fake contexts with `{ get, logger, llm }`. The ported signatures
-  must accept those, or the fakes must be wrapped.
+**project-memory** — ported 2026-11-22. `apply` body moved to `start.ts` (278 lines, two
+`addPromptContext`, five `host.on`, one `host.registerCommand`); `consolidateProject` /
+`consolidateProjectState` / `requestConsolidationText` take `HostPorts`, `writeTodoSnapshot` takes the
+new `ServiceHost`. The 84 direct-helper call sites did not get field-by-field fakes: `test/host-ports.mjs`
+adds one lazy `portsOf(ctx)` wrapper, so every `apply()`-driven fake stayed untouched. `index.ts`
+keeps the whole former re-export surface, because other modules and the suite import from it.
 
 **project-autolearn** — ported 2026-11-22. Three `ctx.on` + one `ctx.commands.register` moved into
 `start.ts`; `pass.ts` takes `HostPorts` and reads `ports.log` / `ports.llm`. The direct-call fakes in
@@ -203,10 +210,10 @@ adapter still reads `logger` / `llm` off the context they stand in for.
    vocabulary live in the contract, and `src/host/dsh/llm.ts` owns the single widening.
 2. **Settings publication.** The live config reader depends on the cordis Loader's `fiber.config`.
    A second harness needs its own way to read config updates; today that lives in the entry.
-3. **Service getters.** `src/host/dsh/services.ts` maps dsh service names to the `*Like` views.
-   Those views and their getters would move into the contract as an interface (for example
-   `HostServices`) so that a second adapter supplies them. Today the getters are dsh functions over
-   `{ get }`.
+3. **Service getters.** Partly open. `ServiceHost` in the contract is the port a helper takes, but
+   the twelve getters themselves are still dsh functions over `{ get }` in
+   `src/host/dsh/services.ts`. Moving them into the contract as `HostServices` would let a second
+   adapter supply them; `ServiceHost` is deliberately not that name.
 4. **Plugin descriptor.** `name`, `inject` and `Config` are cordis plugin metadata and stay in each
    entry. A second harness writes its own entry files, which call the same `start(host, entry)`
    functions.
