@@ -26,6 +26,10 @@
 - 宿主只对 index 页面要登录（未登录返回 401），插件资源路由 `/plugins/<pkg>/assets/…` 与 combo `?rev=` 是公开的，所以浏览器实际收到的 bundle 可直接 curl 取来比对，不必进页面。（3ae）
 - 四份受跟踪治理文档各管一层：`RULES.md`（规程与可运行判据）、`AGENTS.md`（入职短页，条文指向 RULES 章节）、`docs/architecture.md`（分层、依赖方向与数据流叙述）、`docs/GLOSSARY.md`（术语唯一来源，含禁止的同义异名）；它们与 `src/` 冲突时一律以 `src/` 和现读命令为准。（43d）
 - 治理重建后的对齐批次（`378738f`、`37c8ece`）已推送：`docs/GLOSSARY.md` 明文豁免冻结档案（`.agents/evidence/**`、`docs/archive/`）与带日期 spec，术语只约束现行文档；现行文档统一「交接不调模型」并改用规范术语。（116）
+- 仓库自带文档门禁是 `scripts/check-docs.mjs`，入口 `pnpm docs:check`（先 `tsc`）：查受跟踪文档的相对链接（跳过代码块与行内代码示例）、`path:line` 锚点是否越界、紧邻锚点的符号是否落在该行窗口内、`RULES.md` 3.2 的大文件基线、4.2 的依赖白名单；首行印条目计数与失败数，退出码 0 才算通过。（e36）
+- `test/doc-governance.test.mjs` 钉住门禁两个方向：仓库自身通过，加坏链、越界锚点、符号不在位、基线不符、白名单外 import 五条失败夹具，变异只让对应用例变红。（2ca）
+- 文档门禁已接进 `RULES.md` 3.2 / 3.6 / 4.2 / 6.1（6.1 要求文档改动另跑 `pnpm docs:check`）与 `AGENTS.md`、`docs/development.md`，后两者只答「什么时候跑哪条」并声明 RULES 第 6 章权威；`README.md` 的篇幅行数承诺改成现读。（814）
+- 治理文档的对抗审查冻结在 `.agents/evidence/2026-11-22-governance-docs-adversarial-review/`：adv-c 只有部分版（B 段在归档交接里被裁掉，README 已注明）、adv-d、adv-e 原文与逐条处置表。（587）
 
 ## Invariants
 - 既定命名（B/D/E）：`record_memory` / `record_skill` 工具与 `/memory update`（原 `/context-update`，无别名）、`autolearn-generated` 标记（`/autolearn approve` 是唯一取代路径）、每个事实一个名字（`/handoff threshold auto|<ratio>`、`/handoff budget summary|recent <tokens>`、裸 `/session-log` 读、`write` 写）。（29f）
@@ -128,17 +132,19 @@
 - 406-12 的 desktop profile 用 `file:./vendor/` 下的同名 tgz 装本插件（**不是** git pin）：更新是三步——覆盖同名 tgz、把 `pnpm-lock.yaml` 里那条 `tarball: file:vendor/…` 的 integrity 换成新 tgz 的 sha512、再用新 tgz 重解包 `node_modules/dsh-project-context`（n 项逐个 sha256 对 `git show <sha>:lib/…`）；本机 desktop/web 是 `git+ssh://…#<sha>`、ctxdev 是 `link:`，三者互不相通，改一处到不了另一处。2026-11-21 现读 406-12 跑 0.2.2-rc.3（此前记忆写的 rc.1 已过期）。（82f）
 - 治理文档重建落在 `3c1d6c4`（`docs(rules): rebuild the governance docs and add a terminology table`）：`RULES.md` 固定 11 章，软规则显式标注（3.4、4.5、7.4、7.6），其余每条带可运行判据；门禁必须给可复制命令、成功判据写退出码 0、并用已知失败样本实测非零；引用规则写章号，不写行号。（e03）
 - 治理文档改动单独提交 `docs(rules)`，一次只动 `RULES.md`、`AGENTS.md`、`docs/architecture.md`、`docs/GLOSSARY.md`、`docs/README.md` 与 `CHANGELOG.md` 的未发布登记；判据是 `git show --stat <commit>` 的路径列表不含 `src/`、`client/`、`test/`、`lib/`、`README.md`、`.agents/`。（679）
-- 依赖方向的唯一白名单是 `docs/architecture.md` 第 2 节的表（7 条边、12 个不同 specifier、共 14 处，含 `src/shared/conversation.ts` → `../project-handoff/language.js` 这条共享层例外），判据是 `grep -rn 'from "\.\./project-[^"]*"' src/` 的 `文件:行` 集合与表逐条相等。（ea5）
+- 依赖方向的唯一白名单是 `docs/architecture.md` 第 2 节（7 条边、12 个不同 specifier、共 14 处，含 `src/shared/conversation.ts` → `../project-handoff/language.js` 这条共享层例外），表里现在明文列出 12 个 specifier，`pnpm docs:check` 拿 `src/` 的实际 import 与表逐条比对。（a91）
 - 运行时依赖口径：host 侧唯一值依赖是 `schemastery`（声明在 peer）；客户端只 import 宿主提供的 `react` 与 `@deepseek-ai/dsh-client-ui-primitives`（在 devDependencies、不打包）。（788）
 - 自动改写受跟踪文件只发生在三处：`INDEX.md` 的启动对账（`src/project-context/index.ts` 的 `agent/created` → `reconcileSessionIndexOnce`，受同一 `archiveEnabled` 开关）、整理 pass 按条目状态退休（`consolidate.ts` 的 `retireWithinBudget` → `retiresEntry`）、技能 `expired` 移出 `expired-skills/`；三个状态核本身只读不写。（a00）
 - `RULES.md` 第 11 章登记三项未决、各带 `2026-12-31` 复查日：大文件拆分（`src/project-memory/consolidate.ts` 与 `index.ts` 都超过「只减不增」的 400 行线）、辅助调用超时（`src/shared/model-call.ts` 没有 timeout，`requestOptions` 只透传 `signal`）、证据冻结前豁免——都是用户裁定项，文档只登记、不动代码。（c56）
-- `RULES.md` 3.2 与 4.2 内嵌基线数字（大文件行数、依赖 7 边 / 12 specifier / 14 处），是唯一允许写死基线的地方；文件或依赖一变必须同步改规则。（4dd）
+- `RULES.md` 3.2 的大文件行数与 4.2 的依赖 7 边 / 12 specifier / 14 处是唯一允许写死基线的地方，由 `scripts/check-docs.mjs` 现读比对，文件或依赖一变门禁就失败并指向规则行。（389）
+- 文档改动的判据是 `pnpm docs:check` 退出码 0，并把命令与退出码写进结论；门禁首行的条目计数随文档漂移，引用时只引退出码。（fd1）
+- 门禁判据必须有失败方向：新增或改动文档判据时，同时在 `test/doc-governance.test.mjs` 里给一个已知坏样本，并做一次变异证明该用例会变红。（98c）
 
 ## Pitfalls
 - 记忆丢失发生在写之前或写时，所以干净重渲染证明不了什么；五个点是 `fitMemoryInput` 首尾裁剪、`renderMemoryDocument` 按段落预算丢条目、存储的上下文在适配前被切成 `MAX_CONTEXT_CHARS`、`renderContextDocument` 裁段、`normalizeMemoryDocument` 写时封顶；`ConsolidateReport` 带六个丢失计数加 `memoryWritten`/`contextWritten`。（bbc）
 - 文档到 `maxMemoryChars` 的约 100% 会逼每个 pass 为腾地方丢掉细节；抬上限只买时间且每轮多花提示 token，所以解法是留余量加损失闸，不是更大的 cap。（558）
 - `/memory update` 有两种无关的拒绝原因——段落预算（`lossy-refused`：`N section(s) exceeded their budget` / `N whole entry(ies) … reached its character cap`）与模型输出上限（`cut off by the model output limit`）；抬 `maxMemoryChars` 会加重输出那一半，治根是缩小文档，`fit-capped-refused` 说明输出预算装不下两份文档。（d54）
-- 闸门数字与占用率散文会过期：跑 `pnpm typecheck` / `pnpm build` / `pnpm test` 读最新计数，`lib/client.js` 大小取自构建输出，期望 0 变异残留，并通过构建后的渲染器（`share-fit.mjs`）重测各段占用，而不是相信写死的百分比。（846）
+- 闸门数字与占用率散文会过期：跑 `pnpm typecheck` / `pnpm build` / `pnpm test` / `pnpm docs:check` 读最新计数，`lib/client.js` 大小取自构建输出，期望 0 变异残留，并通过构建后的渲染器（`share-fit.mjs`）重测各段占用，而不是相信写死的百分比。（846）
 - `share-fit.mjs` 按库默认 `MAX_MEMORY_CHARS` 量，输入适配探针同理必须取 profile 的 `maxMemoryChars` / `maxOutputTokens`——否则各自报出运行宿主绝不会产生的有损结论或裁剪。（469）
 - 已加载记忆的陷阱：`loadMemory` 可能返回已带截断标记的文档，而状态对象仍报 `damaged: 0`、`poisoned: false`；标记的 `dropped` 是规范化长度减保留前缀长度，不是原长减保留——绝不靠算术验证，也绝不 grep 该标记。（1a8）
 - 自 `8ffb70f` 起 `/memory` 回执把历史截断标记（`Note:`）与真实读裁剪（`Warning:`）分开，所以只是仍带着旧标记的文档不再报它没丢的字符。（fea）
@@ -208,15 +214,17 @@
 - pnpm 装 profile 的 `git+ssh://…#<sha>` 依赖会在 profile 目录里跑 `git checkout <sha>`，拿不到该提交时以退出码 128 印「致命错误：无法读取树」（`This error happened while installing a direct dependency of ~/.dsh/profiles/desktop`）；先确认经远端能到那个 sha，不要以为本地树损坏。（22a）
 - 判浏览器是否拿到新的客户端代码，别把服务端响应与安装文件整文件比 sha256：combo `?rev=` 响应在安装字节之后多一行 `\n;\n//# sourceMappingURL=…&rev=<rev>`（2026-11-21 那次多 76 字节），所以只比前 `installedBytes` 字节，并按宿主公式复算 `rev`——`framedHash("plugin-artifact",[mtimeMs,ctimeMs,size])` 的 sha1 前 12 hex（`packages/client/modules/src/index.ts` 的 `artifactRevision`）。（7b6）
 - 判断一批前端改动有没有到浏览器，便宜的判据是在服务端分发的 bundle 里数标记符号（页面结构符号、新配置键名、样式类名），而不是看本地 `lib/client.js`；符号缺失说明该 profile 装的是旧构建或宿主未重启。（f1c）
-- 行号一定会漂，所以治理文档的证据引用必须 `path:line` 加符号名；文档门禁只能验证文件存在且行号在范围内，查不出「符号名并不在那一行」；锚点脚本报的 `START LINE BLANK`（区间起点落在空行）与 `bare missing`（裸文件名）都不是坏链。（ba7）
+- 行号会漂，所以治理文档的证据引用写 `path:line` 加符号名；`scripts/check-docs.mjs` 现能验证该符号落在这行的窗口内，但仍证不了语义，外部锚点脚本报的 `START LINE BLANK` 与 `bare missing` 都不是坏链。（378）
 - 治理文档不能写死计数、行号与提交类型分布：旧 `AGENTS.md` 的 `lib 199 / test 49 / 用例 725 / 技能 40` 与六类提交分布全部过期；新头部改成「计数一律现读」（`git ls-files lib | wc -l`、`ls test/*.mjs | wc -l`、`node --test 'test/**/*.test.mjs'`）。（c6d）
 - 依赖方向的判据只 grep `src/shared/` 时恒为 1，是空门；实测 `grep -rn 'from "\.\./project-' src/` 有 14 处 / 12 specifier（含 `project-context → project-memory`、`project-handoff → project-memory/context` 与 `shared → project-handoff/language`），白名单表只写在 `docs/architecture.md` 第 2 节，计数相等抓不住「删一条加一条」。（b1d）
 - `docs/architecture.md` 曾把三处写反（交接有模型调用、子会话也留档、INDEX 只留 200 行），重建后按实现写：`src/project-handoff/summary.ts` 自述 no model call、`isTopLevel` 门在 `src/project-context/index.ts`、`regenerateSessionIndex` 全量重建无截断（全仓唯一 `MAX_INDEX_ENTRIES = 50` 在 `src/project-autolearn/pass.ts` 是提示词切片）。（354）
 - `git diff --numstat` 只比索引↔工作树：已暂存的净增看不见，提交后输出为空，所以判「本提交净增长」要用 `git diff HEAD --numstat` 或 `git show --numstat`。（cfd）
 - 写「唯一」「只发生在」这类绝对断言前逐点 `grep`：曾把自动改写写成两处，漏掉 `agent/created` 启动对账（`grep -n 'reconcileSessionIndexOnce'` 才抓出来），收口轮因此判该条不成立。（f86）
 - `CHANGELOG.md` 未发布条目要写真实用例名（英文长句），写中文意译会让 `grep -n '<描述>' test/*.mjs` 空命中，复查时无法对应到用例。（86c）
+- `git push` 可能报「致命错误：无法读取远程仓库」（exit 128）或 `Connection closed by … port 443`，甚至推送成功后紧接着的 `git ls-remote` 仍失败：先 `git ls-remote origin` 确认可达再重推，以 push 退出码与本仓 `HEAD` 对 `origin/main` 为判据。（866）
+- 门禁的符号窗口：`path:line` 旁边的符号必须落在该行窗口内，所以引用调用行而不是定义行会 FAIL（`withMemoryLock` 在 `docs/architecture.md` 曾多处如此）——修文档锚点，不要放宽门禁。（72b）
+- 文档链接检查必须跳过代码块与行内代码：`docs/behavior.md` 的 INDEX 行格式示例 `[id](id/session.md)` 与 `docs/batch-z-six-problems-spec.md` 的 `[<id>](<id>/session.jsonl)` 是演示，按链接解析会报假死链。（4db）
 - 重启验证脚本可能因为与本仓库无关的原因印 `RESULT: FAIL`：`/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 在另一个无关 desktop 活着时失败，验收脚本自己的 `title-load verify` 一半在重启后重跑判据前也失败。（005）
-- `git push` 可能第一次报「致命错误：无法读取远程仓库」（exit 128）；先 `git ls-remote origin` 确认可达，再重推即可成功。（aaf）
 
 ## Index
 - `README.md` / `CHANGELOG.md` 描述当前行为；已发布正文在 `docs/changelog/<version>.md`，`docs/README.md` 是文档索引；README 是 `package.json` 之外唯一写版本行的地方，并载 `## 致谢` 署名段。（b5b）
@@ -251,3 +259,5 @@
 - `.agents/evidence/2026-11-21-post-restart-acceptance/README.md` 记着重启后验收：驻留模块 sha256、client bundle 的 `rev` 复算与负控制（`lib/client.js` 在宿主 isolate 里 `not loaded`）。（202）
 - `src/project-handoff/summary.ts` 拥有交接的对话切分与「摘要」面，自述 no model call、no output budget、no timeout——判交接有没有模型调用读它，而不是读 `docs/architecture.md`。（15b）
 - `RULES.md`（11 章规程与可运行判据）、`AGENTS.md`（入职短页）、`docs/architecture.md`（架构与数据流叙述）、`docs/GLOSSARY.md`（术语表，术语唯一来源）是四份受跟踪治理文档，重建于 `3c1d6c4`；引用它们的计数或行号前按符号名现读 `src/`。（b05）
+- `scripts/check-docs.mjs` 是文档门禁实现，套件 `test/doc-governance.test.mjs`，入口 `pnpm docs:check`；改判据要同时改这两处与 `RULES.md` 第 3/4/6 章的判据行。（e2e）
+- `.agents/skills/dsh-batch-residual-closure/SKILL.md`（autolearn 派生、已受跟踪）拥有收口一批残余的流程：纯核实现、回执带分母、先在本机真库跑过、变异轮、重建 `lib/`、按残余逐条提交。（e10）
