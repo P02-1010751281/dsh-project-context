@@ -58,7 +58,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>`。采纳后 `SKILL.md` 带 `derived_from: autolearn` 与被核对的 session id（frontmatter，可选）；`list` 与采纳回执显示证据条数与 id 前缀，并机械比对关键 token（反引号词 / 路径 / 命令）与既有技能、`MEMORY.md` 的重叠 |
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**）。新会话第一条消息里有一段**给用户的说明**：带过来多少条消息 / 多少 token / 几个文件、更早有多少条留在了归档、归档路径，以及旧会话从哪打开——交接不再是一次静默换会话 |
-| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可摘要”被跳过时，一并报告**从何时起被跳过**与原因（重新可摘要即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错；另报宿主压缩历史（次数 / 摘要与 prune 分计 / 最近回收 token / 是否失败），以及本进程刚做的交接**种子的三个数字**（尾料消息数、文件数、未答问题处置） |
+| `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可移出”被跳过时，一并报告**从何时起被跳过**与原因（重新可移出即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错；另报宿主压缩历史（次数 / 摘要与 prune 分计 / 最近回收 token / 是否失败），以及本进程刚做的交接**种子的三个数字**（尾料消息数、文件数、未答问题处置） |
 | `/handoff on` / `off` | 开关自动交接 |
 | `/handoff threshold auto` / `threshold 0.4` / `threshold 60%` / `threshold 400k` | 切自适应；给窗口比例或绝对 token 数则切固定阈值 —— 三种拼写写进同一个键 `handoffThreshold`（`40` / `40%` 是比例，`400k` / `400000` 是 token 数）。绝对数超过窗口容量 `W − 4000` 时截断并在回执里写明；低于物理下限时拒绝，建议沿用你当前的写法。裸 `auto` 与裸比例已退役，不再生效 |
 | `/handoff budget summary 64k` / `budget recent 20k` | 目标请求量（只用于回执，不移动触发点）/ 逐字保留的近端对话（`budget recent 0` = 不带尾料）；summary 被护栏压掉时 `/handoff status` 点名 |
@@ -84,7 +84,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 ## 配置
 
-设置卡（Settings → Plugins → `dsh-project-context`）编辑，host 侧实时生效；值写进当前 profile 的
+设置卡片（Settings → Plugins → `dsh-project-context`）编辑，host 侧实时生效；值写进当前 profile 的
 设置 patch 文档。
 
 | 键 | 默认 | 一句话 |
@@ -102,7 +102,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `maxMemoryChars` | `40000` | 记忆文档字符上限；超限按行截断并标记 |
 | `provider` / `model` | 空 | 辅助调用路由覆盖，须成对设置 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接；`/handoff` 仍可用 |
-| `handoffThreshold` | `auto` | 触发点在哪，三种拼写同一个键：`auto`（护栏取小）、窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）、绝对 token 数（`400k` / `400000`）。`/handoff threshold` 与设置卡写的是它；超过窗口容量 `W − 4000` 时截断并在回执里写明 |
+| `handoffThreshold` | `auto` | 触发点在哪，三种拼写同一个键：`auto`（护栏取小）、窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）、绝对 token 数（`400k` / `400000`）。`/handoff threshold` 与设置卡片写的是它；超过窗口容量 `W − 4000` 时截断并在回执里写明 |
 | `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标量（8000–200000） |
 | `handoffBudgetRecentTokens` | `20000` | 逐字带入新会话的最近对话（0 = 不带；0–200000） |
 | `handoffPendingQuestion` | `defer` | 未答问题时：`defer` 等回答，`wait` 带进新会话 |

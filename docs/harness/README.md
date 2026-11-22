@@ -1,6 +1,6 @@
 # 三 harness（dsh / pi / codex）：状态机、接口面与接入决定
 
-同一件事——项目级持久上下文（会话存档 → 记忆整理 → 技能沉淀 → 交接）——在三个宿主上各有自己的
+同一件事——项目级持久上下文（会话存档 → 整理 → 沉淀 → 交接）——在三个宿主上各有自己的
 **状态推进方式**和**扩展契约**。这里按宿主分文件登记，不写成一个混合文档。
 
 | 文件 | 内容 |
@@ -67,7 +67,7 @@
 .agents/memory/{MEMORY.md, CONTEXT.md, HANDOFF.md}   # 渲染产物
 .agents/memory/memory.jsonl                          # 追加式权威源（dsh / pi）
 .agents/memory/session-logs/INDEX.md + <session>/     # 会话存档
-.agents/skills/<name>/SKILL.md                       # 技能沉淀
+.agents/skills/<name>/SKILL.md                       # 技能（沉淀产出）
 ```
 
 差异：codex 额外有 `session-logs/<session>/maintenance-request.json` 与 `session-state.json`

@@ -35,7 +35,7 @@
   卡片 `client/card-fields.ts`（接口 + 行表）。两处的键集必须一致（`test/settings-form.test.mjs` 比对），
   回写路径产出的键也必须是 schema 键（`test/config-vocabulary.test.mjs`）。
 - 形式：camelCase，不带下划线；同一特性的键**同一拼写**（`autolearn*` 全用小写 `learn`）。
-- **键名镜射改变它的那个东西**（批 H 定形；阈值两键已由批 Z8e 合并，见 §5 K 注）：有命令就用命令路径，没有就用设置卡——`memoryEnabled`（**设置卡开关；dsh 没有改这个键的命令**）、`autolearnEnabled`（同）、
+- **键名镜射改变它的那个东西**（批 H 定形；阈值两键已由批 Z8e 合并，见 §5 K 注）：有命令就用命令路径，没有就用设置卡片——`memoryEnabled`（**设置卡片开关；dsh 没有改这个键的命令**）、`autolearnEnabled`（同）、
   `handoffBudgetSummaryTokens`（`/handoff budget summary`）、`handoffBudgetRecentTokens`（`/handoff budget recent`）、
   `handoffThreshold`（`/handoff threshold auto|<窗口比例>|<token 数>`，三种拼写同一个键）、
   `handoffLang`（`/handoff lang`）。
@@ -124,8 +124,8 @@
 
 | 现值 | 终态 | 理由 |
 | --- | --- | --- |
-| `autoConsolidate` | `memoryEnabled` | 能力名是 `memory`（歧义最小）；不用动作词。**没有命令改它**，只有设置卡 |
-| `autoLearn` | `autolearnEnabled` | 同特性拼写统一（`autolearn*`）+ `<能力>Enabled`；同样只由设置卡改 |
+| `autoConsolidate` | `memoryEnabled` | 能力名是 `memory`（歧义最小）；不用动作词。**没有命令改它**，只有设置卡片 |
+| `autoLearn` | `autolearnEnabled` | 同特性拼写统一（`autolearn*`）+ `<能力>Enabled`；同样只由设置卡片改 |
 | `handoffTargetTokens` | `handoffBudgetSummaryTokens` | 镜射 `/handoff budget summary` |
 | `handoffKeepTokens` | `handoffBudgetRecentTokens` | 镜射 `/handoff budget recent` |
 | `handoffSummaryThinking` | `handoffThinking` | 镜射 `/handoff thinking` |

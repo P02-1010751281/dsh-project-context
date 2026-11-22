@@ -18,7 +18,7 @@ dsh (DeepSeek Harness) plugins for project-level persistent context: session arc
 中文备选：
 
 ```
-DeepSeek Harness (dsh) 的项目级持久上下文插件包：会话存档（session.jsonl + 索引）→ 记忆整理（CONTEXT.md + MEMORY.md）→ 低频技能沉淀 → 自动交接。
+DeepSeek Harness (dsh) 的项目级持久上下文插件包：会话存档（session.jsonl + 索引）→ 整理（CONTEXT.md + MEMORY.md）→ 低频沉淀 → 自动交接。
 ```
 
 ## Topics

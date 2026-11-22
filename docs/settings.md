@@ -5,8 +5,8 @@
 
 ## 配置
 
-Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行（打开后是记忆整理 / 技能沉淀 /
-自动交接三区，共享的辅助模型路由在记忆整理区末尾），host 侧实时生效。卡片挂在插件页的
+Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行（打开后是整理 / 沉淀 /
+自动交接三区，共享的辅助模型路由在整理区末尾），host 侧实时生效。卡片挂在插件页的
 `plugins.bundle.config` 槽位、键为 bundle 包名 `dsh-project-context`（该槽位按包名分派；
 `plugins.item` 归**官方插件**卡片），经宿主的 `configForms` 服务读写本命名空间，并由 `whileServed`
 门控——profile 没装 host 半时页面上不会留下痕迹。
@@ -46,14 +46,14 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | `autolearnTurns` | `20` | 自上次沉淀累计的用户消息数阈值 |
 | `autolearnIntervalMs` | `1800000` | 自动沉淀最小间隔；仅在有新 MEMORY/CONTEXT 内容时执行 |
 | `maxTokens` | `8192` | 辅助模型调用的起始输出上限；整理会按「记忆+上下文需回吐的 token 数」自适应上调 |
-| `maxOutputTokens` | `32768` | 自适应上调的边界（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准。交接摘要的失败重试同样被该边界压住（`min(2×maxTokens 或 32768 的较大者, max(maxTokens, maxOutputTokens))`；边界低于起始上限时重试被取消，只发一次原请求） |
+| `maxOutputTokens` | `32768` | 自适应上调的边界（≥256）：输入很大时把单次输出上限往它上调。它是**自适应上调的边界**而不是绝对天花板：`maxTokens` 更大时以 `maxTokens` 为准；若适配器自己给出更小的模型上限，则以模型上限为准。整理的重试会额外预留 `max(4096, 上一回复的 reasoning tokens)` 的输出余量（`RETRY_OUTPUT_HEADROOM_TOKENS`），余量受该边界约束；装不下两份文档时重试不发（`fit-capped-refused`） |
 | `maxMemoryChars` | `40000` | 记忆文档的字符上限（4000–200000），**读写同一把尺**：写入前按它生效（超限**按行边界**截断并写入 `_[memory truncated at <limit> characters: <dropped> dropped]_` 标记），而每轮注入（`projectMemoryInjection` → `loadMemorySync`）与整理 pass 的读入（`loadMemory`）用的是同一个值。因此把它降到当前文档长度**以下**不是压缩而是砍尾部：头部保留、整节消失（文档顺序是 Project → Invariants → Pitfalls → Index，先没的是 Pitfalls 与 Index）。**被截断的视图不会被写回**：整理 pass 在模型调用前就拒绝（状态 `read-capped-refused`，`errors.log` 记下隐藏了多少字符，两个产物都不落盘），否则一次「照抄所见」的回复就会把尾部整段删掉——实测 6482 字符的文档在 cap 4000 下会变成 3983 字符、Pitfalls 与 Index 消失，而 tier C 看不见（它拿回复和写上限比，回复装得下）。`CONTEXT.md` 同理（`MAX_CONTEXT_CHARS` 32000 的读上限）。要缩小窗口占用，先把手写文档压到目标尺寸，再把 cap 降到不小于新文档。调大它同时抬高每轮注入量与整理输出需求——整理被「模型输出上限」截断时，调大这个值只会更糟 |
 | `taskMode` | `assisted` | 谁可以造任务、谁可以改状态。`assisted`：`/context task <slug> new` 才建（裸 slug 被拒并点名 `new`），`lastSeen` 超过 30 天自动 dormant，归档要显式命令。`delegated`：裸 slug 即建，且超过 90 天自动 archived。`manual`：只有命令能建、能改，状态完全不按年龄派生。`archived` 的任务不注入也不被整理 pass 写入（否则一次 pass 刷新 `lastSeen` 就会把它复活）；"模型可以提议"这半没有通道（本包不注册工具），所以确认门槛放在命令上 |
 | `provider` / `model` | 空 | 辅助调用路由覆盖；默认用 agent 最近一次请求的路由 |
 | `handoffEnabled` | `true` | 关掉后不再自动交接（含交接子会话标题的事后改名），`/handoff` 仍可用 |
-| `handoffThreshold` | `auto` | 触发点在哪，三种拼写写进同一个键：`auto` 由**护栏**决定（质量层 `autoCompactTokenLimit ?? knee(window)`——宿主目前只暴露 `contextWindow`，故恒回退膝曲线——与可用窗口取小，基线/保留量只决定可行性下限）；窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）；绝对 token 数（`400k` / `400000`，≥1）。消歧用合法区间本身而不是新语法：裸数字 ≤ 95 只能是比例（`5` 仍是越界比例，不会变成 5 token），> 95 只能是 token 数；`%` 恒为比例、`k` 恒为千。绝对数超过窗口容量 `W − 4000` 时**截断并在回执里写明**（`400000 tokens (capped to 96000)`）；低于物理下限（`overhead + handoffBudgetRecentTokens + 8000`）时**拒绝**，建议沿用当前写法。卡片只有一行文本控件（`kind: threshold`），三种拼写在本机折叠成规范值，越界草稿直接拒（保存按钮置灰）；`/handoff status` 的固定模式摘要写 `fixed ratio 40%` 或 `fixed threshold N tokens` |
+| `handoffThreshold` | `auto` | 触发点在哪，三种拼写写进同一个键：`auto` 由**护栏**决定（质量层 `autoCompactTokenLimit ?? knee(window)`——宿主目前只暴露 `contextWindow`，故恒回退膝曲线——与可用窗口取小，基线/保留量只决定可行性下限）；窗口比例（`0.1`–`0.95`，也接受 `40` / `40%`）；绝对 token 数（`400k` / `400000`，≥1）。消歧用合法区间本身而不是新语法：裸数字 ≤ 95 只能是比例（`5` 仍是越界比例，不会变成 5 token），> 95 只能是 token 数；`%` 恒为比例、`k` 恒为千。绝对数超过窗口容量 `W − 4000` 时**截断并在回执里写明**（`400000 tokens (capped to 96000)`）；低于物理下限（`overhead + handoffBudgetRecentTokens + 8000`）时**拒绝**，建议沿用当前写法。卡片只有一行文本控件（`kind: threshold`），三种拼写在本机折叠成规范值，越界草稿直接拒（保存按钮置灰）；`/handoff status` 回执写 `fixed ratio 40%` 或 `fixed threshold N tokens` |
 | `handoffBudgetSummaryTokens` | `64000` | 自适应模式下**只用于回执**的目标请求量（8000–200000）：`/handoff status` 用它判断并点名「目标没被完整采纳」，它不移动触发点，也不产生任何模型调用。触发点由护栏决定，被压掉时点名被覆盖的值与压住它的那条护栏，不静默。任何模式都显示——它是 `/handoff budget summary` 在任一模式都能写的预算，不是另一模式的触发器，固定模式里只是暂时不生效；越界或非整数草稿在卡片上直接拒掉 |
-| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 只带摘要；卡片按同一区间本机校验，越界或非整数草稿直接拒掉）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
+| `handoffBudgetRecentTokens` | `20000` | 最近对话原文带入新会话（0–200000，0 = 不带原文尾料，只靠记忆与归档指针；卡片按同一区间本机校验，越界或非整数草稿直接拒掉）。切点按**消息**而不是按轮，且至少要保留一条消息，所以实际带入量最多比它多一条消息（每条渲染后 ≤ 4000 字符）。**用户自己的最后一次输入**另有一段独立带入（见 ④），不受该值影响 |
 | `handoffLang` | `auto` | 交接语言：`auto` 按对话判定（CJK≥2 → zh；纯拉丁≥20 字母 → en；否则沿用上一条交接提示的语言，兜底 en），也可固定 `zh` / `en` |
 | `handoffPendingQuestion` | `defer` | 最后一条助手消息是未答问题时：`defer` 让**自动**交接等回答（手动 `/handoff` 始终执行），`wait` 照常交接并把问题作为独立段落带进新会话，且该段落取代常规的「先做下一步」结尾（= pi 侧 `handoffGuard: wait`） |
 | `handoffRetireReplaced` | `true` | 交接成功后把被替换的旧会话「退休」：先停掉其中仍在跑的工作，再调 `workspaceRegistry.archiveSession(…, {stopActivity: true})` 把它从侧栏隐藏（只隐藏不删除，客户端「取消归档」可还原）。默认开启的原因：交接是**分叉**，旧会话不结束就仍算活动，会排在自己的续接会话上面。关闭后两个会话都留在列表里、旧会话里的工作也不会被停——`stopActivity` 只为让归档生效，没有归档就没有可停的东西 |
