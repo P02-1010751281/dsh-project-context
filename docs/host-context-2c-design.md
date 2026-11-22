@@ -1,9 +1,11 @@
 # Phase 2c: the registration façade (`HostContext`)
 
-Status: three slices landed (2026-11-22). The façade and the dsh adapter are in place; `HostContext`
-extends `HostPorts`, and `ServiceHost` is the one-member port for a helper that only reads a named
-service. `project-context`, `project-autolearn` and `project-memory` are ported. `project-handoff` is
-not; its edit list is in §5.
+Status: complete for all four plugins (2026-11-22). The façade and the dsh adapter are in place;
+`HostContext` extends `HostPorts`, and `ServiceHost` is the one-member port for a helper that only
+reads a named service. `project-context`, `project-autolearn`, `project-memory` and `project-handoff`
+all start from `start(host, entry)`; no core names a cordis type. What a second harness still needs is
+§6, and the two direction mismatches are 2d (see
+[the 2d decision input](../.agents/evidence/2026-11-22-contract-direction-2d/README.md)).
 
 ## 1 The façade
 
@@ -133,6 +135,9 @@ stops compiling. A core would not find out at runtime.
 | `src/project-memory/index.ts` | Thin entry (40 lines): `name`, `inject`, the unchanged re-export surface, and `apply` → `start(hostContextOf(ctx), resolvePluginConfig(raw))`. It publishes no settings namespace, so `publishProjectContextSettings` does not appear here. |
 | `src/project-memory/update.ts` | `consolidateProject(host: HostPorts, …)`; the two log lines read `host.log`, the projection read `projectionsOf(host.services)`. |
 | `src/project-memory/consolidate.ts` | `consolidateProjectState(host: HostPorts, …)` and `requestConsolidationText(host, …)`; the `llmOf` import is gone — the pass calls `host.llm`. |
+| `src/project-handoff/start.ts` | New file (240 lines): `start(host, entry)` with one `host.addPromptContext` (order 200, `handoff-pressure`), two `host.on`, one `host.registerCommand`. `movesThreshold` moved here with the command handler (the only caller), so the entry re-exports it rather than importing back from `index.ts`. |
+| `src/project-handoff/index.ts` | 311 → 100 lines: doc block, `name`, `inject`, the re-export surface (`HANDOFF_TITLE_PREFIX`, `isHandoffContinuationText`, `REPLAY_MARKER`, `movesThreshold`), `apply`. |
+| `src/project-handoff/*.ts` (8 modules) | 14 helpers take `HostPorts` or `ServiceHost`: `maybeAutoHandoff`, `resolveHandoffGate`, `runManual`, `statusText`, `relabelHandoffChild`, `retireIfPending` / `scheduleRetirement` / `retireSession`, `createChildSession` / `carryPermissionPreset` / `carryModelSelection` / `abandonChild`, `performHandoff` take `HostPorts`; `gatherDecisionInputs`, `writeSetting`, `seedChildSession`, `pendingSubagentWork` / `runningContinuableChildren` take `ServiceHost`. All getters call `xxxOf(host.services)`. `performHandoff` is **not** split. `watch.ts` needed no change: it already declares its own `HandoffWatchContext { get }` for the client half. |
 | `test/host-ports.mjs` | New fixture: `portsOf(ctx)` returns `{ get log, get llm, services: ctx }`, the same lazy shape as the adapter, so a direct helper call takes one wrapper instead of a hand-built fake. |
 | `scripts/check-boundary.mjs` | New `raw-context` rule under `wiring`: a ported core (`src/<plugin>/start.ts`) must not import the raw `Context`. |
 | `scripts/check-boundary.mjs` | Adds the rule in §4. |
@@ -190,16 +195,13 @@ keeps the whole former re-export surface, because other modules and the suite im
 `test/autolearn.test.mjs` gained a `log` field; the `apply()` fakes did not change, because the
 adapter still reads `logger` / `llm` off the context they stand in for.
 
-**project-handoff** (`src/project-handoff/index.ts`)
-- Two `ctx.on` calls, one `ctx.commands.register`, and one `ctx.systemPrompt.context` →
-  `host.addPromptContext`.
-- About 12 helpers take a `Context`: `maybeAutoHandoff`, `resolveHandoffGate`, `runManual`,
-  `statusText`, `writeSetting`, `relabelHandoffChild`, `retireIfPending`, `createChildSession`,
-  `seedChildSession`, `carryPermissionPreset`, `pendingSubagentWork` and `performHandoff`. Today
-  they use it only for the service getters, `logOf` and `llmOf`, so each can take
-  `ServiceRegistry & { log }` plus the LLM port. This is the largest port, and memory says
-  `performHandoff` must not be split.
-- `movesThreshold` and the re-exports stay in `index.ts`.
+**project-handoff** — ported 2026-11-22, the last of the four. `apply` body moved to `start.ts`
+(240 lines); the 14 helpers split into `HostPorts` (they log or call the model) and `ServiceHost`
+(they read one service). `performHandoff` keeps its body and only changes parameter name and callee
+arguments. `movesThreshold` had to move with the command handler — leaving it in `index.ts` would make
+`start.ts` import `index.ts` back; the entry re-exports it, so `test/threshold-floor.test.mjs` still
+imports it from `index.js`. `watch.ts` is untouched: it already declares `HandoffWatchContext { get }`
+for the client half, which `ServiceHost` satisfies structurally.
 
 `src/shared/settings.ts`: `publishProjectContextSettings(ctx, …)` stays an entry-only call (it uses
 `ctx.fiber`). `onDispose` could move to `host.onDispose`, but the fiber read cannot.

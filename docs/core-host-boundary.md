@@ -42,15 +42,16 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
   `GenerateOptions` 不可赋给上游同名类型（`reasoningEffort` 放宽、消息形状不同），真实投影注册表
   不接受任意字符串键；两者今天分别由 `src/host/dsh/llm.ts` 的断言与通用服务 getter 遮住。彻底修法
   二选一：适配器逐字段构造宿主请求，或在入站边界包装每个宿主对象（`2d` 设计决定）。
-- **2c（已落地三片，2026-11-22）**：`HostContext` 声明在 `contract.ts`（`on` / `registerCommand` /
+- **2c（四插件全部落地，2026-11-22）**：`HostContext` 声明在 `contract.ts`（`on` / `registerCommand` /
   `addPromptContext` / `onDispose`），并 `extends HostPorts`——核心真正读的三件事 `log` / `services` /
   `llm` 单独成接口，只读一个具名服务的 helper 再收 `ServiceHost`；实现是
   `src/host/dsh/host-context.ts`，`llm` 成员由 `llmOf(ctx)` 惰性读取。`project-context`、
   `project-autolearn`、`project-memory` 已按 `apply(ctx) → hostContextOf(ctx) → start(host)` 切开：
-  入口分别 39 / 32 / 40 行，核心 `start.ts` 分别 377 / 192 / 278 行。只剩 `project-handoff` 未移植
-  （12 个 helper 仍收整个 `Context`，`performHandoff` 不许拆），逐文件清单在
-  [host-context-2c-design.md](./host-context-2c-design.md) §5。接第二个宿主前还缺三件：`fiber.config`
-  设置读取要换成中性接口、服务 getter 要成契约接口、事件时序要写进契约（同文 §6）。
+  入口分别 39 / 32 / 40 / 100 行，核心 `start.ts` 分别 377 / 192 / 278 / 240 行，没有核心再命名
+  cordis 类型。逐插件清单在 [host-context-2c-design.md](./host-context-2c-design.md) §5。接第二个
+  宿主前还缺三件：`fiber.config` 设置读取要换成中性接口、服务 getter 要成契约接口、事件时序要写进
+  契约（同文 §6）；此外 2d 的两处方向不匹配仍开着，决策输入见
+  [证据](../.agents/evidence/2026-11-22-contract-direction-2d/README.md)。
 
 ## 3 规则（`RULES.md` 4.6）
 
