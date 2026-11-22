@@ -12,10 +12,10 @@
  */
 
 import path from "node:path";
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context } from "../host/contract.js";
 // Type-only: pulls the commands service Context merge (ctx.commands).
-import type {} from "@deepseek-ai/dsh-commands";
-import type { Agent } from "@deepseek-ai/dsh-agent";
+import type { Agent } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
 import { resolvePluginConfig, type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
@@ -61,7 +61,7 @@ async function runSkillExpiry(ctx: Context, agent: Agent, silent: boolean): Prom
 		await retireExpiredSkills(projectRoot);
 	} catch (error) {
 		await logError(projectRoot, "autolearn", error);
-		if (!silent) ctx.logger.warn(`dsh-project-context: skill expiry failed: ${diagnosticMessage(error)}`);
+		if (!silent) logOf(ctx).warn(`dsh-project-context: skill expiry failed: ${diagnosticMessage(error)}`);
 	}
 }
 
@@ -77,13 +77,13 @@ function runAutolearn(ctx: Context, config: PluginConfig, agent: Agent, options:
 			if (config.autolearnExpireSkills) await retireExpiredSkills(projectRoot);
 			outcome = await autolearnProjectSkills(ctx, agent, config, { force: options.force, signal: options.signal, track: options.track });
 			if (outcome?.candidate && !options.silent) {
-				ctx.logger.info(`dsh-project-context: skill candidate saved for review: /autolearn approve ${outcome.skill?.name ?? ""}`);
+				logOf(ctx).info(`dsh-project-context: skill candidate saved for review: /autolearn approve ${outcome.skill?.name ?? ""}`);
 			} else if (outcome?.skill && !options.silent) {
-				ctx.logger.info(`dsh-project-context: project skill created: ${path.join(skillsDir(projectRoot), outcome.skill.name, "SKILL.md")}`);
+				logOf(ctx).info(`dsh-project-context: project skill created: ${path.join(skillsDir(projectRoot), outcome.skill.name, "SKILL.md")}`);
 			}
 		} catch (error) {
 			await logError(projectRoot, "autolearn", error);
-			if (!options.silent) ctx.logger.warn(`dsh-project-context: autolearn failed: ${diagnosticMessage(error)}`);
+			if (!options.silent) logOf(ctx).warn(`dsh-project-context: autolearn failed: ${diagnosticMessage(error)}`);
 		}
 	}).then(() => outcome);
 }

@@ -18,8 +18,8 @@
  * `turn/end` (the pass runs on the idle that follows it). Both callers apply the same function.
  */
 
-import type { Session } from "@deepseek-ai/dsh-session";
-import type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
+import type { Session } from "../host/contract.js";
+import type { SessionProjectionRegistry } from "../host/contract.js";
 import { MAX_LIST_ENTRIES, MAX_LIST_ITEM_CHARS } from "../shared/project-state.js";
 import { contextSectionBudgets } from "./context-schema.js";
 import { clipToLineBoundary } from "./document.js";

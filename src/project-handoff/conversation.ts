@@ -5,7 +5,7 @@
  * Pure functions over a `Session`; nothing here talks to the host or the model.
  */
 
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { conversationMessageSections, conversationMessages, humanUserText, type ConversationSection } from "../shared/conversation.js";
 import { clipTitle, truncateMiddle } from "../shared/text.js";

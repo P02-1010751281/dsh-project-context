@@ -2,9 +2,9 @@
  * One plugin-sourced auxiliary model call: which route to use, what metadata the adapter
  * exposes, the output limit for that route, and the single-shot and meta-returning calls.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Agent } from "@deepseek-ai/dsh-agent";
-import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "@deepseek-ai/dsh-llm";
+import { type Context } from "../host/contract.js";
+import { type Agent } from "../host/contract.js";
+import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "../host/contract.js";
 import { type PluginConfig } from "./config.js";
 /**
  * This producer's message-source kind.

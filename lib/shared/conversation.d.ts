@@ -3,8 +3,8 @@
  * the handoff split and the language detector all consume — plus the input fitting that keeps
  * a consolidation request inside its budget.
  */
-import { type Message } from "@deepseek-ai/dsh-llm";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Message } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 /**
  * What the pass sends instead of the stored artifacts, plus the budget it asks for.
  *

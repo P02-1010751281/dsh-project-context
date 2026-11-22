@@ -4,7 +4,7 @@
  *
  * Pure functions over a `Session`; nothing here talks to the host or the model.
  */
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type HandoffLanguage, type HandoffLanguageMessage } from "./language.js";
 /** Rough character budget per token for the carried-over recent tail. */

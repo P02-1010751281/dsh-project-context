@@ -2,8 +2,8 @@
  * The `/handoff` surface: argument parsing, the `/handoff status` receipt and the manual
  * handoff the bare command and `now` share.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { parseTokenCount } from "../shared/threshold-spec.js";
 /**

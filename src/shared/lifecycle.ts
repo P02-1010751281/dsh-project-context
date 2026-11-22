@@ -4,7 +4,7 @@
  * handoff plugin keep the same lifecycle shape, so it lives here once.
  */
 
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Session } from "../host/contract.js";
 
 /** Longest a durability flush waits for in-flight work before letting shutdown proceed. */
 export const FLUSH_WAIT_MS = 90_000;

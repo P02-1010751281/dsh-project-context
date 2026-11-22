@@ -4,7 +4,7 @@
  * clipping that never splits a code point.
  */
 
-import { type ContentBlock } from "@deepseek-ai/dsh-llm";
+import { type ContentBlock } from "../host/contract.js";
 import { redactSecrets } from "./project-state.js";
 
 /** Worst-case output tokens per character for dense scripts (a Han character is close to one token). */
@@ -25,7 +25,7 @@ export const MAX_CONSOLE_REPLY_CHARS = 200;
 /**
  * Attach the head of the reply the model actually sent so `errors.log` can be diagnosed later.
  * The excerpt is redacted here, at the one place the raw reply becomes an error message: this
- * error also reaches `ctx.logger.warn` (which writes verbatim), so masking only on the file path
+ * error also reaches `logOf(ctx).warn` (which writes verbatim), so masking only on the file path
  * would still print the credentials, and capping only for the console would still write them.
  * @param raw - the raw model reply.
  * @param maxChars - excerpt length; the console passes a shorter budget than the log.

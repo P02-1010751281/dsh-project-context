@@ -3,13 +3,13 @@
  * character budget per token, the logged/console head of a bad reply, and surrogate-safe
  * clipping that never splits a code point.
  */
-import { type ContentBlock } from "@deepseek-ai/dsh-llm";
+import { type ContentBlock } from "../host/contract.js";
 /** Characters of that excerpt kept in the *console* copy of the error; the log keeps the full head. */
 export declare const MAX_CONSOLE_REPLY_CHARS = 200;
 /**
  * Attach the head of the reply the model actually sent so `errors.log` can be diagnosed later.
  * The excerpt is redacted here, at the one place the raw reply becomes an error message: this
- * error also reaches `ctx.logger.warn` (which writes verbatim), so masking only on the file path
+ * error also reaches `logOf(ctx).warn` (which writes verbatim), so masking only on the file path
  * would still print the credentials, and capping only for the console would still write them.
  * @param raw - the raw model reply.
  * @param maxChars - excerpt length; the console passes a shorter budget than the log.

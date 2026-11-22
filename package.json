@@ -54,6 +54,7 @@
 		"build:client": "node scripts/build-client.mjs",
 		"typecheck": "tsc --noEmit && tsc -p tsconfig.client.json --noEmit",
 		"docs:check": "node scripts/check-docs.mjs",
+		"boundary:check": "node scripts/check-boundary.mjs",
 		"test": "tsc && tsc -p tsconfig.client.json --noEmit && node --test 'test/**/*.test.mjs'"
 	},
 	"keywords": [

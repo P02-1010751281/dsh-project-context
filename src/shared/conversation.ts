@@ -4,8 +4,8 @@
  * a consolidation request inside its budget.
  */
 
-import { type Message, type ToolCallBlock } from "@deepseek-ai/dsh-llm";
-import { isReplacementSurfaceEvent, isSurfaceEligibleType, type Session } from "@deepseek-ai/dsh-session";
+import { type Message, type ToolCallBlock } from "../host/contract.js";
+import { isReplacementSurfaceEvent, isSurfaceEligibleType, type Session } from "../host/contract.js";
 import { isHandoffContinuationText } from "../project-handoff/language.js";
 import { MAX_CONVERSATION_CHARS } from "./project-state.js";
 import { MAX_ADAPTIVE_OUTPUT_TOKENS, MIN_CLIP_CHARS, REPLY_OUTPUT_MARGIN_TOKENS, adaptiveOutputTokens, allocateTokens, reasoningReserveTokens } from "./output-budget.js";

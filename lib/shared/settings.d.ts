@@ -19,7 +19,7 @@
  * was applied with, and the other three read it, so one card edit reaches every feature. Without the
  * archive plugin (or before it applies) each plugin falls back to its own entry config.
  */
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context } from "../host/contract.js";
 import z from "@deepseek-ai/schemastery";
 import { type PluginConfig } from "./config.js";
 /** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */

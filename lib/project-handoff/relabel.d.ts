@@ -29,8 +29,8 @@
  * only, on the event that carried the first naming input — deferring moves *when* the write lands,
  * never how often.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 /**
  * The label inside a stored title this plugin wrote, else `undefined`.
  *

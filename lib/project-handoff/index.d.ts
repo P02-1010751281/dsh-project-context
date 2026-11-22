@@ -68,7 +68,7 @@
  *
  * Commands: /handoff [status|now|on|off|threshold auto|<ratio>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]
  */
-import { type Context } from "@deepseek-ai/cordis";
+import { type Context } from "../host/contract.js";
 import { REPLAY_MARKER, isHandoffContinuationText } from "./language.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 export declare const name = "project-handoff";

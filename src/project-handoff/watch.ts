@@ -20,38 +20,15 @@
  */
 
 import { planHandoffWatch, type HandoffWatchRow } from "./marker.js";
+import { watchConversationOf, watchSessionsOf, type WatchConversationLike } from "../host/dsh/services.js";
 
 /** The slice of the client context this watcher reads: `sessions` and `conversation`, when present. */
 interface HandoffWatchContext {
 	get(name: string): unknown;
 }
 
-interface SnapshotFace {
-	getSnapshot(): unknown;
-	subscribe?(listener: () => void): () => void;
-}
-
-interface HandoffSessions {
-	readonly list: {
-		getSnapshot(): {
-			readonly ids: readonly unknown[];
-			readonly byId: Readonly<Record<string, { readonly cwd?: unknown; readonly origin?: unknown } | undefined>>;
-			readonly current?: unknown;
-			/** Arrival lifecycle: `pending` means no pull has landed yet. */
-			readonly phase?: unknown;
-		};
-		subscribe(listener: () => void): () => void;
-	};
-	binding(id: unknown): { readonly session: { readonly projections: { faceOf(key: string): SnapshotFace } } } | undefined;
-	open(id: unknown): void;
-}
-
-interface HandoffConversation {
-	readonly input: { shell(id: unknown): { readonly state: SnapshotFace } };
-}
-
 /** Read the active session's input snapshot; an absent or unexpected facade never blocks a switch. */
-function inputSnapshot(conversation: HandoffConversation | undefined, id: string | undefined): { readonly draft: string; readonly phase: string } | undefined {
+function inputSnapshot(conversation: WatchConversationLike | undefined, id: string | undefined): { readonly draft: string; readonly phase: string } | undefined {
 	if (conversation === undefined || id === undefined) return undefined;
 	try {
 		const state = conversation.input.shell(id).state.getSnapshot();
@@ -72,9 +49,9 @@ function inputSnapshot(conversation: HandoffConversation | undefined, id: string
  * @returns disposer removing the list subscription.
  */
 export function watchHandoffSwitch(ctx: HandoffWatchContext): () => void {
-	const sessions = ctx.get("sessions") as HandoffSessions | undefined;
+	const sessions = watchSessionsOf(ctx);
 	if (sessions === undefined) return () => undefined;
-	const conversation = ctx.get("conversation") as HandoffConversation | undefined;
+	const conversation = watchConversationOf(ctx);
 
 	/** Sessions present before this plugin loaded never trigger a switch. */
 	const seen = new Set<string>();

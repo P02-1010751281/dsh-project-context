@@ -8,8 +8,8 @@
  * this repo keeps paying for: the numbers the user reads are then a right value under a wrong
  * attribution, and no test can tell the two apart by comparing constants.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type MeasuredContext } from "./runtime.js";
 import { resolveThreshold } from "./threshold.js";

@@ -6,7 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Session } from "../host/contract.js";
 import { type UserDecision } from "./conversation.js";
 import { type ContinuationNotice, type HandoffLanguage, SCAFFOLDING } from "./language.js";
 

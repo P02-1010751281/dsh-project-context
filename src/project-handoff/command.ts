@@ -3,8 +3,10 @@
  * handoff the bare command and `now` share.
  */
 
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { projectionsOf, sessionControllerOf, settingsServiceOf, tokenMeterOf } from "../host/dsh/services.js";
+import { type Session } from "../host/contract.js";
+import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "../shared/config.js";
 import {
 	MAX_HANDOFF_RECENT_TOKENS,
@@ -24,7 +26,7 @@ import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.
 import { performHandoff } from "./perform.js";
 import { seedReceiptLine } from "./receipt.js";
 import { isHandoffRouteError, routeFailureReceipt, withRouteFailure } from "./route-failure.js";
-import { type SessionControllerLike, type SettingsLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
+import { measuredContext, resolveTarget } from "./runtime.js";
 import { handedOff, handoffReceipts, inFlight, pendingTriggerSeq, skippedSince } from "./state.js";
 import { resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "./threshold.js";
 
@@ -89,7 +91,7 @@ export const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|
 
 /** Persist one settings patch through the mounted settings service. */
 export async function writeSetting(ctx: Context, patch: Record<string, unknown>): Promise<string | undefined> {
-	const settings = ctx.get("settings") as SettingsLike | undefined;
+	const settings = settingsServiceOf(ctx);
 	if (settings === undefined) return "the settings service is unavailable in this profile; edit the plugin config instead";
 	try {
 		await settings.update(SETTINGS_NAMESPACE, patch);
@@ -131,12 +133,12 @@ export async function statusText(
 	const language = resolveHandoffLanguage(sessionLanguageMessages(session), config);
 	const parts: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const target = resolveTarget(session, config);
-	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
-	const projections = ctx.get("sessionProjections");
+	const meter = tokenMeterOf(ctx);
+	const projections = projectionsOf(ctx);
 	if (target !== undefined && meter !== undefined) {
 		let contextWindow: number | undefined;
 		try {
-			contextWindow = (await withRouteFailure(target, () => ctx.llm.resolveModelInfo(target.provider, target.model, signal), signal)).context?.contextWindow;
+			contextWindow = (await withRouteFailure(target, () => llmOf(ctx).resolveModelInfo(target.provider, target.model, signal), signal)).context?.contextWindow;
 		} catch (error: unknown) {
 			// The receipt is the surface a user opens *because* handoff stopped; it must survive the very
 			// failure it exists to explain. A stale provider/model pair used to throw out of this handler,
@@ -230,7 +232,7 @@ export async function runManual(ctx: Context, session: Session, entry: PluginCon
 	// No routed model is needed: nothing is generated any more. Only the automatic path resolves a
 	// model, and only for its `contextWindow` (the threshold reads it); `/handoff now` proceeds with
 	// whatever route the session is on, exactly as pi does.
-	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
+	const controller = sessionControllerOf(ctx);
 	if (!controller) {
 		return { kind: "error" as const, text: "The session controller is unavailable in this profile; handoff needs the web/API session runtime." };
 	}

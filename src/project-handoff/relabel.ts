@@ -30,12 +30,13 @@
  * never how often.
  */
 
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { sessionTitleOf } from "../host/dsh/services.js";
+import { type Session } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
 import { firstHandoffInput } from "./conversation.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { retitleAfterRename } from "./perform.js";
-import { type SessionTitleLike } from "./runtime.js";
 
 /**
  * The label inside a stored title this plugin wrote, else `undefined`.
@@ -76,7 +77,7 @@ export function storedHandoffLabel(title: unknown): string | undefined {
  * @param triggerSeq - that event's seq, which must be the first naming input's own.
  */
 export function relabelHandoffChild(ctx: Context, session: Session, triggerSeq: number): void {
-	const titles = ctx.get("sessionTitle") as SessionTitleLike | undefined;
+	const titles = sessionTitleOf(ctx);
 	if (titles === undefined) return;
 	const { get, rename } = titles;
 	if (get === undefined || rename === undefined) return;
@@ -99,7 +100,7 @@ export function relabelHandoffChild(ctx: Context, session: Session, triggerSeq: 
 			const restore = retitleAfterRename(accepted, label, stored);
 			if (restore !== undefined) rename.call(titles, session, restore);
 		} catch (error: unknown) {
-			ctx.logger.warn("dsh-project-context: handoff continuation title not updated: %s", error instanceof Error ? error.message : String(error));
+			logOf(ctx).warn("dsh-project-context: handoff continuation title not updated: %s", error instanceof Error ? error.message : String(error));
 		}
 	});
 }

@@ -6,7 +6,7 @@
  * falling back to the first user message. Later passes (autolearn backtracking,
  * handoff pointers) read the index to navigate the raw archive.
  */
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Session } from "../host/contract.js";
 import type { SessionMeta } from "./session-meta.js";
 interface SessionIndexEntry {
     id: string;

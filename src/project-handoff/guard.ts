@@ -4,8 +4,9 @@
  * at once (the 2026-09-17 incident); both are read here.
  */
 
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { agentsOf, subagentsOf } from "../host/dsh/services.js";
+import { type Session } from "../host/contract.js";
 import { HandoffDeferred } from "./classify.js";
 
 /** Bound on the live subagent listing, so a slow registry cannot stall the turn end. */
@@ -136,22 +137,6 @@ export function assertSessionSettled(session: Session, triggerSeq: number | unde
 	}
 }
 
-/** Structural view of the optional `subagents` host service: this session's direct children. */
-interface SubagentsLike {
-	/**
-	 * Direct-child read from the parent-owned `subagent/catalog` projection. Every row carries `id`
-	 * and `mode` (dsh 0.1.6's classified `{kind, id, mode, activity, hasChildren}` row and
-	 * 0.1.7-alpha.1's bare `{id, createdAt, mode, label}` catalog row both do), so one read covers
-	 * both versions; a `kind: "diagnostic"` row means the host could not classify that child at all.
-	 */
-	listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly unknown[]>;
-}
-
-/** Structural view of the host's live Agent registry, the only place turn activity is readable. */
-interface AgentsLike {
-	get(sessionId: string): { readonly status?: unknown } | undefined;
-}
-
 /**
  * This session's direct continuable children that are executing a turn *right now*, or `undefined`
  * when that cannot be read — the caller then falls back to the event log.
@@ -178,8 +163,8 @@ interface AgentsLike {
  * @returns the running continuable child ids, or `undefined` when the log must be consulted.
  */
 async function runningContinuableChildren(ctx: Context, session: Session): Promise<string[] | undefined> {
-	const service = ctx.get("subagents") as SubagentsLike | undefined;
-	const agents = ctx.get("agents") as AgentsLike | undefined;
+	const service = subagentsOf(ctx);
+	const agents = agentsOf(ctx);
 	// Without the live registry there is no way to tell a working child from a resident one, and the
 	// residency proxy must not stand in for it: read the log instead.
 	if (service === undefined || typeof service.listChildren !== "function") return undefined;

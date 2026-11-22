@@ -7,8 +7,10 @@
  */
 
 import path from "node:path";
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { sessionControllerOf } from "../host/dsh/services.js";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
 import { type PluginConfig } from "../shared/config.js";
 import { getProjectRoot, logsDir, memoryDir, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
 import { type HandoffLanguage } from "./language.js";
@@ -19,7 +21,6 @@ import { transientIfRetryable } from "./classify.js";
 import { CHARS_PER_TOKEN, type HandoffSplit, fileOperations, handoffCarry, handoffLabel, handoffSplit, questionDisposition, resolveHandoffLanguage } from "./conversation.js";
 import { assertSessionSettled, turnOpenNow } from "./guard.js";
 import { countFileIndex } from "./receipt.js";
-import { type SessionControllerLike } from "./runtime.js";
 import { handedOff, handoffReceipts } from "./state.js";
 import { continuation, renderHandoff, seedIdentityOf } from "./summary.js";
 import { type ContinuationNotice } from "./language.js";
@@ -132,7 +133,7 @@ export async function performHandoff(
 	split?: HandoffSplit,
 	triggerSeq?: number,
 ): Promise<{ childId: string; file: string }> {
-	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
+	const controller = sessionControllerOf(ctx);
 	if (!controller) throw new Error("the session controller is unavailable in this profile; handoff needs the web/API session runtime");
 	assertSessionSettled(session, triggerSeq);
 
@@ -186,7 +187,7 @@ export async function performHandoff(
 	try {
 		binding = await bindHandoffChild(projectRoot, String(session.id), childId, `${HANDOFF_TITLE_PREFIX}${label}`);
 	} catch (error: unknown) {
-		ctx.logger.warn("dsh-project-context: handoff could not record the continuation's parent link and task: %s", error instanceof Error ? error.message : String(error));
+		logOf(ctx).warn("dsh-project-context: handoff could not record the continuation's parent link and task: %s", error instanceof Error ? error.message : String(error));
 	}
 
 	// The child starts on the deployment defaults: `create` takes neither a model nor a permission
@@ -245,11 +246,11 @@ export async function performHandoff(
 				} catch (error: unknown) {
 					// Its own message: the service's version *is* stored here, so reporting "not set"
 					// would name the wrong cause. The switch stays lost, which is what this reports.
-					ctx.logger.warn("dsh-project-context: handoff session title not corrected: %s", error instanceof Error ? error.message : String(error));
+					logOf(ctx).warn("dsh-project-context: handoff session title not corrected: %s", error instanceof Error ? error.message : String(error));
 				}
 			}
 		} catch (error: unknown) {
-			ctx.logger.warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));
+			logOf(ctx).warn("dsh-project-context: handoff session title not set: %s", error instanceof Error ? error.message : String(error));
 		}
 	}
 
@@ -258,7 +259,7 @@ export async function performHandoff(
 	// session ("contains event type ... unknown to this harness and not marked
 	// ignorable"), and `Session.append` offers no way to set that marker. The
 	// handoff is durable in HANDOFF.md, the session archive and the index.
-	ctx.logger.info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
+	logOf(ctx).info("dsh-project-context: handoff (%s) %s -> %s", reason, String(session.id), childId);
 	handedOff.add(String(session.id));
 	// The receipt belongs to the **child**: after this the parent is retired, and `/handoff status` is
 	// read in the continuation. It is recorded here, after the seed and the document landed, so a

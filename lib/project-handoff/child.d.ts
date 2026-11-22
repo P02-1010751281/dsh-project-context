@@ -4,8 +4,8 @@
  * handoff is abandoned. Every step fails open — a child that already exists must not be
  * failed by configuration that could not be carried.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 import { type SessionControllerLike } from "./runtime.js";
 /**
  * Start the handoff child session in the parent's workspace.

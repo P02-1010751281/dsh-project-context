@@ -10,7 +10,7 @@
  * Commands: /context, /session-log (bare = read state, `write` = write now, `tree` = the handoff lineage,
  * `import <archive…>` = backfill)
  */
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context } from "../host/contract.js";
 export declare const name = "project-context";
 export declare const inject: string[];
 /**

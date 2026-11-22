@@ -3,10 +3,10 @@
  */
 
 import path from "node:path";
-import { type Context } from "@deepseek-ai/cordis";
-import { type Agent } from "@deepseek-ai/dsh-agent";
-// Type-only: pulls the llm service Context merge (ctx.llm.resolveModelInfo) for this module.
-import type {} from "@deepseek-ai/dsh-llm";
+import { type Context } from "../host/contract.js";
+import { type Agent } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
+// Type-only: pulls the llm service Context merge (llmOf(ctx).resolveModelInfo) for this module.
 import { type PluginConfig } from "../shared/config.js";
 import { userTurnCount } from "../shared/conversation.js";
 import { type CompletionOutcome, type ToolsFallbackState, auxiliaryReasoningEffort, callWithToolsFallback, pickToolCall, requestPluginTextWithMeta, resolveModelMetadata, resolveTarget, toolCallIsTruncated } from "../shared/model-call.js";
@@ -329,7 +329,7 @@ export function autolearnProjectSkills(
 			throw error;
 		}
 	})().catch((error: unknown) => {
-		ctx.logger.warn("dsh-project-context: autolearn pass failed: %s", error instanceof Error ? error.message : String(error));
+		logOf(ctx).warn("dsh-project-context: autolearn pass failed: %s", error instanceof Error ? error.message : String(error));
 		return undefined;
 	}).finally(() => {
 		activeAutolearn.delete(projectKey);

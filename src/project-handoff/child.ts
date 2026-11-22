@@ -5,12 +5,19 @@
  * failed by configuration that could not be carried.
  */
 
-import { type Context } from "@deepseek-ai/cordis";
-import { type UserMessage } from "@deepseek-ai/dsh-llm";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
+import {
+	CUSTOM_PERMISSION_PRESET,
+	permissionPresetsOf,
+	seedAgentsOf,
+	sessionsOf,
+	workspaceRegistryOf,
+} from "../host/dsh/services.js";
+import { type Session } from "../host/contract.js";
 import { pluginUserMessage } from "../shared/model-call.js";
 import { HandoffDeferred } from "./classify.js";
-import { type SessionControllerLike, type WorkspaceRegistryLike } from "./runtime.js";
+import { type SessionControllerLike } from "./runtime.js";
 import { pendingRetire } from "./state.js";
 
 /**
@@ -21,13 +28,13 @@ import { pendingRetire } from "./state.js";
  */
 async function resolveWorkspaceId(ctx: Context, cwd: string | undefined): Promise<string | undefined> {
 	if (cwd === undefined) return undefined;
-	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
+	const registry = workspaceRegistryOf(ctx);
 	if (typeof registry?.resolveByPath !== "function") return undefined;
 	try {
 		const workspace = await registry.resolveByPath(cwd);
 		return workspace === undefined ? undefined : String(workspace.id);
 	} catch (error: unknown) {
-		ctx.logger.warn(
+		logOf(ctx).warn(
 			"dsh-project-context: workspace lookup for %s failed: %s",
 			cwd,
 			error instanceof Error ? error.message : String(error),
@@ -78,22 +85,6 @@ export async function createChildSession(
 	return String(created.sessionId);
 }
 
-/** The permission-preset service's reserved "no table entry matches" value; never a switch target. */
-const CUSTOM_PERMISSION_PRESET = "custom";
-
-/** Structural view of the permission-preset service (`permissionPresets`); optional per profile. */
-interface PermissionPresetsLike {
-	/** The session's effective preset name, or {@link CUSTOM_PERMISSION_PRESET}. */
-	current(session: unknown): string;
-	/** Record the preset and write its sandbox/approval knobs onto the session. */
-	set(session: unknown, name: string): void;
-}
-
-/** Structural view of the in-memory session store, used to reach the freshly created child. */
-interface LiveSessionsLike {
-	get(id: string): unknown;
-}
-
 /**
  * Carry the parent's permission preset into the continuation. `SessionCreateRequest` has no
  * permission field either, so the child otherwise starts on the deployment/user default: a parent
@@ -111,16 +102,16 @@ interface LiveSessionsLike {
  * @param session - the parent session being handed off.
  */
 export function carryPermissionPreset(ctx: Context, childId: string, session: Session): void {
-	const presets = ctx.get("permissionPresets") as PermissionPresetsLike | undefined;
+	const presets = permissionPresetsOf(ctx);
 	if (presets === undefined || typeof presets.current !== "function" || typeof presets.set !== "function") return;
-	const child = (ctx.get("sessions") as LiveSessionsLike | undefined)?.get?.(childId);
+	const child = sessionsOf(ctx)?.get?.(childId);
 	if (child === undefined || child === null) return;
 	try {
 		const preset = presets.current(session);
 		if (preset === CUSTOM_PERMISSION_PRESET) return;
 		presets.set(child, preset);
 	} catch (error: unknown) {
-		ctx.logger.warn("dsh-project-context: handoff could not carry the permission preset: %s", error instanceof Error ? error.message : String(error));
+		logOf(ctx).warn("dsh-project-context: handoff could not carry the permission preset: %s", error instanceof Error ? error.message : String(error));
 	}
 }
 
@@ -166,13 +157,8 @@ export async function carryModelSelection(
 	try {
 		await controller.selectModel({ sessionId: childId, ...selection });
 	} catch (error: unknown) {
-		ctx.logger.warn("dsh-project-context: handoff could not carry the parent's model selection: %s", error instanceof Error ? error.message : String(error));
+		logOf(ctx).warn("dsh-project-context: handoff could not carry the parent's model selection: %s", error instanceof Error ? error.message : String(error));
 	}
-}
-
-/** The one live-Agent capability the seed needs: queueing an ordinary follow-up turn. */
-interface SeedTargetLike {
-	followup(message: UserMessage): void;
 }
 
 /**
@@ -201,7 +187,7 @@ interface SeedTargetLike {
  * @param prompt - the continuation prompt.
  */
 export function seedChildSession(ctx: Context, childId: string, prompt: string): void {
-	const agents = ctx.get("agents") as { get?(id: string): SeedTargetLike | undefined } | undefined;
+	const agents = seedAgentsOf(ctx);
 	const child = agents?.get?.(childId);
 	if (child === undefined || typeof child.followup !== "function") {
 		throw new Error(`the handoff child ${childId} is not resident in this process, so its continuation prompt was not admitted`);
@@ -240,7 +226,7 @@ export async function abandonChild(
 			await controller.cancel({ sessionId: childId });
 			cancelled = true;
 		} catch (cancelError: unknown) {
-			ctx.logger.warn("dsh-project-context: handoff could not cancel the abandoned child: %s", cancelError instanceof Error ? cancelError.message : String(cancelError));
+			logOf(ctx).warn("dsh-project-context: handoff could not cancel the abandoned child: %s", cancelError instanceof Error ? cancelError.message : String(cancelError));
 		}
 	}
 	if (controller.rename) {
@@ -254,12 +240,12 @@ export async function abandonChild(
 	// A genuine failure, and a child that may still be running, stay visible so the user can see it.
 	// Archiving only hides (it does not delete), and the client can undo it via unarchiveSession.
 	if (!deferred || !cancelled) return;
-	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
+	const registry = workspaceRegistryOf(ctx);
 	if (registry?.archiveSession === undefined) return;
 	try {
 		await registry.archiveSession(childId);
 	} catch (archiveError: unknown) {
-		ctx.logger.warn("dsh-project-context: handoff could not archive the abandoned child: %s", archiveError instanceof Error ? archiveError.message : String(archiveError));
+		logOf(ctx).warn("dsh-project-context: handoff could not archive the abandoned child: %s", archiveError instanceof Error ? archiveError.message : String(archiveError));
 	}
 }
 
@@ -278,13 +264,13 @@ export async function abandonChild(
  * @param session - the session that was handed off.
  */
 async function retireSession(ctx: Context, session: Session): Promise<void> {
-	const registry = ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined;
+	const registry = workspaceRegistryOf(ctx);
 	if (registry?.archiveSession === undefined) return;
 	try {
 		await registry.archiveSession(String(session.id), { stopActivity: true });
-		ctx.logger.info("dsh-project-context: retired the handed-off session %s (archived; unarchive it in the client to bring it back)", String(session.id));
+		logOf(ctx).info("dsh-project-context: retired the handed-off session %s (archived; unarchive it in the client to bring it back)", String(session.id));
 	} catch (error: unknown) {
-		ctx.logger.warn("dsh-project-context: could not retire the handed-off session %s: %s", String(session.id), error instanceof Error ? error.message : String(error));
+		logOf(ctx).warn("dsh-project-context: could not retire the handed-off session %s: %s", String(session.id), error instanceof Error ? error.message : String(error));
 	}
 }
 

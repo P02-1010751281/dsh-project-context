@@ -9,7 +9,7 @@
 
 import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Session } from "../host/contract.js";
 import { legacySessionIndexFile, logsDir, memoryDir, readOptional, safeSessionId, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
 import { withMemoryLock } from "../shared/lock.js";
 import { clipTitle } from "../shared/text.js";

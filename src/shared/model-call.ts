@@ -4,9 +4,10 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type Context } from "@deepseek-ai/cordis";
-import { type Agent } from "@deepseek-ai/dsh-agent";
-import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "@deepseek-ai/dsh-llm";
+import { type Context } from "../host/contract.js";
+import { type Agent } from "../host/contract.js";
+import { type GenerateOptions, type LlmResolvedModelInfo, type UserMessage } from "../host/contract.js";
+import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "./config.js";
 
 const LEARN_PLUGIN_NAME = "dsh-project-context";
@@ -124,7 +125,7 @@ export async function resolveModelMetadata(
 	signal: AbortSignal | undefined,
 ): Promise<LlmResolvedModelInfo | undefined> {
 	try {
-		return await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
+		return await llmOf(ctx).resolveModelInfo(target.provider, target.model, signal);
 	} catch {
 		return undefined;
 	}
@@ -235,7 +236,7 @@ export async function requestPluginTextWithMeta(
 	let failure: { message: string; code: string } | undefined;
 	/** Assembled tool calls by block index: deltas arrive fragmented, `block-end` carries the join. */
 	const toolCalls = new Map<number, PluginToolCall>();
-	for await (const chunk of ctx.llm.stream(requestOptions)) {
+	for await (const chunk of llmOf(ctx).stream(requestOptions)) {
 		if (chunk.type === "text-delta") {
 			text += chunk.text;
 		} else if (chunk.type === "tool-call-delta") {

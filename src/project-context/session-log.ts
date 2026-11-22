@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, stat } from "node:fs/promises";
 import path from "node:path";
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Session } from "../host/contract.js";
 import {
 	cachedProjectRoot,
 	getProjectRoot,

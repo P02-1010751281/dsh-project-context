@@ -25,7 +25,7 @@
  * The numbers come from `ResolvedHandoffGate` — the very object the decision consumed — never from
  * a second resolution of the same terms.
  */
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Session } from "../host/contract.js";
 import { type ResolvedHandoffGate } from "./gate.js";
 import { type HandoffLanguage } from "./language.js";
 /** Why an over-threshold session has not handed off yet, as the trigger itself determined it. */

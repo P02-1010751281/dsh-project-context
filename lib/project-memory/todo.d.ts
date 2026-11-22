@@ -17,8 +17,8 @@
  * A pass must keep these lines too, or the mechanical write would be undone seconds after every
  * `turn/end` (the pass runs on the idle that follows it). Both callers apply the same function.
  */
-import type { Session } from "@deepseek-ai/dsh-session";
-import type { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
+import type { Session } from "../host/contract.js";
+import type { SessionProjectionRegistry } from "../host/contract.js";
 /**
  * The document lines one projection value stands for, or `undefined` when it has no opinion.
  *

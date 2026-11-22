@@ -6,9 +6,9 @@
  */
 
 import path from "node:path";
-import { type Context } from "@deepseek-ai/cordis";
-import { type Agent } from "@deepseek-ai/dsh-agent";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Agent } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { MAX_CONTEXT_CHARS, cachedProjectRoot, contextFile, diagnosticMessage, getProjectRoot, getProjectRootSync, logError, readOptional, taskFile } from "../shared/project-state.js";
 import { boundTaskSync, dateStamp } from "./tasks.js";

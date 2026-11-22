@@ -3,8 +3,8 @@
  * while the handoff was being prepared both mean two sessions would work the same project
  * at once (the 2026-09-17 incident); both are read here.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 /**
  * The event-log **fallback** for {@link runningContinuableChildren}: this session's continuable
  * subagent children that were spawned within the horizon and have not reported a settlement since.

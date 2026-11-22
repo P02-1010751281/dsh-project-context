@@ -70,9 +70,9 @@
  */
 
 // Type-only: pulls the commands service Context merge (ctx.commands).
-import type {} from "@deepseek-ai/dsh-commands";
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
 import { type PluginConfig, resolvePluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel } from "../shared/lifecycle.js";
@@ -124,7 +124,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 					// Not a failure: the session is still working. The next `turn/end` re-checks.
 					if (Date.now() - (deferredLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 						deferredLoggedAt.set(key, Date.now());
-						ctx.logger.info("dsh-project-context: automatic handoff deferred — %s", error.message);
+						logOf(ctx).info("dsh-project-context: automatic handoff deferred — %s", error.message);
 					}
 					return;
 				}
@@ -136,7 +136,7 @@ export function apply(ctx: Context, rawConfig: unknown): void {
 					// surface, and `/handoff status` used to throw the very same exception.
 					recordRouteFailure(key, error.failure, resolveHandoffLanguage(sessionLanguageMessages(session), config));
 				}
-				ctx.logger.warn("dsh-project-context: automatic handoff failed: %s", error instanceof Error ? error.message : String(error));
+				logOf(ctx).warn("dsh-project-context: automatic handoff failed: %s", error instanceof Error ? error.message : String(error));
 				try {
 					const projectRoot = await getProjectRoot(session.header.cwd ?? process.cwd());
 					await logError(projectRoot, "handoff", error);

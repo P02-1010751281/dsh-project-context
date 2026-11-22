@@ -4,7 +4,7 @@
  * the session log the payload points at, and the recent tail rides verbatim — so this module holds
  * no model call, no output budget and no timeout.
  */
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Session } from "../host/contract.js";
 import { type UserDecision } from "./conversation.js";
 import { type ContinuationNotice, type HandoffLanguage } from "./language.js";
 /**

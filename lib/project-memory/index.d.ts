@@ -9,9 +9,9 @@
  *
  * Commands: /memory (status | update | prune [--apply])
  */
-import type { Context } from "@deepseek-ai/cordis";
-import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Context } from "../host/contract.js";
+import type { Agent } from "../host/contract.js";
+import type { Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { loadMemory } from "./memory-store.js";

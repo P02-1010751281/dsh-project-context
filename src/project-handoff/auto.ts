@@ -10,8 +10,9 @@
  * numbers; this function adds only the guards, the split and the handoff.
  */
 
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
+import { logOf } from "../host/dsh/log.js";
 import { type PluginConfig } from "../shared/config.js";
 import { CHARS_PER_TOKEN, type HandoffSplit, handoffSplit, pendingQuestion, resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { type GateInputs, decideAutoHandoff } from "./decide.js";
@@ -116,9 +117,9 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 		case "defer":
 			recordHandoffDeferral(key, decision.reason);
 			if (decision.reason === "question") {
-				ctx.logger.info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
+				logOf(ctx).info("dsh-project-context: handoff deferred — the last assistant message is a pending question");
 			} else {
-				ctx.logger.info("dsh-project-context: handoff deferred — %d background subagent(s) still running", subagents.length);
+				logOf(ctx).info("dsh-project-context: handoff deferred — %d background subagent(s) still running", subagents.length);
 			}
 			return;
 		case "skip":
@@ -129,7 +130,7 @@ export async function maybeAutoHandoff(ctx: Context, session: Session, config: P
 			if (!skippedSince.has(key)) skippedSince.set(key, now);
 			if (now - (skippedLoggedAt.get(key) ?? 0) >= SKIP_LOG_INTERVAL_MS) {
 				skippedLoggedAt.set(key, now);
-				ctx.logger.info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to drop");
+				logOf(ctx).info("dsh-project-context: automatic handoff skipped — the conversation fits the recent window (handoffBudgetRecentTokens), so there is nothing older to drop");
 			}
 			return;
 		case "handoff":

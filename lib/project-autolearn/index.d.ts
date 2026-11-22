@@ -10,7 +10,7 @@
  *
  * Commands: /autolearn
  */
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context } from "../host/contract.js";
 export declare const name = "project-autolearn";
 export declare const inject: string[];
 export declare function apply(ctx: Context, rawConfig: unknown): void;

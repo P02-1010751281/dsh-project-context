@@ -2,35 +2,12 @@
  * Structural views of the optional host services this plugin consumes, and the routed model
  * of a session. Each service is optional per profile, so every view is read defensively.
  */
-import { type Session } from "@deepseek-ai/dsh-session";
-import { type SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
+import { type Session } from "../host/contract.js";
+import type { SessionControllerLike, SettingsLike, SessionTitleLike, TokenMeterLike, WorkspaceRegistryLike } from "../host/dsh/services.js";
+export type { SessionControllerLike, SettingsLike, SessionTitleLike, TokenMeterLike, WorkspaceRegistryLike, };
+import { type SessionProjectionRegistry } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type MeasuredContext } from "./measure.js";
-/** Structural view of the web/API session runtime; the service is optional per profile. */
-export interface SessionControllerLike {
-    create(request: {
-        cwd?: string;
-        workspaceId?: string;
-        agentPreset?: string;
-    }): Promise<{
-        sessionId: string;
-    }>;
-    rename?(request: {
-        sessionId: string;
-        title: string;
-    }): Promise<unknown>;
-    /** Session-local model selection; absent in runtimes that predate it. */
-    selectModel?(request: {
-        sessionId: string;
-        provider: string;
-        model: string;
-        reasoningEffort?: string;
-    }): Promise<unknown>;
-    /** Cancels the child's admitted turn when a seed has to be undone; absent in older runtimes. */
-    cancel?(request: {
-        sessionId: string;
-    }): Promise<unknown>;
-}
 /**
  * The envelope the next request carries beyond the conversation, for `threshold.ts`.
  *
@@ -61,58 +38,12 @@ export declare function measuredContext(meter: TokenMeterLike, projections: Sess
  * Structural view of the workspace registry (`ctx.workspaceRegistry`); the service
  * is optional per profile, and `resolveByPath` canonicalizes like the registry does.
  */
-export interface WorkspaceRegistryLike {
-    resolveByPath(path: string): Promise<{
-        readonly id: string;
-    } | undefined>;
-    /**
-     * Hides a session from every grouping surface without touching its log or its workspace
-     * accounting. Used to make an abandoned handoff child invisible instead of leaving an empty
-     * session in the sidebar (there is no delete RPC; the archive is undoable through the client's
-     * `uiWorkspace.unarchiveSession`, which restores the recorded workspace position).
-     *
-     * `stopActivity` asks the host to **stop** whatever still runs for the session instead of
-     * refusing the archive because of it: without it a session with running work is rejected with
-     * `WorkspaceActiveSessionError`, with it the archive is written and the stops are requested
-     * afterwards. A handed-off session is retired with it (the host has no "end session" RPC); an
-     * abandoned child is archived without it, so a child that may still be running is left alone.
-     */
-    archiveSession?(sessionId: string, options?: {
-        readonly stopActivity?: boolean;
-    }): Promise<void>;
-}
-/** Structural view of the token meter; the service is optional per profile. */
-export interface TokenMeterLike {
-    /**
-     * `totalTokens` is anchored on the provider's reported usage; `surfaceTokens` is priced by the
-     * meter's fixed-density heuristic, so the two are on different bases and must not be subtracted.
-     * `overheadTokens` is the envelope from the harness's `contextBreakdown` projection (see
-     * {@link projectionEnvelope}); it is never derived from the two above.
-     */
-    measure(session: Session): {
-        totalTokens: number;
-        surfaceTokens: number;
-        overheadTokens?: number;
-    };
-}
-/** Structural view of the settings service; writes persist the user layer. */
-export interface SettingsLike {
-    update(ns: string, patch: object): Promise<void>;
-}
 /**
  * Structural view of the title service (`ctx.get("sessionTitle")`, `@deepseek-ai/dsh-session-title`).
  * Optional per profile, so both reads are defended: `get` folds the session's own log for the latest
  * `session/title`, and `rename` appends one with the `user` source and reports the accepted snapshot.
  * Both are synchronous, and `rename` throws when the session is not live in this store.
  */
-export interface SessionTitleLike {
-    get?(session: Session): {
-        readonly title?: unknown;
-    } | undefined;
-    rename?(session: Session, title: string): {
-        readonly title?: unknown;
-    } | undefined;
-}
 /** Resolve the handoff route: explicit config, then the session's latest routed request. */
 export declare function resolveTarget(session: Session, config: PluginConfig): {
     provider: string;

@@ -9,8 +9,8 @@
  * The measurement itself lives in `gate.ts` because the injected pressure line reports the same
  * numbers; this function adds only the guards, the split and the handoff.
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 /**
  * Measure pressure and act on the decision. Exported so a test can drive the guards (pending question,

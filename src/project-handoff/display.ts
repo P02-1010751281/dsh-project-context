@@ -26,7 +26,7 @@
  * a second resolution of the same terms.
  */
 
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Session } from "../host/contract.js";
 import { type ResolvedHandoffGate } from "./gate.js";
 import { type HandoffLanguage } from "./language.js";
 import { clearRouteFailure, routeFailureText } from "./route-failure.js";

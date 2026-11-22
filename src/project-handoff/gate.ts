@@ -9,11 +9,13 @@
  * attribution, and no test can tell the two apart by comparing constants.
  */
 
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { projectionsOf, sessionControllerOf, tokenMeterOf } from "../host/dsh/services.js";
+import { type Session } from "../host/contract.js";
+import { llmOf } from "../host/dsh/llm.js";
 import { type PluginConfig } from "../shared/config.js";
 import { withRouteFailure } from "./route-failure.js";
-import { type MeasuredContext, type SessionControllerLike, type TokenMeterLike, measuredContext, resolveTarget } from "./runtime.js";
+import { type MeasuredContext, measuredContext, resolveTarget } from "./runtime.js";
 import { resolveThreshold } from "./threshold.js";
 
 /**
@@ -50,9 +52,9 @@ export async function resolveHandoffGate(
 	config: PluginConfig,
 	signal?: AbortSignal,
 ): Promise<ResolvedHandoffGate | undefined> {
-	const controller = ctx.get("sessionController") as SessionControllerLike | undefined;
-	const meter = ctx.get("tokenMeter") as TokenMeterLike | undefined;
-	const projections = ctx.get("sessionProjections");
+	const controller = sessionControllerOf(ctx);
+	const meter = tokenMeterOf(ctx);
+	const projections = projectionsOf(ctx);
 	if (!controller || !meter) return undefined;
 	const target = resolveTarget(session, config);
 	if (!target) return undefined;
@@ -61,7 +63,7 @@ export async function resolveHandoffGate(
 	// route blocks every future attempt and "nothing to decide" would hide a repeatable failure. The
 	// wrap lives in `withRouteFailure` so the `/handoff status` receipt reports the same failure the
 	// same way (a caller-cancelled read stays a cancellation, in both).
-	const resolved = await withRouteFailure(target, () => ctx.llm.resolveModelInfo(target.provider, target.model, signal), signal);
+	const resolved = await withRouteFailure(target, () => llmOf(ctx).resolveModelInfo(target.provider, target.model, signal), signal);
 	const contextWindow = resolved.context?.contextWindow;
 	if (contextWindow === undefined || contextWindow <= 0) return undefined;
 

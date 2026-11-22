@@ -20,7 +20,8 @@
  * archive plugin (or before it applies) each plugin falls back to its own entry config.
  */
 
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context } from "../host/contract.js";
+import { onDispose } from "../host/dsh/lifecycle.js";
 import z from "@deepseek-ai/schemastery";
 import { DEFAULT_CONFIG, resolvePluginConfig, type PluginConfig } from "./config.js";
 import {
@@ -109,7 +110,7 @@ export function publishProjectContextSettings(ctx: Context, entry: PluginConfig)
 			return entry;
 		}
 	};
-	ctx.effect(() => () => {
+	onDispose(ctx, () => {
 		if (owner !== token) return;
 		live = undefined;
 	}, "project-context: settings namespace");

@@ -11,9 +11,8 @@
  * `import <archive…>` = backfill)
  */
 
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context } from "../host/contract.js";
 // Type-only: pulls the commands service Context merge (ctx.commands).
-import type {} from "@deepseek-ai/dsh-commands";
 import path from "node:path";
 import { resolvePluginConfig } from "../shared/config.js";
 import { PluginSettingsSchema, effectivePluginConfig, publishProjectContextSettings } from "../shared/settings.js";

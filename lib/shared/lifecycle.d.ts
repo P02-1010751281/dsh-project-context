@@ -3,7 +3,7 @@
  * work, and per-session durability tracking. Both context plugins and the
  * handoff plugin keep the same lifecycle shape, so it lives here once.
  */
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Session } from "../host/contract.js";
 /** Longest a durability flush waits for in-flight work before letting shutdown proceed. */
 export declare const FLUSH_WAIT_MS = 90000;
 export declare function isTopLevel(session: Session): boolean;

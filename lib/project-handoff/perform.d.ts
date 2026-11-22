@@ -5,8 +5,8 @@
  * binding and the seed happen before the marker, and the document is written last, so an abandoned
  * attempt leaves nothing behind in the project (the binding is taken back, see `binding.ts`).
  */
-import { type Context } from "@deepseek-ai/cordis";
-import { type Session } from "@deepseek-ai/dsh-session";
+import { type Context } from "../host/contract.js";
+import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
 import { type HandoffLanguage } from "./language.js";
 import { type HandoffSplit } from "./conversation.js";

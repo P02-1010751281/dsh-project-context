@@ -7,7 +7,7 @@
  * write, each flush appends only the new entries instead of rebuilding the
  * log, so a long session does not rewrite itself on every turn.
  */
-import type { Session } from "@deepseek-ai/dsh-session";
+import type { Session } from "../host/contract.js";
 export interface SessionFileHeader {
     type: "session";
     harness: "dsh";
