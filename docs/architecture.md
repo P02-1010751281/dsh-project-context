@@ -31,8 +31,8 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 | 边 | 证据 |
 |---|---|
-| `project-autolearn → project-memory` | `src/project-autolearn/pass.ts:16` |
-| `project-autolearn → project-context` | `src/project-autolearn/pass.ts:17`、`src/project-autolearn/pass.ts:18` |
+| `project-autolearn → project-memory` | `src/project-autolearn/pass.ts:13` |
+| `project-autolearn → project-context` | `src/project-autolearn/pass.ts:14`、`src/project-autolearn/pass.ts:15` |
 | `project-context → project-memory` | `src/project-context/start.ts:17`、`src/project-context/start.ts:18`、`src/project-context/memory-export-source.ts:23`、`src/project-context/memory-export-source.ts:24`、`src/project-context/memory-export-source.ts:25`、`src/project-context/memory-export-source.ts:26`、`src/project-context/task-usage-source.ts:18` |
 | `project-context → project-handoff/language` | `src/project-context/session-index.ts:16` |
 | `project-handoff → project-memory/tasks` | `src/project-handoff/binding.ts:25` |
@@ -57,7 +57,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 - 入口导出 `name` / `inject` / `apply`：
   - project-context：`src/project-context/index.ts:20`、`src/project-context/index.ts:21`、`src/project-context/index.ts:35`
   - project-memory：`src/project-memory/index.ts:56`、`src/project-memory/index.ts:57`、`src/project-memory/index.ts:153`
-  - project-autolearn：`src/project-autolearn/index.ts:30`、`src/project-autolearn/index.ts:31`、`src/project-autolearn/index.ts:91`
+  - project-autolearn：`src/project-autolearn/index.ts:21`、`src/project-autolearn/index.ts:22`、`src/project-autolearn/index.ts:30`
   - project-handoff：`src/project-handoff/index.ts:93`、`src/project-handoff/index.ts:95`、`src/project-handoff/index.ts:103`
 - 调用点：宿主按 `cordis.patch.yml:8-16` 的 `insert` 装载四个条目（`project-context` → 包主入口，其余为子路径）；插件之间只走第 2 节的边。
 

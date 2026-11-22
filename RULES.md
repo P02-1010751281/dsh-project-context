@@ -23,7 +23,7 @@
 ## 3 文件与目录
 
 - **3.1 命名与放置**：文件名 kebab-case；一个插件一个 `index.ts` 入口；测试按主题命名 `test/<subject>.test.mjs`。
-- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/consolidate.ts` 1242 行。判据：`node scripts/check-docs.mjs` 的 baseline 检查 exit 0（现读行数与本条基线比对，并拒绝任何未声明的 >900 文件）。
+- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/consolidate.ts` 1241 行。判据：`node scripts/check-docs.mjs` 的 baseline 检查 exit 0（现读行数与本条基线比对，并拒绝任何未声明的 >900 文件）。
 - **3.3 大文件只减不增**：超过 400 行的文件若本提交净增长，须在 `CHANGELOG.md` 未发布说明为何不拆。
   判据：`git show --numstat <commit>`（未提交时 `git diff HEAD --numstat`）里该文件新增行数大于删除行数。
 - **3.4 测试按主题分文件**：新主题新建 `test/<subject>.test.mjs`；`test/logic.test.mjs` 只收跨主题纯逻辑（软规则，评审核对放置）。
@@ -48,7 +48,8 @@
   `src/host/contract.ts` 是核心读到的公开面、不得命名宿主包；`ctx` 的服务读取一律走 `src/host/dsh/*`；
   事件、命令与提示词注册只在各插件 `index.ts` 经 `ctx.*` 发生，或在核心里经入口交来的
   `HostContext`（`host.on` / `host.registerCommand` / `host.addPromptContext`）发生；
-  `hostContextOf(ctx)` 只在插件 `index.ts` 调用；`src/host/` 不得反向依赖插件或 shared 模块。
+  `hostContextOf(ctx)` 只在插件 `index.ts` 调用；已移植的核心 `src/<plugin>/start.ts` 只 name
+  `HostContext` / `HostPorts`，不得 import 原生 `Context`；`src/host/` 不得反向依赖插件或 shared 模块。
   判据：`node scripts/check-boundary.mjs` exit 0。
 
 ## 5 代码风格与命名
@@ -122,6 +123,6 @@
 ## 11 未决
 
 - **7.3 的超时**：`src/shared/model-call.ts` 目前只透传 `signal`，没有插件内 timeout。需裁定「由宿主网关保证」还是插件自加 `AbortSignal.timeout`；2026-12-31 复查。
-- **3.2 的超限文件**：`src/project-memory/index.ts` 已于 2026-11-22 从 1236 行拆到 301 行（报告层 → `report.ts`，整理 pass → `update.ts`），基线只剩 `consolidate.ts`（1242 行）待拆；2026-12-31 复核基线是否下降。
+- **3.2 的超限文件**：`src/project-memory/index.ts` 已于 2026-11-22 从 1236 行拆到 301 行（报告层 → `report.ts`，整理 pass → `update.ts`），基线只剩 `consolidate.ts`（1241 行）待拆；2026-12-31 复核基线是否下降。
 - **3.7 的历史回改**：`6458173`、`06a5d12`、`f0ac43e` 在规则冻结前改过 evidence 正文，已记入 `CHANGELOG.md`
   未发布例外、不再回改；2026-12-31 复核规则是否需要「冻结前豁免」的明文。

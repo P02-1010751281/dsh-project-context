@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-context-2c-2（`HostPorts` 与 project-autolearn 移植，2c 第二片，2026-11-22）**
+
+- `contract.ts` 把核心真正读取的三件设施拆成 `HostPorts`（`log` / `services` / `llm`），
+  `HostContext extends HostPorts`：只取设施的 helper 收 `HostPorts`，需要注册的收 `HostContext`，
+  入口把同一个对象往下传，不重建。
+- `LlmPort` 与回复 chunk 联合搬进契约；`src/host/dsh/llm.ts` 只留 `llmOf` 与唯一一处
+  `as unknown as` 放宽，`src/shared/model-call.ts` 改为收 `LlmPort`——`resolveModelMetadata` /
+  `requestPluginText` / `requestPluginTextWithMeta` 不再接收 context，2c 的 LLM 缺口（设计注记 §6.1）关闭。
+- `project-autolearn` 移植：入口 32 行只做「解析配置 → `hostContextOf(ctx)` → `start`」，核心
+  `start.ts` 192 行，注册只经 `host.on` / `host.registerCommand`；`pass.ts` 收 `HostPorts`，
+  直接调用它的假 context 补一个 `log` 字段，`apply()` 的假 context 不变（适配器仍惰性读
+  `logger` / `llm`）。
+- 门禁新增 `raw-context`：已移植的核心 `src/<plugin>/start.ts` 不得 import 原生 `Context`。
+  用例 `a ported core that names the raw host context fails` 与放行方向
+  `a ported core starting from the façade is allowed`；变异验证关掉该分支只让前者变红。
+- `docs/architecture.md` 的 autolearn 入口锚点与 `pass.ts` 依赖行随行号移动重指。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 119 源文件 0 失败、
+  `test/host-boundary.test.mjs` 13/13、`pnpm docs:check` 137 项 0 失败、全套 806 测试全过、
+  两次构建 `lib/` 237 个文件字节一致。
+
 **host-context-2c（注册面收进 HostContext，边界第三步 2c 的第一片，2026-11-22）**
 
 - `src/host/contract.ts` 新增 `HostContext`：`on`（六个宿主事件）、`registerCommand`、
