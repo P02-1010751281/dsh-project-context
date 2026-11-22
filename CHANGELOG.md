@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-context-2c（注册面收进 HostContext，边界第三步 2c 的第一片，2026-11-22）**
+
+- `src/host/contract.ts` 新增 `HostContext`：`on`（六个宿主事件）、`registerCommand`、
+  `addPromptContext`、`onDispose`、`log`、`services`——没有框架类型；实现是
+  `src/host/dsh/host-context.ts` 的 `hostContextOf(ctx)`，每个方法按入口原来的调用原样转发，
+  注册仍归同一个 fiber、同一个 dispose。
+- 编译期映射证明：`ListenerFits` 表要求每个契约监听器可赋给宿主同名事件的监听器类型；命令与提示词
+  贡献各有一个恒等函数，形状不合就编译失败。`interpolate` 以本地交叉类型表达，因为钉住的
+  0.1.7-rc.2 声明还没有这个字段（rc.5 有）。
+- `project-context` 切开：`index.ts` 39 行只做「解析配置 → 发布设置命名空间 → `hostContextOf` →
+  `start`」；核心移到 `start.ts`（377 行），不再 import 任何 cordis 类型，注册只经
+  `host.on` / `host.registerCommand`。
+- 门禁新增一条 `wiring`：`hostContextOf(` 出现在插件 `index.ts` 之外即失败（变异验证：关掉该循环只让
+  新用例变红）。`test/routing-skill.test.mjs` 的命令扫描改为读插件目录全部 `.ts` 并同时认
+  `ctx.commands.register` 与 `host.registerCommand`，否则 `/context`、`/session-log` 会从路由表消失。
+- 其余三个插件未移植；`HostContext` 还缺 `llm` 成员、中性的设置读取与服务接口（见设计注记 §5/§6）。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 118 源文件 0 失败、`test/host-boundary.test.mjs`
+  11/11、`top-level-gate` 9/9、全套 804 中 803 通过（唯一红的是文档门禁，锚点已在本批修正）、
+  `pnpm docs:check` 0、三次构建 `lib/` 237 个文件字节一致。
+
 **host-contract-2b（核心自有结构接口，边界第二步 2b，2026-11-22）**
 
 - `src/host/contract.ts` 从「re-export dsh 类型」改成**声明自有结构接口**：内容块（`TextBlock` /

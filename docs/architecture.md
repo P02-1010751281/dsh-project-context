@@ -33,7 +33,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 |---|---|
 | `project-autolearn → project-memory` | `src/project-autolearn/pass.ts:16` |
 | `project-autolearn → project-context` | `src/project-autolearn/pass.ts:17`、`src/project-autolearn/pass.ts:18` |
-| `project-context → project-memory` | `src/project-context/index.ts:21`、`src/project-context/index.ts:22`、`src/project-context/memory-export-source.ts:23`、`src/project-context/memory-export-source.ts:24`、`src/project-context/memory-export-source.ts:25`、`src/project-context/memory-export-source.ts:26`、`src/project-context/task-usage-source.ts:18` |
+| `project-context → project-memory` | `src/project-context/start.ts:17`、`src/project-context/start.ts:18`、`src/project-context/memory-export-source.ts:23`、`src/project-context/memory-export-source.ts:24`、`src/project-context/memory-export-source.ts:25`、`src/project-context/memory-export-source.ts:26`、`src/project-context/task-usage-source.ts:18` |
 | `project-context → project-handoff/language` | `src/project-context/session-index.ts:16` |
 | `project-handoff → project-memory/tasks` | `src/project-handoff/binding.ts:25` |
 | `project-handoff → project-context/session-meta` | `src/project-handoff/binding.ts:26` |
@@ -55,7 +55,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 - 包导出 7 个键（`package.json:8-30`）：`.` → project-context、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - 入口导出 `name` / `inject` / `apply`：
-  - project-context：`src/project-context/index.ts:126`、`src/project-context/index.ts:127`、`src/project-context/index.ts:136`
+  - project-context：`src/project-context/index.ts:20`、`src/project-context/index.ts:21`、`src/project-context/index.ts:35`
   - project-memory：`src/project-memory/index.ts:56`、`src/project-memory/index.ts:57`、`src/project-memory/index.ts:153`
   - project-autolearn：`src/project-autolearn/index.ts:30`、`src/project-autolearn/index.ts:31`、`src/project-autolearn/index.ts:91`
   - project-handoff：`src/project-handoff/index.ts:93`、`src/project-handoff/index.ts:95`、`src/project-handoff/index.ts:103`
@@ -76,7 +76,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 ## 7 配置来源
 
 - 唯一解析点 `src/shared/config.ts`（`DEFAULT_CONFIG` + 校验）；schema 在 `src/shared/settings.ts:48` 起，每个字段带 `volatile`。
-- 发布方只有 `project-context`（`src/project-context/index.ts:134` 导出 `Config`、`src/project-context/index.ts:138` 发布）；其余插件用 `effectivePluginConfig(entry)` 读同一份。
+- 发布方只有 `project-context`（`src/project-context/index.ts:28` 导出 `Config`、`src/project-context/index.ts:37` 发布）；其余插件用 `effectivePluginConfig(entry)` 读同一份。
 - 用户值写在 profile 的 `cordis.patch.yml` 的 `project-context` 条目上（整体替换 `config`）。
 
 ## 8 数据存储（权威链）
@@ -140,7 +140,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 - 三套的状态都是派生标签，读完即弃：会话核与技能核只报告 broken 状态（`SESSION_SEVERITY` /
   `SKILL_SEVERITY`）；条目核用 `NON_RETIRING_STATES`（`src/project-memory/entry-state.ts:38`）与
   `retiresEntry` 区分「只能报告」与「由整理 pass 退休」。状态核本身不改写文件；自动落盘只发生在三处：
-  `INDEX.md` 的启动对账（`reconcileSessionIndexOnce`，`src/project-context/index.ts:152`）、整理 pass 的
+  `INDEX.md` 的启动对账（`reconcileSessionIndexOnce`，`src/project-context/start.ts:141`）、整理 pass 的
   条目退休（`retireWithinBudget`，`src/project-memory/consolidate.ts:810`）、受管技能 `expired` 的移出
   （`rename` + 写 `skill-bindings.json`，`src/project-autolearn/skill-state-source.ts:227`）；
   `--accept` 只写确认、不改状态本身。

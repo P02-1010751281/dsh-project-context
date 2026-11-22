@@ -46,7 +46,9 @@
 - **4.5 shared 不持有插件专属逻辑（软规则）**：只放跨插件原语（配置、设置 schema、路径、锁、原子写、日志、生命周期）；评审核对新增模块是否被两个以上插件使用。
 - **4.6 核心与宿主解耦**：只有 `src/host/<harness>/` 下的文件可以 import 宿主包（今天是 `src/host/dsh/`），
   `src/host/contract.ts` 是核心读到的公开面、不得命名宿主包；`ctx` 的服务读取一律走 `src/host/dsh/*`；
-  事件、命令与提示词注册只在各插件 `index.ts`；`src/host/` 不得反向依赖插件或 shared 模块。
+  事件、命令与提示词注册只在各插件 `index.ts` 经 `ctx.*` 发生，或在核心里经入口交来的
+  `HostContext`（`host.on` / `host.registerCommand` / `host.addPromptContext`）发生；
+  `hostContextOf(ctx)` 只在插件 `index.ts` 调用；`src/host/` 不得反向依赖插件或 shared 模块。
   判据：`node scripts/check-boundary.mjs` exit 0。
 
 ## 5 代码风格与命名

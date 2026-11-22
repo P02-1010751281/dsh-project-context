@@ -15,7 +15,7 @@
 | 会话（session） | 有独立事件日志的对话单元；子代理会话的 `origin` 为 `subagent` | `src/shared/lifecycle.ts` |
 | 回合（turn） | 会话内一次用户→模型→工具循环，边界是 `turn/start` / `turn/end` | — |
 | 子代理（subagent） | 由宿主或交接创建、`origin: "subagent"` 的会话 | `src/project-handoff/child.ts` |
-| 归档（archive） | ① 把会话事件写成 `session.jsonl` / `session.md` / `INDEX.md` | `src/project-context/index.ts:136` |
+| 归档（archive） | ① 把会话事件写成 `session.jsonl` / `session.md` / `INDEX.md` | `src/project-context/start.ts:127` |
 | 记忆（memory） | ② 由 journal 折叠出的 `MEMORY.md`，每轮注入 | `src/project-memory/load.ts:151` |
 | 上下文（context） | ② 每会话的 `CONTEXT.md` 或 `tasks/<slug>.md`，含摘要 / 关键点 / Open tasks | `src/project-memory/context-doc.ts` |
 | 记忆日志（journal） | `memory.jsonl`，append-only，记忆的唯一权威 | `src/project-memory/journal.ts` |
