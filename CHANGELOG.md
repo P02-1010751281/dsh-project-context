@@ -17,8 +17,8 @@
   `ctx.llm`（4 处）与 `ctx.effect`（1 处）；`llm.ts` 自带回复流 chunk 联合，不再借用宿主类型。
 - 30 个核心文件的宿主 import 全部改经 `contract.ts`；插件入口仍只做 `ctx.on` / `ctx.commands` /
   `ctx.systemPrompt` 接线。
-- 新增 `scripts/check-boundary.mjs` 与 `pnpm boundary:check`：四条规则（单扇门、核心无宿主包、核心无
-  `ctx` 服务读取、注册只在入口、host 不反向依赖）逐文件检查。
+- 新增 `scripts/check-boundary.mjs` 与 `pnpm boundary:check`：按 `RULES.md` 4.6 的四条规则逐文件检查，
+  拆成五条检查（单扇门、核心无宿主包、核心无 `ctx` 服务读取、注册只在入口、host 不反向依赖）。
 - `test/host-boundary.test.mjs` 7 个用例：仓库通过 + 5 条失败夹具 + 入口注册放行；变异（关掉
   service-access 的 fail 分支）只让该用例变红。
 - `RULES.md` 新增 4.6 与 6.1 的 `boundary:check`；3.2 基线随 `src/project-memory/index.ts` 降到 1236 行；

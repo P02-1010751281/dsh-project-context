@@ -8,7 +8,7 @@
 | 文件 | 回答什么 |
 |---|---|
 | [architecture.md](./architecture.md) | 架构与数据流、依赖方向、工具链、数据布局（每个文件干什么）、状态机、源码结构 |
-| [core-host-boundary.md](./core-host-boundary.md) | 核心与宿主边界（shim）：分层、`src/host/` 的职责、四条门禁规则与换宿主的改动面 |
+| [core-host-boundary.md](./core-host-boundary.md) | 核心与宿主边界（shim）：分层、`src/host/` 的职责、四条门禁规则（五条检查）与换宿主的改动面 |
 | [GLOSSARY.md](./GLOSSARY.md) | 标准术语与禁止的同义异名；文档、注释、回执一律按它用词 |
 | [behavior.md](./behavior.md) | 四个阶段的闸门与边界（① 归档、①补 回填、②③④） |
 | [settings.md](./settings.md) | 配置详解：命名空间、卡片语义、每个键的完整边界 |
