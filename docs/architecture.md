@@ -1,144 +1,152 @@
 # 架构、数据流与源码结构
 
-[README](../README.md) 的细节版：会话如何变成存档与记忆、磁盘上每个文件的用途、源码目录结构。
-面向改代码的人；只想知道怎么用的读者不需要它。
+[README](../README.md) 的细节版：会话如何变成存档与记忆、磁盘上每个文件的用途、源码结构。
+面向改代码的人；只想知道怎么用的读者不需要它。规则在 [RULES.md](../RULES.md)，术语在 [GLOSSARY.md](./GLOSSARY.md)，
+阶段行为细节在 [behavior.md](./behavior.md)，配置项在 [settings.md](./settings.md)。
 
-## 架构与数据流
-
-```
-会话（事件流）
-   │ ① 存档：无模型调用，逐轮增量 append
-   ▼
-session.jsonl（唯一权威）──► session.md（全量渲染，人读）──► INDEX.md（每会话一行）
-   │
-   ├─ ② 整理（1 次调用，节流）  raw 对话 + MEMORY/CONTEXT ─► CONTEXT.md + MEMORY.md ─► 每轮注入
-   │
-   ├─ ③ 沉淀（1 次调用，低频）  MEMORY/CONTEXT + 索引 ─► skills/<name>/SKILL.md
-   │                            └ 证据不足（<2 个已存档会话）─► memory/skill-candidates/<name>.md
-   │
-   └─ ④ 交接（1 次调用）        当前会话 ─► 新会话（旧段摘要 + 最近原文 + 旧存档指针）+ HANDOFF.md
-```
-
-| 阶段 | 插件（子路径） | 触发 | 产物 |
-|---|---|---|---|
-| ① 存档 | `project-context`（主入口，`/context`、`/session-log`） | 事件驱动（见 [behavior.md](./behavior.md) 的 ①）；`/session-log` | `session.jsonl`、`session.md`、`INDEX.md` |
-| ② 整理 | `project-memory`（`/memory`、`/memory update`） | idle / disposed + 节流；命令 | `CONTEXT.md` + `MEMORY.md`（每轮注入） |
-| ③ 沉淀 | `project-autolearn`（`/autolearn`） | 材料有更新 且（累计轮 ≥ `autolearnTurns`(20) 或距上次 ≥ `autolearnIntervalMs`(30min)）且项目内至少有一个真实存档 | `.agents/skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
-| ④ 交接 | `project-handoff`（`/handoff`） | 上下文占用越过阈值 **且没有仍在运行的后台子代理**，且触发它的 `turn/end` 之后本会话未再开新轮；命令 | 新会话 + `HANDOFF.md` |
-
-四个插件是同一包内的独立 cordis 插件，共享一份配置与生命周期
-helper（会话身份、串行后台任务、落盘跟踪）。② 的 raw 输入由本会话事件派生；③ ④
-只作用于顶层会话（`origin !== "subagent"`），① 对子会话同样留档。
-
-## 数据布局
+## 1 目录树与职责
 
 ```
-<project>/.agents/
-├── skills/<name>/SKILL.md          # ③ 沉淀的项目技能（description 常驻，body 按需加载）
-└── memory/
-    ├── memory.jsonl                # ② 权威记忆：append-only 记录 {"ts","op":"replace"|"append","text"}
-    ├── MEMORY.md                   # ② 由 journal 折叠渲染（人读 / 注入 / 外部手改入口）
-    ├── MEMORY.md.memory-backup-*   # 覆写前的字节级备份（保留最新 5 份；1 小时内的不删）
-    ├── MEMORY.md.lock / .steal     # 跨进程写锁（30s 陈旧；claim 防双抢）
-    ├── session-index.lock / .steal # ① 索引的跨进程写锁（同一套 30s/35s 参数；与 MEMORY.md 分开）
-    ├── memory-log-*.jsonl          # journal 超 512KB 折叠后的归档（保留最新 5 份）
-    ├── CONTEXT.md                  # ② 工作态：摘要 / 关键点 / open tasks（每轮注入）
-    ├── HANDOFF.md                  # ④ 最近一次交接摘要（含旧存档指针）
-    ├── autolearn-state.json        # ③ 沉淀闸门（材料时间戳 + 上次尝试时刻，跨重启生效；本地件，被忽略）
-    ├── skill-candidates/<name>.md  # ③ 待确认候选（approve 后转正）
-    ├── .gitignore                  # 首次写出时生成：忽略 journal / 备份 / 锁 / errors.log / autolearn-state.json 等本地件
-    ├── errors.log                  # 各阶段捕获的异常；密钥脱敏后写入，单条截断 8000 字符，>1MB 轮换保留最新 64k
-    └── session-logs/
-        ├── INDEX.md                # ① 机械索引：每会话一行，按 id 去重、只留最新 200 行
-        ├── .gitignore              # 首次写出时生成，忽略整个目录
-        └── <session-id>/{session.jsonl,session.md}
+src/project-context/   ① 归档：turn/end 追加、idle/disposed 落盘、/context、/session-log
+src/project-memory/    ② 整理：整理 pass、/memory、/memory update、todo 机械行、退休与侧车
+src/project-autolearn/ ③ 沉淀：低频 pass、/autolearn、候选与受管技能
+src/project-handoff/   ④ 交接：turn/end 评估、/handoff、种子与子会话
+src/shared/            四个插件共用的原语：配置、设置 schema、路径、锁、原子写、日志、生命周期
+client/                设置卡片：字段表、渲染、zh/en 文案（bundle 进 lib/client.js）
+scripts/               build-client.mjs（唯一产出 lib/client.js）、import-archives.mjs
+test/                  *.test.mjs（按主题）+ 2 个共享 helper + fixtures/
+lib/                   入库的构建产物（pnpm build 生成）
+docs/                  机制文档、规格与索引（docs/README.md）
+.agents/               memory/（记忆与存档）、skills/（项目技能）、evidence/（冻结证据）
 ```
 
-记忆与存档同构：**journal 是唯一权威、`MEMORY.md` 是派生渲染**。
-写入顺序固定为「先在锁内做字节级备份 → 追加 journal → 渲染 `MEMORY.md`」，因此崩溃只会让渲染落后于
-journal，读取时以 journal 折叠结果为准；手改 `MEMORY.md`（且比 journal
-新）会被读取优先采信，并在下一次整理时作为一条记录收进 journal 历史。损坏的 journal
-行会被跳过并计数（写 `errors.log`，`/memory` 提示），整份不可读时 fail closed 而不是静默回退。旧版
-`<memory>/session-index.md` 会在每次写索引时并入新索引（同 id 以新索引的行为准）、链接改写为相对
-形式并按行内日期排序；只有它持有的每一行都已写进新索引时才删除它，因此 200 行上限丢行时旧文件留在
-原处、下次再采。
+## 2 分层与依赖方向
 
-配置不在项目内：开关与参数写在**当前 profile 的设置 patch 文档**里（`project-context` 条目，
-设置卡片编辑；dsh 0.1.7-rc.2 会把旧的 `~/.dsh/settings.yaml` 段一次性导入该文档，文件改名为
-`settings.yaml.imported`）。dsh
-自身仍把会话存在 `~/.dsh/sessions/…`，`session-logs/` 是项目内副本，便于随项目阅读与检索。
-更早版本的目录布局在 session 启动时自动迁移（旧记忆 / 上下文 / 日志 /
-技能各归其位；文件/目录类型冲突时两侧都保留并在日志点名；`.omp` 旧记忆存在但读不了会记进
-`errors.log` 而不是静默跳过）。
+- 层：插件入口（`index.ts`）→ 实现模块 → 调用点；`src/shared/` 在最底层，不持有插件业务。
+  唯一例外是 `shared → project-handoff/language`（纯字符串判定 `isHandoffContinuationText`，见下表末行），
+  该边已列进白名单；shared 不得再新增对插件的引用。
+- 允许的跨插件 import（白名单：7 条边、12 个不同 specifier、共 14 处）：
 
-## 源码结构
+| 边 | 证据 |
+|---|---|
+| `project-autolearn → project-memory` | `src/project-autolearn/pass.ts:16` |
+| `project-autolearn → project-context` | `src/project-autolearn/pass.ts:17`、`src/project-autolearn/pass.ts:18` |
+| `project-context → project-memory` | `src/project-context/index.ts:22`、`src/project-context/index.ts:23`、`src/project-context/memory-export-source.ts:23`、`src/project-context/memory-export-source.ts:24`、`src/project-context/memory-export-source.ts:25`、`src/project-context/memory-export-source.ts:26`、`src/project-context/task-usage-source.ts:18` |
+| `project-context → project-handoff/language` | `src/project-context/session-index.ts:16` |
+| `project-handoff → project-memory/tasks` | `src/project-handoff/binding.ts:25` |
+| `project-handoff → project-context/session-meta` | `src/project-handoff/binding.ts:26` |
+| `shared → project-handoff/language` | `src/shared/conversation.ts:9` |
+
+- 判据见 `RULES.md` 4.2；新增一条边或一个 specifier 即失败。
+
+## 3 工具链版本
+
+- Node：`^22.19.0 || >=24.0.0`（`package.json:77-79`）；TypeScript `^5.9.0`、esbuild `^0.28.2`（`devDependencies`）。
+- 锁定文件：`pnpm-lock.yaml`（`lockfileVersion: '9.0'`）。
+- dsh API 基线：`0.1.7-rc.2`（`devDependencies` 精确钉，peer 写 `>=0.1.7-rc.2`）；宿主会更新，升级前读 [harness/integration.md](./harness/integration.md)。
+
+## 4 模块边界与公开 API
+
+- 包导出 7 个键（`package.json:8-30`）：`.` → project-context、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
+- 入口导出 `name` / `inject` / `apply`：
+  - project-context：`src/project-context/index.ts:126`、`src/project-context/index.ts:127`、`src/project-context/index.ts:136`
+  - project-memory：`src/project-memory/index.ts:62`、`src/project-memory/index.ts:63`、`src/project-memory/index.ts:711`
+  - project-autolearn：`src/project-autolearn/index.ts:30`、`src/project-autolearn/index.ts:31`、`src/project-autolearn/index.ts:91`
+  - project-handoff：`src/project-handoff/index.ts:93`、`src/project-handoff/index.ts:95`、`src/project-handoff/index.ts:103`
+- 调用点：宿主按 `cordis.patch.yml:8-16` 的 `insert` 装载四个条目（`project-context` → 包主入口，其余为子路径）；插件之间只走第 2 节的边。
+
+## 5 运行与部署入口
+
+- 无常驻进程、无监听端口、无环境变量；由 dsh 宿主按 profile 的 `cordis.patch.yml` 装载。
+- 命令族：`/context`、`/session-log`、`/memory`、`/autolearn`、`/handoff`；每个命令的动词见
+  [README](../README.md) 与各 `ctx.commands.register` 的 `input.hint`。
+
+## 6 测试布局
+
+- `test/` 平铺 `*.test.mjs`（按主题），另 2 个共享 helper（`session-views.mjs`、`context-fixtures.mjs`）与 `fixtures/`（含 `projection-typing/`）。
+- 层：纯函数与状态核、真实 `apply()` 接线（`top-level-gate`）、卡片真渲染（`card-render`）、类型夹具（`projection-typing`，把 `tsc` 当判官）。
+- 只跑一层：`pnpm build` 后 `node --test test/<name>.test.mjs`；整轮用 `pnpm test`（含 `tsc`）。
+
+## 7 配置来源
+
+- 唯一解析点 `src/shared/config.ts`（`DEFAULT_CONFIG` + 校验）；schema 在 `src/shared/settings.ts:48` 起，每个字段带 `volatile`。
+- 发布方只有 `project-context`（`src/project-context/index.ts:134` 导出 `Config`、`src/project-context/index.ts:138` 发布）；其余插件用 `effectivePluginConfig(entry)` 读同一份。
+- 用户值写在 profile 的 `cordis.patch.yml` 的 `project-context` 条目上（整体替换 `config`）。
+
+## 8 数据存储（权威链）
 
 ```
-src/
-├── project-context/        # ① 存档（包主入口 "dsh-project-context"）
-│   ├── index.ts            #    插件入口：turn/end 追加、idle/disposed 落盘、/context、/session-log
-│   ├── session-log.ts      #    session.jsonl / session.md 写入
-│   ├── session-index.ts    #    INDEX.md 渲染与跨进程锁
-│   ├── archive.ts          #    存档回读（渲染成对话供 ③ 取证）
-│   ├── session-jsonl.ts    #    session.jsonl / pi JSONL 解析与索引元数据
-│   ├── zip.ts              #    dsh 导出 zip 的目录、deflate 条目与 session.jsonl 读取
-│   └── import.ts           #    回填入口：单会话 / 单文件 / 整目录，幂等
-├── project-memory/         # ② 整理（"dsh-project-context/memory"）
-│   ├── index.ts            #    插件入口：整理 pass 编排、/memory update、/memory 回执
-│   ├── memory-store.ts     #    记忆子系统对外门面（不变量文档 + 公共 API 再导出）
-│   ├── journal.ts          #    追加日志：解析 / 折叠 / 轮转 / 归档
-│   ├── record.ts           #    一次写入：采纳外部编辑、追加、重建渲染、legacy 导入
-│   ├── load.ts             #    读取路径：journal / MEMORY.md / legacy，损伤报告
-│   ├── document.ts         #    文档规范化与按行截断标记
-│   ├── poison.ts           #    存储回复（JSON poison）解码与归一化比较键
-│   ├── backup.ts           #    写入前字节级备份与清理
-│   ├── consolidate.ts      #    整理 pass：节流、单飞、提示与结果落地
-│   └── context-doc.ts      #    CONTEXT.md 渲染
-├── project-autolearn/      # ③ 沉淀（"dsh-project-context/autolearn"）
-│   ├── index.ts            #    插件入口：闸门、/autolearn 命令
-│   ├── skill.ts            #    技能形状、SKILL.md 渲染、正文/描述安全校验
-│   ├── candidate.ts        #    候选文件、准入规则、approve/reject 转换
-│   ├── inventory.ts        #    技能清单（进提示词）与可取证的历史会话 id
-│   ├── parse.ts            #    模型回复 → 候选；回溯预算
-│   ├── prompt.ts           #    提示词：共享规则、正向 pass、回溯 pass
-│   ├── pass.ts             #    pass 本身：每项目节流 + 单飞
-│   └── learn-state.ts      #    项目本地状态（闸门时间戳等）
-├── project-handoff/        # ④ 交接（"dsh-project-context/handoff"）
-│   ├── index.ts            #    插件入口：session/event 监听、attempt 编排、命令注册
-│   ├── threshold.ts        #    触发点 min(quality, capacity) 与护栏覆盖报告
-│   ├── conversation.ts     #    会话切分、未答问题、文件索引、语言解析
-│   ├── summary.ts          #    摘要提示与输出预算、HANDOFF.md 与首条消息文本
-│   ├── child.ts            #    子会话创建、模型/权限携带、放弃回滚
-│   ├── perform.ts          #    一次交接事务（摘要 → 落盘 → 播种 → 切换标记）
-│   ├── classify.ts         #    失败分类：延后 / 暂态 / 终态
-│   ├── guard.ts            #    子代理与轮次落定守卫
-│   ├── state.ts            #    进程内按会话标记与测压节流
-│   ├── runtime.ts          #    宿主服务结构视图与路由解析
-│   ├── auto.ts             #    自动触发：测压并在越过阈值时交接
-│   ├── command.ts          #    /handoff 参数解析、status 回执、手动交接
-│   ├── language.ts         #    交接语言检测、标题本地化、陈旧提示识别
-│   ├── marker.ts           #    交接会话标记（host 与浏览器共用）
-│   └── watch.ts            #    浏览器侧自动切换
-├── shared/                 # 四个插件共用
-│   ├── lock.ts             #    跨进程写锁（记忆文件与会话索引共用，泛型 target）
-│   ├── project-state.ts    #    项目状态**门面**（原始布局/迁移文档 + 公共 API 再导出）
-│   ├── paths.ts            #    项目根定位（git + 缓存）与全部路径助手
-│   ├── limits.ts           #    存储文档与提示输入的字符预算
-│   ├── files.ts            #    文件系统原语：原子写、缓存读、探测、移动/合并、临时清理
-│   ├── gitignore.ts        #    `.agents/.gitignore` 托管块
-│   ├── error-log.ts        #    errors.log 轮转、诊断截断与脱敏写入
-│   ├── redact.ts           #    日志脱敏
-│   ├── migrate.ts          #    旧布局（`.pi` / `.agents/memory/skills` / `~/.omp`）一次性迁移
-│   ├── config.ts           #    默认值与字段定义
-│   ├── settings.ts         #    设置命名空间（web 卡片 ↔ cordis 配置）
-│   ├── lifecycle.ts        #    会话身份、串行后台任务、落盘跟踪
-│   ├── text.ts             #    文本计量、裁剪与渲染（回复头 / 截断 / token 估算）
-│   ├── output-budget.ts    #    辅助调用的输出预算：推理预留、自适应边界、重试余量
-│   ├── conversation.ts     #    会话渲染成对话分段 + 记忆输入适配
-│   ├── reply-json.ts       #    从模型回复里读取结构化 JSON（容错扫描 + 解析）
-│   └── model-call.ts       #    插件来源的辅助模型调用、路由与元数据
-client/                     # 设置卡片、字段表、zh/en 文案（bundle 进 lib/client.js）
-scripts/
-├── build-client.mjs        # 客户端 bundle
-└── import-archives.mjs     # 回填 CLI（不依赖运行中的 dsh）
+<project>/.agents/memory/
+  memory.jsonl                权威 journal（append-only）
+  MEMORY.md                   派生渲染（注入 / 手改入口）
+  MEMORY.md.memory-backup-*   覆写前备份（常留 5 份；1 小时内不删，但超过硬上限 20 份时连近期也轮换；src/project-memory/backup.ts:12）
+  *.lock / *.steal            跨进程写锁（30s 陈旧，等待 +5s；src/shared/lock.ts:15）
+  memory-log-*.jsonl          journal 512KB 折叠归档（保留 5 份；src/project-memory/journal.ts:24）
+  CONTEXT.md                  工作态：摘要 / 关键点 / Open tasks
+  tasks/<slug>.md             绑定任务的上下文文档
+  entries.json                侧车：条目 id → 日期 / 确认
+  HANDOFF.md                  最近一次交接的种子记录（含种子 id）
+  autolearn-state.json        沉淀闸门（本地件，被 .gitignore 忽略）
+  skill-candidates/<name>.md  候选
+  retired.md                  退休墓碑（append-only 记录；src/project-memory/retired.ts:114）
+  purge.log                   prune 清洗通道的日志
+  trash/                      prune 移出的条目
+  skill-bindings.json         受管技能的基线指纹（本地件）
+  expired-skills/             已移出服役的技能
+  errors.log                  各阶段异常（单条 8000 字符，>1MB 轮换保留 64k；src/shared/error-log.ts:14）
+  session-logs/               INDEX.md + <id>/{session.jsonl,session.md,meta.json}
 ```
+
+- 权威：journal 是记忆唯一的权威，`MEMORY.md` 是派生（`src/project-memory/load.ts:151`；损坏行跳过并计数，整份不可读时 fail closed）。
+- 归档权威：`session.jsonl`；`INDEX.md` 由 `reconcileSessionIndexOnce`（`src/project-context/session-index.ts:495`）按目录重建，无行数截断。
+- 忽略规则在 `src/shared/gitignore.ts:25`。
+
+## 9 外部服务
+
+- 唯一外部调用是宿主 LLM 服务：`requestPluginTextWithMeta`（`src/shared/model-call.ts:211`）经 `ctx.llm.stream`；无直接网络、无数据库。
+- 预算读 `maxOutputTokens`；重试头寸固定；插件内无 timeout（见 `RULES.md` 第 11 章未决）。
+
+## 10 一条端到端数据流：`/memory update`
+
+1. 命令 → `consolidateProject`（`src/project-memory/index.ts:296`，命令与回执的包装）→
+   `consolidateProjectState`（`src/project-memory/consolidate.ts:698`，模型 pass）。
+2. 单飞 + 节流：同项目单飞（`activeConsolidation`，`src/project-memory/consolidate.ts:710`）、
+   `throttle` 表（`src/project-memory/consolidate.ts:205`）。
+3. 读入：`loadMemory`（`src/project-memory/load.ts:151`）+ 上下文，再经 `fitMemoryInput` 按输出预算裁一次（`src/shared/conversation.ts:41`）。
+4. 模型调用：`requestPluginTextWithMeta`（`src/shared/model-call.ts:211`）；`tools` 被拒时换一次无工具重试。
+5. 解析回复：`resolveReply`（`src/project-memory/consolidate.ts:533`）优先 `record_memory` 工具调用，其次四段 Markdown，最后不透明文本。
+6. 有损闸（tier C）：会丢整条目的回复先定向重试，仍丢则整次拒绝、零写入，状态 `lossy-refused`
+   （判定 `src/project-memory/consolidate.ts:1111` 的 `memoryLossyRefused`，回执行 `src/project-memory/index.ts:358`）。
+7. 回填闸：tier C 与退休之后补回措辞级丢失（`src/project-memory/lost-entry-repair.ts:119`），`no-room` 时不写。
+8. 渲染：`renderMemoryDocument` 只在到 cap 时丢整条目（`src/project-memory/sections.ts:173`）。
+9. 落盘：`withMemoryLock`（`src/shared/lock.ts:213`）→ `backupMemoryBeforeWrite`（`src/project-memory/backup.ts:33`）→ `recordMemoryDocument`（`src/project-memory/record.ts:97`，基线变了就拒绝 `src/project-memory/record.ts:116`）→ `writeAtomic`（`src/shared/files.ts:68`）→ 上下文文档（`contextPath`，`src/project-memory/index.ts:522`）。
+10. 回执只报真正落地部分；每次拒绝或裁剪另写一行到 `errors.log`。
+- 失败分支：tier C 拒绝（零写入）、输出上限拒绝（`cut off by the model output limit`）、基线变化拒绝、回填 `no-room`、输出预算装不下两份文档（`fit-capped-refused`）。
+
+## 11 状态（只读派生，无转移通道）
+
+| 状态机 | 状态 | 权威与实现 |
+|---|---|---|
+| 会话 | `live` / `settled` / `stale` / `orphan` / `missing` / `abandoned` / `dangling` / `unbaselined` | 同时读 `INDEX.md`、目录与 `meta.json`，按 `sessionSettledDays` 派生（`src/project-context/session-state.ts:27`） |
+| 技能（受管） | `intact` / `orphan` / `drifted` / `moved` / `expired` / `unbaselined` | 基线指纹 + 引用是否仍在（`src/project-autolearn/skill-state.ts:29`） |
+| 条目 | `superseded` / `anchor-drift` / `task-closed` / `version-shipped` / `age-unconfirmed` / `content-stale` / `healthy` | 只读调用方给的事实，顺序固定（`src/project-memory/entry-state.ts:79`） |
+
+- 三套的状态都是派生标签，读完即弃：会话核与技能核只报告 broken 状态（`SESSION_SEVERITY` /
+  `SKILL_SEVERITY`）；条目核用 `NON_RETIRING_STATES`（`src/project-memory/entry-state.ts:38`）与
+  `retiresEntry` 区分「只能报告」与「由整理 pass 退休」。状态核本身不改写文件；自动落盘只发生在三处：
+  `INDEX.md` 的启动对账（`reconcileSessionIndexOnce`，`src/project-context/index.ts:152`）、整理 pass 的
+  条目退休（`retireWithinBudget`，`src/project-memory/consolidate.ts:810`）、受管技能 `expired` 的移出
+  （`rename` + 写 `skill-bindings.json`，`src/project-autolearn/skill-state-source.ts:227`）；
+  `--accept` 只写确认、不改状态本身。
+- 交接的触发状态在进程内存（`src/project-handoff/state.ts:15-45` 的 `handedOff` / `inFlight` / `failedUntil` 等），宿主重启即失效；判定链是 `decideAutoHandoff`（`src/project-handoff/decide.ts:85`）：阈值 → 未答问题（`defer`，`src/project-handoff/decide.ts:96`）→ 运行中的子代理（`defer`）→ `nothing-to-drop`（`skip`）→ `handoff`。
+
+## 12 扩展点
+
+- 新增插件：按 `RULES.md` 4.1 的清单（`cordis.patch.yml`、`package.json` 的 `exports`、`README.md`、本文档）。
+- 新增配置键：按 `RULES.md` 9.1 的六面一次改完，并补 `test/settings-form.test.mjs` 的每键断言。
+- 新增记忆段落：只改 `src/project-memory/memory-schema.ts`（四段 schema 与预算的唯一来源）。
+- 新增只读状态 / 回执字段：按 `.agents/skills/dsh-readonly-state-core-extension/SKILL.md`。
+
+## 13 生成物目录
+
+- `lib/`：由 `pnpm build` 生成并入库（`tsc` 出 host 半边，`scripts/build-client.mjs` 出 `lib/client.js`）；**手改会被下次构建覆盖**，纪律见 `RULES.md` 10.1。

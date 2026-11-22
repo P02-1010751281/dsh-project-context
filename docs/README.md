@@ -7,7 +7,8 @@
 
 | 文件 | 回答什么 |
 |---|---|
-| [architecture.md](./architecture.md) | 架构与数据流、数据布局（每个文件干什么）、源码结构 |
+| [architecture.md](./architecture.md) | 架构与数据流、依赖方向、工具链、数据布局（每个文件干什么）、状态机、源码结构 |
+| [GLOSSARY.md](./GLOSSARY.md) | 标准术语与禁止的同义异名；文档、注释、回执一律按它用词 |
 | [behavior.md](./behavior.md) | 四个阶段的闸门与边界（① 归档、①补 回填、②③④） |
 | [settings.md](./settings.md) | 配置详解：命名空间、卡片语义、每个键的完整边界 |
 | [development.md](./development.md) | 门禁、`lib/` 产物纪律、依赖边界、卡片测试怎么搭 |
@@ -15,7 +16,9 @@
 | [batch-v-memory-staleness-spec.md](./batch-v-memory-staleness-spec.md) | 记忆条目的内容漂移（Batch V 规格）：源绑定、四态判定、只标不删；预检证据在 `.agents/evidence/2026-11-20-batch-v-preflight/` |
 | [memory-rewrite-loss-gate-spec.md](./memory-rewrite-loss-gate-spec.md) | 记忆整篇重写会静默概括（规格）：tier C 的盲区、标识符存活校验、首版只报不拒 |
 | [batch-aa-state-machines-spec.md](./batch-aa-state-machines-spec.md) | 批次 AA 规格（2026-11-21）：三个核的状态机、两只过期探测器、碎片整理与核心间咬合；含 6 个待裁定问题，**尚未动 `src/`** |
-| [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md) | AA2 规格：内容漂移 → **七态状态机**。实测 25 条有绑定、6 条已漂移（精度 1/6，故不自动退役）；§12 是最终形状（七态、五类事实、谁能点转移、每个状态必须有出口），AA2a–AA2e 已落地；AA3（会话日志七态判定，含 AOCI 的 Missing/Orphan/Stale/Unbaselined）见 §12，`pnpm test` 756 |
+| [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md) | AA2 规格：内容漂移 → **七态状态机**。实测 25 条有绑定、6 条已漂移（精度 1/6，故不自动退役）；§12 是最终形状（七态、五类事实、谁能点转移、每个状态必须有出口），AA2a–AA2e 已落地；AA3（会话日志状态判定，含 AOCI 的 Missing/Orphan/Stale/Unbaselined）见 §12，未落地 |
+| [batch-ac-settings-split-spec.md](./batch-ac-settings-split-spec.md) | 设置卡片拆分的规格（四份 schema / 四个命名空间 / 四张卡）；含 6 个待拍板点，**尚未动 `src/`** |
+| [batch-z-six-problems-spec.md](./batch-z-six-problems-spec.md) | 批次 Z 的六个结构性缺陷诊断与批次切分 |
 | [batch-w-decision-seam-spec.md](./batch-w-decision-seam-spec.md) | 交接判定缝的规格；仍被 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用，故不归档 |
 | [handoff-candidates-b-c.md](./handoff-candidates-b-c.md) | 交接触发点 / 子会话标题三条路线的取舍；其中 (c) 仍待拍板，故留在本目录 |
 | [harness/](./harness/README.md) | 各宿主接口的采用与未采用登记（dsh / pi / codex / integration） |
@@ -60,5 +63,6 @@
 - **README 只留结论 + 指针**，长段说明写进本目录；一个事实只有一处权威副本，其余地方只指过去。
 - 新批次的决策档案写进 `docs/archive/`，并在上面两张表之一登记；发版后 `CHANGELOG.md` 的
   「未发布」整段搬进 `docs/changelog/<version>.md`，目录加一行。
-- 跨文件引用写**仓库相对路径**（`docs/...`），不写本文件相对路径——文件一挪就断。
+- 跨文件引用按**本文档所在目录**解析（标准 Markdown 语义）：`docs/` 内写 `./behavior.md`、出目录写
+  `../RULES.md`；不写仓库根相对路径（`docs/...`）——从别的目录打不开。
 - `.agents/evidence/` 是冻结的证据，**不回改**：里面出现的旧路径描述的是当时读到的树。

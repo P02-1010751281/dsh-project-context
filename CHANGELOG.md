@@ -10,6 +10,21 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**repo-governance（批次 AD：三份治理文档重建 + 术语表）**
+
+- 重写 `RULES.md`：补齐固定 11 章（新增「提交与发布」「兼容与弃用」「未决」，禁令移到第 10 章），
+  4.2 改成 14 处 import 白名单并给出可失败的判据，3.6 改为 Markdown 按文档目录解析，
+  5.6 允许反引号括注中文字面量，6.7/6.8 补「已知失败样本必须非零」「不得掩盖失败」。
+- 重写 `AGENTS.md`：压到 100 行内，只回答五问并链接 `RULES.md` / `docs/architecture.md` / `docs/GLOSSARY.md`；
+  删除目录清单、规则正文、历史叙述与失效的 `path:line` 锚点；计数改为现读命令。
+- 重写 `docs/architecture.md`：补齐分层与依赖方向（14 处边的证据）、工具链版本、模块边界与公开 API、
+  运行入口、测试布局、配置来源、数据存储、外部服务、端到端数据流（含失败分支）、三套状态机、扩展点、生成物；
+  修正三处与实现相反的断言（交接无模型调用、① 对子会话不留档、`INDEX.md` 无 200 行上限）与交接的四道门。
+- 新增 `docs/GLOSSARY.md`：标准术语与禁止的同义异名（设置卡片、插件包、整理、沉淀、交接、候选、侧车等）。
+- 例外登记（`RULES.md` 2.2）：`3.2` 的 `src/project-memory/index.ts` 1246 行与 `consolidate.ts` 1242 行是既有超限，
+  列为基线、只减不增，拆分计划见 `RULES.md` 第 11 章，2026-12-31 复查；`3.7` 的 evidence 冻结前历史回改
+  （`6458173`、`06a5d12`、`f0ac43e`）不再回改；`7.3` 的插件内超时尚未实现，进第 11 章未决。
+
 **project-memory（批次 AC：措辞级丢失的修复闸）**
 
 - 「修复」丢失闸的强制一半：模型在整理 pass 里可以合法地改写、合并条目，但**整条删掉一条仍成立的事实**
@@ -26,8 +41,8 @@
   条目 id 补进 `keepIds`，否则侧车剪枝会重置它的年龄。
 - 回执：`/memory update` 首行新增 `Restored: N entry(ies) the reply had dropped (e.g. …)`，放不下时
   `Not restored: N …`；`errors.log` 的两行在写盘点、由 `snapshot.written` 门控，被拒绝的 pass 不会留下
-  假的「已回填」记录。`pnpm test` **787/787**，10 个变异具名打红（含「退休 id 过滤器失效」「日志不受
-  `snapshot.written` 门控」「`retiredIds` 漏掉 `supersededIds`」三条评审后补的）。
+  假的「已回填」记录。`pnpm test` **787/787**，10 个变异具名打红（用例在 `test/memory-loss-repair.test.mjs`，如 `an entry dropped with its literals is restored verbatim, in its own section`；
+  含「退休 id 过滤器失效」「日志不受 `snapshot.written` 门控」「`retiredIds` 漏掉 `supersededIds`」三条评审后补的）。
 
 **project-context 客户端（设置卡改为分组页签）**
 

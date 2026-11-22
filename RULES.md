@@ -1,74 +1,118 @@
 # RULES.md
 
-> 本文件是本仓库的工程行为契约：结构、边界与长期约束。仓库事实导览在 [AGENTS.md](./AGENTS.md)，用户手册在 [README.md](./README.md)，机制说明在 [`docs/`](./docs/README.md)。规则与代码冲突时以本文件为准，并先按第 2 章改本文件。
+> 本仓库的工程行为契约：结构边界与长期约束。事实导览在 [AGENTS.md](./AGENTS.md)，结构文档在
+> [docs/architecture.md](./docs/architecture.md)，术语以 [docs/GLOSSARY.md](./docs/GLOSSARY.md) 为准。
+> 规则与代码冲突时以本文件为准，并先按第 2 章改本文件。
 
 ## 1 概览与范围
 
-- **项目**：dsh 插件包（4 个 cordis 插件 + 1 张 web 设置卡片），目标是把 dsh 会话蒸馏成项目级持久上下文（记忆 / 上下文 / 技能 / 交接），并保证在真实宿主里可验证地生效。
-- **团队**：单人 + AI agent，没有人工 code review，也没有 CI。因此每条规则必须机器可判、或能用一个命令复核；依赖"有人会看"的规则不写进本篇。
-- **范围**：`src/`、`client/`、`test/`、`docs/`、`.agents/`、仓库根文档。不覆盖用户的 `~/.dsh` 与两个 profile（只读；改动由用户执行）。
-- **基线来源**：本仓库没有 `CLAUDE.md`；AI 协作基线取自 [README.md](./README.md) 的文档分工、[docs/development.md](./docs/development.md) 的门禁、`.agents/memory/MEMORY.md` 的不变量与 `.agents/skills/` 里的程序性技能。
+- **项目**：dsh 插件包，含 4 个 cordis 插件与 1 张设置卡片，把会话蒸馏成项目级持久上下文（记忆 / 上下文 / 技能 / 交接）。
+- **许可**：MIT（`LICENSE`）。
+- **团队**：单人 + AI agent，无人工评审、无 CI；因此规则要给出判据命令或可核对对象，纯判断项标「软规则」并由评审核对。
+- **范围**：`src/`、`client/`、`test/`、`docs/`、`.agents/` 与仓库根文档。不含用户的 `~/.dsh` 与各 profile（只读，改动由用户执行）。
+- **基线来源**：文档分工在 [README.md](./README.md)，门禁在 [docs/development.md](./docs/development.md)，不变量在 `.agents/memory/MEMORY.md`，程序性技能在 `.agents/skills/`。
 
-## 2 元规则（制定 / 修改 / 废止）
+## 2 元规则
 
-- **2.1 改规则必须单独提交**：`docs(rules): …`，同一次提交只动 `RULES.md`（可附带 CHANGELOG 未发布登记）。判据：`git show --stat <commit>` 的路径列表里没有 `src/`、`client/`、`test/`。
-- **2.2 例外必须留档且带到期点**：在 `CHANGELOG.md` 的 `### 未发布` 写出「违反哪条、为什么、何时复查」；对话里达成的例外不算。
-- **2.3 废止规则同样走 2.1**：不得只在代码里"事实上不用了"。
-- **2.4 冲突先改规则**：代码与规则必须同时改时，在提交消息里点名冲突的规则号。
-- **2.5 只写可判定的规则**：一条规则若无法用命令或单一读数判定，改写成评审清单项并显式标注为软规则。
+- **2.1 治理文档单独提交**：`docs(rules): …`，一次只动治理文档（`RULES.md`、`AGENTS.md`、`docs/architecture.md`、`docs/GLOSSARY.md`、`docs/README.md` 与 `CHANGELOG.md` 未发布登记）。判据：`git show --stat <commit>` 的路径列表只含上述治理文档，不含 `src/`、`client/`、`test/`、`lib/`、`README.md`、`.agents/`。
+- **2.2 例外留档且带到期点**：在 `CHANGELOG.md` 的 `### 未发布` 写「违反哪条、为什么、何时复查」；对话里的例外不算。
+- **2.3 废止走 2.1**，不得只在代码里事实上不用。
+- **2.4 冲突先改规则**：规则与代码冲突时先按 2.1 单独提交规则，紧随的代码提交在消息里点名规则号；不得只改代码。
+- **2.5 只写可判定规则**：每条规则给判据命令或可核对对象；只能用评审判断的，标「软规则」并写清核对什么。
 
-## 3 文件与目录约定
+## 3 文件与目录
 
-- **3.1 命名与放置**：文件名 kebab-case；一个插件包一个 `index.ts` 作入口；测试按主题命名 `test/<subject>.test.mjs`。
-- **3.2 单文件行数上限**：`src/` 与 `client/` 每个文件 ≤ 900 行。判据：`wc -l src/*/*.ts client/*.ts* | awk '$1>900 && $2!="total"'` 无输出。
-- **3.3 大文件只减不增（软规则）**：已超过 400 行的文件，若本次净增长，必须在 CHANGELOG 里说明为何不拆分；新增逻辑优先落到新文件。
-- **3.4 测试不写成大杂烩**：新主题新建 `<subject>.test.mjs`；`test/logic.test.mjs`（当前最大的测试文件，行数用 `wc -l` 现读）只收跨主题的纯逻辑夹具。
-- **3.5 文档登记**：新文档进 `docs/` 并在 [`docs/README.md`](./docs/README.md) 索引里登记；收口批次的决策档案进 `docs/archive/`；已发布版本正文进 `docs/changelog/v<version>.md`，`CHANGELOG.md` 只留「未发布 + 版本目录」。
-- **3.6 引用写仓库相对路径**：跨文件引用写 `docs/...`，不写本文件相对路径。判据：链接目标从仓库根 resolve 得到。
-- **3.7 `.agents/evidence/` 冻结**：只新建、不回改，包括其中的历史路径。
+- **3.1 命名与放置**：文件名 kebab-case；一个插件一个 `index.ts` 入口；测试按主题命名 `test/<subject>.test.mjs`。
+- **3.2 单文件 ≤900 行**。既有超限基线（只减不增）：`src/project-memory/index.ts` 1246 行、`src/project-memory/consolidate.ts` 1242 行。判据：`wc -l src/*/*.ts client/*.ts* | awk '$1>900 && $2!="total"'` 的输出只允许是这两个文件，且行数不得高于上述基线。
+- **3.3 大文件只减不增**：超过 400 行的文件若本提交净增长，须在 `CHANGELOG.md` 未发布说明为何不拆。
+  判据：`git show --numstat <commit>`（未提交时 `git diff HEAD --numstat`）里该文件新增行数大于删除行数。
+- **3.4 测试按主题分文件**：新主题新建 `test/<subject>.test.mjs`；`test/logic.test.mjs` 只收跨主题纯逻辑（软规则，评审核对放置）。
+- **3.5 文档登记**：新文档进 `docs/` 并在 [docs/README.md](./docs/README.md) 索引登记；收口批次档案进 `docs/archive/`；发布正文进 `docs/changelog/v<version>.md`，`CHANGELOG.md` 只留「未发布 + 版本目录」。
+- **3.6 引用写法**：Markdown 链接按文档自身目录解析（标准语义）；`path:line` 作为**证据引用**时写仓库相对路径并带符号名
+  （术语表的模块锚点不受此限）。判据：文档内每条链接按所在目录 `test -e` 都能打开；`path:line` 现读行存在。
+- **3.7 证据冻结**：`.agents/evidence/` 只新建；已冻结证据里的测量错误，用新增 `errata.md` 更正并在原文件顶部加指针，不回改正文。
 
-## 4 子包与模块边界
+## 4 依赖与可见性
 
-- **4.1 结构固定**：4 个插件（`project-context` / `project-memory` / `project-autolearn` / `project-handoff`）+ `src/shared/`。新增插件必须同时改 `cordis.patch.yml`、`package.json` 的 `exports` 与 README。
-- **4.2 依赖方向**：跨插件 import 只允许现存方向（`project-autolearn → project-memory`、`project-autolearn → project-context`、`project-context → project-handoff`），以及 `shared → project-handoff/language` 这一处例外；不得新增反向依赖。判据：`grep -rn 'from "\.\./project-' src/shared/ | wc -l` 保持 ≤ 1。
-- **4.3 设置只有一个命名空间**：只有 `src/project-context/index.ts` 导出 `Config` 并发布 schema，其余三个用 `effectivePluginConfig(entry)` 读；每个 schema 字段必须带 `volatile` 标记，否则整张卡会无声消失。判据：`grep -c 'export const Config' src/*/index.ts` 只在 `project-context` 命中 1。
-- **4.4 公开面最小**：包 `exports` 只暴露四个插件入口、`./client`、`cordis.patch.yml` 与 `package.json`；内部模块不得被外部路径导入。
-- **4.5 shared 不持有插件专属逻辑**：只放跨插件共用的原语（配置、设置 schema、路径、跨进程锁、原子写、日志、生命周期）。
+- **4.1 结构固定**：4 个插件（`project-context` / `project-memory` / `project-autolearn` / `project-handoff`）+ `src/shared/`。新增插件须同时改 `cordis.patch.yml`、`package.json` 的 `exports`、`README.md` 与 `docs/architecture.md`。
+- **4.2 依赖方向白名单**：只允许 [docs/architecture.md](./docs/architecture.md) 第 2 节表里列出的 import 边（7 条边、
+  12 个不同 specifier、共 14 处；含 `shared → project-handoff/language` 这一条共享层例外）。判据：
+  `grep -rn 'from "\.\./project-[^"]*"' src/` 的 `文件:行` 集合必须与第 2 节表的证据列逐条一致
+  （14 条），specifier 计数为 12；删一条再加一条、或把 import 挪到别的文件而计数不变，都算失败。
+- **4.3 设置命名空间唯一**：只有 `src/project-context/index.ts` 导出 `Config` 并发布 schema，其余插件用 `effectivePluginConfig(entry)`；每个 schema 字段必须带 `volatile`。判据：`grep -c 'export const Config' src/*/index.ts` 只在 `project-context` 命中 1。
+- **4.4 公开面最小**：`exports` 只暴露 `.`、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
+- **4.5 shared 不持有插件专属逻辑（软规则）**：只放跨插件原语（配置、设置 schema、路径、锁、原子写、日志、生命周期）；评审核对新增模块是否被两个以上插件使用。
 
 ## 5 代码风格与命名
 
-- **5.1 ESM + NodeNext**：相对 import 必须带 `.js`，纯类型导入用 `import type`；不新增运行时依赖（唯一值依赖 `schemastery`，声明在 peer）。判据：`grep -rnE 'from "\.{1,2}/[^"]*"' src/ | grep -vE '\.js"' | grep -vE '\.json"'` 无输出，且 `pnpm typecheck` 通过。
-- **5.2 命名**：函数 camelCase、类型 PascalCase、常量 UPPER_SNAKE；宿主服务用结构性 `*Like` 接口描述，不复制上游类型。
+- **5.1 ESM + NodeNext**：相对 import 带 `.js`，纯类型导入用 `import type`，host 侧不新增运行时依赖（唯一值依赖 `schemastery`，声明在 peer）；客户端只 import 宿主提供的
+  `react` 与 `dsh-client-ui-primitives`（声明在 devDependencies，不打包）。判据：`grep -rnE 'from "\.{1,2}/[^"]*"' src/ | grep -vE '\.js"' | grep -vE '\.json"'` 无输出且 `pnpm typecheck` 通过。
+- **5.2 命名**：函数 camelCase、类型 PascalCase、常量 UPPER_SNAKE；宿主服务用结构性 `*Like` 接口。
 - **5.3 命令处理器不抛**：返回 `{ kind: "success" | "error", text }`；面向用户的文案跟随会话语言。
 - **5.4 fire-and-forget 必须留痕**：`void … .catch(() => undefined)` 的异常先写 `errors.log`；`logError` 自身永不抛、写前脱敏。
-- **5.5 枚举分支用 `assertNever` 收尾**：新增分支必须让 `tsc` 报错，而不是静默落空。
-- **5.6 注释写"为什么"**：JSDoc/行内注释用英文，记录被否决的方案；中文只出现在面向用户的文案里；模型提示词一律英文。
+- **5.5 枚举分支穷尽**：`switch` 覆盖联合类型全部成员，用返回类型或 `assertNever`
+  （`src/project-handoff/auto.ts:153`）让新增成员编译失败；不得用 `default` 吞掉新成员。判据：`pnpm typecheck`。
+- **5.6 注释写「为什么」（软规则）**：注释用英文；只有引用被讨论的中文字面量可用反引号括注（如 `` `记忆` ``）；
+  中文正文只出现在面向用户的文案里；模型提示词一律英文。评审核对：注释写动机与被否决方案，不复述代码。
 
-## 6 测试与质量门禁
+## 6 测试与门禁
+
+> 本节是权威条文；逐条操作细节与产物纪律见 [docs/development.md](./docs/development.md)。
 
 - **6.1 推送前三命令 exit 0**：`pnpm typecheck`、`pnpm build`、`pnpm test`（用例数读 `pnpm test` 的 `ℹ tests` 行，不写进本文件）。
-- **6.2 产物必须同步**：`pnpm build` 后 `git diff --exit-code -- lib` 为空；改过 `src/` 或 `client/` 的提交必须带重建的 `lib/`。
-- **6.3 修复必须能反证**：新增行为要有具名用例；修 bug 的用例必须能把修复改回后变红（变异验证），并记录变红的用例名。
-- **6.4 UI 必须真渲染**：客户端界面改动要过 `test/card-render.test.mjs`（唯一真渲染）；源码字符串扫描只能证明"某字符串不在"，不能当作 UI 已测。
-- **6.5 测的是 `lib/`**：改过 `src/` 后先构建再测；单文件运行的结果不能代替整轮 `pnpm test` 宣称通过。
-- **6.6 不用裸 `node --test`**：会把 fixture 计成幽灵用例；用包脚本。
+- **6.2 产物同步**：`pnpm build` 后 `git diff --exit-code -- lib` 为空；改过 `src/` 或 `client/` 的提交必须带重建的 `lib/`。
+- **6.3 修复必须能反证**：新增行为有具名用例；修 bug 的用例必须能把修复改回后变红，并把变红用例（文件 + 用例名）
+  与所做变异写进 `CHANGELOG.md` 未发布条目。
+- **6.4 UI 必须真渲染**：客户端界面改动过 `test/card-render.test.mjs`（唯一真渲染）；源码字符串扫描不能当作 UI 已测。
+- **6.5 测的是 `lib/`**：改过 `src/` 后先构建再测；单文件运行不能代替整轮 `pnpm test`。
+- **6.6 不用无参数的 `node --test`**：它会扫 `test/fixtures/` 把夹具计成幽灵用例；用包脚本 `pnpm test`，
+  或显式 glob `node --test 'test/**/*.test.mjs'`。
+- **6.7 门禁三件套**：给可复制命令、写成功判据为退出码 0、并用已知失败样本实测非零（改反一条断言，该文件必须非零，见 `.agents/skills/dsh-plugin-mutation-round/SKILL.md`）。
+- **6.8 不得掩盖失败**：禁用 `exit 0`、`|| true` 之类掩盖失败。
 
-## 7 安全、性能与日志硬规则
+## 7 安全、性能与日志
 
-- **7.1 不落敏感内容**：密钥、凭据、token 与提示词原文不进日志；所有错误先过 `redactSecrets`（`src/shared/redact.ts`），丢失只记字符数。
-- **7.2 写盘只有两条路**：`writeAtomic`（临时文件 + rename）与跨进程的 `withMemoryLock`；不得用裸 `writeFile` 覆盖受跟踪文档。
-- **7.3 外部调用有界**：辅助模型调用必须有超时、固定重试头寸，预算读配置（`maxOutputTokens`），不得在代码里另写一个上限。
-- **7.4 注入路径保持同步纯读**：prompt 组装期间只允许缓存项目根 + 一次文件读，不得 await、不得起子进程或网络请求。
-- **7.5 日志自身有界**：截断、轮转、保留量都是 `src/shared/error-log.ts` 里的常量；不得绕过 `logError` 直接 append。
-- **7.6 热路径不加无界 I/O**：`turn/end`、`step/start` 上新增读操作要估算成本，并写进该批 CHANGELOG 条目。
+- **7.1 不落敏感内容**：密钥、凭据、token 与提示词原文不进日志；错误先过 `redactSecrets`（`src/shared/redact.ts:6`），丢失只记字符数。
+- **7.2 覆盖写只有两条路**：`writeAtomic`（`src/shared/files.ts:68`）与跨进程 `withMemoryLock`
+  （`src/shared/lock.ts:213`）；append 只走各自有界通道（`errors.log`、`session.jsonl`、`purge.log`）；
+  不得用裸 `writeFile` 覆盖受跟踪文档。
+- **7.3 外部调用有界**：辅助模型调用必须有固定重试头寸，预算读 `maxOutputTokens`，不得在代码里另写上限；超时实现见第 11 章未决。
+- **7.4 注入路径同步纯读（软规则）**：prompt 组装期间只允许缓存项目根 + 一次文件读，不 await、不起子进程或网络请求；
+  评审核对新增注入 provider 的读取面。
+- **7.5 日志有界**：截断、轮转、保留量都是 `src/shared/error-log.ts:14-20` 的常量；不得绕过 `logError` 直接 append。
+- **7.6 热路径不加无界 I/O（软规则）**：`turn/end`、`step/start` 上新增读要估成本，并写进该批 `CHANGELOG.md` 条目。
 
-## 8 禁令
+## 8 提交与发布
 
-- **8.1** 禁止手改 `lib/`：它只由 `pnpm build` 生成，从 `src/` 还原不会还原它。
-- **8.2** 禁止绕过插件写路径编辑 `.agents/memory/{MEMORY,CONTEXT}.md`；确需手改时用 `loadMemory` + `isMemoryTruncated` 复验，不要 grep 标记。
-- **8.3** 禁止 `git add -A`：多会话可能并发编辑本仓库，只 stage 本任务的路径。
-- **8.4** 禁止在未验证时声称 host 改动已生效：判据是承载宿主的进程启动时刻，不是提交或构建时间。
-- **8.5** 禁止改名只改一半：配置键、命令、字段的改名都是破坏性的，必须在同一次提交里覆盖全部六个面（config / settings / card-fields / locales / 每个读者 / `settingPatch` 写回）并同步两个 profile；不留兼容别名。
-- **8.6** 禁止按 review 文字直接改代码：先复现（探针或 API 读数），再修。
-- **8.7** 禁止把会漂的数字当作现状陈述（端口、行数、字节数、用例数）：规则与机制文档写读取命令或量级；`AGENTS.md` 这类事实快照可以写计数，但必须标快照日期、且能用一条命令现读。
-- **8.8** 禁止未获批准的运行时干预：重启宿主与 `/memory update` 是用户动作。
+- **8.1 提交信息**：英文 Conventional Commits，scope 常用；一次提交一件事；只 stage 本任务路径。
+- **8.2 版本号与变更记录**：版本在 `package.json:3`；未发布写 `CHANGELOG.md` 的 `### 未发布`；发版时整段搬进
+  `docs/changelog/<version>.md`、在 `CHANGELOG.md` 的 `## 版本目录` 加一行、并重开空节；已发布的 tag 绝不重写。
+- **8.3 发布物**：没有 GitHub Releases；发布走 [.agents/skills/dsh-project-context-release/SKILL.md](./.agents/skills/dsh-project-context-release/SKILL.md)，并按该技能第 3 步跑全门禁。
+- **8.4 分支**：单人仓库只用 `main`；不使用长期分支。
+
+## 9 兼容与弃用
+
+- **9.1 破坏性改名**：配置键、命令、字段的改名须在同一次提交覆盖六个面（`src/shared/config.ts`、`src/shared/settings.ts`、
+  `client/card-fields.ts`、`client/locales.ts`、每个读取点与 `settingPatch` 写回键）加 `test/settings-form.test.mjs`
+  的每键断言；同时给出两个 profile 的改法清单（由用户按 9.2 执行），不留兼容别名。
+- **9.2 迁移顺序**：先改 profile（用户执行）再发布代码；旧代码遇到新键会 apply 失败，属预期。
+- **9.3 检测命令**：判据同 4.3（`Config` 唯一导出）加 `pnpm typecheck`；键集合以 `src/shared/settings.ts` 为唯一来源。
+- **9.4 弃用期**：无兼容读取器机制；破坏性变更不设别名，迁移路径写进 `CHANGELOG.md` 未发布。
+
+## 10 禁令
+
+- **10.1** 禁止手改 `lib/`：只由 `pnpm build` 生成（替代做法：改 `src/` 后重建）。
+- **10.2** 禁止绕过插件写路径编辑 `.agents/memory/{MEMORY,CONTEXT}.md`（替代做法：走插件写路径，并用 `loadMemory` + `isMemoryTruncated` 复验）。
+- **10.3** 禁止 `git add -A`（替代做法：只 stage 本任务的路径）。
+- **10.4** 禁止在未验证时声称宿主改动已生效（唯一正确做法：按宿主进程启动时刻验收）。
+- **10.5** 禁止改名只改一半（替代做法：按 9.1 六面清单一次改完）。
+- **10.6** 禁止按评审文字直接改代码（替代做法：先用探针或 API 读数复现）。
+- **10.7** 禁止把会漂的数字（端口、行数、字节数、用例数）当现状陈述（替代做法：写读取命令或量级；快照须标日期且可现读）。
+- **10.8** 禁止未获批准的运行时干预（唯一正确做法：重启宿主与 `/memory update` 由用户执行）。
+
+## 11 未决
+
+- **7.3 的超时**：`src/shared/model-call.ts` 目前只透传 `signal`，没有插件内 timeout。需裁定「由宿主网关保证」还是插件自加 `AbortSignal.timeout`；2026-12-31 复查。
+- **3.2 的两个超限文件**：`src/project-memory/index.ts`（1246 行）与 `consolidate.ts`（1242 行）的拆分计划未定；2026-12-31 复核基线是否下降。
+- **3.7 的历史回改**：`6458173`、`06a5d12`、`f0ac43e` 在规则冻结前改过 evidence 正文，已记入 `CHANGELOG.md`
+  未发布例外、不再回改；2026-12-31 复核规则是否需要「冻结前豁免」的明文。
