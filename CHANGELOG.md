@@ -10,6 +10,29 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-context-2c-4（project-handoff 移植，2c 收口，2026-11-22）**
+
+- `project-handoff` 移植：`apply` 体移进 `start.ts`（240 行，一个 `host.addPromptContext`
+  order 200 `handoff-pressure`、两个 `host.on`、一个 `host.registerCommand`）；`index.ts`
+  311 → 100 行，保留 `name` / `inject` 与 `HANDOFF_TITLE_PREFIX` / `isHandoffContinuationText` /
+  `REPLAY_MARKER` / `movesThreshold` 的 re-export。
+- 14 个 helper 按实际读取面分两档：`HostPorts`（写日志或调模型端口）与 `ServiceHost`
+  （只读一个具名服务）；服务一律 `xxxOf(host.services)`，handoff 侧 `logOf` / `llmOf` 归零。
+  `performHandoff` 的函数体未拆，diff 里只有参数名与内部调用实参。
+- `movesThreshold` 随命令处理器进入 `start.ts`：留在 `index.ts` 会让 `start.ts` 反向 import
+  入口、形成 `index ↔ start` 循环；入口改为再导出，`test/threshold-floor.test.mjs` 的导入面不变。
+- `watch.ts` 未改：它早已自带 `HandoffWatchContext { get }` 给客户端半边，`ServiceHost` 结构上满足。
+- 行为不变的三段机械证据：搬移体归一化后 206 行逐字节相同；编译产物字符串字面量多重集 39 = 39
+  （唯一消失的 specifier 仍是 `../host/dsh/log.js`）；注册顺序逐条一致；另外确认
+  `retireIfPending` 仍在 `isTopLevel` 之前、`turnOpenNow` 未被触碰。
+- 测试沿用 `test/host-ports.mjs` 的 `portsOf(ctx)`：7 个文件、74 个直接调用点各包一层，
+  `apply()` 驱动的假 ctx 一个没改，套件仍是 806 例。
+- **2c 到此收口**：四个插件的入口都只做「解析配置 → `hostContextOf(ctx)` → `start`」，
+  核心不命名 cordis 类型；剩下的第二宿主前置件与 2d 见 `docs/host-context-2c-design.md` §6
+  与 2d 证据文档。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 121 源文件 0 失败、`pnpm docs:check` 137 项
+  0 失败、`pnpm test` 806 全过、两次构建 `lib/` 243 文件同一 sha256。
+
 **host-context-2c-3（`ServiceHost` 与 project-memory 移植，2c 第三片，2026-11-22）**
 
 - 契约新增 `ServiceHost`（只有 `services`）：只读一个具名服务的 helper 收它，`HostPorts` 仍是
