@@ -10,6 +10,39 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**receipt-vocabulary（回执里的行内数据也随会话语言，2026-11-23）**
+
+- 上一片只中文化了回执骨架；条目状态名、清理原因、任务状态、证据与冲突串仍是英文，中文会话里就是
+  中文句子里夹英文词。这一片把**数据词汇**接上同一个语言入口，语言仍只在处理器里解析一次：
+  - `src/project-memory/entry-state.ts` 新增 `ENTRY_STATE_LABEL`（七态中英），`entryStateOf` 的两句
+    自撰 `detail`（年龄未确认 / 内容已变）与多条证据之间的分隔符随语言（中文 `；`）；
+    `src/project-memory/entry-states.ts` 的 `memoryEntryStates` 接 `language` 参数（默认 `"en"`，
+    整理 pass 的 `memoryExpiryRule` 提示词保持英文）。
+  - `src/project-memory/prune.ts` 把 `PruneReason` 提成具名类型并配 `PRUNE_REASON_LABEL`；`/memory prune`
+    预览行改成 `名称（原因，大小）`（中文全角括号），`purge.log` 仍记机器拼写（映射不命中的原因原样打印，
+    不打印 `undefined`）。
+  - `src/project-context/task-usage.ts` 新增 `TASK_STATUS_LABEL` 与 `taskStatusLabel`；`/context task`
+    列表行按语言出 `sessions N` / `N 个会话`、`open todos N` / `N 条未完成`、`last seen` / `最后活动`、
+    `(this session)` / `（本会话）`，绑定回执里的状态词同源。
+  - `src/project-autolearn/evidence.ts` 的 `evidenceText`、`conflictFindings`（目标标签 `skill "x"` /
+    `技能「x」`）、`conflictText` 接 `language`；`/autolearn list` 的 ` · evidence ` 前缀随语言。
+  - `/context find` 的三种零与省略行（`src/project-context/search.ts`）、`/session-log tree` 的
+    标题 / 计数 / 注解（`src/project-context/session-tree.ts`）、`/handoff status` 的固定阈值与
+    「本进程内已经交接」两行（`src/project-handoff/command.ts`）一并中文化；`/session-log import`
+    的摘要括号也改全角。`search()` 里只用于预算的 `header` 常量仍按英文计长度——它不进入回执。
+- 用例名（`test/receipt-layout.test.mjs`，每条都带英文对照断言）：
+  `the entry state name inside a reconcile line follows the session language`、
+  `the prune reason and the task row name their data in the session's language`、
+  `the find and session-tree receipts count their data in the session's language`、
+  `the autolearn evidence and conflict lines follow the session language`；中文 handoff 用例补
+  `固定阈值 300000 token` 一条。四个变异（reconcile 行改回裸枚举、任务行绕过词汇表、冲突句固定英文、
+  分隔符固定 `; `）各自只红对应那一条，从 sha256 校验过的 `/tmp` 副本还原。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 122 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
+  `pnpm test` 826/826、`pnpm build` 两次 sha256 同为 `43ad041c…`（245 个 `lib/` 文件）。
+- 残余：autolearn 的 admission / skip **原因句**（`shapeRejection`、`rejectionReason`、pass 的
+  `skipped`）在 pass 核里生成，那时还没有会话语言；要中文化得把原因改成码加参数（`AutolearnOutcome`
+  的类型变更），属单独一批。
+
 **receipt-layout（六类命令回执首行可读，2026-11-23）**
 
 - 客户端 `GenericCommandCard` 把回执摘要折成一行 `white-space: nowrap` 省略，`<pre>` 正文只有
@@ -95,8 +128,8 @@
   英文分支仍由既有断言钉住；变异把 `memoryUpdateReply` 的首行改回 `pick("en", …)`，只红这一条）。
   顺带修 `test/autolearn.test.mjs` 与 `test/skill-state.test.mjs` 的假 session（补
   `deriveMessages()` / `deriveEventMessage()`），否则处理器读语言时以属性缺失失败。
-- 残余：`/autolearn` 与 `/memory reconcile` 行内附带的证据/冲突/状态细节（`evidenceText`、`conflictText`、
-  `entryStateOf` 的 `detail`）仍是英文——它们是数据描述而非回执骨架，属下一片。
+- 残余（已由下一节 `receipt-vocabulary` 收口）：`/autolearn` 与 `/memory reconcile` 行内附带的
+  证据/冲突/状态细节（`evidenceText`、`conflictText`、`entryStateOf` 的 `detail`）当时仍是英文。
 
 **receipt-layout-2（回执两处收口，2026-11-23）**
 
