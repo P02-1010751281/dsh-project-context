@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**consolidate-split（整理 pass 拆到 900 行以下，2026-11-23）**
+
+- `src/project-memory/consolidate.ts` 从 1241 行拆到 617 行，`RULES.md` 3.2 的最后一项超限基线随之清空：
+  - `prompt.ts`（250 行）：模型拿到的全部提示词与预算规则（`FOREIGN_STATE_RULE`、`CONVERSATION_CAPTION`、
+    `CONSOLIDATION_PROMPT_RULES`、`MEMORY_ENTRY_ID_RULE`、`MEMORY_KEEP_RULE`、`MEMORY_SURVIVAL_CAPTION`、
+    `memorySectionRule`、`memoryBudgetRule`、`MEMORY_RETENTION_LADDER`、`memoryExpiryRule` /
+    `expiryRuleFor`、`TRUNCATED_REPLY_RULE`、`memoryLossRetryRule`），预算数字仍从渲染器自己的表读。
+  - `reply.ts`（286 行）：一次补全 → 写入形态（`resolveReply`、`requestConsolidationText`）、损失测量
+    （`memoryLoss`）、部分回复守卫（`storedIsDocument`、`isConversationalOpaque`、`partialRefusalMessage`、
+    `applyPartialGuard`）与回填报告（`removedSectionEntries`、`entrySamples`、`replyIsSemanticallyEmpty`、
+    `fallbackUpdate`）。
+  - `consolidate-types.ts`（159 行）：两半共享的类型；`consolidate.ts` 继续 `export *` 出去，公开面不变。
+- 门禁加固：`scripts/check-docs.mjs` 的 3.2 检查在「没有基线声明」时不再提前返回——没有文件超 900 是健康
+  状态，但 >900 的未声明文件仍必须失败。正控制：临时树里放一个 901 行文件，输出
+  `FAIL baseline: src/big.ts is 901 lines and is not declared in RULES.md 3.2` 且 exit 1。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 126 源文件 0 失败、`pnpm docs:check` 137 项 0 失败、
+  `pnpm test` 827/827、`pnpm build` 两次 sha256 同为 `f7f78fcf…`（253 个 `lib/` 文件）。
+- 公开面不变：`report.ts` / `index.ts` / `update.ts` 与测试仍从 `./consolidate.js` 取同一批名字（`export *`
+  转发），所以这一批是纯拆分，没有行为变化；由全量套件（827 条，含 `/memory update` 的端到端用例）钉住。
+
 **receipt-reasons（/autolearn 的原因句也走词汇表，2026-11-23）**
 
 - 上一片的残余：`/autolearn` 的拒绝 / 跳过原因原本是 pass 核里写死的英文句子，被原样接在中文导语后

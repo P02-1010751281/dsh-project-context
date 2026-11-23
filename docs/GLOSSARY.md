@@ -21,7 +21,7 @@
 | 记忆日志（journal） | `memory.jsonl`，append-only，记忆的唯一权威 | `src/project-memory/journal.ts` |
 | 条目（entry） | 记忆文档里一个 `- ` 项目符号事实，带 3 位十六进制 id | `src/project-memory/retirement.ts:61`（`entryTid`）、`src/project-memory/sections.ts`（语法） |
 | 段落（section） | 记忆文档的四个固定 `##` 段：Project / Invariants / Pitfalls / Index | `src/project-memory/memory-schema.ts` |
-| 整理（consolidation） | ② 的模型 pass：`/memory update`，产出记忆与上下文 | `src/project-memory/consolidate.ts:698`（`consolidateProjectState`） |
+| 整理（consolidation） | ② 的模型 pass：`/memory update`，产出记忆与上下文 | `src/project-memory/consolidate.ts:69`（`consolidateProjectState`） |
 | 沉淀（autolearn） | ③ 的模型 pass：把材料沉淀成项目技能 | `src/project-autolearn/pass.ts` |
 | 候选（candidate） | 沉淀产出、尚未提升为受管技能的文件（`skill-candidates/`） | `src/project-autolearn/candidate.ts` |
 | 受管技能（managed skill） | 由沉淀提升、带基线指纹的技能；手写技能不受管 | `src/project-autolearn/skill-state.ts` |

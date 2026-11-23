@@ -116,14 +116,14 @@ docs/                  机制文档、规格与索引（docs/README.md）
 ## 10 一条端到端数据流：`/memory update`
 
 1. 命令 → `consolidateProject`（`src/project-memory/update.ts:56`，命令与回执的包装）→
-   `consolidateProjectState`（`src/project-memory/consolidate.ts:698`，模型 pass）。
-2. 单飞 + 节流：同项目单飞（`activeConsolidation`，`src/project-memory/consolidate.ts:710`）、
-   `throttle` 表（`src/project-memory/consolidate.ts:205`）。
+   `consolidateProjectState`（`src/project-memory/consolidate.ts:69`，模型 pass）。
+2. 单飞 + 节流：同项目单飞（`activeConsolidation`，`src/project-memory/consolidate.ts:56`）、
+   `throttle` 表（`src/project-memory/consolidate.ts:58`）。
 3. 读入：`loadMemory`（`src/project-memory/load.ts:151`）+ 上下文，再经 `fitMemoryInput` 按输出预算裁一次（`src/shared/conversation.ts:41`）。
 4. 模型调用：`requestPluginTextWithMeta`（`src/shared/model-call.ts:192`）；`tools` 被拒时换一次无工具重试。
-5. 解析回复：`resolveReply`（`src/project-memory/consolidate.ts:533`）优先 `record_memory` 工具调用，其次四段 Markdown，最后不透明文本。
+5. 解析回复：`resolveReply`（`src/project-memory/reply.ts:127`）优先 `record_memory` 工具调用，其次四段 Markdown，最后不透明文本。
 6. 有损闸（tier C）：会丢整条目的回复先定向重试，仍丢则整次拒绝、零写入，状态 `lossy-refused`
-   （判定 `src/project-memory/consolidate.ts:1111` 的 `memoryLossyRefused`，回执行 `memoryUpdateReply`（`src/project-memory/report.ts:309`））。
+   （判定 `src/project-memory/consolidate.ts:482` 的 `memoryLossyRefused`，回执行 `memoryUpdateReply`（`src/project-memory/report.ts:309`））。
 7. 回填闸：tier C 与退休之后补回措辞级丢失（`src/project-memory/lost-entry-repair.ts:119`），`no-room` 时不写。
 8. 渲染：`renderMemoryDocument` 只在到 cap 时丢整条目（`src/project-memory/sections.ts:173`）。
 9. 落盘：`withMemoryLock`（`src/shared/lock.ts:213`）→ `backupMemoryBeforeWrite`（`src/project-memory/backup.ts:33`）→ `recordMemoryDocument`（`src/project-memory/record.ts:97`，基线变了就拒绝 `src/project-memory/record.ts:116`）→ `writeAtomic`（`src/shared/files.ts:68`）→ 上下文文档（`contextPath`，`src/project-memory/update.ts:282`）。
@@ -142,7 +142,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
   `SKILL_SEVERITY`）；条目核用 `NON_RETIRING_STATES`（`src/project-memory/entry-state.ts:38`）与
   `retiresEntry` 区分「只能报告」与「由整理 pass 退休」。状态核本身不改写文件；自动落盘只发生在三处：
   `INDEX.md` 的启动对账（`reconcileSessionIndexOnce`，`src/project-context/start.ts:141`）、整理 pass 的
-  条目退休（`retireWithinBudget`，`src/project-memory/consolidate.ts:810`）、受管技能 `expired` 的移出
+  条目退休（`retireWithinBudget`，`src/project-memory/consolidate.ts:181`）、受管技能 `expired` 的移出
   （`rename` + 写 `skill-bindings.json`，`src/project-autolearn/skill-state-source.ts:227`）；
   `--accept` 只写确认、不改状态本身。
 - 交接的触发状态在进程内存（`src/project-handoff/state.ts:15-45` 的 `handedOff` / `inFlight` / `failedUntil` 等），宿主重启即失效；判定链是 `decideAutoHandoff`（`src/project-handoff/decide.ts:85`）：阈值 → 未答问题（`defer`，`src/project-handoff/decide.ts:96`）→ 运行中的子代理（`defer`）→ `nothing-to-drop`（`skip`）→ `handoff`。
