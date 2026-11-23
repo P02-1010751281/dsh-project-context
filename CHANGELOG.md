@@ -10,6 +10,46 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**receipt-layout（六类命令回执首行可读，2026-11-23）**
+
+- 客户端 `GenericCommandCard` 把回执摘要折成一行 `white-space: nowrap` 省略，`<pre>` 正文只有
+  含换行才存在（且默认折叠）：单行回执既无法展开又总被裁。六类回执改成分层——**首行 ≤ 80 显示列**
+  （CJK 计 2）带载荷，支撑事实各占一行。改前最宽的首行：`/handoff status` 275 列、`/memory prune`
+  预览 364 列、`/memory reconcile --accept` 151 列、`/session-log status`（INDEX 缺）130 列、
+  `/autolearn status` 95 列、`/memory status` 93 列。
+- `statusText`（`src/project-handoff/command.ts`）：首行固定英文摘要
+  `Auto handoff <ON|OFF> · context <used>/<window> (<p>%) · threshold <…>`，envelope 来源、压缩历史、
+  adaptive target、保留尾部与语言各占一行；中文会话的阈值解释另起行，所以中文回执不再混进
+  `threshold unavailable` 这类英文短语。路由失败（`routeFailureReceipt`）与 floor 建议也移出首行，
+  失败解释不再花掉那 80 列。
+- `sessionStatusReceipt`（`src/project-context/session-state.ts`）：首行
+  `Session log: N session(s) — M needing a repair.`，`K healthy (… live, … settled).` 移到第二行
+  （原来 85 列超限），INDEX 缺失说明单独一行。
+- `skillStatusReceipt`（`src/project-autolearn/skill-state.ts`）：首行保留「受管子集 / 分母」，
+  `(K hand-written, not managed)` 括号说明移到第二行。
+- `formatMemoryStatus`（`src/project-memory/status-report.ts`）：首行只留
+  `<len>/<cap> chars (<p>%)`，段落明细（`sections: …`）单独一行，staleness 与来源/日志行不变。
+- `memoryPruneReply` / `memoryAcceptReply` / `memoryUpdateReply`（`src/project-memory/report.ts`）：
+  一律「首行结论 → 明细行 → 补救行」。prune 的候选文件每行一条（最多 8 条后 `… and N more`）、
+  归档与日志路径进尾行；accept 的每种结果首行只说结论；update 的 stale / lossy-refused /
+  read-capped-refused / fit-capped-refused 与两条失败闸门把 hidden 明细、杠杆与「再跑一次」拆开。
+- 新增 `test/receipt-layout.test.mjs`（10 用例）钉住形状：`the handoff status receipt leads with the
+  numbers it decides on`、`the handoff status receipt keeps its shape when the route or the meter is
+  missing`、`the failure explanation does not spend the clip`、`the memory status receipt leads with the
+  size, not the section breakdown`、`the autolearn status receipt keeps the denominator and drops the
+  parenthetical`、`the session-log status receipt keeps the repair count when INDEX.md is absent`、
+  `the prune receipts lead with the verdict and list the files below it`、`the accept receipts lead with
+  the verdict`、`the update receipt keeps the loss counts on line 1 and the sentences below it`、
+  `a clean update needs no detail lines`。
+- 按精确文本断言的既有套件同笔更新（`test/logic.test.mjs`、`test/memory-status.test.mjs`、
+  `test/memory-reconcile.test.mjs`、`test/session-state.test.mjs`、`test/skill-state.test.mjs`、
+  `test/handoff-compaction.test.mjs`），其中 `StalenessFacts` 夹具补齐
+  `checked` / `bound` / `stale` / `staleIds` / `missing` / `unverifiable`。
+- 改后首行宽度：memory status 29 列（7 行 439）、autolearn 64（5 行 291）、session-log 49
+  （3 行 129）、prune 预览 70（6 行 367）、accept 64（2 行 148）、handoff status 7 行 263 字符。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 121 源文件 0 失败、`pnpm docs:check` 137 项
+  0 失败、`pnpm test` 817 全过、两次构建 `lib/` 243 文件同一 sha256。
+
 **host-contract-2d（两处方向不匹配收口，边界第四步 2d，2026-11-23）**
 
 - 契约新增闭合 `ProjectionKey`（`contextBreakdown` / `todos`）与 `RequestUserMessage`；
