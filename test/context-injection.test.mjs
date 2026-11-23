@@ -125,16 +125,28 @@ test("a heading name quoted inside a kept section is not counted as a pointer", 
 });
 
 test("the real tracked documents keep every heading", () => {
-	for (const [file, injection, rendered] of [
-		["MEMORY.md", MEMORY_INJECTION, buildMemoryInjection(readFileSync(path.join(repoRoot, ".agents/memory/MEMORY.md"), "utf8"), repoRoot)],
-		["CONTEXT.md", CONTEXT_INJECTION, buildContextInjection(readFileSync(path.join(repoRoot, ".agents/memory/CONTEXT.md"), "utf8"), repoRoot)],
+	// Content-independence matters here: this is the only case that reads the *tracked* documents,
+	// and another session's memory pass may rewrite them between runs. So the expectation is derived
+	// from the document (every heading it has must survive the render), not pinned to a heading list
+	// that a rewrite may legitimately change — and a pointer is counted by its *label* (unique per
+	// heading) rather than by the `` `## <heading>` `` prefix, which a memory bullet describing this
+	// very mechanism can quote at line start.
+	for (const [file, injection, build] of [
+		["MEMORY.md", MEMORY_INJECTION, buildMemoryInjection],
+		["CONTEXT.md", CONTEXT_INJECTION, buildContextInjection],
 	]) {
+		const text = readFileSync(path.join(repoRoot, ".agents/memory", file), "utf8");
+		const language = detectDocumentLanguage([text]);
+		const rendered = build(text, repoRoot);
 		const headingLines = rendered.split("\n");
-		for (const heading of injection.keep) {
-			assert.ok(headingLines.includes(`## ${heading}`), `${file}: the kept section ${heading} is inline`);
-		}
-		for (const heading of Object.keys(injection.pointers)) {
-			assert.equal(pointerCount(rendered, heading), 1, `${file}: ${heading} has exactly one pointer`);
+		const headings = [...text.matchAll(/^## (.+)$/gm)].map((match) => match[1].trim());
+		assert.ok(headings.length > 0, `${file}: the document carries no sections at all`);
+		for (const heading of new Set(headings)) {
+			const inline = headingLines.includes(`## ${heading}`);
+			const label = injection.pointers[heading]?.[language];
+			const pointers = label === undefined ? 0 : rendered.split(label).length - 1;
+			assert.ok(inline || pointers === 1, `${file}: ${heading} is neither inline nor pointed at`);
+			if (inline) assert.equal(pointers, 0, `${file}: ${heading} is both inline and pointed at`);
 		}
 		assert.ok(rendered.includes("read"), `${file}: the read-first sentence is present`);
 	}
