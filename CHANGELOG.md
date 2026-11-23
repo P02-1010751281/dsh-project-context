@@ -50,6 +50,25 @@
 - 验证：`pnpm typecheck` 0、`pnpm boundary:check` 121 源文件 0 失败、`pnpm docs:check` 137 项
   0 失败、`pnpm test` 817 全过、两次构建 `lib/` 243 文件同一 sha256。
 
+**receipt-layout-2（回执两处收口，2026-11-23）**
+
+- `/memory status` 现在可达：`status` 是显式字，不再只认裸 `/memory`。四个兄弟命令都这么拼
+  （`/handoff status`、`/session-log status`、`/autolearn status`），此前只有本命令把用户打出
+  来的 `status` 拒成 `Unknown option "status"`；用法串从 `Usage: /memory (status) | …` 改成
+  `Usage: /memory [status] | …`（圆括号被读成「必须原样输入」的错），`input.hint` 与
+  `start.ts` 头注释同步。
+- `/handoff status` 在固定取值模式下不再重复同一个数字：首行的 `threshold <n> tokens` 已经给出
+  解析出的触发点，第 4 行的 `fixed threshold <n> tokens` 是它的第二种拼写。`auto` 模式仍打印
+  `adaptive target <n>`（首行没有这个事实），而解析不出触发点的拒绝回执仍打印配置行——那里它是
+  「配置的是什么」的唯一来源。
+- 用例名：`the receipt is reachable as a bare command and as the word \`status\``（`test/memory-status.test.mjs`）、
+  `a fixed trigger is not repeated below the head that already names it`（`test/receipt-layout.test.mjs`），
+  两个用例各带一条控制断言（后者用无 meter 的回执证明配置行在该出现时仍出现）。
+- 变异（均编译通过、从哈希校验过的 `/tmp` 副本还原）：把 `verb !== "" && verb !== "status"` 改回
+  `verb !== ""` 只让第一个用例变红；把配置行的门改成恒真只让第二个用例变红。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 121 源文件 0 失败、`pnpm docs:check` 0 失败、
+  `pnpm test` 819 全过、两次构建 `lib/` 同一 sha256。
+
 **host-contract-2d（两处方向不匹配收口，边界第四步 2d，2026-11-23）**
 
 - 契约新增闭合 `ProjectionKey`（`contextBreakdown` / `todos`）与 `RequestUserMessage`；
