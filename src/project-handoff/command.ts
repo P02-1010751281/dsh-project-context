@@ -137,6 +137,8 @@ export async function statusText(
 	// leads, and every supporting fact gets its own line, where the expanded body wraps it.
 	const head: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
 	const details: string[] = [];
+	/** The resolved trigger's own label, when the head could render one. */
+	let resolvedTrigger: string | undefined;
 	const target = resolveTarget(session, config);
 	const meter = tokenMeterOf(host.services);
 	const projections = projectionsOf(host.services);
@@ -180,6 +182,7 @@ export async function statusText(
 			// The head keeps the receipt's own language: a Chinese session gets 阈值不可用, never the English
 			// word, because the head is the only part a folded card shows.
 			head.push(threshold !== undefined ? `threshold ${threshold.label}` : language === "zh" ? "阈值不可用" : "threshold unavailable");
+			resolvedTrigger = threshold?.label;
 			if (refusal !== undefined) details.push(thresholdRefusalText(refusal, config, measurement, contextWindow, language));
 			// Unreachable, and stated as the honest minimum rather than an invented cause: `thresholdRefusal`
 			// is total over `resolveThreshold`'s refusals, so this branch cannot pair with a threshold.
@@ -201,11 +204,12 @@ export async function statusText(
 	const seed = handoffReceipts.get(String(session.id));
 	if (seed !== undefined) details.push(seedReceiptLine(seed, language));
 	const thresholdSetting = config.handoffThreshold;
-	details.push(thresholdSetting.mode === "auto"
-		? `adaptive target ${config.handoffBudgetSummaryTokens}`
-		: thresholdSetting.mode === "ratio"
-			? `fixed ratio ${Math.round(thresholdSetting.ratio * 100)}%`
-			: `fixed threshold ${thresholdSetting.tokens} tokens`);
+	// The setting's own spelling is a second fact only when the head could not name the trigger: in
+	// fixed mode the head prints exactly this number, so repeating `fixed threshold <n> tokens` below
+	// it showed the same value twice. `auto` still names the adaptive target, which the head never
+	// shows, and a refusal still says what was configured.
+	if (thresholdSetting.mode === "auto") details.push(`adaptive target ${config.handoffBudgetSummaryTokens}`);
+	else if (resolvedTrigger === undefined) details.push(thresholdSetting.mode === "ratio" ? `fixed ratio ${Math.round(thresholdSetting.ratio * 100)}%` : `fixed threshold ${thresholdSetting.tokens} tokens`);
 	// The setting's name is the settings card's, in the receipt's own language — `keep` is an internal
 	// shorthand that appears nowhere the user can see it.
 	details.push(config.handoffBudgetRecentTokens > 0

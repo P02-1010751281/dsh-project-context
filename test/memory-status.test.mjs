@@ -25,7 +25,8 @@ import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { memoryStatusReply } from "../lib/project-memory/index.js";
+import { apply as applyMemory, memoryStatusReply } from "../lib/project-memory/index.js";
+import { resolvePluginConfig } from "../lib/shared/config.js";
 import { loadMemory } from "../lib/project-memory/load.js";
 import { memoryJournalFile } from "../lib/project-memory/journal.js";
 import { formatMemoryStatus } from "../lib/project-memory/status-report.js";
@@ -66,6 +67,47 @@ test("an empty project says none yet, and every count is a measured zero rather 
 	assert.doesNotMatch(reply.text, /entry|entries/, "an empty store has no section counts to claim");
 	assert.match(reply.text, /no last-pass result/, "the receipt says the outcome is not persisted instead of guessing it");
 	assert.ok(Buffer.byteLength(reply.text) < 3072, "the whole receipt stays under 3 KB");
+});
+
+test("the receipt is reachable as a bare command and as the word `status`", async () => {
+	const root = await freshProject();
+	await mkdir(memoryDir(root), { recursive: true });
+	await writeFile(memoryFile(root), renderMemoryDocument(FIXTURE, CAP).text);
+
+	// The real registration surface: `apply()` wires the command, and this is the handler the host
+	// would call with the user's raw input.
+	const registered = [];
+	const ctx = {
+		get: () => undefined,
+		logger: { info() {}, warn() {} },
+		systemPrompt: { context: () => undefined },
+		on: () => () => undefined,
+		commands: { register: (command) => { registered.push(command); return () => undefined; } },
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
+	};
+	applyMemory(ctx, resolvePluginConfig({ provider: "test-provider", model: "test-model", maxMemoryChars: CAP }));
+	const command = registered.find((entry) => entry.name === "memory");
+	assert.ok(command !== undefined, "the /memory command is registered");
+
+	const agent = {
+		options: { provider: "test-provider", model: "test-model" },
+		session: { id: "session-memory-status-forms", header: { cwd: root }, snapshotEvents: () => [] },
+	};
+	const call = (rawInput) => command.handler({ agent, rawInput, signal: new AbortController().signal });
+
+	const bare = await call("");
+	const spelled = await call("status");
+	assert.equal(bare.kind, "success");
+	assert.equal(spelled.kind, "success");
+	assert.equal(spelled.text, bare.text, "both spellings render the same receipt");
+	assert.match(bare.text, /^Memory: \d+\/\d+ chars \(\d+%\)$/m, "the status receipt, not a refusal");
+
+	// Every sibling spells the word out (`/handoff status`, `/session-log status`, `/autolearn
+	// status`), so the usage has to name it as one rather than only as an omitted argument.
+	const unknown = await call("stat");
+	assert.equal(unknown.kind, "error");
+	assert.match(unknown.text, /Unknown option "stat"/);
+	assert.match(unknown.text, /Usage: \/memory \[status\]/);
 });
 
 test("a stored four-section document reports its length and its section counts, which the file confirms", async () => {

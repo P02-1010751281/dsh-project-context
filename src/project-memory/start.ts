@@ -6,7 +6,7 @@
  * `host.addPromptContext`; the pass and the todo fold receive the narrower {@link HostPorts} /
  * {@link ServiceHost} they actually read.
  *
- * Commands: /memory (status | update | prune [--apply])
+ * Commands: /memory [status] | update | prune [--apply] | reconcile [--accept <id>]
  */
 
 import { projectionsOf } from "../host/dsh/services.js";
@@ -232,7 +232,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 	host.registerCommand({
 		name: "memory",
 		description: "Show this project's memory location and status, 'update' to consolidate now, 'prune' to preview the cleaning channel, or 'reconcile' to list entries whose cited files changed",
-		input: { hint: "update | prune [--apply] | reconcile [--accept <id>]" },
+		input: { hint: "status | update | prune [--apply] | reconcile [--accept <id>]" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const verb = (rawInput ?? "").trim().toLowerCase();
 			if (verb === "update") {
@@ -264,7 +264,10 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				}
 				return memoryReconcileReply(states, { cappedDroppedChars: memory.cappedDroppedChars });
 			}
-			if (verb !== "") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory (status) | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]` };
+			// `status` is a word here, not only the bare form: every sibling command spells it out
+			// (`/handoff status`, `/session-log status`, `/autolearn status`), so rejecting the spelling
+			// that works everywhere else was the one inconsistent surface. Both reach the same receipt.
+			if (verb !== "" && verb !== "status") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory [status] | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]` };
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			const config = effectivePluginConfig(entry);
 			const memory = await loadMemory(projectRoot, config.maxMemoryChars);

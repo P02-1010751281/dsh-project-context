@@ -121,6 +121,25 @@ test("the handoff status receipt keeps its shape when the route or the meter is 
 	assert.match(blind.split("\n")[0], /^Auto handoff ON$/, "with nothing to measure the head says only the mode");
 });
 
+test("a fixed trigger is not repeated below the head that already names it", async () => {
+	const config = resolvePluginConfig({
+		provider: "test-provider",
+		model: "test-model",
+		handoffThreshold: "300k",
+		handoffBudgetRecentTokens: 20_000,
+	});
+	const text = await statusText(host(), session(), config, new AbortController().signal);
+	assertLayout("handoff status with a fixed trigger", text);
+	const [first] = text.split("\n");
+	assert.match(first, /· threshold 300000 tokens$/, `the resolved trigger is on line 1, got ${first}`);
+	assert.doesNotMatch(text, /fixed threshold 300000 tokens/, "the setting's own spelling would show the same number twice");
+
+	// The control: with no meter there is no resolved trigger, so the setting line is the only place
+	// that says what was configured, and dropping it there would hide a fact.
+	const blind = await statusText(host({ meter: false }), session(), config, new AbortController().signal);
+	assert.match(blind, /fixed threshold 300000 tokens/, "a receipt that cannot resolve the trigger still names the setting");
+});
+
 test("the failure explanation does not spend the clip", async () => {
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model" });
 	const failing = {

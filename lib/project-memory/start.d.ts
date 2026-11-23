@@ -6,7 +6,7 @@
  * `host.addPromptContext`; the pass and the todo fold receive the narrower {@link HostPorts} /
  * {@link ServiceHost} they actually read.
  *
- * Commands: /memory (status | update | prune [--apply])
+ * Commands: /memory [status] | update | prune [--apply] | reconcile [--accept <id>]
  */
 import type { HostContext, ServiceHost, Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
