@@ -47,3 +47,23 @@ host，漏跑会让服务端继续分发旧 bundle；重建后运行中的 `dsh 
 才生效——可能是 `dsh web`，也可能是桌面端的 dsh-desktop（其 host 监听
 `127.0.0.1:19387`）；只看提交或构建
 时间不能判定已生效，要对进程启动时间。
+
+## 重启验收
+
+- **先分清三个端口**，它们经常不是同一个：GUI 是 `http://127.0.0.1:<随机>`（`ss -ltnp` 里的 electron
+  node 子进程），Inspector 是 `127.0.0.1:9230`（`/json/list` 的 target 标题 `DeepSeek Assistant Host`），
+  而 `/etc/nixos/scripts/dsh-desktop-restart.sh` 的**旧缺省口**是 `127.0.0.1:19387`。
+- 宿主自 alpha.2 起用 `--port 0` 启动，**19387 根本不会被监听**。所以
+  `bash /etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 会连印 5 次 `fetch failed` 再报
+  「验收未通过」——这是脚本的**假失败**（脚本自己的注释里写着这条旧判据在 alpha.2 上永远等不到），
+  不是宿主没起来，更不是本包的问题。
+- 判「新构建是否在跑」用 Inspector 探针，而不是脚本的整体 `RESULT`：
+
+  ```bash
+  node .agents/evidence/2026-11-11-z8d-live-module-version/probe.mjs --file lib/project-memory/report.js
+  # 期望 "verdict": "the running host executes the code on disk"（逐模块可重复）
+  ps -o lstart= -p <socket holder pid>   # 必须晚于最后一次 src/ 提交的时间
+  ```
+
+  探针把驻留模块源码的 sha256 与 `git show <commit>:lib/…` 逐条比对；脚本自己的判据是 `notActive`
+  行与 store 校验行，`--verify-only` 的 19387 那一半在 rc.x 上恒失败，只能当噪声读。

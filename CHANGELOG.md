@@ -10,6 +10,27 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**receipt-reasons（/autolearn 的原因句也走词汇表，2026-11-23）**
+
+- 上一片的残余：`/autolearn` 的拒绝 / 跳过原因原本是 pass 核里写死的英文句子，被原样接在中文导语后
+  （`技能被拒：body too short。`）。pass 在 `turn/end` 触发、那一刻还没有会话，所以原因不可能在产出点
+  本地化——除非把它从「句子」改成「码 + 参数」。新增 `src/project-autolearn/reasons.ts`：
+  `AutolearnRejection`（11 个码，`skill-exists` / `candidate-exists` 带 `name`）与 `AutolearnSkip`
+  （3 个码），`AutolearnOutcome.rejected` / `.skipped` 与 `saveProposedSkill` / `shapeRejection` /
+  `rejectionReason` 的返回类型一并改为该联合；回执与 `approveCandidate` 的拒绝句都经
+  `rejectedText(reason, language)` / `skippedText(reason, language)` 渲染。
+  **英文列逐字节等于旧句子**（日志与既有断言不变），中文列才是回执读到的句子。
+- `docs/development.md` 新增「重启验收」：分清 GUI（随机口）/ Inspector（`9230`）/ 重启脚本的旧缺省口
+  `19387`；`--verify-only` 在 rc.x 上必印 5 次 `fetch failed` 的假失败（脚本注释自述），判据取 9230 探针
+  的 `"the running host executes the code on disk"` 加进程启动时间。
+- 用例名：`every admission refusal and every skip has a Chinese sentence, and the English one is unchanged`
+  与 `a proposed skill the admission rules refuse is not reported as "no skill was warranted"`（后者补中文
+  回执断言「技能被拒：正文过短。」并断言不出现 `body too short` / `Skill rejected`）；变异两个（中文回执
+  丢掉 `language` 参数、`no-archive` 的中文列写成英文）各自只红对应那一条，从 `sha256sum -c` 校验过的
+  `/tmp/reasons-mut/*.bak` 还原。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 123 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
+  `pnpm test` 827/827、`pnpm build` 两次 sha256 同为 `277cbed2…`（245 个 `lib/` 文件）。
+
 **receipt-vocabulary（回执里的行内数据也随会话语言，2026-11-23）**
 
 - 上一片只中文化了回执骨架；条目状态名、清理原因、任务状态、证据与冲突串仍是英文，中文会话里就是
