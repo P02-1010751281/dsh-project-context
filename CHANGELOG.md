@@ -73,6 +73,15 @@
   `docs/architecture.md` 第 2 节与 `RULES.md` 4.2 的基线同笔移动。
 - 验证：`pnpm typecheck` 0、`pnpm boundary:check` 122 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
   `pnpm test` 820 全过、两次构建 `lib/` 245 文件同一 sha256。
+- 修复：`/session-log status` 与 `/autolearn status` 仍印英文。两个构建器都有 `language` 参数，但
+  **处理器没传**，回落到默认 `"en"`，于是中文会话里 `/memory` 与 `/handoff status` 是中文、另两条是
+  英文——构建器级用例手传 `"zh"`，抓不到这个缺口。语言改在处理器里解析（`src/project-context/start.ts`
+  的 `session-log` 处理器、`src/project-autolearn/start.ts` 的 `autolearn` 处理器），两个构建器的参数
+  顺序改为 `(report, language, named)`，与 `formatMemoryStatus(facts, language)` 一致。
+  用例名：`every status command resolves its language at the handler, not at the builder's default`
+  （`test/receipt-layout.test.mjs`，经 `apply()` 的真实注册面调处理器；两个变异——各把一条处理器改回
+  显式 `"en"`——都只让这一条变红）。`test/session-state.test.mjs` 与 `test/skill-state.test.mjs`
+  三处假 session 补 `deriveMessages()` / `snapshotEvents()`，否则处理器读语言时以属性缺失失败。
 - 残余：`/memory update`、`/memory prune`、`/memory reconcile`、`/memory reconcile --accept` 四条回执的
   正文仍是英文（`src/project-memory/report.ts` 的四个构建器尚未接语言），属下一片。
 
