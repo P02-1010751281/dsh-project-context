@@ -50,6 +50,32 @@
 - 验证：`pnpm typecheck` 0、`pnpm boundary:check` 121 源文件 0 失败、`pnpm docs:check` 137 项
   0 失败、`pnpm test` 817 全过、两次构建 `lib/` 243 文件同一 sha256。
 
+**receipt-i18n（回执跟随会话语言，2026-11-23）**
+
+- 命令回执此前只有 `/handoff status` 认识语言：`/memory`、`/session-log status`、`/autolearn status`
+  的构建器连 `language` 参数都没有，字面量写死英文，而设置卡标签是中文，于是一条回执里中英并列。
+  新增 `src/shared/receipt-language.ts` 的 `receiptLanguage(session, config)` 作为唯一入口（复用
+  `project-handoff` 的 `auto` 解析：用户消息采样、显式 `handoffLang` 优先），四个插件都从这里取语言。
+- `src/shared/language.ts` 新增 `pick(language, zh, en)` 与 `counted(language, n, one, many, zh)`：
+  中文不随数变化，英文按单复数；回执的每一行（首行、明细行、补救行）都走同一个取词口。
+- 四张回执全部本地化：`formatMemoryStatus`（含 `sectionsClause` / `journalClause`）、
+  `sessionStatusReceipt`（八种状态各有中文名，`when()` 输出`一天内`/`N 天前`）、
+  `skillStatusReceipt`（六态中文名）、`statusText` 与 `resolveThreshold` 的标签（`自动 379616（95%）`、
+  `窗口的 40%`、`N token`）。`/handoff status` 的 `harness 包络`、`待答问题`、`语言` 等行不再硬编码英文。
+- 标点按语言统一：中文用全角 `（）「」`，英文用 ASCII `() " "`；` · ` 作为分隔符两种语言共用。
+  设置名（`「保留最近对话（token）」`）仍加引号以区分正文。
+- 用例名：`a Chinese session gets Chinese on every line, and an English one gets none of it`
+  （`test/receipt-layout.test.mjs`，断言中文回执不含 `Auto handoff` / `context ` / `threshold ` /
+  `pending question` / `harness envelope` / `adaptive target` 任一英文片段，英文回执仍由既有断言钉住）；
+  假 session 补齐 `deriveMessages()`（`test/memory-status.test.mjs`、`test/memory-reconcile.test.mjs`），
+  否则语言读取以 `session.deriveMessages is not a function` 失败。
+- 依赖白名单随树更新：`shared → project-handoff/conversation`（8 条边、13 个 specifier、15 处），
+  `docs/architecture.md` 第 2 节与 `RULES.md` 4.2 的基线同笔移动。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 122 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
+  `pnpm test` 820 全过、两次构建 `lib/` 245 文件同一 sha256。
+- 残余：`/memory update`、`/memory prune`、`/memory reconcile`、`/memory reconcile --accept` 四条回执的
+  正文仍是英文（`src/project-memory/report.ts` 的四个构建器尚未接语言），属下一片。
+
 **receipt-layout-2（回执两处收口，2026-11-23）**
 
 - `/memory status` 现在可达：`status` 是显式字，不再只认裸 `/memory`。四个兄弟命令都这么拼
