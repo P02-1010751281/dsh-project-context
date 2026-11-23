@@ -114,8 +114,10 @@ export function taskStatusLabel(status: string, language: DocumentLanguage = "en
 export function taskUsageRow(usage: TaskUsage, boundSlug?: string, language: DocumentLanguage = "en"): string {
 	const title = usage.title.trim() === "" ? usage.slug : usage.title;
 	const seen = usage.lastSeen ?? pick(language, "未知", "unknown");
-	const sessions = pick(language, `${usage.sessions} 个会话`, `sessions ${usage.sessions}`);
-	const openTodos = pick(language, `${usage.openTodos} 条未完成`, `open todos ${usage.openTodos}`);
+	// The Chinese nouns are the column names README documents for this row (`/context task`:
+	// slug / 状态 / 标题 / 绑定会话数 / 未完成 todo 数 / 最近活动), so a reader can match the two.
+	const sessions = pick(language, `绑定会话数 ${usage.sessions}`, `sessions ${usage.sessions}`);
+	const openTodos = pick(language, `未完成 todo ${usage.openTodos}`, `open todos ${usage.openTodos}`);
 	const bound = usage.slug === boundSlug ? pick(language, "（本会话）", " (this session)") : "";
-	return `- ${usage.slug} · ${taskStatusLabel(usage.status, language)} · ${title} · ${sessions} · ${openTodos} · ${pick(language, "最后活动", "last seen")} ${seen}${bound}`;
+	return `- ${usage.slug} · ${taskStatusLabel(usage.status, language)} · ${title} · ${sessions} · ${openTodos} · ${pick(language, "最近活动", "last seen")} ${seen}${bound}`;
 }

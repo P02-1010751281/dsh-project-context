@@ -439,11 +439,11 @@ test("the prune reason and the task row name their data in the session's languag
 	const usage = { slug: "z8-acceptance", title: "Z8", status: "active", sessions: 2, openTodos: 3, lastSeen: "2026-11-23" };
 	assert.equal(
 		taskUsageRow(usage, "z8-acceptance", "zh"),
-		"- z8-acceptance · 活跃 · Z8 · 2 个会话 · 3 条未完成 · 最后活动 2026-11-23（本会话）",
+		"- z8-acceptance · 活跃 · Z8 · 绑定会话数 2 · 未完成 todo 3 · 最近活动 2026-11-23（本会话）",
 	);
 	assert.equal(
 		taskUsageRow({ ...usage, status: "archived" }, undefined, "zh"),
-		"- z8-acceptance · 已归档 · Z8 · 2 个会话 · 3 条未完成 · 最后活动 2026-11-23",
+		"- z8-acceptance · 已归档 · Z8 · 绑定会话数 2 · 未完成 todo 3 · 最近活动 2026-11-23",
 	);
 	// The control: the English row keeps its nouns and its straight parentheses.
 	assert.equal(
@@ -477,7 +477,7 @@ test("the find and session-tree receipts count their data in the session's langu
 	assert.match(zhTree, /^# 会话树$/m);
 	assert.ok(zhTree.includes(`${tree.sessionCount} 个会话 · ${tree.roots.length} 个根 · ${tree.handoffCount} 个交接续接`), zhTree);
 	assert.match(zhTree, /未命名会话 · 交接 · 任务 z8-acceptance/);
-	assert.match(zhTree, /父会话 session-gone 未归档/);
+	assert.match(zhTree, /父会话 session-gone 不在存档/);
 	// The control: the English tree keeps the wording the layout cases pin.
 	assert.match(renderSessionTree(tree), /^# Session tree$/m);
 });

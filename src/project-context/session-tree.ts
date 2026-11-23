@@ -173,7 +173,7 @@ function renderNode(node: SessionTreeNode, depth: number, language: DocumentLang
 	// A continuation's indentation already says it continues something; only a *root* has to name the
 	// kind, and only an orphan has to name the parent it could not be hung under.
 	if (depth === 0 && meta.kind === "handoff") annotations.push(pick(language, "交接", "handoff"));
-	if (node.missingParentId !== undefined) annotations.push(pick(language, `父会话 ${node.missingParentId} 未归档`, `parent ${node.missingParentId} not archived`));
+	if (node.missingParentId !== undefined) annotations.push(pick(language, `父会话 ${node.missingParentId} 不在存档`, `parent ${node.missingParentId} not archived`));
 	if (meta.task !== undefined) annotations.push(pick(language, `任务 ${meta.task}`, `task ${meta.task}`));
 	const suffix = annotations.length === 0 ? "" : ` · ${annotations.join(" · ")}`;
 	return `[${meta.id}](${meta.id}/session.jsonl) — ${meta.date} — ${title}${suffix}`;
