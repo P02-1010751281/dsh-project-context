@@ -101,7 +101,8 @@ export declare function brokenSession(state: SessionState): boolean;
  * so a payload below it would be unreadable without expanding the card. Named entries follow, worst
  * state first, because a count with no id is not actionable.
  * @param report - the verdict for the whole archive.
+ * @param language - the language the receipt is written in.
  * @param named - how many broken sessions to name.
  * @returns the command text.
  */
-export declare function sessionStatusReceipt(report: SessionStateReport, named?: number, language?: DocumentLanguage): string;
+export declare function sessionStatusReceipt(report: SessionStateReport, language?: DocumentLanguage, named?: number): string;

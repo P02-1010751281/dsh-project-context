@@ -151,7 +151,7 @@ test("the registered /autolearn command routes 'status' to the corpus report", a
 	);
 	assert.equal(typeof handler, "function", "control: the plugin registered the autolearn command");
 
-	const agent = { session: { header: { cwd: root, id: "session-current" } } };
+	const agent = { session: { header: { cwd: root, id: "session-current" }, deriveMessages: () => [], snapshotEvents: () => [] } };
 	const receipt = await handler({ agent, rawInput: "status" });
 	assert.equal(receipt.kind, "success", receipt.text);
 	assert.match(receipt.text, /^Learned skills: 1 skill\(s\) — 1 intact/);

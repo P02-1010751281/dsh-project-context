@@ -139,10 +139,11 @@ export function retiresSkill(state: SkillState): boolean {
  * The first line carries the counts — the client folds a command card to one ellipsized line — and the
  * named entries follow worst-first, because a count with no name is not actionable.
  * @param report - the verdict for the learned corpus.
+ * @param language - the language the receipt is written in.
  * @param named - how many entries to name.
  * @returns the command text.
  */
-export function skillStatusReceipt(report: SkillStateReport, named = 10, language: DocumentLanguage = "en"): string {
+export function skillStatusReceipt(report: SkillStateReport, language: DocumentLanguage = "en", named = 10): string {
 	const broken = report.verdicts.filter((verdict) => verdict.state !== "intact");
 	const scope = report.unmanaged > 0
 		? pick(language, `${report.verdicts.length} / ${report.total} 个技能`, `${report.verdicts.length} of ${report.total} skill(s)`)

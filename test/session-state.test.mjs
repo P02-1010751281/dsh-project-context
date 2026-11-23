@@ -203,7 +203,9 @@ test("the command judges with the configured day boundary", async () => {
 			},
 			resolvePluginConfig({ provider: "test-provider", model: "test-model", sessionSettledDays }),
 		);
-		return handler({ agent: { session: { header: { cwd: root, id: "session-current" } } }, rawInput: "status" });
+		// The receipt language samples the session's own messages, so the fixture projects them.
+		const session = { header: { cwd: root, id: "session-current" }, deriveMessages: () => [], snapshotEvents: () => [] };
+		return handler({ agent: { session }, rawInput: "status" });
 	};
 	const short = await receiptFor(7);
 	assert.match(short.text, /0 live, 1 settled/, "10 days is past a 7-day boundary");
@@ -232,7 +234,7 @@ test("the registered /session-log command routes 'status' to the state report", 
 	);
 	assert.equal(typeof handler, "function", "control: the plugin registered the session-log command");
 
-	const agent = { session: { header: { cwd: root, id: "session-current" } } };
+	const agent = { session: { header: { cwd: root, id: "session-current" }, deriveMessages: () => [], snapshotEvents: () => [] } };
 	const receipt = await handler({ agent, rawInput: "status" });
 	assert.equal(receipt.kind, "success", receipt.text);
 	assert.match(receipt.text, /^Session log: 1 session\(s\)/);

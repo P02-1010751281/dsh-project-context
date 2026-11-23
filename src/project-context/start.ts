@@ -29,6 +29,7 @@ import { taskUsage, taskUsageRow } from "./task-usage.js";
 import { readMemoryExport } from "./memory-export-source.js";
 import { renderMemoryExport } from "./memory-export.js";
 import { logError } from "../shared/error-log.js";
+import { receiptLanguage } from "../shared/receipt-language.js";
 
 /**
  * Expand `/session-log import` arguments: directories contribute their
@@ -351,8 +352,17 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			// index and the directory it describes, so one side alone can never show them.
 			if (args === "status") {
 				const projectRoot = await getProjectRoot(projectCwd(agent.session));
+				const config = effectivePluginConfig(entry);
 				try {
-					return { kind: "success", text: sessionStatusReceipt(await measureSessionStates(projectRoot, Date.now(), effectivePluginConfig(entry).sessionSettledDays)) };
+					// The language is resolved here, at the handler, not left to the builder's `"en"` default:
+					// a Chinese session used to get an English session-log line beside a Chinese `/memory` one.
+					return {
+						kind: "success",
+						text: sessionStatusReceipt(
+							await measureSessionStates(projectRoot, Date.now(), config.sessionSettledDays),
+							receiptLanguage(agent.session, config),
+						),
+					};
 				} catch (error: unknown) {
 					await logError(projectRoot, "memory", error);
 					return { kind: "error", text: `Session status: the command failed — ${error instanceof Error ? error.message : String(error)} (see .agents/memory/errors.log).` };

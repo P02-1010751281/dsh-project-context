@@ -86,7 +86,8 @@ export declare function retiresSkill(state: SkillState): boolean;
  * The first line carries the counts — the client folds a command card to one ellipsized line — and the
  * named entries follow worst-first, because a count with no name is not actionable.
  * @param report - the verdict for the learned corpus.
+ * @param language - the language the receipt is written in.
  * @param named - how many entries to name.
  * @returns the command text.
  */
-export declare function skillStatusReceipt(report: SkillStateReport, named?: number, language?: DocumentLanguage): string;
+export declare function skillStatusReceipt(report: SkillStateReport, language?: DocumentLanguage, named?: number): string;

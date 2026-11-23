@@ -178,10 +178,11 @@ const SESSION_STATE_LABEL: Record<DocumentLanguage, Record<SessionState, string>
  * so a payload below it would be unreadable without expanding the card. Named entries follow, worst
  * state first, because a count with no id is not actionable.
  * @param report - the verdict for the whole archive.
+ * @param language - the language the receipt is written in.
  * @param named - how many broken sessions to name.
  * @returns the command text.
  */
-export function sessionStatusReceipt(report: SessionStateReport, named = 10, language: DocumentLanguage = "en"): string {
+export function sessionStatusReceipt(report: SessionStateReport, language: DocumentLanguage = "en", named = 10): string {
 	const healthy = report.counts.live + report.counts.settled;
 	const broken = report.verdicts.filter((verdict) => brokenSession(verdict.state));
 	// The counts lead and the absent-index note gets its own line: the client clips the folded summary

@@ -16,11 +16,15 @@
  */
 
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { statusText } from "../lib/project-handoff/command.js";
+import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
 import { skillStatusReceipt } from "../lib/project-autolearn/skill-state.js";
+import { apply as applyContext } from "../lib/project-context/index.js";
 import { sessionStatusReceipt } from "../lib/project-context/session-state.js";
 import { formatMemoryStatus } from "../lib/project-memory/status-report.js";
 import { memoryAcceptReply, memoryPruneReply, memoryUpdateReply } from "../lib/project-memory/report.js";
@@ -191,6 +195,41 @@ test("a Chinese session gets Chinese on every line, and an English one gets none
 	// The control: the same builder still renders English for an English session, so the Chinese case
 	// cannot pass by having replaced the only wording.
 	assert.match(memory.text, /日志 /, "the journal line is Chinese too");
+});
+
+test("every status command resolves its language at the handler, not at the builder's default", async () => {
+	// The builders default to English, so a handler that forgets to pass the language silently renders
+	// an English receipt in a Chinese session — the mixed-language state this batch exists to remove.
+	// The builder-level case above cannot catch it: it passes `"zh"` by hand.
+	const root = await mkdtemp(path.join(tmpdir(), "receipt-language-wiring-"));
+	const registered = [];
+	const ctx = {
+		get: () => undefined,
+		logger: { info: () => {}, warning: () => {} },
+		systemPrompt: { context: () => undefined },
+		on: () => () => undefined,
+		effect: () => () => undefined,
+		commands: { register: (command) => { registered.push(command); return () => undefined; } },
+		llm: { resolveModelInfo: async () => ({ context: { contextWindow: 200_000 } }) },
+	};
+	// `handoffLang: "zh"` is the explicit override, so this pins the wiring rather than the detector.
+	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffLang: "zh" });
+	applyContext(ctx, config);
+	applyAutolearn(ctx, config);
+
+	const agent = {
+		options: { provider: "test-provider", model: "test-model" },
+		session: { id: "session-receipt-language-wiring", header: { cwd: root }, deriveMessages: () => [], snapshotEvents: () => [] },
+	};
+	const call = (name, rawInput) => registered.find((entry) => entry.name === name).handler({ agent, rawInput, signal: new AbortController().signal });
+
+	const log = await call("session-log", "status");
+	assert.match(log.text, /^会话日志：/m, "the /session-log status receipt is Chinese");
+	assert.ok(!log.text.includes("Session log:"), "no English head survives in the Chinese receipt");
+
+	const skills = await call("autolearn", "status");
+	assert.match(skills.text, /^已学技能：/m, "the /autolearn status receipt is Chinese");
+	assert.ok(!skills.text.includes("Learned skills:"), "no English head survives in the Chinese receipt");
 });
 
 test("the memory status receipt leads with the size, not the section breakdown", () => {
