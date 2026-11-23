@@ -17,6 +17,10 @@ import type {} from "@deepseek-ai/dsh-session-projection";
 // Side-effect only and load-bearing — do not "clean it up": the augmentation below targets this
 // module, and the `Context` service reads depend on the declaration being part of the program.
 import type {} from "@deepseek-ai/dsh-llm";
+// Side-effect only and load-bearing: this package contributes the `contextBreakdown` key to
+// `SessionProjectionMap`, and the projection-key check in `services.ts` reads that map. Without
+// this import the key stops being a key in this program and the check would be vacuous.
+import type {} from "@deepseek-ai/dsh-token-meter";
 
 export type { Context } from "@deepseek-ai/cordis";
 
@@ -24,7 +28,7 @@ import { isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
 
 export { isSurfaceEligibleType };
 
-import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
+import type { ContentBlockMap, FinishReason as HostFinishReason, StreamChunk as HostStreamChunk } from "@deepseek-ai/dsh-llm";
 import type { SessionEventMap } from "@deepseek-ai/dsh-session";
 import type { EventEnvelope } from "../contract.js";
 
@@ -63,14 +67,18 @@ declare module "@deepseek-ai/dsh-llm" {
 
 // ── Contract registries ──────────────────────────────────────────────────────────────────────────
 //
-// `src/host/contract.ts` models two host vocabularies as "declared members + an opaque rest": the
-// content-block kinds and the session-event kinds a core does not narrow on. The adapter is what
-// closes those unions, by naming the host's own key sets here. Without this augmentation the opaque
-// half is `never`, and no host block or event is assignable to the contract.
+// `src/host/contract.ts` models four host vocabularies as "declared members + an opaque rest": the
+// content-block kinds, the session-event kinds, the stream-chunk kinds and the finish-reason kinds a
+// core does not narrow on. The adapter is what closes those unions, by naming the host's own key
+// sets here. Without this augmentation an opaque half is `never`, and no host block, event, chunk
+// or finish reason is assignable to the contract.
 //
-// Both are computed from the host's own maps, so a new upstream block or event keeps compiling
-// without a hand-maintained list going stale.
+// All four are computed from the host's own maps, so a new upstream entry keeps compiling without a
+// hand-maintained list going stale. The two failure finish kinds are excluded because the contract
+// is what requires their `failure`; every other kind carries none.
 declare module "../contract.js" {
 	interface OpaqueBlockTypes extends Record<Exclude<keyof ContentBlockMap, "text" | "tool-call">, true> {}
 	interface OpaqueEventTypes extends Record<Exclude<keyof SessionEventMap, "user/message">, true> {}
+	interface OpaqueChunkTypes extends Record<Exclude<HostStreamChunk["type"], "text-delta" | "tool-call-delta" | "block-end" | "usage" | "finish">, true> {}
+	interface OtherFinishKinds extends Record<Exclude<HostFinishReason["kind"], "error" | "aborted">, true> {}
 }

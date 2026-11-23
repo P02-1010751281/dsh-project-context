@@ -58,9 +58,10 @@ export type CompletionOutcome = {
  *
  * The kind is deliberately never `user`: `userTurnCount` counts human turns by `source.kind === "user"`,
  * and dsh's goal tools grant `create_goal` / `update_goal edit|pause|resume` to a "direct human turn" by
- * reading that same field (`goal/tool-goal/src/authority.ts`). Anything this plugin writes on the
- * model's behalf — an auxiliary call's prompt, or the handoff seed — must therefore carry its own
- * kind instead of borrowing the person's authority.
+ * reading that same field (`goal/tool-goal/src/authority.ts`). Anything this plugin writes into a
+ * session on the model's behalf — the handoff seed — must therefore carry its own kind instead of
+ * borrowing the person's authority. (An auxiliary call's prompt is not a logged message: it is a
+ * one-shot request, identity-free by contract, and never enters a session log.)
  */
 export declare function pluginUserMessage(text: string): UserMessage;
 /** Resolve the learn-pass route: explicit config, then the agent's latest routed request, then AgentOptions. */

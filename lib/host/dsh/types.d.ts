@@ -1,7 +1,7 @@
 export type { Context } from "@deepseek-ai/cordis";
 import { isSurfaceEligibleType } from "@deepseek-ai/dsh-session";
 export { isSurfaceEligibleType };
-import type { ContentBlockMap } from "@deepseek-ai/dsh-llm";
+import type { ContentBlockMap, FinishReason as HostFinishReason, StreamChunk as HostStreamChunk } from "@deepseek-ai/dsh-llm";
 import type { SessionEventMap } from "@deepseek-ai/dsh-session";
 import type { EventEnvelope } from "../contract.js";
 /**
@@ -39,5 +39,9 @@ declare module "../contract.js" {
     interface OpaqueBlockTypes extends Record<Exclude<keyof ContentBlockMap, "text" | "tool-call">, true> {
     }
     interface OpaqueEventTypes extends Record<Exclude<keyof SessionEventMap, "user/message">, true> {
+    }
+    interface OpaqueChunkTypes extends Record<Exclude<HostStreamChunk["type"], "text-delta" | "tool-call-delta" | "block-end" | "usage" | "finish">, true> {
+    }
+    interface OtherFinishKinds extends Record<Exclude<HostFinishReason["kind"], "error" | "aborted">, true> {
     }
 }

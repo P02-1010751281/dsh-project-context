@@ -49,14 +49,6 @@ const OPEN_TASKS_HEADING = "Open tasks";
 const TODO_PROJECTION_KEY = "todos";
 
 /**
- * `snapshot` takes keys from the merged `SessionProjectionMap`; the key above is deliberately not
- * declared in this program, so it is passed through the parameter's own type rather than widened to
- * `string` at the call (the call must still be the registry's real one).
- */
-type SnapshotKeys = NonNullable<Parameters<SessionProjectionRegistry["snapshot"]>[1]>;
-const TODO_SNAPSHOT_KEYS = [TODO_PROJECTION_KEY] as unknown as SnapshotKeys;
-
-/**
  * The document lines one projection value stands for, or `undefined` when it has no opinion.
  *
  * `null` (and an absent or malformed value) means "no write happened", which must stay distinct
@@ -97,8 +89,8 @@ export function todoLinesIn(text: string): string[] {
 /** The session's todo snapshot as document lines; `undefined` when it has no opinion. */
 export function projectTodoLines(projections: SessionProjectionRegistry | undefined, session: Session): string[] | undefined {
 	if (projections === undefined) return undefined;
-	const values: Record<string, unknown> = projections.snapshot(session, TODO_SNAPSHOT_KEYS).values as unknown as Record<string, unknown>;
-	return todoLines(values[TODO_PROJECTION_KEY]);
+	const values = projections.snapshot(session, [TODO_PROJECTION_KEY]).values;
+	return todoLines(values.todos);
 }
 
 /** One line's membership in a fenced code block, so a `## …` or a bullet inside one is content. */

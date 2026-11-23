@@ -64,13 +64,14 @@ export type CompletionOutcome = {
  *
  * The kind is deliberately never `user`: `userTurnCount` counts human turns by `source.kind === "user"`,
  * and dsh's goal tools grant `create_goal` / `update_goal edit|pause|resume` to a "direct human turn" by
- * reading that same field (`goal/tool-goal/src/authority.ts`). Anything this plugin writes on the
- * model's behalf — an auxiliary call's prompt, or the handoff seed — must therefore carry its own
- * kind instead of borrowing the person's authority.
+ * reading that same field (`goal/tool-goal/src/authority.ts`). Anything this plugin writes into a
+ * session on the model's behalf — the handoff seed — must therefore carry its own kind instead of
+ * borrowing the person's authority. (An auxiliary call's prompt is not a logged message: it is a
+ * one-shot request, identity-free by contract, and never enters a session log.)
  */
 export function pluginUserMessage(text: string): UserMessage {
 	return {
-		id: randomUUID() as UserMessage["id"],
+		id: randomUUID(),
 		role: "user",
 		content: [{ type: "text", text }],
 		source: { kind: LEARN_PLUGIN_NAME },
@@ -199,9 +200,11 @@ export async function requestPluginTextWithMeta(
 		provider: target.provider,
 		model: target.model,
 		sessionId: options.sessionId,
-		messages: [pluginUserMessage(prompt)],
+		// Identity-free and text-only: a request is one prompt, not a logged message, so it carries
+		// neither a durable message id nor a source (the contract's `RequestUserMessage`).
+		messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
 		maxTokens,
-		...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort as GenerateOptions["reasoningEffort"] }),
+		...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
 		// Omitted — not an empty array — when this call offers no tool, so a caller that never grew a
 		// tool keeps sending the byte-identical request it always did.
 		...(options.tools === undefined || options.tools.length === 0 ? {} : { tools: [...options.tools] }),

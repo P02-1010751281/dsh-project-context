@@ -17,11 +17,13 @@
  * hands a core — no runtime wrapper exists and the assignability is checked wherever the host passes
  * one in.
  *
- * Two shapes are open-ended on the host side (the event log and the content-block list both grow when
- * a host package adds an entry). They are modeled as a closed union of the members the cores narrow
- * on plus one *opaque* member whose `type` names are declared by the adapter, through the
- * {@link OpaqueEventTypes} / {@link OpaqueBlockTypes} registries. That keeps `event.type === "…"`
- * a real discriminant for the cores while every host event or block stays assignable.
+ * Four shapes are open-ended on the host side: the event log, the content-block list, the stream
+ * chunk union and the finish-reason kinds all grow when a host package adds an entry. They are
+ * modeled as a closed union of the members the cores narrow on plus one *opaque* member whose
+ * `type` names are declared by the adapter, through the {@link OpaqueEventTypes} /
+ * {@link OpaqueBlockTypes} / {@link OpaqueChunkTypes} / {@link OtherFinishKinds} registries. That
+ * keeps `event.type === "…"` a real discriminant for the cores while every host event, block,
+ * chunk or finish kind stays assignable.
  *
  * Registration goes through {@link HostContext} at the bottom of this file (phase 2c of
  * `docs/core-host-boundary.md`): a plugin entry adapts its harness context once and hands the core a
@@ -91,13 +93,26 @@ export interface PluginTool {
     /** JSON Schema object for the arguments. */
     readonly parameters: Record<string, unknown>;
 }
+/**
+ * One user input as a request carries it: identity-free and text-only.
+ *
+ * A request is one prompt for one auxiliary call, and the host's own one-shot request shape
+ * carries no durable identity — `id` and `source` belong to the session log, not to a request —
+ * so a request message has neither. An opaque block is not representable either: {@link OpaqueBlock}
+ * carries only its `type`, so a request that meant to send one could not be reconstructed for the
+ * host; this port's producer (`src/shared/model-call.ts`) sends exactly one text block.
+ */
+export interface RequestUserMessage {
+    readonly role: "user";
+    readonly content: readonly TextBlock[];
+}
 /** The request one auxiliary call sends: exactly the fields `requestPluginTextWithMeta` sets. */
 export interface GenerateOptions {
     provider: string;
     model: string;
     /** The live session this call routes on; a route may refuse a request without it. */
     sessionId: string;
-    messages: readonly UserMessage[];
+    messages: readonly RequestUserMessage[];
     maxTokens?: number;
     reasoningEffort?: string;
     tools?: PluginTool[];
@@ -132,12 +147,8 @@ export interface ToolCallDeltaChunk {
 export interface BlockEndChunk {
     readonly type: "block-end";
     readonly index: number;
-    /** Only the tool-call block is read by the reply loop; other block kinds are ignored. */
-    readonly block: {
-        readonly type: "tool-call";
-        readonly name: string;
-        readonly arguments: string;
-    };
+    /** The assembled block; the reply loop reads only the tool-call one and skips the rest. */
+    readonly block: ContentBlock;
 }
 /** A usage report for the reply so far. */
 export interface UsageChunk {
@@ -146,20 +157,44 @@ export interface UsageChunk {
         readonly reasoningTokens?: number;
     };
 }
-/** How the reply ended, including the failure an error or abort carries. */
+/** The failure an error or an abort carries: the host's machine-routable code plus its message. */
+export interface FinishFailure {
+    readonly message: string;
+    readonly code: string;
+}
+/**
+ * Finish kinds that carry no failure.
+ *
+ * A harness adapter closes this with its own remaining kinds (`src/host/dsh/types.ts`), which keeps
+ * the two failure kinds below the only ones that require a `failure` — the reply loop reads it
+ * there and nowhere else — while a provider-specific kind stays assignable.
+ */
+export interface OtherFinishKinds {
+}
+/** Why a reply ended; a failure is present exactly on the `error` and `aborted` kinds. */
+export type FinishReason = {
+    readonly kind: "error" | "aborted";
+    readonly failure: FinishFailure;
+} | {
+    readonly kind: keyof OtherFinishKinds;
+};
+/** How the reply ended, with the failure an error or an abort carries. */
 export interface FinishChunk {
     readonly type: "finish";
-    readonly reason: {
-        readonly kind: string;
-        /** Present whenever `kind` is an error or an abort; the reply loop reads it only there. */
-        readonly failure: {
-            readonly message: string;
-            readonly code: string;
-        };
-    };
+    readonly reason: FinishReason;
+}
+/**
+ * Chunk kinds a harness emits that no core narrows on. A harness adapter closes this by interface
+ * merging (`src/host/dsh/types.ts`); the value type is irrelevant.
+ */
+export interface OpaqueChunkTypes {
+}
+/** Any streamed chunk the cores only skip over: they read its `type` and nothing else. */
+export interface OpaqueChunk {
+    readonly type: keyof OpaqueChunkTypes;
 }
 /** One streamed reply event: the vocabulary the reply loop narrows on, declared here rather than borrowed. */
-export type StreamChunk = TextDeltaChunk | ToolCallDeltaChunk | BlockEndChunk | UsageChunk | FinishChunk;
+export type StreamChunk = TextDeltaChunk | ToolCallDeltaChunk | BlockEndChunk | UsageChunk | FinishChunk | OpaqueChunk;
 /**
  * The model port: the two calls a core makes, named host-neutrally.
  *
@@ -251,19 +286,30 @@ export interface Agent {
         readonly model?: string;
     };
 }
+/**
+ * The projection keys the cores read. Closed on purpose: the host registry would otherwise accept
+ * any key string, so a misspelled or upstream-renamed key would typecheck and then read as an
+ * empty value. The adapter translates each key to the host's own (`src/host/dsh/services.ts`).
+ */
+export type ProjectionKey = "contextBreakdown" | "todos";
 /** The `contextBreakdown` projection's envelope half; `messageTokens` is not read. */
 export interface ContextBreakdownProjection {
     readonly systemTokens: number;
     readonly toolsTokens: number;
 }
-/** The projection values a snapshot returns; only `contextBreakdown` is read typed, the rest as data. */
+/**
+ * The projection values a snapshot returns. `contextBreakdown` is read typed; `todos` is the other
+ * key a core reads, and only "a value is present" is declared for it — the package that owns the
+ * key and its shape (`@deepseek-ai/dsh-tool-todo/types`) is outside this package's pinned type
+ * baseline, so the core parses the value defensively instead of naming its shape here.
+ */
 export interface ProjectionValues {
     readonly contextBreakdown?: ContextBreakdownProjection;
-    readonly [key: string]: unknown;
+    readonly todos?: unknown;
 }
-/** The session-projection registry's one read face. */
+/** The session-projection registry's one read face: the keys a core names, in the contract's vocabulary. */
 export interface SessionProjectionRegistry {
-    snapshot(session: Session, keys: readonly string[]): {
+    snapshot(session: Session, keys: readonly ProjectionKey[]): {
         readonly values: ProjectionValues;
     };
 }

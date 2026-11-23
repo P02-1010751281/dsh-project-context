@@ -9,7 +9,9 @@
  * The getters accept {@link ServiceRegistry} rather than a full `Context` so the handoff watcher —
  * which is deliberately testable with a fake `{ get }` — uses the same seam.
  */
-import type { Session, SessionProjectionRegistry, UserMessage } from "../contract.js";
+import type { Session as HostSession } from "@deepseek-ai/dsh-session";
+import type { SessionProjectionMap } from "@deepseek-ai/dsh-session-projection";
+import type { ProjectionKey, Session, SessionProjectionRegistry, UserMessage } from "../contract.js";
 
 /** The one thing a service lookup needs from the plugin context. */
 export interface ServiceRegistry {
@@ -186,6 +188,57 @@ export function watchConversationOf(ctx: ServiceRegistry): WatchConversationLike
 	return ctx.get("conversation") as WatchConversationLike | undefined;
 }
 
+/**
+ * Contract projection key → host projection key.
+ *
+ * The map is exhaustive over {@link ProjectionKey} (`satisfies`), so adding a contract key is a
+ * compile error here, and the half the host's own map declares is checked against that map: rename
+ * `contextBreakdown` upstream and this file stops compiling instead of the read silently returning
+ * an empty value — the failure the contract's closed key union exists to prevent.
+ * `todos` cannot be part of that check: the key is declared by `@deepseek-ai/dsh-tool-todo/types`,
+ * which is outside this package's pinned type baseline, so the map in this program does not
+ * contain it and it stays the named string the core also uses.
+ */
+const HOST_PROJECTION_KEYS = {
+	contextBreakdown: "contextBreakdown" satisfies Extract<keyof SessionProjectionMap, string>,
+	todos: "todos",
+} satisfies Record<ProjectionKey, string>;
+
+/** Every key the host snapshot accepts from this adapter: its own, plus the one this program cannot declare. */
+type HostProjectionKey = Extract<keyof SessionProjectionMap, string> | typeof HOST_PROJECTION_KEYS.todos;
+
+/**
+ * The host registry's read face: the host's own `Session` and value table, keyed by the host's
+ * vocabulary plus the contract's undeclared key. The wrapper below converts that table into the
+ * contract's {@link ProjectionValues}, so the conversion is checked where the two shapes meet.
+ */
+interface HostProjectionRegistry {
+	snapshot(session: HostSession, keys?: readonly HostProjectionKey[]): { readonly values: Partial<SessionProjectionMap> };
+}
+
+/**
+ * The session-projection registry, translated to the contract's key vocabulary.
+ *
+ * The translation is the point of this wrapper: a core names `contextBreakdown`/`todos`, the host
+ * receives its own key, and the value table is converted where both shapes are named. A wrapper is
+ * allocated per call (two call sites, once per pass or turn), which is the cost of keeping the key
+ * vocabulary closed at the core boundary.
+ * @param ctx - the service lookup.
+ * @returns the contract face, or `undefined` when this profile ships no projection registry.
+ */
 export function projectionsOf(ctx: ServiceRegistry): SessionProjectionRegistry | undefined {
-	return ctx.get("sessionProjections") as SessionProjectionRegistry | undefined;
+	const registry = ctx.get("sessionProjections") as HostProjectionRegistry | undefined;
+	if (registry === undefined) return undefined;
+	return {
+		snapshot(session, keys) {
+			const hostKeys: readonly HostProjectionKey[] = keys.map((key) => HOST_PROJECTION_KEYS[key]);
+			// The one identity widening this adapter keeps, and it is documented rather than concealed:
+			// every `Session` a core holds is a host `Session` instance (the contract's shape is the read
+			// subset of it), but the contract types `id` as a plain string, so the host's branded
+			// parameter cannot accept it structurally. Branding every session at every boundary would
+			// cost a value-level conversion of an object the cores only ever pass through.
+			const snapshot = registry.snapshot(session as unknown as HostSession, hostKeys);
+			return { values: snapshot.values };
+		},
+	};
 }

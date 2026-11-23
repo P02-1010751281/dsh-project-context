@@ -2,15 +2,19 @@
  * The dsh binding of the model port.
  *
  * The port itself — {@link LlmPort} and the reply-chunk union — is declared in `../contract.ts`, so a
- * core names no framework type. This file owns the one mapping: `ctx.llm` is dsh's service object,
- * and it is widened once, here, instead of at every call site.
+ * core names no framework type. This file owns the mapping in both directions: an outbound
+ * `GenerateOptions` is rebuilt field by field with the host's own brand constructors
+ * ({@link toHostRequest}), and the service's reply stream is exposed as the contract's chunk union,
+ * whose open halves the adapter's type registries close (`./types.ts`).
  *
- * The widening is deliberate and narrow: dsh's declared `stream` accepts dsh's own request type,
- * which carries more fields than the contract's {@link GenerateOptions}; the contract only ever
- * sends the subset it declares, so the cast buys the neutral vocabulary without claiming the two
- * requests are identical. A second adapter supplies its own port and needs no cast.
+ * Nothing here casts the service or the request: every shape mismatch between the two vocabularies is
+ * a compile error in this file, not a pass-through that a later reader has to trust. The one residual
+ * widening in the package is documented where it lives (`projectionsOf` in `./services.ts`).
  */
-import type { Context, LlmPort } from "../contract.js";
+import type { Context, GenerateOptions, LlmPort } from "../contract.js";
+import type { GenerateOptions as HostGenerateOptions, RequestUserInput } from "@deepseek-ai/dsh-llm";
+import { ReasoningEffortId } from "@deepseek-ai/dsh-llm/brand";
+import { SessionId } from "@deepseek-ai/dsh-session";
 
 export type {
 	BlockEndChunk,
@@ -23,10 +27,50 @@ export type {
 } from "../contract.js";
 
 /**
+ * Rebuild one contract request as the host's own request.
+ *
+ * Field by field on purpose. The two shapes differ in the branded ids (`sessionId`, `reasoningEffort`)
+ * and in array mutability (`messages`, `tools`), which is exactly what a wholesale cast used to hide.
+ * The messages are identity-free user inputs: a plugin request carries one prompt, the host's own
+ * one-shot shape has no slot for a durable message id or source, and the contract's request message
+ * names text blocks only. The tool declarations are copied into a new mutable array because the host
+ * owns the array it is given.
+ * The routing session is required in the result even though the host declares it optional: a route
+ * may refuse a request that names none, so this conversion states the obligation instead of
+ * inheriting "optional" from the host's type.
+ * @param options - the request a core built.
+ * @returns the same request in the host's vocabulary.
+ */
+export function toHostRequest(options: GenerateOptions): HostGenerateOptions & {
+	readonly sessionId: NonNullable<HostGenerateOptions["sessionId"]>;
+} {
+	const messages: RequestUserInput[] = options.messages.map((message) => ({ role: "user", content: message.content }));
+	return {
+		provider: options.provider,
+		model: options.model,
+		messages,
+		sessionId: SessionId(options.sessionId),
+		// Absent stays absent: each optional field is spread in only when the core set it, so a caller
+		// that never named one sends the byte-identical request it always did.
+		...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
+		...(options.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(options.reasoningEffort) }),
+		...(options.tools === undefined ? {} : { tools: [...options.tools] }),
+		...(options.signal === undefined ? {} : { signal: options.signal }),
+	};
+}
+
+/**
  * Bind the host's model service to the neutral port.
  * @param ctx - the plugin context `apply` received.
  * @returns the port the cores call.
  */
 export function llmOf(ctx: Context): LlmPort {
-	return ctx.llm as unknown as LlmPort;
+	return {
+		resolveModelInfo(provider, model, signal) {
+			return ctx.llm.resolveModelInfo(provider, model, signal);
+		},
+		stream(options) {
+			return ctx.llm.stream(toHostRequest(options));
+		},
+	};
 }

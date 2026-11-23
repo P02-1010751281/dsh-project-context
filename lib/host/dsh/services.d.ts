@@ -1,14 +1,3 @@
-/**
- * The host service views.
- *
- * Every service lookup in the repository lives here. The cores ask for a named view and never for a
- * service name, so a second host implements these getters against its own registry and the plugin
- * logic stays unchanged. Each view is a structural subset: undefined means "this profile does not
- * ship that service", which is a state the callers already handle deliberately.
- *
- * The getters accept {@link ServiceRegistry} rather than a full `Context` so the handoff watcher —
- * which is deliberately testable with a fake `{ get }` — uses the same seam.
- */
 import type { Session, SessionProjectionRegistry, UserMessage } from "../contract.js";
 /** The one thing a service lookup needs from the plugin context. */
 export interface ServiceRegistry {
@@ -179,4 +168,14 @@ export declare function agentsOf(ctx: ServiceRegistry): AgentsLike | undefined;
 export declare function sessionTitleOf(ctx: ServiceRegistry): SessionTitleLike | undefined;
 export declare function watchSessionsOf(ctx: ServiceRegistry): WatchSessionsLike | undefined;
 export declare function watchConversationOf(ctx: ServiceRegistry): WatchConversationLike | undefined;
+/**
+ * The session-projection registry, translated to the contract's key vocabulary.
+ *
+ * The translation is the point of this wrapper: a core names `contextBreakdown`/`todos`, the host
+ * receives its own key, and the value table is converted where both shapes are named. A wrapper is
+ * allocated per call (two call sites, once per pass or turn), which is the cost of keeping the key
+ * vocabulary closed at the core boundary.
+ * @param ctx - the service lookup.
+ * @returns the contract face, or `undefined` when this profile ships no projection registry.
+ */
 export declare function projectionsOf(ctx: ServiceRegistry): SessionProjectionRegistry | undefined;
