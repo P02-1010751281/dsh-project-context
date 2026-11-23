@@ -111,7 +111,7 @@ interface ThresholdOverride {
  * returned {@link ThresholdOverride} says so and `/handoff status` warns. The physical "worthwhile
  * drop" floor stays enforced by ①: a threshold below it refuses, it does not clamp.
  */
-export declare function resolveThreshold(config: PluginConfig, measurement: ContextMeasurement, contextWindow: number): {
+export declare function resolveThreshold(config: PluginConfig, measurement: ContextMeasurement, contextWindow: number, language?: HandoffLanguage): {
     tokens: number;
     label: string;
     override?: ThresholdOverride;

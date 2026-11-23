@@ -21,6 +21,7 @@
  * Only `expired` is allowed to move a skill out of service, and only for a skill this pipeline
  * generated (the provenance marker) — a hand-written skill is never touched.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 /** What a learned skill's own evidence says about it, most certain first. */
 export type SkillState = "unbaselined" | "expired" | "moved" | "drifted" | "orphan" | "intact";
 /** Every state, in the order a receipt counts them. */
@@ -68,7 +69,7 @@ export interface SkillStateReport {
  * @param facts - what the source measured.
  * @returns the winning state and the evidence a receipt can print.
  */
-export declare function skillStateOf(facts: SkillFacts): SkillVerdict;
+export declare function skillStateOf(facts: SkillFacts, language?: DocumentLanguage): SkillVerdict;
 /**
  * Judge the whole corpus, in name order so two runs produce the same receipt.
  * @param facts - one entry per learned skill.
@@ -76,7 +77,7 @@ export declare function skillStateOf(facts: SkillFacts): SkillVerdict;
  */
 export declare function skillStates(facts: readonly SkillFacts[], corpus?: {
     readonly total: number;
-}): SkillStateReport;
+}, language?: DocumentLanguage): SkillStateReport;
 /** True for the one state the pipeline is allowed to act on by itself. */
 export declare function retiresSkill(state: SkillState): boolean;
 /**
@@ -88,4 +89,4 @@ export declare function retiresSkill(state: SkillState): boolean;
  * @param named - how many entries to name.
  * @returns the command text.
  */
-export declare function skillStatusReceipt(report: SkillStateReport, named?: number): string;
+export declare function skillStatusReceipt(report: SkillStateReport, named?: number, language?: DocumentLanguage): string;

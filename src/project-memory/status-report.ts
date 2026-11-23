@@ -20,6 +20,7 @@
  * because "0 entries" would read as "this memory is empty" when the truth is "this is not our shape".
  */
 
+import { counted, type DocumentLanguage, pick } from "../shared/language.js";
 import { isMemoryTruncated } from "./document.js";
 import { MEMORY_SECTIONS } from "./memory-schema.js";
 import { sectionsFromMarkdown, type MemorySections } from "./sections.js";
@@ -81,27 +82,33 @@ const COUNTED_SECTIONS: ReadonlyArray<{ heading: string; key: keyof MemorySectio
 	key: section.heading.toLowerCase() as keyof MemorySections,
 }));
 
-/** `1 backup` / `2 backups`: a receipt reads as prose, so the count agrees with its noun. */
-function plural(count: number, singular: string, plural: string): string {
-	return `${count} ${count === 1 ? singular : plural}`;
+/** `1 backup` / `2 backups` / `2 个备份`: a receipt reads as prose, so the count agrees with its noun. */
+function plural(language: DocumentLanguage, count: number, singular: string, many: string, zh: string): string {
+	return `${count} ${counted(language, count, singular, many, zh)}`;
 }
 
 /** `138 entries (Project 12, Invariants 64, Pitfalls 44, Index 18)`, or a named refusal to count. */
-function sectionsClause(document: string): string {
+function sectionsClause(document: string, language: DocumentLanguage = "en"): string {
 	const parsed = sectionsFromMarkdown(document);
 	if (parsed === undefined) {
-		return "sections unparseable (not a plain four-section bullet document — entry counts withheld, not reported as 0)";
+		return pick(language, "段落不可解析（不是纯四段项目符号文档 —— 条目计数保留，绝不报 0）", "sections unparseable (not a plain four-section bullet document — entry counts withheld, not reported as 0)");
 	}
 	const counts = COUNTED_SECTIONS.map(({ heading, key }) => `${heading} ${parsed[key].length}`);
 	const total = COUNTED_SECTIONS.reduce((sum, { key }) => sum + parsed[key].length, 0);
-	return `${plural(total, "entry", "entries")} (${counts.join(", ")})`;
+	// The line's own label is part of the clause: leaving it to the caller produced `sections: 138 个条目`
+	// — the mixed line this batch exists to remove.
+	return pick(language, `段落：${total} 个条目（${counts.join("、")}）`, `sections: ${plural(language, total, "entry", "entries", "个条目")} (${counts.join(", ")})`);
 }
 
 /** `journal <path> 12 line(s) / 900 byte(s)`, with absence and unreadability named as themselves. */
-function journalClause(path: string, facts: JournalFacts): string {
-	if (facts.kind === "absent") return `journal ${path} none yet`;
-	if (facts.kind === "unreadable") return `journal ${path} unreadable`;
-	return `journal ${path} ${plural(facts.lines, "line", "lines")} / ${plural(facts.bytes, "byte", "bytes")}`;
+function journalClause(path: string, facts: JournalFacts, language: DocumentLanguage = "en"): string {
+	if (facts.kind === "absent") return pick(language, `日志 ${path} 尚未生成`, `journal ${path} none yet`);
+	if (facts.kind === "unreadable") return pick(language, `日志 ${path} 无法读取`, `journal ${path} unreadable`);
+	return pick(
+		language,
+		`日志 ${path} ${plural(language, facts.lines, "line", "lines", "行")} / ${plural(language, facts.bytes, "byte", "bytes", "字节")}`,
+		`journal ${path} ${plural(language, facts.lines, "line", "lines", "行")} / ${plural(language, facts.bytes, "byte", "bytes", "字节")}`,
+	);
 }
 
 /**
@@ -122,7 +129,7 @@ function journalClause(path: string, facts: JournalFacts): string {
  * @param report - the loaded document, its flags, and the file facts the adapter measured.
  * @returns the command result.
  */
-export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success" | "error"; text: string } {
+export function formatMemoryStatus(report: MemoryStatusReport, language: DocumentLanguage = "en"): { kind: "success" | "error"; text: string } {
 	// One line per fact group. The receipt used to be a single `·`-joined sentence; once the staleness
 	// verdict joined it, that sentence outgrew a terminal line, so the groups are separated by newlines
 	// while the `·` separator survives *inside* a line where it still helps scanning the numbers.
@@ -134,9 +141,17 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	// `consolidate.ts`), which is `cappedDroppedChars`. Warning that "this read is cut" off the marker
 	// alone tells the user a wrong cause: nothing was hidden from them.
 	const capped = report.cappedDroppedChars > 0
-		? `Warning: MEMORY.md is at the ${report.maxChars}-character cap — this read is cut, so a consolidation pass refuses to rewrite it (status read-capped-refused), and anything appended past the cap is dropped on write; raise maxMemoryChars or shorten the document.`
+		? pick(
+			language,
+			`警告：MEMORY.md 达到 ${report.maxChars} 字符上限 —— 本次读取被切，整理 pass 会拒绝重写它（状态 read-capped-refused），超过上限追加的内容会在写入时被丢弃；请调大 maxMemoryChars 或缩短文档。`,
+			`Warning: MEMORY.md is at the ${report.maxChars}-character cap — this read is cut, so a consolidation pass refuses to rewrite it (status read-capped-refused), and anything appended past the cap is dropped on write; raise maxMemoryChars or shorten the document.`,
+		)
 		: isMemoryTruncated(report.document)
-			? `Note: MEMORY.md still carries the marker of an earlier cap, but nothing was dropped from this read — the document was rewritten short since; the next consolidation pass rewrites it and clears the marker.`
+			? pick(
+				language,
+				"说明：MEMORY.md 仍带着早前上限留下的标记，但本次读取没有丢任何内容 —— 文档此后被改短过；下一次整理 pass 会重写它并清掉标记。",
+				"Note: MEMORY.md still carries the marker of an earlier cap, but nothing was dropped from this read — the document was rewritten short since; the next consolidation pass rewrites it and clears the marker.",
+			)
 			: "";
 	// `trim()` decides only whether there is a document; the size printed is the document's own length,
 	// never a normalized count (a trimmed length would quietly disagree with the file the user opens).
@@ -146,15 +161,23 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	let primary: string;
 	if (report.unreadable) {
 		const hint = report.source.endsWith("memory.jsonl")
-			? `Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl`
-			: `check its permissions`;
-		primary = `Memory: exists but cannot be read — ${report.source}; ${hint}.`;
+			? pick(language, "删掉它以便从 MEMORY.md 重建，或从 memory-log-*.jsonl 恢复", "Delete it to rebuild from MEMORY.md, or restore from memory-log-*.jsonl")
+			: pick(language, "检查它的权限", "check its permissions");
+		primary = pick(language, `记忆：存在但无法读取 —— ${report.source}；${hint}。`, `Memory: exists but cannot be read — ${report.source}; ${hint}.`);
 	} else if (report.damaged > 0) {
-		primary = `Memory: ${report.journalPath} (${report.damaged} unusable line(s) skipped; see .agents/memory/errors.log).`;
+		primary = pick(
+			language,
+			`记忆：${report.journalPath}（跳过 ${report.damaged} 行不可用记录；见 .agents/memory/errors.log）。`,
+			`Memory: ${report.journalPath} (${report.damaged} unusable line(s) skipped; see .agents/memory/errors.log).`,
+		);
 	} else if (report.poisoned) {
-		primary = `Memory: ${report.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).`;
+		primary = pick(
+			language,
+			`记忆：${report.source}（以旧缺陷留下的原始 JSON 存储；下一次整理会先备份再改写成 Markdown）。`,
+			`Memory: ${report.source} (stored as raw JSON from the old bug; the next consolidation backs it up and rewrites it as Markdown).`,
+		);
 	} else if (empty) {
-		primary = `Memory: none yet — ${report.expectedPath}`;
+		primary = pick(language, `记忆：尚未生成 —— ${report.expectedPath}`, `Memory: none yet — ${report.expectedPath}`);
 	} else {
 		// The measurements lead, not the source path. The client renders a command receipt as a
 		// collapsed row: `.summary` is `white-space: nowrap` with an ellipsis, and the full text is a
@@ -162,21 +185,24 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 		// single-line receipt can never be expanded, and the visible prefix of the flattened text is
 		// all a reader sees without opening it. An absolute path there pushed the size, the section
 		// counts and `stale N` past the clip.
-		primary = "Memory:";
+		primary = pick(language, "记忆：", "Memory:");
 	}
 	// A document we could not load has no size or sections to report; saying `0 chars` for it would be
 	// the same wrong cause the unreadable wording above refuses to tell.
 	if (!report.unreadable && !empty) {
-		const measurement = `${document.length}/${report.maxChars} chars (${Math.round((document.length / report.maxChars) * 100)}%)`;
+		const measurement = pick(
+			language,
+			`${document.length}/${report.maxChars} 字符（${Math.round((document.length / report.maxChars) * 100)}%）`,
+			`${document.length}/${report.maxChars} chars (${Math.round((document.length / report.maxChars) * 100)}%)`,
+		);
 		// Every other branch's `primary` is a finished sentence naming the broken thing; only the healthy
 		// branch is a bare label waiting for its numbers.
-		lines.push(primary.endsWith(":") ? `${primary} ${measurement}` : `${primary} · ${measurement}`);
+		lines.push(primary.endsWith(":") || primary.endsWith("：") ? `${primary} ${measurement}` : `${primary} · ${measurement}`);
 		// The section breakdown is its own line. On one line it pushed the folded summary past the
 		// client's clip, and the size above is the number a reader acts on.
-		const sections = sectionsClause(report.document);
-		lines.push(sections.startsWith("sections ") ? sections : `sections: ${sections}`);
+		lines.push(sectionsClause(report.document, language));
 		// Only a document we could parse has entries to judge; the field is absent when nothing measured.
-		if (report.staleness !== undefined) lines.push(stalenessClause(report.staleness));
+		if (report.staleness !== undefined) lines.push(stalenessClause(report.staleness, language));
 	} else {
 		lines.push(primary);
 	}
@@ -184,15 +210,23 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	// The source gets its own line, and only when it is not the journal itself (the journal line names
 	// that file already). Keeping the journal line-leading preserves its anchored shape for both the
 	// tests and a reader scanning for `journal …`.
-	const source = !report.unreadable && !empty && report.source !== report.journalPath ? `source ${report.source}` : "";
+	const source = !report.unreadable && !empty && report.source !== report.journalPath
+		? pick(language, `来源 ${report.source}`, `source ${report.source}`)
+		: "";
 	if (source !== "") lines.push(source);
-	lines.push(journalClause(report.journalPath, report.files.journal));
+	lines.push(journalClause(report.journalPath, report.files.journal, language));
 	lines.push([
-		report.files.backups === undefined ? "backups unknown" : plural(report.files.backups, "backup", "backups"),
-		report.files.archivedSessions === undefined ? "archived sessions unknown" : `${plural(report.files.archivedSessions, "archived session", "archived sessions")}`,
-		report.files.errorLogLines === undefined ? "errors.log unknown" : `errors.log ${plural(report.files.errorLogLines, "line", "lines")}`,
+		report.files.backups === undefined
+			? pick(language, "备份数未知", "backups unknown")
+			: plural(language, report.files.backups, "backup", "backups", "个备份"),
+		report.files.archivedSessions === undefined
+			? pick(language, "归档会话数未知", "archived sessions unknown")
+			: plural(language, report.files.archivedSessions, "archived session", "archived sessions", "个归档会话"),
+		report.files.errorLogLines === undefined
+			? pick(language, "errors.log 未知", "errors.log unknown")
+			: pick(language, `errors.log ${report.files.errorLogLines} 行`, `errors.log ${plural(language, report.files.errorLogLines, "line", "lines", "行")}`),
 	].join(" · "));
-	lines.push("no last-pass result (consolidation outcomes are not persisted)");
+	lines.push(pick(language, "没有上一轮结果（整理结果不持久化）", "no last-pass result (consolidation outcomes are not persisted)"));
 	// Derived, not authoritative: the journal is append-only truth and this document is a projection of
 	// it. Borrowed from AOCI's `derived=true / authoritative=false` marker — the distinction is the one
 	// a reader needs before treating MEMORY.md as the record. Only when the loaded document really came
@@ -201,7 +235,7 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	// cases MEMORY.md is the source the receipt names — telling the reader "the authority is the
 	// journal" there would be a wrong cause.
 	if (!report.unreadable && !empty && report.source === report.journalPath) {
-		lines.push("derived view: MEMORY.md is a projection, the authority is the journal");
+		lines.push(pick(language, "派生视图：MEMORY.md 是投影，权威是日志", "derived view: MEMORY.md is a projection, the authority is the journal"));
 	}
 	return { kind: report.unreadable ? "error" : "success", text: lines.join("\n") };
 }

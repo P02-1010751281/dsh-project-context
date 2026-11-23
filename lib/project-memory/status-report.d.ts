@@ -19,6 +19,7 @@
  * a document it cannot read with certainty is reported as *unparseable*, not as four empty sections,
  * because "0 entries" would read as "this memory is empty" when the truth is "this is not our shape".
  */
+import { type DocumentLanguage } from "../shared/language.js";
 import { type StalenessFacts } from "./staleness.js";
 /**
  * The journal as the adapter measured it.
@@ -90,7 +91,7 @@ export interface MemoryStatusReport {
  * @param report - the loaded document, its flags, and the file facts the adapter measured.
  * @returns the command result.
  */
-export declare function formatMemoryStatus(report: MemoryStatusReport): {
+export declare function formatMemoryStatus(report: MemoryStatusReport, language?: DocumentLanguage): {
     kind: "success" | "error";
     text: string;
 };

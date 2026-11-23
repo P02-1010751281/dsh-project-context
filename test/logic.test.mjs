@@ -3987,7 +3987,7 @@ test("the status receipt follows the handoff language and names the setting by i
 	// setting, so this fixture exercises the `lower …` sentence rather than the inert-lever branch.
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 149_001 });
 	const status = await statusText(portsOf(ctx), session, config, signal);
-	assert.match(status, /lang auto \(zh\)/, "the receipt reports the language it resolved");
+	assert.match(status, /语言 自动（zh）/, "the receipt reports the language it resolved");
 	assert.match(status, /阈值不可用：不是窗口的问题/);
 	assert.match(status, /调小「保留最近对话（token）」/, "the lever is named by the card's own zh label");
 	assert.doesNotMatch(status.split("\n")[0], /threshold unavailable/, "a Chinese session is not given the English account on the line the card shows");

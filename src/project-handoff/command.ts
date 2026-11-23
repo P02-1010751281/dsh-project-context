@@ -14,6 +14,7 @@ import {
 	MIN_HANDOFF_SUMMARY_TOKENS,
 } from "../shared/limits.js";
 import { parseRatioInput } from "../shared/ratio.js";
+import { pick } from "../shared/language.js";
 import { formatThresholdSpec, parseThresholdSpec, parseTokenCount, thresholdSpecHelp } from "../shared/threshold-spec.js";
 import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
@@ -135,7 +136,7 @@ export async function statusText(
 	// when the text contains a newline — so a one-line receipt is clipped after roughly eighty columns
 	// and can never be opened. The decision (mode, occupancy, the threshold that will fire) therefore
 	// leads, and every supporting fact gets its own line, where the expanded body wraps it.
-	const head: string[] = [`Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`];
+	const head: string[] = [pick(language, `自动交接 ${config.handoffEnabled ? "开" : "关"}`, `Auto handoff ${config.handoffEnabled ? "ON" : "OFF"}`)];
 	const details: string[] = [];
 	/** The resolved trigger's own label, when the head could render one. */
 	let resolvedTrigger: string | undefined;
@@ -161,18 +162,18 @@ export async function statusText(
 			// did not make.
 			const measurement = measuredContext(meter, projections, session);
 			const percent = Math.round((measurement.totalTokens / contextWindow) * 100);
-			head.push(`context ${measurement.totalTokens}/${contextWindow} (${percent}%)`);
+			head.push(pick(language, `上下文 ${measurement.totalTokens}/${contextWindow}（${percent}%）`, `context ${measurement.totalTokens}/${contextWindow} (${percent}%)`));
 			// The envelope is an *input* to the trigger, and the trigger alone cannot show whether it
 			// arrived: a 1M window with a small `keep` puts the knee above the floor either way, so the
 			// same `threshold auto <n>` renders when the floor carries the envelope and when it falls back
 			// to `keep + MIN`. Without this line "the harness projection parsed" is unfalsifiable from the
 			// receipt — and it is the harness's composition, so a meter-supplied one is named as such.
 			details.push(measurement.envelopeSource === "projection"
-				? `harness envelope ${measurement.overheadTokens ?? 0}`
+				? pick(language, `harness 包络 ${measurement.overheadTokens ?? 0}`, `harness envelope ${measurement.overheadTokens ?? 0}`)
 				: measurement.envelopeSource === "meter"
-					? `meter envelope ${measurement.overheadTokens ?? 0} — not the harness composition`
-					: "harness envelope unavailable — no contextBreakdown projection");
-			const threshold = resolveThreshold(config, measurement, contextWindow);
+					? pick(language, `计量器包络 ${measurement.overheadTokens ?? 0} —— 不是 harness 的组合`, `meter envelope ${measurement.overheadTokens ?? 0} — not the harness composition`)
+					: pick(language, "harness 包络不可用 —— 没有 contextBreakdown 投影", "harness envelope unavailable — no contextBreakdown projection"));
+			const threshold = resolveThreshold(config, measurement, contextWindow, language);
 			// Never render every refusal as a claim about the window: `thresholdRefusal` names the
 			// comparison that actually failed, and the two are derived from the same terms. It can
 			// only return `undefined` here if `resolveThreshold` resolved, which this branch excludes.
@@ -181,7 +182,7 @@ export async function statusText(
 			// is therefore long — becomes a detail line so the clip cannot eat it.
 			// The head keeps the receipt's own language: a Chinese session gets 阈值不可用, never the English
 			// word, because the head is the only part a folded card shows.
-			head.push(threshold !== undefined ? `threshold ${threshold.label}` : language === "zh" ? "阈值不可用" : "threshold unavailable");
+			head.push(threshold !== undefined ? pick(language, `阈值 ${threshold.label}`, `threshold ${threshold.label}`) : pick(language, "阈值不可用", "threshold unavailable"));
 			resolvedTrigger = threshold?.label;
 			if (refusal !== undefined) details.push(thresholdRefusalText(refusal, config, measurement, contextWindow, language));
 			// Unreachable, and stated as the honest minimum rather than an invented cause: `thresholdRefusal`
@@ -208,7 +209,7 @@ export async function statusText(
 	// fixed mode the head prints exactly this number, so repeating `fixed threshold <n> tokens` below
 	// it showed the same value twice. `auto` still names the adaptive target, which the head never
 	// shows, and a refusal still says what was configured.
-	if (thresholdSetting.mode === "auto") details.push(`adaptive target ${config.handoffBudgetSummaryTokens}`);
+	if (thresholdSetting.mode === "auto") details.push(pick(language, `自适应目标 ${config.handoffBudgetSummaryTokens}`, `adaptive target ${config.handoffBudgetSummaryTokens}`));
 	else if (resolvedTrigger === undefined) details.push(thresholdSetting.mode === "ratio" ? `fixed ratio ${Math.round(thresholdSetting.ratio * 100)}%` : `fixed threshold ${thresholdSetting.tokens} tokens`);
 	// The setting's name is the settings card's, in the receipt's own language — `keep` is an internal
 	// shorthand that appears nowhere the user can see it.
@@ -217,8 +218,8 @@ export async function statusText(
 			? `「${HANDOFF_BUDGET_RECENT_LABEL.zh}」 ~${config.handoffBudgetRecentTokens}`
 			: `"${HANDOFF_BUDGET_RECENT_LABEL.en}" ~${config.handoffBudgetRecentTokens}`)
 		: (language === "zh" ? "0（不逐字带入对话尾料）" : "0 (no verbatim conversation tail)"));
-	details.push(`pending question ${config.handoffPendingQuestion}`);
-	details.push(config.handoffLang === "auto" ? `lang auto (${language})` : `lang ${language}`);
+	details.push(pick(language, `待答问题 ${config.handoffPendingQuestion}`, `pending question ${config.handoffPendingQuestion}`));
+	details.push(config.handoffLang === "auto" ? pick(language, `语言 自动（${language}）`, `lang auto (${language})`) : pick(language, `语言 ${language}`, `lang ${language}`));
 	// The automatic path skips this session while the conversation fits the recent window; without
 	// this line the only trace is a rate-limited server log the user cannot see.
 	const skippedAt = skippedSince.get(String(session.id));

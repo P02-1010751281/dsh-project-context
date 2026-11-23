@@ -27,7 +27,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
   与 `dsh/*` 视图认识宿主；`src/shared/` 是不持有插件业务的通用原语。`src/host/` 不得反向依赖插件或 shared。
   唯一例外是 `shared → project-handoff/language`（纯字符串判定 `isHandoffContinuationText`，见下表末行），
   该边已列进白名单；shared 不得再新增对插件的引用。
-- 允许的跨插件 import（白名单：7 条边、12 个不同 specifier、共 14 处）：
+- 允许的跨插件 import（白名单：8 条边、13 个不同 specifier、共 15 处）：
 
 | 边 | 证据 |
 |---|---|
@@ -38,9 +38,10 @@ docs/                  机制文档、规格与索引（docs/README.md）
 | `project-handoff → project-memory/tasks` | `src/project-handoff/binding.ts:25` |
 | `project-handoff → project-context/session-meta` | `src/project-handoff/binding.ts:26` |
 | `shared → project-handoff/language` | `src/shared/conversation.ts:9` |
+| `shared → project-handoff/conversation` | `src/shared/receipt-language.ts:22` |
 
-- specifier 集合（12）：`../project-context/archive.js`、`../project-context/session-index.js`、
-  `../project-context/session-meta.js`、`../project-handoff/language.js`、`../project-memory/context-doc.js`、
+- specifier 集合（13）：`../project-context/archive.js`、`../project-context/session-index.js`、
+  `../project-context/session-meta.js`、`../project-handoff/conversation.js`、`../project-handoff/language.js`、`../project-memory/context-doc.js`、
   `../project-memory/journal.js`、`../project-memory/load.js`、`../project-memory/memory-schema.js`、
   `../project-memory/memory-store.js`、`../project-memory/sections.js`、`../project-memory/tasks.js`、
   `../project-memory/todo.js`。判据：`node scripts/check-docs.mjs`（把上面的 `文件:行` 与这份名单和树逐条比对）。

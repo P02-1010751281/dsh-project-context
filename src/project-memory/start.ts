@@ -17,6 +17,7 @@ import { buildContextInjection, buildMemoryInjection, buildTaskInjection, buildT
 import { boundTaskSync, dateStamp, listTasksSync, taskRelativePath, taskViews } from "./tasks.js";
 import { detectDocumentLanguage } from "../shared/language.js";
 import { isTopLevel, projectCwd, SessionWorkTracker } from "../shared/lifecycle.js";
+import { receiptLanguage } from "../shared/receipt-language.js";
 import {
 	MAX_CONTEXT_CHARS,
 	cachedProjectRoot,
@@ -235,8 +236,13 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		input: { hint: "status | update | prune [--apply] | reconcile [--accept <id>]" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const verb = (rawInput ?? "").trim().toLowerCase();
+			const config = effectivePluginConfig(entry);
+			// One language for every `/memory` receipt. The resolver is the handoff one, so all four
+			// commands and `/handoff status` agree about the same conversation instead of each deciding
+			// separately (two copies of "enough Chinese" could disagree about one session).
+			const language = receiptLanguage(agent.session, config);
 			if (verb === "update") {
-				const report = await consolidateProject(host, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
+				const report = await consolidateProject(host, config, agent, { force: true, silent: false, signal });
 				return memoryUpdateReply(report);
 			}
 			if (verb === "prune" || verb === "prune --apply") {
@@ -246,7 +252,6 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			}
 			if (verb === "reconcile" || verb.startsWith("reconcile ")) {
 				const projectRoot = await getProjectRoot(projectCwd(agent.session));
-				const config = effectivePluginConfig(entry);
 				// The same cap `/memory` status reads under: the id has to be the one the document carries,
 				// and a read cut would silently hide the entries past it (reported below, never implied away).
 				const memory = await loadMemory(projectRoot, config.maxMemoryChars);
@@ -269,13 +274,12 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			// that works everywhere else was the one inconsistent surface. Both reach the same receipt.
 			if (verb !== "" && verb !== "status") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory [status] | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]` };
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
-			const config = effectivePluginConfig(entry);
 			const memory = await loadMemory(projectRoot, config.maxMemoryChars);
 			return memoryStatusReply(memory, {
 				projectRoot,
 				journal: memoryJournalFile(projectRoot),
 				maxMemoryChars: config.maxMemoryChars,
-			});
+			}, language);
 		},
 	});
 }

@@ -20,6 +20,7 @@
  * states (re-index, adopt the directory, rewrite the row), and none of them belongs to a read-only view.
  */
 /** What one archived session's own files say about it, most certain first. */
+import { type DocumentLanguage } from "../shared/language.js";
 export type SessionState = "missing" | "orphan" | "unbaselined" | "stale" | "abandoned" | "dangling" | "live" | "settled";
 /** Every state, in the order a receipt counts them. */
 export declare const SESSION_STATES: readonly SessionState[];
@@ -90,7 +91,7 @@ export interface SessionStateReport {
  * @param input - both sides of the archive plus the clock.
  * @returns one verdict per session id, and the counts a receipt prints.
  */
-export declare function sessionStates(input: SessionStateInput): SessionStateReport;
+export declare function sessionStates(input: SessionStateInput, language?: DocumentLanguage): SessionStateReport;
 /** True for the states a repair would act on. */
 export declare function brokenSession(state: SessionState): boolean;
 /**
@@ -103,4 +104,4 @@ export declare function brokenSession(state: SessionState): boolean;
  * @param named - how many broken sessions to name.
  * @returns the command text.
  */
-export declare function sessionStatusReceipt(report: SessionStateReport, named?: number): string;
+export declare function sessionStatusReceipt(report: SessionStateReport, named?: number, language?: DocumentLanguage): string;

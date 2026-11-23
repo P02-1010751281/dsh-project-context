@@ -56,7 +56,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
-    handoffLang: z<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffLang: z<"zh" | "en" | "auto", "zh" | "en" | "auto">;
     handoffRetireReplaced: z<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     archiveEnabled: z<boolean, boolean>;
@@ -80,7 +80,7 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
-    handoffLang: z<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffLang: z<"zh" | "en" | "auto", "zh" | "en" | "auto">;
     handoffRetireReplaced: z<boolean, boolean>;
 }>>;
 /**

@@ -38,9 +38,10 @@
 - **4.1 结构固定**：4 个插件（`project-context` / `project-memory` / `project-autolearn` / `project-handoff`）+ `src/shared/`
   + `src/host/`（宿主适配层）。新增插件或宿主接口须同时改 `cordis.patch.yml`、`package.json` 的 `exports`、
   `README.md` 与 `docs/architecture.md`。
-- **4.2 依赖方向白名单**：只允许 [docs/architecture.md](./docs/architecture.md) 第 2 节表里列出的 import 边（7 条边、
-  12 个不同 specifier、共 14 处；含 `shared → project-handoff/language` 这一条共享层例外）。判据：
-  `node scripts/check-docs.mjs` 的 edges 检查 exit 0（把第 2 节表的 14 条 `文件:行` 与 12 个 specifier 跟 `src/` 逐条比对）。
+- **4.2 依赖方向白名单**：只允许 [docs/architecture.md](./docs/architecture.md) 第 2 节表里列出的 import 边（8 条边、
+  13 个不同 specifier、共 15 处；含 `shared → project-handoff/language` 与 `shared → project-handoff/conversation`
+  这两条共享层例外）。判据：
+  `node scripts/check-docs.mjs` 的 edges 检查 exit 0（把第 2 节表的 15 条 `文件:行` 与 13 个 specifier 跟 `src/` 逐条比对）。
 - **4.3 设置命名空间唯一**：只有 `src/project-context/index.ts` 导出 `Config` 并发布 schema，其余插件用 `effectivePluginConfig(entry)`；每个 schema 字段必须带 `volatile`。判据：`grep -c 'export const Config' src/*/index.ts` 只在 `project-context` 命中 1。
 - **4.4 公开面最小**：`exports` 只暴露 `.`、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - **4.5 shared 不持有插件专属逻辑（软规则）**：只放跨插件原语（配置、设置 schema、路径、锁、原子写、日志、生命周期）；评审核对新增模块是否被两个以上插件使用。

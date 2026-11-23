@@ -40,7 +40,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
-    handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffLang: import("@deepseek-ai/schemastery").default<"zh" | "en" | "auto", "zh" | "en" | "auto">;
     handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     archiveEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
@@ -64,7 +64,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
     handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
-    handoffLang: import("@deepseek-ai/schemastery").default<"auto" | "zh" | "en", "auto" | "zh" | "en">;
+    handoffLang: import("@deepseek-ai/schemastery").default<"zh" | "en" | "auto", "zh" | "en" | "auto">;
     handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>>;
 /**

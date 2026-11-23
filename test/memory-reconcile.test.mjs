@@ -365,7 +365,7 @@ test("the registered /memory command routes 'reconcile' to the state report", as
 	);
 	assert.equal(typeof handler, "function", "control: the plugin registered a command handler");
 
-	const agent = { session: { header: { cwd: root } } };
+	const agent = { session: { header: { cwd: root }, deriveMessages: () => [], snapshotEvents: () => [] } };
 	const receipt = await handler({ agent, rawInput: "reconcile", signal: undefined });
 	assert.equal(receipt.kind, "success", receipt.text);
 	assert.match(receipt.text, /1 of 1 entry has a reason to re-verify/);

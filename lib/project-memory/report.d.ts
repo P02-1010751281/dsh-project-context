@@ -11,6 +11,7 @@ import { type AcceptOutcome } from "./staleness-source.js";
 import { type EntryState } from "./entry-state.js";
 import { type MemoryStates } from "./entry-states.js";
 import { type StalenessFacts } from "./staleness.js";
+import { type DocumentLanguage } from "../shared/language.js";
 import { type PruneOutcome } from "./prune.js";
 import { loadMemory } from "./memory-store.js";
 export interface ConsolidateOptions {
@@ -190,7 +191,7 @@ export declare function memoryStatusReply(memory: Awaited<ReturnType<typeof load
     projectRoot: string;
     journal: string;
     maxMemoryChars: number;
-}): Promise<{
+}, language?: DocumentLanguage): Promise<{
     kind: "success" | "error";
     text: string;
 }>;

@@ -13,6 +13,7 @@ import { type AcceptOutcome, acceptStaleness, measureStaleness } from "./stalene
 import { type EntryState } from "./entry-state.js";
 import { type MemoryStates } from "./entry-states.js";
 import { type StalenessFacts, stalenessClause } from "./staleness.js";
+import { type DocumentLanguage } from "../shared/language.js";
 import { MAX_CONTEXT_CHARS, memoryDir, memoryFile, purgeLogFile } from "../shared/project-state.js";
 import { type PruneOutcome, formatBytes } from "./prune.js";
 import { formatMemoryStatus } from "./status-report.js";
@@ -200,6 +201,7 @@ export function cleanReport(status: ConsolidateStatus): ConsolidateReport {
 export async function memoryStatusReply(
 	memory: Awaited<ReturnType<typeof loadMemory>>,
 	context: { projectRoot: string; journal: string; maxMemoryChars: number },
+	language: DocumentLanguage = "en",
 ): Promise<{ kind: "success" | "error"; text: string }> {
 	return formatMemoryStatus({
 		document: memory.text,
@@ -213,7 +215,7 @@ export async function memoryStatusReply(
 		cappedDroppedChars: memory.cappedDroppedChars ?? 0,
 		staleness: memory.text.trim() === "" ? undefined : await measureStaleness(context.projectRoot, memory.text).catch(() => undefined),
 		files: await readMemoryFileFacts(context.projectRoot),
-	});
+	}, language);
 }
 
 /**

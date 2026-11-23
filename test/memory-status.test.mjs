@@ -91,7 +91,7 @@ test("the receipt is reachable as a bare command and as the word `status`", asyn
 
 	const agent = {
 		options: { provider: "test-provider", model: "test-model" },
-		session: { id: "session-memory-status-forms", header: { cwd: root }, snapshotEvents: () => [] },
+		session: { id: "session-memory-status-forms", header: { cwd: root }, deriveMessages: () => [], snapshotEvents: () => [] },
 	};
 	const call = (rawInput) => command.handler({ agent, rawInput, signal: new AbortController().signal });
 

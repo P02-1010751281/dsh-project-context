@@ -10,6 +10,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../shared/limits.js";
 import { type ThresholdSpec } from "../shared/threshold-spec.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
+import { pick } from "../shared/language.js";
 import { type HandoffLanguage } from "./language.js";
 
 // Threshold math, ported from pi's auto-handoff.
@@ -441,6 +442,7 @@ export function resolveThreshold(
 	config: PluginConfig,
 	measurement: ContextMeasurement,
 	contextWindow: number,
+	language: HandoffLanguage = "en",
 ): { tokens: number; label: string; override?: ThresholdOverride } | undefined {
 	const spec = config.handoffThreshold;
 	if (spec.mode !== "auto") {
@@ -458,11 +460,13 @@ export function resolveThreshold(
 		// counts as worthwhile. The threshold itself still comes from the spec alone.
 		if (tokens < thresholdFloor(config, measurement)) return undefined;
 		const clamped = tokens < asked;
-		const words = spec.mode === "ratio" ? `${Math.round(spec.ratio * 100)}% of window` : `${asked} tokens`;
+		const words = spec.mode === "ratio"
+			? pick(language, `窗口的 ${Math.round(spec.ratio * 100)}%`, `${Math.round(spec.ratio * 100)}% of window`)
+			: pick(language, `${asked} token`, `${asked} tokens`);
 		return {
 			tokens,
 			// The label must not keep claiming the full setting once the margin has taken part of it.
-			label: clamped ? `${words} (capped to ${tokens})` : words,
+			label: clamped ? pick(language, `${words}（封顶到 ${tokens}）`, `${words} (capped to ${tokens})`) : words,
 			override: clamped ? { setting: spec.mode === "ratio" ? "ratio" : "tokens", asked, tokens, by: "capacity" } : undefined,
 		};
 	}
@@ -478,7 +482,7 @@ export function resolveThreshold(
 	const asked = room.overhead + room.keep + config.handoffBudgetSummaryTokens;
 	return {
 		tokens,
-		label: `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)`,
+		label: pick(language, `自动 ${tokens}（${Math.round((tokens / contextWindow) * 100)}%）`, `auto ${tokens} (${Math.round((tokens / contextWindow) * 100)}%)`),
 		override: asked > tokens
 			? { setting: "target", asked, tokens, by: quality <= capacity ? "quality" : "capacity" }
 			: undefined,

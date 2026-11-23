@@ -151,6 +151,48 @@ test("the failure explanation does not spend the clip", async () => {
 	assert.match(text, /Auto handoff ON/, "the mode still leads");
 });
 
+test("a Chinese session gets Chinese on every line, and an English one gets none of it", async () => {
+	// `handoffLang: "zh"` is the explicit override, so this case does not depend on how many CJK
+	// glyphs a fixture message carries — it pins the *wiring*, not the detector.
+	const zh = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffLang: "zh", handoffBudgetRecentTokens: 20_000 });
+	const zhSession = {
+		...session(),
+		deriveMessages: () => [{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "把回执的语言统一一下。" }] }],
+	};
+	const handoff = await statusText(host(), zhSession, zh, new AbortController().signal);
+	assertLayout("handoff status (zh)", handoff);
+	assert.match(handoff.split("\n")[0], /^自动交接 开 · 上下文 \d+\/\d+（\d+%） · 阈值 /, handoff.split("\n")[0]);
+	assert.match(handoff, /语言 zh/, "the resolved language is named in the receipt's own language");
+	for (const english of ["Auto handoff", "context ", "threshold ", "pending question", "harness envelope", "adaptive target"]) {
+		assert.ok(!handoff.includes(english), `a Chinese receipt must not carry the English fragment ${JSON.stringify(english)}`);
+	}
+
+	const memory = formatMemoryStatus(
+		{
+			document: memoryDocument(),
+			source: path.join(ROOT, ".agents/memory/MEMORY.md"),
+			expectedPath: path.join(ROOT, ".agents/memory/MEMORY.md"),
+			journalPath: path.join(ROOT, ".agents/memory/memory.jsonl"),
+			maxChars: 45_000,
+			damaged: 0,
+			unreadable: false,
+			poisoned: false,
+			cappedDroppedChars: 0,
+			files: { journal: { kind: "absent" }, backups: 3, archivedSessions: 218, errorLogLines: 1102 },
+		},
+		"zh",
+	);
+	assertLayout("memory status (zh)", memory.text);
+	assert.match(memory.text.split("\n")[0], /^记忆： \d+\/\d+ 字符（\d+%）$/, memory.text.split("\n")[0]);
+	assert.match(memory.text, /^段落：/m, "the section breakdown is its own Chinese line");
+	assert.ok(!memory.text.includes("Memory:"), "no English head survives in the Chinese receipt");
+	assert.ok(!memory.text.includes(" chars ("), "no ASCII measurement survives in the Chinese receipt");
+
+	// The control: the same builder still renders English for an English session, so the Chinese case
+	// cannot pass by having replaced the only wording.
+	assert.match(memory.text, /日志 /, "the journal line is Chinese too");
+});
+
 test("the memory status receipt leads with the size, not the section breakdown", () => {
 	const { text } = formatMemoryStatus({
 		document: memoryDocument(),

@@ -21,6 +21,8 @@
  */
 
 /** What one archived session's own files say about it, most certain first. */
+import { type DocumentLanguage, pick } from "../shared/language.js";
+
 export type SessionState = "missing" | "orphan" | "unbaselined" | "stale" | "abandoned" | "dangling" | "live" | "settled";
 
 /** Every state, in the order a receipt counts them. */
@@ -103,7 +105,7 @@ function days(count: number): number {
  * @param input - both sides of the archive plus the clock.
  * @returns one verdict per session id, and the counts a receipt prints.
  */
-export function sessionStates(input: SessionStateInput): SessionStateReport {
+export function sessionStates(input: SessionStateInput, language: DocumentLanguage = "en"): SessionStateReport {
 	const verdicts: SessionVerdict[] = [];
 	const ids = new Set<string>([...input.dirs.keys(), ...input.rows.keys()]);
 	for (const id of [...ids].sort()) {
@@ -113,24 +115,24 @@ export function sessionStates(input: SessionStateInput): SessionStateReport {
 			verdicts.push({ id, state, detail });
 		};
 		if (dir === undefined) {
-			add("missing", `the index names ${id}, but ${id}/ is not on disk`);
+			add("missing", pick(language, `索引里有 ${id}，但磁盘上没有 ${id}/`, `the index names ${id}, but ${id}/ is not on disk`));
 			continue;
 		}
 		if (!input.indexPresent) {
 			// Nothing can be said about the index side; the disk side still decides the rest.
-			add("unbaselined", `${id}/ is on disk, but INDEX.md is absent so no row was compared`);
+			add("unbaselined", pick(language, `${id}/ 在磁盘上，但 INDEX.md 不存在，所以没有可比对的行`, `${id}/ is on disk, but INDEX.md is absent so no row was compared`));
 			continue;
 		}
 		if (row === undefined) {
-			add("orphan", `${id}/ is on disk with no row in INDEX.md`);
+			add("orphan", pick(language, `${id}/ 在磁盘上，但 INDEX.md 里没有它的行`, `${id}/ is on disk with no row in INDEX.md`));
 			continue;
 		}
 		if (dir.meta === undefined) {
-			add("unbaselined", `${id}/ has no readable meta.json, so its row cannot be checked`);
+			add("unbaselined", pick(language, `${id}/ 没有可读的 meta.json，无法核对它的行`, `${id}/ has no readable meta.json, so its row cannot be checked`));
 			continue;
 		}
 		if (dir.meta.date !== row.date || dir.meta.title !== row.title) {
-			add("stale", `INDEX.md says "${row.date} ${row.title}", meta.json says "${dir.meta.date} ${dir.meta.title}"`);
+			add("stale", pick(language, `INDEX.md 写的是「${row.date} ${row.title}」，meta.json 写的是「${dir.meta.date} ${dir.meta.title}」`, `INDEX.md says "${row.date} ${row.title}", meta.json says "${dir.meta.date} ${dir.meta.title}"`));
 			continue;
 		}
 		const age = input.now - dir.activityMs;
@@ -138,14 +140,14 @@ export function sessionStates(input: SessionStateInput): SessionStateReport {
 		// was created for went elsewhere. Judged before `dangling`, because a dead continuation whose parent
 		// is also gone is still primarily dead weight — the missing parent is the smaller fact.
 		if (dir.meta.kind === "handoff" && dir.humanTurns === 0 && age > days(input.settledDays)) {
-			add("abandoned", `a handoff continuation with no human turn after ${when(age)}`);
+			add("abandoned", pick(language, `交接续接的会话在 ${when(age, language)} 之后仍没有人类回合`, `a handoff continuation with no human turn after ${when(age, language)}`));
 			continue;
 		}
 		if (dir.meta.parentId !== undefined && !input.dirs.has(dir.meta.parentId)) {
-			add("dangling", `continues ${dir.meta.parentId}, which is not on disk`);
+			add("dangling", pick(language, `续接 ${dir.meta.parentId}，但它不在磁盘上`, `continues ${dir.meta.parentId}, which is not on disk`));
 			continue;
 		}
-		add(age <= days(input.settledDays) ? "live" : "settled", `last activity ${when(age)}`);
+		add(age <= days(input.settledDays) ? "live" : "settled", pick(language, `最后活动于 ${when(age, language)}`, `last activity ${when(age, language)}`));
 	}
 	const counts: Record<SessionState, number> = { missing: 0, orphan: 0, unbaselined: 0, stale: 0, abandoned: 0, dangling: 0, live: 0, settled: 0 };
 	for (const verdict of verdicts) counts[verdict.state] += 1;
@@ -153,15 +155,21 @@ export function sessionStates(input: SessionStateInput): SessionStateReport {
 }
 
 /** A short, stable rendering of an age, for a receipt line. */
-function when(ageMs: number): string {
+function when(ageMs: number, language: DocumentLanguage = "en"): string {
 	const day = Math.max(0, Math.floor(ageMs / 86_400_000));
-	return day === 0 ? "within a day" : `${day} day(s) ago`;
+	return day === 0 ? pick(language, "一天内", "within a day") : pick(language, `${day} 天前`, `${day} day(s) ago`);
 }
 
 /** True for the states a repair would act on. */
 export function brokenSession(state: SessionState): boolean {
 	return BROKEN_SESSION_STATES.includes(state);
 }
+
+/** The state as a receipt names it, per language. */
+const SESSION_STATE_LABEL: Record<DocumentLanguage, Record<SessionState, string>> = {
+	en: { missing: "missing", orphan: "orphan", unbaselined: "unbaselined", stale: "stale", abandoned: "abandoned", dangling: "dangling", live: "live", settled: "settled" },
+	zh: { missing: "缺失", orphan: "无行", unbaselined: "未对账", stale: "已过期", abandoned: "已遗弃", dangling: "悬挂", live: "进行中", settled: "已结束" },
+};
 
 /**
  * The `/session-log status` receipt.
@@ -173,20 +181,32 @@ export function brokenSession(state: SessionState): boolean {
  * @param named - how many broken sessions to name.
  * @returns the command text.
  */
-export function sessionStatusReceipt(report: SessionStateReport, named = 10): string {
+export function sessionStatusReceipt(report: SessionStateReport, named = 10, language: DocumentLanguage = "en"): string {
 	const healthy = report.counts.live + report.counts.settled;
 	const broken = report.verdicts.filter((verdict) => brokenSession(verdict.state));
 	// The counts lead and the absent-index note gets its own line: the client clips the folded summary
 	// after roughly eighty columns, so a parenthetical here would push the repair count out of view.
-	const head = `Session log: ${report.verdicts.length} session(s) — ${broken.length} needing a repair.`;
-	const healthyLine = `${healthy} healthy (${report.counts.live} live, ${report.counts.settled} settled).`;
-	if (!report.indexPresent) return `${head}\n${healthyLine}\nINDEX.md is absent, so no row was compared.`;
-	if (broken.length === 0) return `${head}\n${healthyLine}\nNothing to repair: every directory has a row, every row has a directory, and every meta.json agrees with its row.`;
+	const head = pick(
+		language,
+		`会话日志：${report.verdicts.length} 个会话 —— ${broken.length} 个需要修复。`,
+		`Session log: ${report.verdicts.length} session(s) — ${broken.length} needing a repair.`,
+	);
+	const healthyLine = pick(
+		language,
+		`${healthy} 个健康（${report.counts.live} 个进行中，${report.counts.settled} 个已结束）。`,
+		`${healthy} healthy (${report.counts.live} live, ${report.counts.settled} settled).`,
+	);
+	if (!report.indexPresent) return `${head}\n${healthyLine}\n${pick(language, "INDEX.md 不存在，因此没有比对任何行。", "INDEX.md is absent, so no row was compared.")}`;
+	if (broken.length === 0) {
+		return `${head}\n${healthyLine}\n${pick(language, "无需修复：每个目录都有行、每一行都有目录，每个 meta.json 都与它的行一致。", "Nothing to repair: every directory has a row, every row has a directory, and every meta.json agrees with its row.")}`;
+	}
 	const worst = [...SESSION_SEVERITY];
 	const lines = broken
 		.sort((left, right) => worst.indexOf(left.state) - worst.indexOf(right.state) || left.id.localeCompare(right.id))
 		.slice(0, named)
-		.map((verdict) => `  ${verdict.state} — ${verdict.id} — ${verdict.detail}`);
-	const more = broken.length > lines.length ? `\n  … and ${broken.length - lines.length} more` : "";
+		.map((verdict) => `  ${SESSION_STATE_LABEL[language][verdict.state]} — ${verdict.id} — ${verdict.detail}`);
+	const more = broken.length > lines.length
+		? `\n  ${pick(language, `… 另有 ${broken.length - lines.length} 个`, `… and ${broken.length - lines.length} more`)}`
+		: "";
 	return `${head}\n${healthyLine}\n${lines.join("\n")}${more}`;
 }

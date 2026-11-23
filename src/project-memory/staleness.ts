@@ -12,6 +12,7 @@
  * as a plain map, so every rule about "what counts as stale" is testable without a fixture tree.
  */
 
+import { type DocumentLanguage, pick } from "../shared/language.js";
 import { MEMORY_SECTIONS } from "./memory-schema.js";
 import type { MemorySections } from "./sections.js";
 import { entryTid } from "./retirement.js";
@@ -176,13 +177,16 @@ export function staleEntriesOf(
  * @param facts - the summarised verdict.
  * @returns one clause, no trailing separator.
  */
-export function stalenessClause(facts: StalenessFacts): string {
-	if (!facts.checked) return "stale unknown (source bindings could not be read)";
-	if (facts.bound === 0) return "stale 0 (no entry cites a bound file yet)";
-	const named = facts.staleIds.length > 0 ? `: ${facts.staleIds.join(", ")}` : "";
-	const parts = [`${facts.bound} bound entr${facts.bound === 1 ? "y" : "ies"}`, `stale ${facts.stale}${named}`];
-	if (facts.missing > 0) parts.push(`missing ${facts.missing}`);
-	if (facts.unverifiable > 0) parts.push(`unverifiable ${facts.unverifiable}`);
+export function stalenessClause(facts: StalenessFacts, language: DocumentLanguage = "en"): string {
+	if (!facts.checked) return pick(language, "stale 未知（无法读取来源绑定）", "stale unknown (source bindings could not be read)");
+	if (facts.bound === 0) return pick(language, "stale 0（还没有条目引用已绑定的文件）", "stale 0 (no entry cites a bound file yet)");
+	const named = facts.staleIds.length > 0 ? pick(language, `：${facts.staleIds.join("、")}`, `: ${facts.staleIds.join(", ")}`) : "";
+	const parts = [
+		pick(language, `${facts.bound} 条已绑定条目`, `${facts.bound} bound entr${facts.bound === 1 ? "y" : "ies"}`),
+		pick(language, `过期 ${facts.stale}${named}`, `stale ${facts.stale}${named}`),
+	];
+	if (facts.missing > 0) parts.push(pick(language, `缺失 ${facts.missing}`, `missing ${facts.missing}`));
+	if (facts.unverifiable > 0) parts.push(pick(language, `无法核验 ${facts.unverifiable}`, `unverifiable ${facts.unverifiable}`));
 	return parts.join(" · ");
 }
 

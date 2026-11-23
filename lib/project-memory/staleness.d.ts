@@ -11,6 +11,7 @@
  * Disk-free by construction: the caller measures the hashes (`staleness-source.ts`) and hands them in
  * as a plain map, so every rule about "what counts as stale" is testable without a fixture tree.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 import type { MemorySections } from "./sections.js";
 /** `tid -> path -> fingerprint` as recorded when the entry was last authored. */
 export type SourceBindings = Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -83,6 +84,6 @@ export declare function staleEntriesOf(sections: MemorySections, bindings: Sourc
  * @param facts - the summarised verdict.
  * @returns one clause, no trailing separator.
  */
-export declare function stalenessClause(facts: StalenessFacts): string;
+export declare function stalenessClause(facts: StalenessFacts, language?: DocumentLanguage): string;
 /** Section headings the document may carry, exported for the adapter's own sanity checks. */
 export declare const STALENESS_SECTIONS: readonly string[];
