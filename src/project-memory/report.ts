@@ -10,12 +10,12 @@ import path from "node:path";
 import { type MissingLiterals } from "./missing-literals.js";
 import { type PartialRefusalReason } from "./consolidate.js";
 import { type AcceptOutcome, acceptStaleness, measureStaleness } from "./staleness-source.js";
-import { type EntryState } from "./entry-state.js";
+import { ENTRY_STATE_LABEL, type EntryState } from "./entry-state.js";
 import { type MemoryStates } from "./entry-states.js";
 import { type StalenessFacts, stalenessClause } from "./staleness.js";
 import { pick, type DocumentLanguage } from "../shared/language.js";
 import { MAX_CONTEXT_CHARS, memoryDir, memoryFile, purgeLogFile } from "../shared/project-state.js";
-import { type PruneOutcome, formatBytes } from "./prune.js";
+import { PRUNE_REASON_LABEL, type PruneOutcome, formatBytes } from "./prune.js";
 import { formatMemoryStatus } from "./status-report.js";
 import { loadMemory } from "./memory-store.js";
 import { readMemoryFileFacts } from "./status-source.js";
@@ -534,7 +534,18 @@ export function memoryPruneReply(outcome: PruneOutcome, projectRoot: string, lan
 	// impossible to open. The verdict leads; the file list and the remedy follow.
 	const candidateLines = outcome.plan.candidates
 		.slice(0, 8)
-		.map((candidate) => `  ${candidate.name} (${candidate.reason}, ${formatBytes(candidate.bytes)})`);
+		// The reason is a closed vocabulary, so the receipt translates it and `purge.log` keeps the
+		// machine spelling. Chinese punctuation is full-width here; the ` · ` inside a line is shared.
+		.map((candidate) => {
+			// A reason with no label prints as stored rather than as `undefined`: the map is a
+			// vocabulary, and a value it does not know is a value this receipt must not invent.
+			const reason = PRUNE_REASON_LABEL[language][candidate.reason] ?? candidate.reason;
+			return pick(
+				language,
+				`  ${candidate.name}（${reason}，${formatBytes(candidate.bytes)}）`,
+				`  ${candidate.name} (${reason}, ${formatBytes(candidate.bytes)})`,
+			);
+		});
 	const hidden = outcome.plan.candidates.length - candidateLines.length;
 	const more = hidden > 0 ? [`  ${pick(language, `… 另有 ${hidden} 个`, `… and ${hidden} more`)}`] : [];
 	const trash = outcome.trash === undefined ? undefined : path.relative(projectRoot, outcome.trash) || outcome.trash;
@@ -695,7 +706,7 @@ export function memoryReconcileReply(
 	}
 	const lines = states.entries
 		.slice(0, MAX_RECONCILE_LINES)
-		.map((entry) => `  ${entry.tid} — ${entry.state} — ${entry.detail}`);
+		.map((entry) => `  ${entry.tid} — ${ENTRY_STATE_LABEL[language][entry.state]} — ${entry.detail}`);
 	const more = states.entries.length > MAX_RECONCILE_LINES
 		? pick(language,
 			`\n  … 另有 ${states.entries.length - MAX_RECONCILE_LINES} 个`,
@@ -727,8 +738,8 @@ export function memoryAcceptReply(result: AcceptResult, tid: string, language: D
 			// Verdict first, cause second: the folded summary shows the first line only, and the cause is
 			// the part a reader can act on.
 			text: pick(language,
-				`记忆核对：已接受 ${tid}——记录了你确认过它。\n「${result.reason}」不再上报；同一条目的其他原因仍会上报。`,
-				`Memory reconcile: accepted ${tid} — recorded that you confirmed it.\n"${result.reason}" stops being reported; any other reason for the same entry still is.`),
+				`记忆核对：已接受 ${tid}——记录了你确认过它。\n「${ENTRY_STATE_LABEL[language][result.reason]}」不再上报；同一条目的其他原因仍会上报。`,
+				`Memory reconcile: accepted ${tid} — recorded that you confirmed it.\n"${ENTRY_STATE_LABEL[language][result.reason]}" stops being reported; any other reason for the same entry still is.`),
 		};
 	}
 	if (result.kind === "healthy") {
@@ -746,8 +757,8 @@ export function memoryAcceptReply(result: AcceptResult, tid: string, language: D
 		return {
 			kind: "error",
 			text: pick(language,
-				`记忆核对：条目 ${tid} 的状态是 ${result.state}——该状态由退役引擎负责。\n运行 /memory update，而不是接受它。`,
-				`Memory reconcile: entry ${tid} is ${result.state} — the retirement engine owns that state.\nRun /memory update instead of accepting it.`),
+				`记忆核对：条目 ${tid} 的状态是 ${ENTRY_STATE_LABEL[language][result.state]}——该状态由退役引擎负责。\n运行 /memory update，而不是接受它。`,
+				`Memory reconcile: entry ${tid} is ${ENTRY_STATE_LABEL[language][result.state]} — the retirement engine owns that state.\nRun /memory update instead of accepting it.`),
 		};
 	}
 	if (result.kind === "unreadable-store") {

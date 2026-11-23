@@ -136,9 +136,10 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				const lines = [candidates.length > 0
 					? pick(language, "技能候选：", "Skill candidates:")
 					: pick(language, "没有技能候选。", "No skill candidates.")];
-				for (const candidate of candidates) lines.push(`- ${candidate.name} · evidence ${evidenceText(candidate.evidence)}`);
+				const evidenceLabel = pick(language, " · 证据 ", " · evidence ");
+				for (const candidate of candidates) lines.push(`- ${candidate.name}${evidenceLabel}${evidenceText(candidate.evidence, language)}`);
 				if (learned.length > 0) lines.push(pick(language, "已学到的项目技能：", "Learned project skills:"));
-				for (const skill of learned) lines.push(`- ${skill.name} · evidence ${evidenceText(skill.evidence)}`);
+				for (const skill of learned) lines.push(`- ${skill.name}${evidenceLabel}${evidenceText(skill.evidence, language)}`);
 				return { kind: "success" as const, text: lines.join("\n") };
 			}
 			if (verb === "approve") {

@@ -256,7 +256,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				// and a read cut would silently hide the entries past it (reported below, never implied away).
 				const memory = await loadMemory(projectRoot, config.maxMemoryChars);
 				const rest = verb.slice("reconcile".length).trim();
-				const states = await memoryEntryStates(projectRoot, memory.text, config);
+				const states = await memoryEntryStates(projectRoot, memory.text, config, language);
 				if (rest.startsWith("--accept")) {
 					const tid = rest.slice("--accept".length).trim();
 					if (!/^[0-9a-f]{3,4}$/.test(tid)) {

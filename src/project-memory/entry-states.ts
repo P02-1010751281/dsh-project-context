@@ -7,6 +7,7 @@
  */
 
 import type { PluginConfig } from "../shared/config.js";
+import { type DocumentLanguage, pick } from "../shared/language.js";
 import { type EntryState, type EntryStateFacts, entryStateOf } from "./entry-state.js";
 import { readEntrySidecar } from "./entry-sidecar.js";
 import { measureExpiry } from "./expiry-source.js";
@@ -14,24 +15,6 @@ import { entryTid } from "./retirement.js";
 import { sectionsFromMarkdown } from "./sections.js";
 import { measureStalenessDetail } from "./staleness-source.js";
 import { dateStamp } from "./tasks.js";
-
-/** One entry and the state the single arbiter gave it, with the concrete evidence behind that state. */
-export interface MemoryEntryState {
-	readonly tid: string;
-	readonly state: EntryState;
-	/** Paths for `content-stale`, `tasks/<slug>.md (archived)` / `docs/changelog/v<x>.md (marker)` otherwise. */
-	readonly detail: string;
-}
-
-/** What the arbiter says about a whole document, as both reconcile verbs need it. */
-export interface MemoryStates {
-	/** False when the sidecar or the document could not be judged: never render zero for this. */
-	readonly checked: boolean;
-	/** Entries in the document, for the receipt's denominator. */
-	readonly total: number;
-	/** Every entry that is not healthy, in document order. */
-	readonly entries: readonly MemoryEntryState[];
-}
 
 /** One entry and the state the single arbiter gave it, with the concrete evidence behind that state. */
 export interface MemoryEntryState {
@@ -59,12 +42,14 @@ export interface MemoryStates {
  * @param projectRoot - the project the facts are read from.
  * @param text - the loaded memory document.
  * @param config - the effective plugin config, for the task mode.
+ * @param language - the language the receipt is written in; the consolidation prompt leaves it `"en"`.
  * @returns the verdict per entry, and whether anything could be judged at all.
  */
 export async function memoryEntryStates(
 	projectRoot: string,
 	text: string,
 	config: PluginConfig,
+	language: DocumentLanguage = "en",
 ): Promise<MemoryStates> {
 	const reading = await measureStalenessDetail(projectRoot, text);
 	const sections = sectionsFromMarkdown(text);
@@ -75,7 +60,7 @@ export async function memoryEntryStates(
 	// they are independent claims, and accepting one says nothing about the rest.
 	const open = (facts: ReadonlyMap<string, readonly string[]>, reason: string): Map<string, readonly string[]> =>
 		new Map([...facts].filter(([tid]) => confirmed.get(tid)?.has(reason) !== true));
-	const stalePaths = new Map(reading.stale.map((entry) => [entry.tid, entry.paths.join(", ")]));
+	const stalePaths = new Map(reading.stale.map((entry) => [entry.tid, entry.paths.join(pick(language, "、", ", "))]));
 	const facts: EntryStateFacts = {
 		stale: new Set(stalePaths.keys()),
 		taskClosed: open(expiry.taskClosed, "task-closed"),
@@ -88,7 +73,7 @@ export async function memoryEntryStates(
 			const tid = entryTid(entry);
 			if (tid === undefined) continue;
 			total += 1;
-			const verdict = entryStateOf(tid, facts);
+			const verdict = entryStateOf(tid, facts, language);
 			if (verdict.state === "healthy") continue;
 			entries.push({ tid, state: verdict.state, detail: verdict.state === "content-stale" ? (stalePaths.get(tid) ?? verdict.detail) : verdict.detail });
 		}

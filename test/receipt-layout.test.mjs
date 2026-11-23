@@ -23,9 +23,14 @@ import test from "node:test";
 
 import { statusText } from "../lib/project-handoff/command.js";
 import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
+import { conflictFindings, conflictText, evidenceText } from "../lib/project-autolearn/evidence.js";
 import { skillStatusReceipt } from "../lib/project-autolearn/skill-state.js";
 import { apply as applyContext } from "../lib/project-context/index.js";
+import { renderSearchReport } from "../lib/project-context/search.js";
+import { buildSessionTree, renderSessionTree } from "../lib/project-context/session-tree.js";
 import { sessionStatusReceipt } from "../lib/project-context/session-state.js";
+import { taskUsageRow } from "../lib/project-context/task-usage.js";
+import { ENTRY_STATE_LABEL, entryStateOf } from "../lib/project-memory/entry-state.js";
 import { formatMemoryStatus } from "../lib/project-memory/status-report.js";
 import { memoryAcceptReply, memoryPruneReply, memoryReconcileReply, memoryUpdateReply } from "../lib/project-memory/report.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
@@ -170,6 +175,12 @@ test("a Chinese session gets Chinese on every line, and an English one gets none
 	for (const english of ["Auto handoff", "context ", "threshold ", "pending question", "harness envelope", "adaptive target"]) {
 		assert.ok(!handoff.includes(english), `a Chinese receipt must not carry the English fragment ${JSON.stringify(english)}`);
 	}
+	// A fixed trigger's own spelling is data inside the receipt, so it is translated with the rest —
+	// it used to be the one English word left in an otherwise Chinese status card.
+	const zhFixed = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffLang: "zh", handoffThreshold: "300k", handoffBudgetRecentTokens: 20_000 });
+	const fixed = await statusText(host({ meter: false }), zhSession, zhFixed, new AbortController().signal);
+	assert.match(fixed, /固定阈值 300000 token/, fixed);
+	assert.ok(!fixed.includes("fixed threshold"), "the configured trigger is not repeated in English");
 
 	const memory = formatMemoryStatus(
 		{
@@ -379,4 +390,122 @@ test("the update receipt keeps the loss counts on line 1 and the sentences below
 test("a clean update needs no detail lines", () => {
 	const clean = memoryUpdateReply(report()).text;
 	assert.equal(clean, "Memory: updated MEMORY.md and CONTEXT.md.", "a clean pass is one short line, not a paragraph");
+});
+
+test("the entry state name inside a reconcile line follows the session language", () => {
+	const states = {
+		checked: true,
+		total: 2,
+		entries: [
+			{ tid: "abc", state: "content-stale", detail: "src/a.ts、src/b.ts" },
+			{ tid: "def", state: "task-closed", detail: "tasks/release.md" },
+		],
+	};
+	const zh = memoryReconcileReply(states, { cappedDroppedChars: 0 }, "zh").text;
+	assert.match(zh, /^  abc — 内容已变 — src\/a\.ts、src\/b\.ts$/m);
+	assert.match(zh, /^  def — 任务已归档 — tasks\/release\.md$/m);
+	assert.doesNotMatch(zh, /content-stale|task-closed/, "the enum the code decided must not leak into a Chinese row");
+	// The control: the English receipt still spells the state with the enum.
+	assert.match(memoryReconcileReply(states, { cappedDroppedChars: 0 }).text, /^  abc — content-stale — /m);
+
+	// `--accept` quotes the state, so the quoted word is part of the receipt too.
+	const accepted = memoryAcceptReply({ kind: "confirmed", reason: "task-closed" }, "abc", "zh").text;
+	assert.match(accepted, /「任务已归档」不再上报/);
+	assert.doesNotMatch(accepted, /task-closed/);
+	assert.match(memoryAcceptReply({ kind: "retirable", state: "anchor-drift" }, "abc", "zh").text, /锚点漂移/);
+
+	// Every state needs a Chinese name: a missing one prints English inside a Chinese sentence.
+	for (const state of ["superseded", "anchor-drift", "task-closed", "version-shipped", "age-unconfirmed", "content-stale", "healthy"]) {
+		assert.notEqual(ENTRY_STATE_LABEL.zh[state], ENTRY_STATE_LABEL.en[state], `state ${state} has no Chinese name`);
+	}
+	// The two sentences the arbiter writes itself, and the separator between several evidences.
+	assert.match(entryStateOf("abc", { unconfirmed: new Set(["abc"]) }, "zh").detail, /不再被提及/);
+	assert.match(entryStateOf("abc", { stale: new Set(["abc"]) }, "zh").detail, /自绑定之后已改/);
+	assert.equal(
+		entryStateOf("abc", { drifted: new Map([["abc", ["src/a.ts 不存在", "src/b.ts 超出文件尾"]]]) }, "zh").detail,
+		"src/a.ts 不存在；src/b.ts 超出文件尾",
+		"several reasons are joined with the full-width separator",
+	);
+});
+
+test("the prune reason and the task row name their data in the session's language", () => {
+	const plan = { bytes: 1_100_000, candidates: [{ name: "backup-1", bytes: 1_100_000, reason: "byte-backup", action: "remove" }] };
+	const zh = memoryPruneReply({ status: "preview", plan }, ROOT, "zh").text;
+	assert.match(zh, /^  backup-1（字节备份，/m, "the reason is data inside the row, so it is translated");
+	assert.doesNotMatch(zh, /byte-backup/);
+	// The control: the log line keeps the enum, so the English receipt shows it unchanged.
+	assert.match(memoryPruneReply({ status: "preview", plan }, ROOT).text, /^  backup-1 \(byte-backup, /m);
+
+	const usage = { slug: "z8-acceptance", title: "Z8", status: "active", sessions: 2, openTodos: 3, lastSeen: "2026-11-23" };
+	assert.equal(
+		taskUsageRow(usage, "z8-acceptance", "zh"),
+		"- z8-acceptance · 活跃 · Z8 · 2 个会话 · 3 条未完成 · 最后活动 2026-11-23（本会话）",
+	);
+	assert.equal(
+		taskUsageRow({ ...usage, status: "archived" }, undefined, "zh"),
+		"- z8-acceptance · 已归档 · Z8 · 2 个会话 · 3 条未完成 · 最后活动 2026-11-23",
+	);
+	// The control: the English row keeps its nouns and its straight parentheses.
+	assert.equal(
+		taskUsageRow({ ...usage, status: "dormant", lastSeen: undefined }),
+		"- z8-acceptance · dormant · Z8 · sessions 2 · open todos 3 · last seen unknown",
+	);
+});
+
+test("the find and session-tree receipts count their data in the session's language", () => {
+	assert.equal(renderSearchReport({ kind: "no-matches", query: "cat", documents: 2 }, "zh").text, "没有匹配「cat」的内容（共 2 个文档）。");
+	assert.equal(renderSearchReport({ kind: "empty-query" }, "zh").text, "用法：/context find <query> —— 查询是空的。");
+	const hits = renderSearchReport({
+		kind: "hits",
+		query: "cat",
+		hits: [{ path: "MEMORY.md", line: 3, snippet: "cat", score: 3 }],
+		matched: 3,
+		hidden: 2,
+		documents: 1,
+	}, "zh").text;
+	assert.match(hits, /^在 1 个文档里找到 3 行匹配「cat」：$/m);
+	assert.match(hits, /另有 2 行未显示/);
+	assert.doesNotMatch(hits, /Found |No matches/);
+	// The control: the English report is unchanged word for word.
+	assert.equal(renderSearchReport({ kind: "no-matches", query: "cat", documents: 2 }).text, 'No matches for "cat" in 2 document(s).');
+
+	const tree = buildSessionTree([
+		{ id: "session-a", date: "2026-11-22", title: "", kind: "handoff", task: "z8-acceptance" },
+		{ id: "session-b", date: "2026-11-23", title: "Child", kind: "handoff", parentId: "session-gone" },
+	]);
+	const zhTree = renderSessionTree(tree, "zh");
+	assert.match(zhTree, /^# 会话树$/m);
+	assert.ok(zhTree.includes(`${tree.sessionCount} 个会话 · ${tree.roots.length} 个根 · ${tree.handoffCount} 个交接续接`), zhTree);
+	assert.match(zhTree, /未命名会话 · 交接 · 任务 z8-acceptance/);
+	assert.match(zhTree, /父会话 session-gone 未归档/);
+	// The control: the English tree keeps the wording the layout cases pin.
+	assert.match(renderSessionTree(tree), /^# Session tree$/m);
+});
+
+test("the autolearn evidence and conflict lines follow the session language", () => {
+	assert.equal(evidenceText([], "zh"), "没有记录证据");
+	assert.equal(evidenceText(["session-aaaa1111-2222"], "zh"), "1 个会话 — aaaa1111");
+	assert.equal(evidenceText([]), "no evidence recorded");
+
+	const candidate = { name: "release-steps", text: "Run `node scripts/release.mjs --dry-run`" };
+	const duplicate = { name: "release-checklist", text: "Run `node scripts/release.mjs --dry-run`" };
+	const findings = conflictFindings(candidate, [duplicate], [], "zh");
+	assert.equal(findings[0].target, "技能「release-checklist」", "the target label is part of the sentence");
+	assert.match(conflictText(findings, "zh"), /^冲突：技能「release-checklist」 共享 `node scripts\/release\.mjs --dry-run`$/);
+	assert.equal(conflictText([], "zh"), "与现有技能或记忆没有重叠的关键 token。");
+	assert.match(conflictText([...findings, ...findings, ...findings, ...findings], "zh"), /（另有 1 处冲突）$/);
+
+	// The control: the English target label and verdict are the wording the evidence cases pin.
+	assert.equal(conflictFindings(candidate, [duplicate], [])[0].target, 'skill "release-checklist"');
+	assert.equal(conflictText([]), "No token conflict with existing skills or memory.");
+
+	// The memory branch names the entry in the receipt's language too.
+	const restated = ["The seeding workflow: `python tools/seed.py`, read `docs/seed.md`, then check `seed/output.json`."];
+	const memoryFindings = conflictFindings(
+		{ name: "seed-steps", text: "Run `python tools/seed.py`, then read `docs/seed.md`, then check `seed/output.json`.\n" },
+		[],
+		restated,
+		"zh",
+	);
+	assert.match(memoryFindings[0].target, /^MEMORY\.md 条目「The seeding workflow/);
 });

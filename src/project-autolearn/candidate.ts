@@ -198,7 +198,7 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	const evidence = evidenceOfDocument(raw);
 	// The candidate's own name owns the destination, so its previous body is not a conflict with itself.
 	const corpus = await readEvidenceCorpus(projectRoot, { exclude: name });
-	const conflicts = conflictFindings({ name, text: body }, corpus.skills, corpus.memory);
+	const conflicts = conflictFindings({ name, text: body }, corpus.skills, corpus.memory, language);
 	await writeAtomic(destination, withEvidenceFrontmatter(promotedDocument(name, description, body), evidence));
 	// The baseline is taken here, once, from the document that actually landed: a skill approved today
 	// must not be judged against a body it never had, and a later refresh would erase drift.
@@ -218,8 +218,8 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 			pick(language,
 				`${existing ? "已更新" : "已激活"}项目技能：${name}${existing ? "——手工批准；正文未展示给审批" : ""}`,
 				`${existing ? "Updated" : "Activated"} project skill: ${name}${existing ? " — approved by hand; the body was not shown to the approval" : ""}`),
-			pick(language, `证据：${evidenceText(evidence)}`, `Evidence: ${evidenceText(evidence)}`),
-			conflictText(conflicts),
+			pick(language, `证据：${evidenceText(evidence, language)}`, `Evidence: ${evidenceText(evidence, language)}`),
+			conflictText(conflicts, language),
 		].join("\n"),
 	};
 }

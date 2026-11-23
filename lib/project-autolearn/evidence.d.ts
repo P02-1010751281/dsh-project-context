@@ -17,7 +17,12 @@
  * key tokens (paths, line references, commands) and reports overlaps; it never decides semantics, never
  * blocks a write, and never calls a model. A false "no conflict" costs nothing (the report is advice);
  * a false conflict on every shared `pnpm test` would train the reader to ignore it.
+ *
+ * Both receipts are translated here rather than at the call sites: the sentence and the words inside
+ * it (`N session(s)`, `skill "x"`, `MEMORY.md entry "…"`) are one vocabulary, and a caller that
+ * translated half of it would leave the other half English.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 /** The provenance value a promoted skill records: the pipeline that produced it. */
 export declare const EVIDENCE_DERIVED_FROM = "autolearn";
 /** Text the receipt shows when a skill (usually one promoted before evidence was recorded) cites none. */
@@ -37,7 +42,7 @@ export declare function shortSessionId(id: string): string;
  * Every id is listed, not the first few: the pass verifies at most a handful (the model asks for up
  * to three sessions), and "2 sessions" without the ids would be a claim the reader cannot check.
  */
-export declare function evidenceText(ids: readonly string[] | undefined): string;
+export declare function evidenceText(ids: readonly string[] | undefined, language?: DocumentLanguage): string;
 /** One place the candidate overlaps what the project already documents. */
 export interface ConflictFinding {
     /** What it overlaps: a skill name, or the memory entry it restates. */
@@ -80,13 +85,17 @@ export declare function keyTokens(text: string): string[];
  * @param candidate - the proposed document's name and body.
  * @param skills - existing skills' names and body text (the caller excludes the candidate's own name).
  * @param memory - `MEMORY.md` bullets, already split by the shim.
+ * @param language - the language the receipt is written in; the target label is part of the sentence.
  */
 export declare function conflictFindings(candidate: {
     readonly name: string;
     readonly text: string;
-}, skills: readonly ConflictDocument[], memory: readonly MemoryEntry[]): ConflictFinding[];
+}, skills: readonly ConflictDocument[], memory: readonly MemoryEntry[], language?: DocumentLanguage): ConflictFinding[];
 /**
  * The conflict verdict a receipt carries. Always one line per finding, and always a verdict — "no
  * conflict" is a conclusion the check reached, not the absence of a conclusion.
+ * @param findings - what the check found, in its deterministic order.
+ * @param language - the language the receipt is written in.
+ * @returns one `Conflict:` line per finding, or the sentence that says there is none.
  */
-export declare function conflictText(findings: readonly ConflictFinding[]): string;
+export declare function conflictText(findings: readonly ConflictFinding[], language?: DocumentLanguage): string;

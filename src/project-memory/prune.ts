@@ -26,6 +26,7 @@ import path from "node:path";
 import { MAX_ERROR_LOG_BYTES, diagnosticMessage, errorLogAfterRotation } from "../shared/error-log.js";
 import { writeAtomic } from "../shared/files.js";
 import { ensureMemoryGitignore } from "../shared/gitignore.js";
+import { type DocumentLanguage } from "../shared/language.js";
 import { errorLogFile, memoryDir, purgeLogFile, trashDir } from "../shared/paths.js";
 import { isJournalArchiveName } from "./journal.js";
 
@@ -46,13 +47,39 @@ const CANDIDATES_SUBDIR = "skill-candidates";
 /** What an applied run does with one candidate. */
 type PruneAction = "remove" | "truncate";
 
+/** Why one artifact is reclaimable. `purge.log` records the machine spelling; the receipt translates it. */
+export type PruneReason = "byte-backup" | "journal-archive" | "journal-temp" | "error-log" | "skill-candidate";
+
+/**
+ * The reason as a receipt names it, per language.
+ *
+ * The log line keeps the English enum so `purge.log` stays greppable and a past line never changes
+ * meaning when a session's language does; only the printed candidate list is translated.
+ */
+export const PRUNE_REASON_LABEL: Record<DocumentLanguage, Record<PruneReason, string>> = {
+	en: {
+		"byte-backup": "byte-backup",
+		"journal-archive": "journal-archive",
+		"journal-temp": "journal-temp",
+		"error-log": "error-log",
+		"skill-candidate": "skill-candidate",
+	},
+	zh: {
+		"byte-backup": "字节备份",
+		"journal-archive": "归档日志",
+		"journal-temp": "日志临时文件",
+		"error-log": "错误日志",
+		"skill-candidate": "技能候选",
+	},
+};
+
 /** One reclaimable artifact, named relative to the memory directory so it is also a tar entry. */
 interface PruneCandidate {
 	/** Path relative to `<memory>/`; used verbatim as the tar member name. */
 	name: string;
 	bytes: number;
 	/** Why this file is a candidate, in the same words the receipt and `purge.log` use. */
-	reason: "byte-backup" | "journal-archive" | "journal-temp" | "error-log" | "skill-candidate";
+	reason: PruneReason;
 	action: PruneAction;
 }
 

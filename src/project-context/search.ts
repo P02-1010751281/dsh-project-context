@@ -17,6 +17,8 @@
  * every `catalog`.
  */
 
+import { type DocumentLanguage, pick } from "../shared/language.js";
+
 /** One document as the shim hands it over. */
 export interface SearchDoc {
 	/** Project-relative path shown on every hit, POSIX separators. */
@@ -254,19 +256,36 @@ export function search(docs: readonly SearchDoc[], query: string, options: Searc
  * document count, an empty project names the absence of a corpus, and an empty query is a usage
  * error rather than "no matches" — the three need different next steps from the reader.
  */
-export function renderSearchReport(result: SearchResult): { kind: "success" | "error"; text: string } {
-	if (result.kind === "empty-query") return { kind: "error", text: "Usage: /context find <query> — the query is empty." };
+export function renderSearchReport(result: SearchResult, language: DocumentLanguage = "en"): { kind: "success" | "error"; text: string } {
+	if (result.kind === "empty-query") return { kind: "error", text: pick(language, "用法：/context find <query> —— 查询是空的。", "Usage: /context find <query> — the query is empty.") };
 	if (result.kind === "empty-corpus") {
 		return {
 			kind: "success",
-			text: "Nothing to search yet — no MEMORY.md, CONTEXT.md, task document or archived session was found under .agents/memory.",
+			text: pick(
+				language,
+				"还没有可搜索的内容 —— .agents/memory 下没有找到 MEMORY.md、CONTEXT.md、任务文档或归档会话。",
+				"Nothing to search yet — no MEMORY.md, CONTEXT.md, task document or archived session was found under .agents/memory.",
+			),
 		};
 	}
 	if (result.kind === "no-matches") {
-		return { kind: "success", text: `No matches for "${result.query}" in ${result.documents} document(s).` };
+		return {
+			kind: "success",
+			text: pick(
+				language,
+				`没有匹配「${result.query}」的内容（共 ${result.documents} 个文档）。`,
+				`No matches for "${result.query}" in ${result.documents} document(s).`,
+			),
+		};
 	}
-	const lines = [`Found ${result.matched} line(s) for "${result.query}" in ${result.documents} document(s):`];
+	const lines = [pick(
+		language,
+		`在 ${result.documents} 个文档里找到 ${result.matched} 行匹配「${result.query}」：`,
+		`Found ${result.matched} line(s) for "${result.query}" in ${result.documents} document(s):`,
+	)];
 	for (const hit of result.hits) lines.push(`- ${hit.path}:${hit.line}: ${hit.snippet}`);
-	if (result.hidden > 0) lines.push(`… and ${result.hidden} more not shown; narrow the query.`);
+	if (result.hidden > 0) {
+		lines.push(pick(language, `… 另有 ${result.hidden} 行未显示；请缩小查询范围。`, `… and ${result.hidden} more not shown; narrow the query.`));
+	}
 	return { kind: "success", text: lines.join("\n") };
 }

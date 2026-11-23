@@ -17,7 +17,13 @@
  * key tokens (paths, line references, commands) and reports overlaps; it never decides semantics, never
  * blocks a write, and never calls a model. A false "no conflict" costs nothing (the report is advice);
  * a false conflict on every shared `pnpm test` would train the reader to ignore it.
+ *
+ * Both receipts are translated here rather than at the call sites: the sentence and the words inside
+ * it (`N session(s)`, `skill "x"`, `MEMORY.md entry "…"`) are one vocabulary, and a caller that
+ * translated half of it would leave the other half English.
  */
+
+import { type DocumentLanguage, pick } from "../shared/language.js";
 
 /** The provenance value a promoted skill records: the pipeline that produced it. */
 export const EVIDENCE_DERIVED_FROM = "autolearn";
@@ -70,10 +76,14 @@ export function shortSessionId(id: string): string {
  * Every id is listed, not the first few: the pass verifies at most a handful (the model asks for up
  * to three sessions), and "2 sessions" without the ids would be a claim the reader cannot check.
  */
-export function evidenceText(ids: readonly string[] | undefined): string {
+export function evidenceText(ids: readonly string[] | undefined, language: DocumentLanguage = "en"): string {
 	const unique = normalizeEvidence(ids);
-	if (unique.length === 0) return NO_EVIDENCE_TEXT;
-	return `${unique.length} session(s) — ${unique.map(shortSessionId).join(", ")}`;
+	if (unique.length === 0) return pick(language, "没有记录证据", NO_EVIDENCE_TEXT);
+	return pick(
+		language,
+		`${unique.length} 个会话 — ${unique.map(shortSessionId).join("、")}`,
+		`${unique.length} session(s) — ${unique.map(shortSessionId).join(", ")}`,
+	);
 }
 
 // --- the mechanical conflict check ----------------------------------------------------------
@@ -187,11 +197,13 @@ const MAX_SHARED_SHOWN = 4;
  * @param candidate - the proposed document's name and body.
  * @param skills - existing skills' names and body text (the caller excludes the candidate's own name).
  * @param memory - `MEMORY.md` bullets, already split by the shim.
+ * @param language - the language the receipt is written in; the target label is part of the sentence.
  */
 export function conflictFindings(
 	candidate: { readonly name: string; readonly text: string },
 	skills: readonly ConflictDocument[],
 	memory: readonly MemoryEntry[],
+	language: DocumentLanguage = "en",
 ): ConflictFinding[] {
 	const candidateTokens = keyTokens(candidate.text);
 	if (candidateTokens.length === 0) return [];
@@ -203,12 +215,12 @@ export function conflictFindings(
 		if (shared.length === 0) continue;
 		const decisive = shared.some((token) => token.includes("/") || LINE_REFERENCE.test(token));
 		if (!decisive && shared.length < 3) continue;
-		findings.push({ target: `skill "${skill.name}"`, shared: shared.slice(0, MAX_SHARED_SHOWN) });
+		findings.push({ target: pick(language, `技能「${skill.name}」`, `skill "${skill.name}"`), shared: shared.slice(0, MAX_SHARED_SHOWN) });
 	}
 	if (candidateTokens.length >= 3) {
 		for (const entry of memory) {
 			if (!containsAll(keyTokens(entry), candidateTokens)) continue;
-			findings.push({ target: `MEMORY.md entry "${excerpt(entry)}"`, shared: candidateTokens.slice(0, MAX_SHARED_SHOWN) });
+			findings.push({ target: pick(language, `MEMORY.md 条目「${excerpt(entry)}」`, `MEMORY.md entry "${excerpt(entry)}"`), shared: candidateTokens.slice(0, MAX_SHARED_SHOWN) });
 			break;
 		}
 	}
@@ -228,12 +240,23 @@ const MAX_FINDINGS_SHOWN = 3;
 /**
  * The conflict verdict a receipt carries. Always one line per finding, and always a verdict — "no
  * conflict" is a conclusion the check reached, not the absence of a conclusion.
+ * @param findings - what the check found, in its deterministic order.
+ * @param language - the language the receipt is written in.
+ * @returns one `Conflict:` line per finding, or the sentence that says there is none.
  */
-export function conflictText(findings: readonly ConflictFinding[]): string {
-	if (findings.length === 0) return "No token conflict with existing skills or memory.";
-	const shown = findings.slice(0, MAX_FINDINGS_SHOWN).map((finding) => (
-		`Conflict: ${finding.target} shares ${finding.shared.map((token) => `\`${token}\``).join(", ")}`
+export function conflictText(findings: readonly ConflictFinding[], language: DocumentLanguage = "en"): string {
+	if (findings.length === 0) return pick(language, "与现有技能或记忆没有重叠的关键 token。", "No token conflict with existing skills or memory.");
+	const shown = findings.slice(0, MAX_FINDINGS_SHOWN).map((finding) => pick(
+		language,
+		`冲突：${finding.target} 共享 ${finding.shared.map((token) => `\`${token}\``).join("、")}`,
+		`Conflict: ${finding.target} shares ${finding.shared.map((token) => `\`${token}\``).join(", ")}`,
 	));
-	if (findings.length > MAX_FINDINGS_SHOWN) shown.push(`(+${findings.length - MAX_FINDINGS_SHOWN} more conflict(s))`);
+	if (findings.length > MAX_FINDINGS_SHOWN) {
+		shown.push(pick(
+			language,
+			`（另有 ${findings.length - MAX_FINDINGS_SHOWN} 处冲突）`,
+			`(+${findings.length - MAX_FINDINGS_SHOWN} more conflict(s))`,
+		));
+	}
 	return shown.join("\n");
 }

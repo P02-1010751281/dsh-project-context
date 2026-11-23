@@ -22,6 +22,7 @@
  * disagree about what "a session" is. They are counted in the header instead, because a child that is
  * missing from the tree must have an explanation.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 import type { SessionMeta } from "./session-meta.js";
 /** One node and its continuations, in archive order. */
 interface SessionTreeNode {
@@ -54,17 +55,22 @@ export declare function buildSessionTree(metas: readonly SessionMeta[]): Session
  *
  * A receipt has no scrollbar to speak of, so the row count is bounded; the tail says where the rest is
  * rather than silently truncating.
+ *
+ * The counts carry their own nouns because the summary is read as prose; ` · ` is the one separator
+ * both languages share, and the heading is translated with the rest of the receipt.
  * @param tree - the forest from {@link buildSessionTree}.
+ * @param language - the language the receipt is written in.
  * @returns the reply text.
  */
-export declare function renderSessionTree(tree: SessionTree): string;
+export declare function renderSessionTree(tree: SessionTree, language?: DocumentLanguage): string;
 /**
  * Read one project's archive and render its tree.
  *
  * A missing `session-logs/` is an empty archive, not an error: the reply says so, which is the same
  * answer the bare `/session-log` gives about the paths themselves.
  * @param projectRoot - the project whose archive to read.
+ * @param language - the language the receipt is written in.
  * @returns the reply text.
  */
-export declare function readSessionTree(projectRoot: string): Promise<string>;
+export declare function readSessionTree(projectRoot: string, language?: DocumentLanguage): Promise<string>;
 export {};

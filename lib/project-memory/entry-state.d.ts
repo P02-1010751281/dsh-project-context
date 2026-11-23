@@ -23,10 +23,20 @@
  * human confirmed the entry, `6` by re-baselining its fingerprints. A state nothing can leave is a
  * trap — `content-stale` was one until `/memory reconcile --accept` existed.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 /** What an entry's evidence says about it, most certain first. */
 export type EntryState = "superseded" | "anchor-drift" | "task-closed" | "version-shipped" | "age-unconfirmed" | "content-stale" | "healthy";
 /** The states a verdict may report without the entry being wrong: each one has an explicit exit. */
 export declare const NON_RETIRING_STATES: readonly EntryState[];
+/**
+ * The state as a receipt names it, per language.
+ *
+ * The English column is the enum itself: a receipt, a test and the consolidation prompt all read the
+ * same word, so a reader can grep for the state the code decided. The Chinese column is what
+ * `/memory reconcile` prints — the state name sits inline next to the entry's id, so leaving it in
+ * English made a Chinese receipt read half-translated.
+ */
+export declare const ENTRY_STATE_LABEL: Record<DocumentLanguage, Record<EntryState, string>>;
 /**
  * The facts each caller can afford to gather, all keyed by the entry's stamped id.
  *
@@ -62,9 +72,10 @@ export interface EntryStateVerdict {
  * `/memory status` line names its subset for exactly this reason).
  * @param tid - the entry's stamped id.
  * @param facts - everything the caller knows, keyed by id.
+ * @param language - the language the receipt is written in; the prompt-facing callers leave it `"en"`.
  * @returns the winning state and its detail.
  */
-export declare function entryStateOf(tid: string, facts: EntryStateFacts): EntryStateVerdict;
+export declare function entryStateOf(tid: string, facts: EntryStateFacts, language?: DocumentLanguage): EntryStateVerdict;
 /** True for the states the retirement engine is allowed to drop an entry for. */
 export declare function retiresEntry(state: EntryState): boolean;
 /**

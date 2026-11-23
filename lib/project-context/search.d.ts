@@ -16,6 +16,7 @@
  * term hit, never the score. ASCII terms match on word boundaries, so `find cat` does not report
  * every `catalog`.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 /** One document as the shim hands it over. */
 export interface SearchDoc {
     /** Project-relative path shown on every hit, POSIX separators. */
@@ -107,7 +108,7 @@ export declare function search(docs: readonly SearchDoc[], query: string, option
  * document count, an empty project names the absence of a corpus, and an empty query is a usage
  * error rather than "no matches" — the three need different next steps from the reader.
  */
-export declare function renderSearchReport(result: SearchResult): {
+export declare function renderSearchReport(result: SearchResult, language?: DocumentLanguage): {
     kind: "success" | "error";
     text: string;
 };

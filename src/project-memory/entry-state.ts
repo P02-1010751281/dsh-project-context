@@ -24,6 +24,8 @@
  * trap — `content-stale` was one until `/memory reconcile --accept` existed.
  */
 
+import { type DocumentLanguage, pick } from "../shared/language.js";
+
 /** What an entry's evidence says about it, most certain first. */
 export type EntryState =
 	| "superseded"
@@ -36,6 +38,35 @@ export type EntryState =
 
 /** The states a verdict may report without the entry being wrong: each one has an explicit exit. */
 export const NON_RETIRING_STATES: readonly EntryState[] = ["task-closed", "version-shipped", "content-stale"];
+
+/**
+ * The state as a receipt names it, per language.
+ *
+ * The English column is the enum itself: a receipt, a test and the consolidation prompt all read the
+ * same word, so a reader can grep for the state the code decided. The Chinese column is what
+ * `/memory reconcile` prints — the state name sits inline next to the entry's id, so leaving it in
+ * English made a Chinese receipt read half-translated.
+ */
+export const ENTRY_STATE_LABEL: Record<DocumentLanguage, Record<EntryState, string>> = {
+	en: {
+		superseded: "superseded",
+		"anchor-drift": "anchor-drift",
+		"task-closed": "task-closed",
+		"version-shipped": "version-shipped",
+		"age-unconfirmed": "age-unconfirmed",
+		"content-stale": "content-stale",
+		healthy: "healthy",
+	},
+	zh: {
+		superseded: "已被取代",
+		"anchor-drift": "锚点漂移",
+		"task-closed": "任务已归档",
+		"version-shipped": "版本已发布",
+		"age-unconfirmed": "年龄未确认",
+		"content-stale": "内容已变",
+		healthy: "健康",
+	},
+};
 
 /**
  * The facts each caller can afford to gather, all keyed by the entry's stamped id.
@@ -74,21 +105,28 @@ export interface EntryStateVerdict {
  * `/memory status` line names its subset for exactly this reason).
  * @param tid - the entry's stamped id.
  * @param facts - everything the caller knows, keyed by id.
+ * @param language - the language the receipt is written in; the prompt-facing callers leave it `"en"`.
  * @returns the winning state and its detail.
  */
-export function entryStateOf(tid: string, facts: EntryStateFacts): EntryStateVerdict {
+export function entryStateOf(tid: string, facts: EntryStateFacts, language: DocumentLanguage = "en"): EntryStateVerdict {
+	// The evidence lists are paths and reasons, so only the separator and the two sentences below are
+	// language-dependent. `anchorDriftReasons` stays English on purpose: its only reader that renders
+	// the text is the consolidation prompt, which is written in English.
+	const separator = pick(language, "；", "; ");
 	const replacement = facts.superseded?.get(tid);
 	if (replacement !== undefined) return { state: "superseded", detail: replacement };
 	const drift = facts.drifted?.get(tid);
-	if (drift !== undefined && drift.length > 0) return { state: "anchor-drift", detail: drift.join("; ") };
+	if (drift !== undefined && drift.length > 0) return { state: "anchor-drift", detail: drift.join(separator) };
 	const closed = facts.taskClosed?.get(tid);
-	if (closed !== undefined && closed.length > 0) return { state: "task-closed", detail: closed.join("; ") };
+	if (closed !== undefined && closed.length > 0) return { state: "task-closed", detail: closed.join(separator) };
 	const shipped = facts.shipped?.get(tid);
-	if (shipped !== undefined && shipped.length > 0) return { state: "version-shipped", detail: shipped.join("; ") };
+	if (shipped !== undefined && shipped.length > 0) return { state: "version-shipped", detail: shipped.join(separator) };
 	if (facts.unconfirmed?.has(tid) === true) {
-		return { state: "age-unconfirmed", detail: "past the age horizon with no mention in the scanned sessions" };
+		return { state: "age-unconfirmed", detail: pick(language, "超过年龄阈值，且在扫描到的会话里不再被提及", "past the age horizon with no mention in the scanned sessions") };
 	}
-	if (facts.stale?.has(tid) === true) return { state: "content-stale", detail: "a cited file's content changed since the binding" };
+	if (facts.stale?.has(tid) === true) {
+		return { state: "content-stale", detail: pick(language, "引用的文件内容自绑定之后已改", "a cited file's content changed since the binding") };
+	}
 	return { state: "healthy", detail: "" };
 }
 
