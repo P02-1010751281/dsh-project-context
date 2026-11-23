@@ -10,6 +10,7 @@ import { MAX_SKILL_BODY_CHARS, memoryDir, readOptional, skillsDir, validSkillNam
 import { conflictFindings, conflictText, evidenceText, normalizeEvidence } from "./evidence.js";
 import { evidenceOfDocument, readEvidenceCorpus, withEvidenceFrontmatter } from "./evidence-source.js";
 import { collectSkillInventory, type SkillInventory } from "./inventory.js";
+import { rejectedText, type AutolearnRejection } from "./reasons.js";
 import { bindSkills } from "./skill-state-source.js";
 import { MAX_SKILL_DESCRIPTION_CHARS, type ProposedSkill, autolearnProvenance, promotedDocument, skillBody, skillBodyUnsafe, skillDescription, skillDocument } from "./skill.js";
 
@@ -45,12 +46,12 @@ function candidateBody(raw: string): string {
  * name rule in `rejectionReason` is load-bearing, not caller-guaranteed. That rule also runs before
  * the shape rules, so a doubly-invalid proposal reports the name; both facts are pinned by tests.
  */
-export function shapeRejection(description: string, body: string): string | undefined {
-	if (!description) return "missing description";
-	if (description.length > MAX_SKILL_DESCRIPTION_CHARS) return "description too long";
-	if (body.length < MIN_SKILL_BODY_CHARS) return "body too short";
-	if (body.length > MAX_SKILL_BODY_CHARS) return "body too long";
-	if (skillBodyUnsafe(body)) return "body looks like an instruction injection";
+export function shapeRejection(description: string, body: string): AutolearnRejection | undefined {
+	if (!description) return { code: "missing-description" };
+	if (description.length > MAX_SKILL_DESCRIPTION_CHARS) return { code: "description-too-long" };
+	if (body.length < MIN_SKILL_BODY_CHARS) return { code: "body-too-short" };
+	if (body.length > MAX_SKILL_BODY_CHARS) return { code: "body-too-long" };
+	if (skillBodyUnsafe(body)) return { code: "injection" };
 	return undefined;
 }
 
@@ -68,14 +69,14 @@ function rejectionReason(
 	existing: readonly SkillInventory[],
 	candidateExists: boolean,
 	shownNames: ReadonlySet<string> = new Set(),
-): string | undefined {
-	if (!validSkillName(skill.name)) return "invalid kebab-case name";
+): AutolearnRejection | undefined {
+	if (!validSkillName(skill.name)) return { code: "invalid-name" };
 	const shape = shapeRejection(skill.description, skill.body);
 	if (shape !== undefined) return shape;
 	const cited = verifiedEvidence(skill.evidence, archived);
 	const required = skill.candidate ? MIN_CANDIDATE_SESSIONS : MIN_SKILL_SESSIONS;
 	if (cited.length < required) {
-		return skill.candidate ? "needs at least one verified session id" : "needs evidence from at least two different sessions";
+		return skill.candidate ? { code: "needs-candidate-evidence" } : { code: "needs-two-sessions" };
 	}
 	// A name this pipeline generated may be reused to supersede that skill — and only when this pass
 	// actually showed its body, because the merge has to be over the text being replaced rather than a
@@ -84,10 +85,10 @@ function rejectionReason(
 	// artifact, so it is the same fact `/autolearn approve` reads before it replaces a file.
 	const collision = existing.find((entry) => entry.name === skill.name);
 	if (collision) {
-		if (!collision.autolearn) return `skill "${skill.name}" already exists`;
-		if (!shownNames.has(collision.name)) return "body not shown this pass";
+		if (!collision.autolearn) return { code: "skill-exists", name: skill.name };
+		if (!shownNames.has(collision.name)) return { code: "body-not-shown" };
 	}
-	if (candidateExists) return `candidate "${skill.name}" already exists`;
+	if (candidateExists) return { code: "candidate-exists", name: skill.name };
 	return undefined;
 }
 
@@ -109,7 +110,7 @@ export async function saveProposedSkill(
 	skill: ProposedSkill,
 	archived: Set<string>,
 	shownNames: ReadonlySet<string> = new Set(),
-): Promise<"live" | "candidate" | { rejected: string }> {
+): Promise<"live" | "candidate" | { rejected: AutolearnRejection }> {
 	// Read the corpus fresh rather than trusting the caller's list: the marker is the deciding fact
 	// and it can change between the prompt and this write.
 	const existing = await collectSkillInventory(projectRoot);
@@ -121,7 +122,7 @@ export async function saveProposedSkill(
 	// above, this reads the file a promote would replace. Both have to agree that this pass showed
 	// the body, so a one-sided change to either rule cannot let a blind supersede through.
 	const replaced = await readOptional(destination);
-	if (replaced && autolearnProvenance(replaced) && !shownNames.has(skill.name)) return { rejected: "body not shown this pass" };
+	if (replaced && autolearnProvenance(replaced) && !shownNames.has(skill.name)) return { rejected: { code: "body-not-shown" } };
 	if (skill.candidate) {
 		// The candidate carries the verified ids in its frontmatter, so the approval that promotes it
 		// later reads a fact out of the file instead of re-deriving one from the reply that stored it.
@@ -130,7 +131,7 @@ export async function saveProposedSkill(
 	}
 	// The publish path keeps its blanket refusal, whatever the destination carries: it is the belt to
 	// the approve path's braces, so a model that asks for a direct supersede cannot bypass the gate.
-	if (replaced) return { rejected: `skill "${skill.name}" already exists` };
+	if (replaced) return { rejected: { code: "skill-exists", name: skill.name } };
 	await writeAtomic(destination, withEvidenceFrontmatter(skillDocument(skill), verifiedEvidence(skill.evidence, archived)));
 	return "live";
 }
@@ -183,7 +184,10 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	// pass applies and this path silently skips — a hand-written candidate could then activate a
 	// document the pass refused. Only the value that gets written is the capped one.
 	const shape = shapeRejection(skillDescription(raw, Number.MAX_SAFE_INTEGER), body);
-	if (shape !== undefined) return { ok: false, message: pick(language, `候选「${name}」不可激活（${shape}）；未激活。`, `Candidate "${name}" is not activatable (${shape}); not activating.`) };
+	if (shape !== undefined) {
+		const reason = rejectedText(shape, language);
+		return { ok: false, message: pick(language, `候选「${name}」不可激活（${reason}）；未激活。`, `Candidate "${name}" is not activatable (${reason}); not activating.`) };
+	}
 	const destination = path.join(skillsDir(projectRoot), name, "SKILL.md");
 	const existing = await readOptional(destination);
 	// The same boundary the proposal path applies, read off the file being replaced rather than a

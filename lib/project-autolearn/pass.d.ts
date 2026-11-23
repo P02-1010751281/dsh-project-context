@@ -3,6 +3,7 @@
  */
 import { type Agent, type HostPorts } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
+import type { AutolearnRejection, AutolearnSkip } from "./reasons.js";
 import { type LearnedSkill } from "./skill.js";
 interface AutolearnOptions {
     force?: boolean;
@@ -31,7 +32,7 @@ export interface AutolearnOutcome {
      * that had in fact *returned a skill* the plugin rejected on a size/evidence rule. That sends
      * the user to re-prompt a model that already answered.
      */
-    rejected?: string | undefined;
+    rejected?: AutolearnRejection | undefined;
     /**
      * Why no model call was made, when the pass declined to run one (a pass ran moments ago, there is
      * no memory/context to learn from, or no archived session grounds a skill).
@@ -41,7 +42,7 @@ export interface AutolearnOutcome {
      * would be *false* here — the model was never asked. Kept separate from `rejected`, which means
      * the model *did* answer and an admission rule refused its proposal.
      */
-    skipped?: string | undefined;
+    skipped?: AutolearnSkip | undefined;
 }
 /**
  * Run one autolearn pass. Automatic runs require new material (MEMORY.md or

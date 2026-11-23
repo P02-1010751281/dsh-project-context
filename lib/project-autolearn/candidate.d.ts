@@ -3,6 +3,7 @@
  * pass, and the approve/reject transitions the `/autolearn` command drives.
  */
 import { type DocumentLanguage } from "../shared/language.js";
+import { type AutolearnRejection } from "./reasons.js";
 import { type ProposedSkill } from "./skill.js";
 /**
  * The shape rules every skill must pass, whichever path read it. A proposal from the model and a
@@ -16,7 +17,7 @@ import { type ProposedSkill } from "./skill.js";
  * name rule in `rejectionReason` is load-bearing, not caller-guaranteed. That rule also runs before
  * the shape rules, so a doubly-invalid proposal reports the name; both facts are pinned by tests.
  */
-export declare function shapeRejection(description: string, body: string): string | undefined;
+export declare function shapeRejection(description: string, body: string): AutolearnRejection | undefined;
 /**
  * Save a proposed skill. Returns `"live"`/`"candidate"` when written, or the rejection reason so
  * the caller can report *why* instead of claiming the model proposed nothing.
@@ -31,7 +32,7 @@ export declare function shapeRejection(description: string, body: string): strin
  * merge's clothes.
  */
 export declare function saveProposedSkill(projectRoot: string, skill: ProposedSkill, archived: Set<string>, shownNames?: ReadonlySet<string>): Promise<"live" | "candidate" | {
-    rejected: string;
+    rejected: AutolearnRejection;
 }>;
 /** One stored candidate and the citations it records, for `/autolearn list`. */
 export interface CandidateDetail {

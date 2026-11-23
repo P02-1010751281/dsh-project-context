@@ -17,6 +17,7 @@ import { approveCandidate, listCandidateDetails, rejectCandidate } from "./candi
 import { evidenceText } from "./evidence.js";
 import { readEvidenceCorpus } from "./evidence-source.js";
 import { autolearnProjectSkills, type AutolearnOutcome } from "./pass.js";
+import { rejectedText, skippedText } from "./reasons.js";
 import { bindSkills, expireSkill, measureSkillStates, retireExpiredSkills } from "./skill-state-source.js";
 import { skillStatusReceipt } from "./skill-state.js";
 import { pick } from "../shared/language.js";
@@ -203,10 +204,10 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				// one talks about the model, and it says only what is verifiable.
 				: outcome.rejected !== undefined
 					? { kind: "success", text: pick(language,
-						`技能被拒：${outcome.rejected}。没有写入任何东西；调整项目素材或技能形态后再运行 /autolearn。`,
-						`Skill rejected: ${outcome.rejected}. Nothing was written; adjust the project material or the skill shape and run /autolearn again.`) }
+						`技能被拒：${rejectedText(outcome.rejected, language)}。没有写入任何东西；调整项目素材或技能形态后再运行 /autolearn。`,
+						`Skill rejected: ${rejectedText(outcome.rejected, language)}. Nothing was written; adjust the project material or the skill shape and run /autolearn again.`) }
 					: outcome.skipped !== undefined
-						? { kind: "success", text: pick(language, `没有考虑任何技能：${outcome.skipped}。`, `No skill was considered: ${outcome.skipped}.`) }
+						? { kind: "success", text: pick(language, `没有考虑任何技能：${skippedText(outcome.skipped, language)}。`, `No skill was considered: ${skippedText(outcome.skipped, language)}.`) }
 						: { kind: "success", text: pick(language, "没有创建新技能：模型的回答里没有可用的技能。", "No new skill was created: the model's answer contained no usable skill.") };
 		},
 	});

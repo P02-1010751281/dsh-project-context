@@ -15,6 +15,7 @@ import { readArchivedConversation } from "../project-context/archive.js";
 import { readSessionIndex } from "../project-context/session-index.js";
 import { readLearnState, updateLearnState } from "./learn-state.js";
 import { saveProposedSkill } from "./candidate.js";
+import type { AutolearnRejection, AutolearnSkip } from "./reasons.js";
 import { archivedSessionIds, collectSkillInventory, inventoryText, learnedBodies } from "./inventory.js";
 import { type AutolearnDecision, parseAutolearnReply, parseAutolearnToolCall } from "./parse.js";
 import { backtrackPrompt, basePrompt } from "./prompt.js";
@@ -49,7 +50,7 @@ export interface AutolearnOutcome {
 	 * that had in fact *returned a skill* the plugin rejected on a size/evidence rule. That sends
 	 * the user to re-prompt a model that already answered.
 	 */
-	rejected?: string | undefined;
+	rejected?: AutolearnRejection | undefined;
 	/**
 	 * Why no model call was made, when the pass declined to run one (a pass ran moments ago, there is
 	 * no memory/context to learn from, or no archived session grounds a skill).
@@ -59,7 +60,7 @@ export interface AutolearnOutcome {
 	 * would be *false* here — the model was never asked. Kept separate from `rejected`, which means
 	 * the model *did* answer and an admission rule refused its proposal.
 	 */
-	skipped?: string | undefined;
+	skipped?: AutolearnSkip | undefined;
 }
 
 const MAX_BACKTRACK_CHARS = 16_000;
@@ -110,7 +111,7 @@ export function autolearnProjectSkills(
 		// context write landing *during* the pass stays newer than the recorded gate and re-opens it.
 		const stamp = Math.max(await fileMtimeMs(memoryFile(projectRoot)), await fileMtimeMs(contextFile(projectRoot)));
 
-		if (force && Date.now() - attemptAt < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false, skipped: "a pass ran moments ago; no model call was made" };
+		if (force && Date.now() - attemptAt < config.forceDedupeMs) return { skill: null, backtracked: [], candidate: false, skipped: { code: "recent-pass" } };
 
 		if (!force) {
 			// New material is required; otherwise only remember the turn counter. The material check
@@ -130,7 +131,7 @@ export function autolearnProjectSkills(
 		if (memory.unreadable) await logError(projectRoot, "memory", `project memory exists but cannot be read: ${memory.source}`);
 		else if (memory.damaged) await logError(projectRoot, "memory", `memory journal has ${memory.damaged} unusable line(s); they were skipped`);
 		const contextText = (await readOptional(contextFile(projectRoot))).slice(0, MAX_CONTEXT_CHARS);
-		if (!memory.text.trim() && !contextText.trim()) return { skill: null, backtracked: [], candidate: false, skipped: "the project has no memory or context to learn from; no model call was made" };
+		if (!memory.text.trim() && !contextText.trim()) return { skill: null, backtracked: [], candidate: false, skipped: { code: "no-material" } };
 
 		/** Set once the pass is recorded, so a later failure does not resurrect the turn counter. */
 		let recorded = false;
@@ -169,7 +170,7 @@ export function autolearnProjectSkills(
 			// pass in a project with no archive at all can never produce either: skip before
 			// spending a model call on it. A forced pass (`/autolearn`) still runs, because the
 			// command is the user asking for the call.
-			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false, skipped: "no archived session grounds a new skill; no model call was made" };
+			if (archived.size === 0 && !force) return { skill: null, backtracked: [], candidate: false, skipped: { code: "no-archive" } };
 
 			/**
 			 * The pass's own tools switch: `ask()` runs twice when the first decision asks for archives
@@ -299,7 +300,7 @@ export function autolearnProjectSkills(
 
 			let learned: LearnedSkill | null = null;
 			let candidate = false;
-			let rejected: string | undefined;
+			let rejected: AutolearnRejection | undefined;
 			if (skill) {
 				const saved = await write(() => saveProposedSkill(projectRoot, skill, archived, shownNames));
 				if (typeof saved === "string") {
