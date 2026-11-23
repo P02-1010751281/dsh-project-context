@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**host-contract-2d（两处方向不匹配收口，边界第四步 2d，2026-11-23）**
+
+- 契约新增闭合 `ProjectionKey`（`contextBreakdown` / `todos`）与 `RequestUserMessage`；
+  `GenerateOptions.messages` 收窄成 identity-free 的文本消息——一次性请求没有 `id` / `source`
+  的位置，`OpaqueBlock` 只带 `type`、无法为宿主重建，而生产方只发一个文本块。
+- `src/host/dsh/llm.ts` 新增 `toHostRequest`：逐字段重建宿主请求，`SessionId` / `ReasoningEffortId`
+  用宿主的值导出构造器（identity 函数），零 `as`；`llmOf` 按成员构造端口，不再 cast 服务。
+  `StreamChunk` / `FinishReason` 也按「核心 narrow 的成员 + 适配器闭合的 opaque 注册表」
+  （`OpaqueChunkTypes` / `OtherFinishKinds`）扩成宿主超集，入站方向同样不再 cast。
+- `projectionsOf` 变成键翻译包装器（契约键 → 宿主键），宿主键表用
+  `satisfies Record<ProjectionKey, string>` 对契约键穷尽；`ProjectionValues` 收成两个具名键。
+- 删除四处残留 cast（`todo.ts` 两处、`model-call.ts` 两处）。全仓只剩一处 `as unknown as`：
+  `projectionsOf` 的 `Session` 同一性放宽，注释说明「核心只持有宿主 `Session` 实例」。
+- 新增 `test/fixtures/host-contract/{positive,negative}.ts` 与 `test/host-contract.test.mjs`
+  （用例名 `both direction conversions are typed: the positive compiles and the negative is rejected twice`）：
+  正控零诊断、负控恰好两条具名错误（缺 `sessionId`、拼错投影键）。变异删 `sessionId` 只让该用例变红，
+  还原后 `sha256sum -c` OK。
+- 验证：`pnpm typecheck` 0、`pnpm boundary:check` 121 源文件 0 失败、`pnpm docs:check` 137 项
+  0 失败、`pnpm test` 807 全过、两次构建 `lib/` 243 文件同一 sha256。
+
 **host-context-2c-4（project-handoff 移植，2c 收口，2026-11-22）**
 
 - `project-handoff` 移植：`apply` 体移进 `start.ts`（240 行，一个 `host.addPromptContext`
