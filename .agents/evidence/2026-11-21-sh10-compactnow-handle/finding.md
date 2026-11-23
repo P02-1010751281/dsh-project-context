@@ -285,3 +285,4 @@ catch (e) { if (e?.code === 'busy') return; if (ac.signal.aborted) return; throw
 1. 地板**声明**这两个 API，形状与运行线一致 ⇒ 接线不需要按版本分支，也不需要结构类型垫片；第一个残余只剩「把它们加进 `devDependencies` 后 `pnpm typecheck` 仍绿」。
 2. 「只能经 `agentPresets.serviceFor(agent, 'compaction')` 拿引擎」在 0.1.7-rc.2 上**同样成立**——根域那一行被 web-app 显式关掉，backend 在 preset 隔离域里。
 3. 仍未证：运行期实测（`agent.status` 在真实 `turn/end` 的取值、`serviceFor` 在真实会话上返回的实例）。§④ 的 8 条守卫清单不受本补证影响，照旧适用。
+4. **本补证不解冻「不做」的裁定**。`docs/compaction-vs-handoff.md` §9 的重开条件只有三条：归档里出现越过膝线后被长时间 `defer` 且质量下降的会话、宿主提供不需要模型调用的压缩入口、`agent/status = idle` 调 `compactNow` 的实测通过且不与退休竞态。声明存在**不是**其中任何一条，所以这里只解除「接线前的编译基线未知」，自动兜底仍按原裁定不实现。
