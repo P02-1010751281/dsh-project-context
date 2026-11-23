@@ -2,8 +2,9 @@
 
 ## Project
 - 根 `/mnt/Data/Projects/dsh-project-context` 是一个 npm 包，内含四个 dsh 插件——`project-context`（会话归档 `session.md` + `INDEX.md`，无 LLM）、`project-memory`、`project-autolearn`、`project-handoff`；`AGENTS.md` 是流水线与布局的出处，其计数快照引用前必须现读。（634）
-- `cordis.patch.yml` 的 `insert` 层把宿主 id `project-context` / `-memory` / `-autolearn` / `-handoff` 映射到包路径 `dsh-project-context`、`/memory`、`/autolearn`、`/handoff`；ESM + NodeNext，host 半边对 `@deepseek-ai/*` 只做 type-only import，唯一运行时值依赖是 `schemastery`（peer）。（a92）
+- `cordis.patch.yml` 的 `insert` 层把宿主 id `project-context` / `-memory` / `-autolearn` / `-handoff` 映射到包路径 `dsh-project-context`、`/memory`、`/autolearn`、`/handoff`；ESM + NodeNext，host 半边对 `@deepseek-ai/*` 只做 type-only import。（a92）
 - 安装面：`~/.dsh/profiles/{desktop,web}` 在 `package.json` 里钉 `git+ssh://…#<sha>`；`~/.dsh/profiles/ctxdev` 是 `link:` 到本树；另有两个 `file:./vendor/dsh-project-context-0.4.3.tgz` 的 profile（Windows `OS` 卷的 `P02-1/.dsh/profiles/desktop`，远端 406-12）；`~/.dsh-sec-web/profiles` 软链到 `~/.dsh/profiles`，`DSH-AV/.dsh-sec` 不装；宿主代码只在该 profile 宿主重启后加载，客户端代码需 `pnpm build` 加标签页硬刷新。（aa8）
+- 两个安装 profile 的依赖大多是 registry 版本号：只有本包与 `dsh-multi-root` 用 `git+ssh://…#<sha>` 钉，`dsh-oil-ui` 用 `file:` tgz、`subagent-claude-code` 用 Nix store 的 `link:`——所以更新本包要手改 sha 行、其它插件只改版本号，升级流程见 1e3。（）（5f5）
 - 远端 `ssh://ssh.github.com:443/P02-1010751281/dsh-project-context.git`，分支 `main`；推送是既有做法，提交信息用英文 Conventional Commits。（daa）
 - 工具链 pnpm/`tsc`/`node --test`；`pnpm test` = `tsc && node --test`；非 TTY 下 TAP 关闭，看退出码，裸 `node --test test/` 会失败——用包的脚本；Node 在 Nix store 里轮换，`node -v` / `command -v node` 每次现读。（055）
 - 版本/发布：版本号现读 `package.json` 加 `git tag -l --sort=-v:refname | head -1`；没有 GitHub Releases；变更日志 `CHANGELOG.md`（在 `files` 里），标后改动写在 `未发布`；README 按 100 列折行且不拆行内代码段。（791）
@@ -12,27 +13,35 @@
 - 可能同时有第二个 agent 会话在此工作：只 stage 本任务改的文件（`git add <paths>`，绝不用 `add -A`），提交用 `git commit -F <msg> -- <paths>`。（51f）
 - 第三方技能库不在本仓库：`~/.agents/skills` 是独立 git 仓库（Forgejo，分支 `master`）；数顶层目录名而不是 `SKILL.md` 文件，绝不手改 vendored 技能——lock 里的 `skillFolderHash` 是上游来源标记，不是本地完整性校验。（f4e）
 - 代码基线 = 最后一个碰 `src/` 的提交，功能基线 = 最后一个改变行为的 `src/` 提交，用 `git log -1 --oneline -- src/` 加 `git show --stat`；绝不字面记录 `origin/main`（用 `git rev-parse HEAD origin/main`），绝不罗列哈希链。（c82）
-- 升级 dsh 运行线：技能 `dsh-version-upgrade-compat-probe`——peer 门 `semver.satisfies(…, { includePrerelease: true })` 加覆盖 `src/` + `client/` 的编译探针（映射候选 `lib/types`，绝不映射 `@deepseek-ai/cordis`）；证据 `.agents/evidence/2026-10-03-dsh-020rc2-api-compat/`。（c4f）
+- 升级 dsh 运行线：技能 `dsh-version-upgrade-compat-probe`——peer 门 `semver.satisfies(…, { includePrerelease: true })` 加覆盖 `src/` + `client/` 的编译探针（映射候选 `lib/types`，绝不映射 `@deepseek-ai/cordis`）；证据 `.agents/evidence/2026-10-03-dsh-020rc2-api-compat/`；2026-11-22 对 0.2.2-rc.5 的探针两半 0 错且 90/90 与 425/425 解析自候选树、敏感度控制 25 错，证据 `.agents/evidence/2026-11-22-dsh-022rc5-api-compat/`（含可复用 `run-probe.sh`，登记在 `docs/harness/integration.md` 第 6 节），`0.2.3-alpha.1` 本机没有 store 树未量。（c4f, 6b2）（560）
 - devDependencies 按政策停在声明的 peer 下限（0.1.7-rc.2）：候选线由编译探针覆盖，抬 pin（连 lockfile 与重建 `lib/`）只在用户明确要求时做。（46e）
 - Batch W：`src/project-handoff/decide.ts` 是纯判断（`decideAutoHandoff(inputs, config) → Decision`），`measure.ts` 是类型宿主，`auto.ts` 是适配器，其中 `gatherDecisionInputs` 是唯一的宿主读取；spec `docs/batch-w-decision-seam-spec.md`，套件 `test/handoff-decide.test.mjs`。（c0b）
+- `src/project-memory/index.ts` 现是 40 行纯接线，核心在 `src/project-memory/start.ts`；整理 pass `consolidateProject` 连同它独占的串行队列与 version 声明在 `update.ts`，报告类型、五个回执与 `acceptEntryState` 在 `report.ts`；入口原样 re-export 公开面，所以测试与外部 import 未改。（4d8）
 - Batch Z：Z1–Z8f 已实现并推送；`docs/batch-z-six-problems-spec.md` 冻结在 Z8e，Z8f（三位 hex 条目 id）只写在 `CHANGELOG.md` 的 `未发布`。（391）
 - Batch V：每条事实绑定它所引用文件的内容哈希，文件之后一改就把该条标 `stale`（只标——绝不删除或改写）；计数随两份 `/memory` 回执发布；spec `docs/batch-v-memory-staleness-spec.md`，模块 `src/project-memory/{anchors,staleness,staleness-source,entry-sidecar,status-report,status-source}.ts`。（274）
 - Batch AA 三个核都已落地并推送：AA2 `/memory reconcile`（`450de13`）、AA3 会话日志核（`9a5062d`）、AA4 技能核（`b758772`），三条残余收口于 `db357b1`；AA5/AA6 于 `dee5db8` 落地（`sessionSettledDays`、`autolearnExpireSkills`、bind 报告缺口）；spec `docs/batch-aa-state-machines-spec.md`。（054）
-- 真实使用点：406-12（ssh `406-12`，easytier `10.126.126.4`，LAN `10.42.0.1`）是这些插件唯一有真实使用的机器，所以索引与记忆语料的读数从那里来、在这里对比；那台机器的 DSH desktop 宿主跑 `~/.local/share/dsh-desktop/0.2.2-rc.3`，回滚备份在 `~/.cache/pctx-backup-*/`。（1a4）
+- 406-12（ssh `406-12`，easytier `10.126.126.4`，LAN `10.42.0.1`）是这些插件唯一有真实使用的机器，读数从那里来、在这里对比；它用 `file:./vendor/` 下的同名 tgz 装本插件（**不是** git pin），宿主跑 `~/.local/share/dsh-desktop/0.2.2-rc.3`，回滚备份在 `~/.cache/pctx-backup-*/`；换法是覆盖同名 tgz、改 `pnpm-lock.yaml` 里那条 `tarball: file:vendor/…` 的 integrity、重解包 `node_modules/dsh-project-context` 并逐文件 sha256 比对；本机 desktop/web 是 `git+ssh://…#<sha>`、ctxdev 是 `link:`，三者互不相通；覆盖 tgz 与改 integrity 只换掉磁盘上的安装，宿主仍执行启动时加载的那份代码，判是否真换了要读宿主 pid 的启动时间与驻留模块。（1a1, de9, 6fc）（acb）
 - `docs/research/2026-11-18-similar-projects.md` 调查了 26 个同类系统与 14 篇论文；原始证据在 `.agents/evidence/2026-11-18-similar-projects-research/`（`manifest.tsv` 带完整 SHA-256，另有 `sources.md`、`comparison-matrix.csv`、`failures.tsv`、`local/`），落在 `3b6f9d6`；后续的 AOCI / repo-cognition-index 调查是 Batch V 源绑定想法的来源。（67c）
 - `CHANGELOG.md` 里记的残余只剩两条设计边界：技能过期只对带 `autolearn-generated` 标记的技能生效（手写技能只读）、`confirmed` 是本地侧车换机后重报；「整目录搬家报 `drifted`」与「`dangling` 只查父会话是否在磁盘上」已由 `moved` / `abandoned` 两态在 `db357b1` 补上。（28a）
 - 设置拆分的 spec 是 `docs/batch-ac-settings-split-spec.md`：推荐四份 schema / 四个命名空间 / 四张卡（共用 9 键 + 记忆 3 + 技能 4 + 交接 7，23 入 23 出无重复），`lib/client.js` 不拆（宿主一个包只发现一个 `exports["./client"]`），6 个待拍板点写在文里。（448）
-- 406-12 上覆盖 tgz 与改锁文件 integrity 只换掉磁盘上的安装：宿主仍执行它启动时加载的那份代码，换新代码要你在那台机重启桌面宿主——判是否真的换了要读宿主 pid 的启动时间与驻留模块，不能只看 `node_modules` 里的版本。（de9）
 - 宿主只对 index 页面要登录（未登录返回 401），插件资源路由 `/plugins/<pkg>/assets/…` 与 combo `?rev=` 是公开的，所以浏览器实际收到的 bundle 可直接 curl 取来比对，不必进页面。（3ae）
-- 四份受跟踪治理文档各管一层：`RULES.md`（规程与可运行判据）、`AGENTS.md`（入职短页，条文指向 RULES 章节）、`docs/architecture.md`（分层、依赖方向与数据流叙述）、`docs/GLOSSARY.md`（术语唯一来源，含禁止的同义异名）；它们与 `src/` 冲突时一律以 `src/` 和现读命令为准。（43d）
+- 四份受跟踪治理文档各管一层：`RULES.md`（11 章规程与可运行判据）、`AGENTS.md`（入职短页，条文指向 RULES 章节）、`docs/architecture.md`（分层、依赖方向与数据流叙述）、`docs/GLOSSARY.md`（术语唯一来源，含禁止的同义异名）；它们与 `src/` 冲突时一律以 `src/` 和现读命令为准，重建于 `3c1d6c4`；引用计数或行号前按符号名现读 `src/`。（43d, 843）（21e）
 - 治理重建后的对齐批次（`378738f`、`37c8ece`）已推送：`docs/GLOSSARY.md` 明文豁免冻结档案（`.agents/evidence/**`、`docs/archive/`）与带日期 spec，术语只约束现行文档；现行文档统一「交接不调模型」并改用规范术语。（116）
-- 仓库自带文档门禁是 `scripts/check-docs.mjs`，入口 `pnpm docs:check`（先 `tsc`）：查受跟踪文档的相对链接（跳过代码块与行内代码示例）、`path:line` 锚点是否越界、紧邻锚点的符号是否落在该行窗口内、`RULES.md` 3.2 的大文件基线、4.2 的依赖白名单；首行印条目计数与失败数，退出码 0 才算通过。（e36）
-- `test/doc-governance.test.mjs` 钉住门禁两个方向：仓库自身通过，加坏链、越界锚点、符号不在位、基线不符、白名单外 import 五条失败夹具，变异只让对应用例变红。（2ca）
-- 文档门禁已接进 `RULES.md` 3.2 / 3.6 / 4.2 / 6.1（6.1 要求文档改动另跑 `pnpm docs:check`）与 `AGENTS.md`、`docs/development.md`，后两者只答「什么时候跑哪条」并声明 RULES 第 6 章权威；`README.md` 的篇幅行数承诺改成现读。（814）
+- 仓库自带文档门禁是 `scripts/check-docs.mjs`（入口 `pnpm docs:check`，先 `tsc`）：查受跟踪文档的相对链接（跳过代码块与行内代码示例）、`path:line` 锚点是否越界、紧邻锚点的符号是否落在该行窗口内、`RULES.md` 3.2 的大文件基线、4.2 的依赖白名单；首行印条目计数与失败数，退出码 0 才算通过（计数随文档漂移，引用时只引退出码）；已接进 `RULES.md` 3.2 / 3.6 / 4.2 / 6.1 与 `AGENTS.md`、`docs/development.md`，后两者只答「什么时候跑哪条」并声明 RULES 第 6 章权威。（e36, 814, fd1）（325）
+- `test/doc-governance.test.mjs` 钉住门禁两个方向：仓库自身通过，加坏链、越界锚点、符号不在位、基线不符、白名单外 import 五条失败夹具，变异只让对应用例变红；改判据要同时改这两处与 `RULES.md` 第 3/4/6 章的判据行，并对新判据做一次变异证明。（2ca, 98c）（b1f）
 - 治理文档的对抗审查冻结在 `.agents/evidence/2026-11-22-governance-docs-adversarial-review/`：adv-c 只有部分版（B 段在归档交接里被裁掉，README 已注明）、adv-d、adv-e 原文与逐条处置表。（587）
+- 核心/宿主边界分层：`src/host/dsh/types.ts` 是 `src/` 里唯一命名宿主包的文件（七个模块 cordis、commands、agent、session、session-projection、llm、token-meter，含两个 load-bearing 的 side-effect import，注释写明不许清）；`src/host/contract.ts` 零宿主 import、声明全部自有结构接口（内容块、消息联合、事件信封、`Session` / `Agent` 视图、辅助调用请求、投影面），核心文件都从这里取类型；`src/host/dsh/services.ts` 是唯一出现 `ctx.get(...)` 的地方（带类型 getter，`*Like` 服务接口也收在这里），`log.ts` / `llm.ts` / `lifecycle.ts` 分别把 `ctx.logger` / `ctx.llm` / `ctx.effect` 收成 `logOf` / `llmOf` / `onDispose`；其余 `src/` 是核心，`src/<plugin>/index.ts` 是唯一允许原生 `ctx.on` / `ctx.commands` / `ctx.systemPrompt` 的接线文件，依赖方向 入口/核心 → `src/host/*` 且 `src/host/` 不反向依赖插件或 `shared`；`ctx.foo` 在接线文件之外没有绑定作用域、没注入就直接抛；spec `docs/core-host-boundary.md`。（934, 3f7）（099）
+- 端口分层：`HostPorts` 只要设施（`log` / `services` / `llm`），`HostContext extends HostPorts` 另带 `on` / `registerCommand` / `addPromptContext` / `onDispose`；需要注册的收 `HostContext`、只取设施的 helper 收 `HostPorts`，入口把同一个对象往下传不重建；`LlmPort` 与回复 chunk 联合在契约里，`src/shared/model-call.ts` 收 `LlmPort` 而不是 context；四插件移植形状是「`index.ts` 只做解析配置 → 发布设置命名空间 → `hostContextOf(ctx)` → `start(host)`」，核心 `src/<plugin>/start.ts` 不 import cordis 类型，`project-context` 是样板。（1b6, 376）（06e）
+- 边界门禁 `scripts/check-boundary.mjs`（入口 `pnpm boundary:check`）逐文件检查：只有 `src/host/<harness>/` 可命名宿主包、`contract.ts` 命名就红、核心无宿主 import 与无 `ctx` 服务读取、事件与命令注册只在插件入口、`hostContextOf(` 只能出现在插件 `index.ts`、已移植核心 `src/<plugin>/start.ts` 不得 import 原生 `Context`、host 层不反向依赖核心；套件 `test/host-boundary.test.mjs` 13 用例（仓库通过 + 各规则失败夹具 + 放行方向），`RULES.md` 4.6 是条文、6.1 要求改 `src/` 另跑它；门禁只管 `src/`，`client/` 不在其范围，第二阶段形态与触发条件写在 `docs/core-host-boundary.md`，设计注记 `docs/host-context-2c-design.md`，实现 `src/host/dsh/{types,contract,services,host-context}.ts`，移植流程由技能 `.agents/skills/dsh-core-host-boundary-port/SKILL.md` 拥有。（635, 91c, 7a1, 90c）（68b）
+- 方向转换靠编译器而不是 cast：适配器用宿主的值导出 identity 构造函数重建请求（`SessionId` / `MessageId` / `ToolCallId` / `ReasoningEffortId`，分别在 `packages/core/session/lib/types/types.d.ts` 与 `packages/llm/llm/lib/types/brand.d.ts`），由 `test/fixtures/host-contract/{positive,negative}.ts` 这对夹具钉住——`test/host-contract.test.mjs` 编译两者，正夹具编过、负夹具的每个错误码都出现。（68f）
+- 核心/宿主边界 2a–2d 已全部落地（2026-11-22/23）：四个插件都切成「入口只接线 + `src/<plugin>/start.ts` 核心」；2d 关掉两处方向不匹配——出站请求由 `src/host/dsh/llm.ts` 的 `toHostRequest` 用宿主 brand 构造函数逐字段重建（不 cast 服务、不 cast 请求），投影键在契约里是闭合联合 `ProjectionKey`（`contextBreakdown | todos`）并由 `services.ts` 的 `projectionsOf` 逐键翻译；全仓只剩一处文档化放宽 `snapshot(session as unknown as HostSession)`；接第二个宿主前仍缺 `docs/host-context-2c-design.md` §6 三件（中性设置读取、服务 getter 进契约、事件时序写进契约）。（7b4）
+- 2b 已落地：`contract.ts` 的自有结构接口里四处开放词表（内容块、事件类型、回复 chunk 联合、finish reason 种类）由适配器用宿主的 `ContentBlockMap` / `SessionEventMap` / chunk 与 finish 注册表关闭；独立审计 `.agents/evidence/2026-11-22-host-contract-audit/README.md` 的 32 例谓词差分从 6 处不一致修到 0；建模前必须先做成员归属表——`session.*` 的 18 种用法混着来自 `src/project-context/session-index.ts` 的文件与元数据对象（`session.md`、`session.dir`），不是 dsh 的 `Session`。（3ff）
+- `src/host/dsh/lifecycle.ts` 的 `onDispose`（`ctx.effect` 适配）与 `src/shared/lifecycle.ts` 的 durability tracker 是两件不同的东西，名字相近不要混用。（3e5）
+- 回执布局批次已落地并推送：`8f53d36`（feat，六类命令回执首行载荷 + `test/receipt-layout.test.mjs`）、`3732b9b`（docs 登记）与跟进修复 `e6df50d`；「首行 ≤ 80 显示列、超宽必须含换行」只由该套件钉住、未写进 `RULES.md`。（）（86a）
 
 ## Invariants
 - 既定命名（B/D/E）：`record_memory` / `record_skill` 工具与 `/memory update`（原 `/context-update`，无别名）、`autolearn-generated` 标记（`/autolearn approve` 是唯一取代路径）、每个事实一个名字（`/handoff threshold auto|<ratio>`、`/handoff budget summary|recent <tokens>`、裸 `/session-log` 读、`write` 写）。（29f）
+- 裸 `/memory` 与 `/memory status` 给同一份状态回执（`e6df50d` 起接受显式 `status`，用法串是 `Usage: /memory [status] | …`），其余缩写仍被拒 `Unknown option`——回执验收别把用法错误当成布局失败。（bae）
 - 发布提交把整个 `未发布` 正文原样移进 `docs/changelog/<version>.md`，加一行 `## 版本目录` 行，并重开一个空的 `### 未发布（`<new tag>` 之后）`；缺这段就补一个标后文档提交——已发布的 tag 绝不重写或重切。（908）
 - 预算：四段 schema 只在 `src/project-memory/memory-schema.ts` 定义一次（`MEMORY_SECTIONS`、裸标题、`memorySchemaOverheadChars()`、`memorySectionBudgets(cap)`、`MEMORY_SECTION_PROMPT_SHARE`）；不要把它的数字抄进记忆。（ac7）
 - Batch N：份额是目标不是上限——空闲余量可汇聚，超配额段落借用超出部分，只有整篇达到 `maxMemoryChars` 才丢条目，分配器按条目上限衡量需求。（84a）
@@ -56,12 +65,10 @@
 - 适配器故意在决策看到输入前就把每个输入实体化，每个 `turn/end` 付一次 `handoffSplit` 和一次子代理列举，即使低于阈值；两个读都没有可观测效果，所以顺序不得重排。（651）
 - `isTopLevel` 门由四个插件都过，并由 `test/top-level-gate.test.mjs` 钉住，每个插件跑自己真实的 `apply()` 接线；handoff 里 `retireIfPending` 放在门之前是有意的。（db4）
 - dsh 的 `SessionHeader.origin` 是封闭字面量 `subagent`，`packages/subagent/subagent/src/child-agent.ts` 是唯一写入者——收紧乐观默认值没必要。（94a）
-- 插件读未声明的服务用 `ctx.get(name)`（返回 `undefined`，不抛）；`ctx.foo` 绑定调用方作用域，没有注入就抛。（f80）
 - 播种子会话不能走 `controller.prompt`：用 `agents.get(childId).followup(pluginUserMessage(prompt))`，使 kind = `dsh-project-context`，让非驻留子会话响亮失败；读的一侧 `humanUserText` 复用 `isHandoffContinuationText`，所以 `userTurnCount`/`firstUserText` 跳过横幅，种子绝不按措辞或长度识别。（41f）
 - 交接种子在 `<handoff>` details 块内带 `- handoff-seed: <12 hex>`——去掉该行后正文的 sha256 前缀——`seedIdentityOf(seed)` 从子会话自己的消息重算，`renderHandoff` 记同一 id（`HANDOFF.md` 会被下次交接覆盖）；行在 details 块内，所以六个 `<handoff>` 收尾与 `isHandoffContinuationText` 仍成立，删掉该行仍得到一个种子，链式交接只移除继承来的那一行 id；id 证明种子未被改过，绝不证明正文完整。（26d）
 - 插件能通过 `tools/pre-execute` 用拒绝种类和原因拒掉工具调用。（d3f）
 - 不要拆 `performHandoff`（`src/project-handoff/perform.ts`）；`maybeAutoHandoff` 确实是混合的，是这里最高风险的重构。（af0）
-- handoff 没有自己的 provider/model 配置键：`resolveTarget`（`src/project-handoff/runtime.ts:128`）先用插件配置再退回会话请求头，所以模型切换只有在该头被重写后才生效，且 `gate.ts` 的 `resolveModelInfo` 对过期配对抛错（自 Z8a 起由 `withRouteFailure` 包住）。（dcf）
 - `resolveThreshold` 拆成 `handoffRoom` / `qualityLimit` / `capacityLimit` 加一个挑模式的总调度；`thresholdRefusal` 复用 `handoffRoom`；膝点是退路不是天花板：`quality = upstreamUsableInput ?? knee(window)`，然后 `threshold = min(max(baseline + keep + summarizeTokens, quality), usable − SAFETY_MARGIN_TOKENS)`。（957）
 - 膝点曲线故意保守，不得抬高：它在 157K 附近饱和，是实测 MRCR 膝点的中位数；DeepSeek-V4.1-Flash 声明 1M 而实测膝点 130–170K，超过约 400K 时容量上限起作用，激进的杠杆是用户自己的固定比例。（d62）
 - `floor` 不得跨测量基准相减：它读 `ctx.sessionProjections.snapshot(session, ['contextBreakdown'])` 里可选的 `ContextMeasurement.overheadTokens`；`projectionEnvelope` 对缺失或畸形输入返回 `undefined` 而不是猜，`measuredContext` 是自动路径与 `/handoff status` 回执的唯一入口。（d1d）
@@ -83,11 +90,12 @@
 - 不要碰用户自己的 dsh 会话——目标与会话控制属于用户的 agent 会话；对 `~/.dsh` 存储的只读调查没问题，一次性探针会话放 `/tmp` 并事后归档。（8cb）
 - 不要擅自重启用户的 `dsh web` / desktop 宿主：先用技能 `dsh-host-build-restart-verify` 证明加载与否。`/etc/nixos/scripts/dsh-desktop-restart.sh` 与 `/memory update` 只属于用户——该脚本在 dsh 会话里退出码 3；只有 `--dry-run` / `--verify-only` 安全（技能 `dsh-nix-desktop-launcher-artifact-verify`）。（0b7）
 - 证明一批已落地并生效：驻留模块源码（`Debugger.getScriptSource`）对 `git show <commit>:lib/…`（进程启动时间不可靠——代码可热替换）；探针 `.agents/evidence/2026-11-11-z8d-live-module-version/probe.mjs`。技能 `dsh-core-mechanism-liveness-verify` / `dsh-batch-landing-acceptance-audit` 拥有流程。（36b）
-- profile 依赖改动用 store 里钉的 pnpm（PATH 里的是另一个大版本，会重写 `pnpm-lock.yaml`）；卸载插件需要声明移除、`pnpm remove` 与手清 `dsh.profile.bundles`，绝不用 `dsh plugin allow-version`；`file:` tgz 更新是在同名 tgz 上 `pnpm pack`、改 `pnpm-lock.yaml` 那一行 integrity、再解出 `node_modules/dsh-project-context` 并与仓库 sha256 比对 `lib/shared/config.js`、`lib/shared/threshold-spec.js`、`lib/project-handoff/threshold.js` 与 `lib/client.js` 四个文件（`package.json` 只作语义比对）。（844）
+- profile 依赖改动只用 store 里钉的 pnpm（PATH 里的是另一个大版本，会重写 `pnpm-lock.yaml`）；卸载插件需要声明移除、`pnpm remove` 与手清 `dsh.profile.bundles`，绝不用 `dsh plugin allow-version`；`file:` tgz 更新是在同名 tgz 上 `pnpm pack`、改 `pnpm-lock.yaml` 那一行 integrity、再解出 `node_modules/dsh-project-context` 并逐文件 sha256 比对（`package.json` 只作语义比对）。（2fe）
 - `git+ssh://…#<sha>` 钉法靠改 profile `package.json` 的那一行、用 store 里钉的 pnpm 安装、再与仓库 sha256 比对装好的 `lib/` 文件来升级——新代码只在下次宿主重启后生效。（1e3）
 - 修复先由探针或 API 检查证明再实现，绝不从评审散文采纳；每批做一次独立对抗评审（带事实台账）、一次换目标的收口轮与经变异检查的测试（技能 `dsh-plugin-mutation-round`）；还原 `src/` 不会还原 `lib/`，所以一轮结束要重建并 0 残留，从哈希校验过的 `/tmp` 副本还原而不是 `git checkout --` 或 `git stash`。（c3d）
 - 队友在跑时绝不交接、压缩或结束回合：飞行中的队友随父回合一起死，是进程内的（`~/.dsh/sessions/` 下没有条目），没有终止状态，宿主重启会静默杀掉——用 `list_agents` 等或显式打断，并从 `/tmp` 抢救半成品（技能 `dsh-teammate-run-guard`）。（580）
 - `subagent` 工具起的子代理一旦启动就不可寻址：`interrupt_agent` 与 `send_message` 会把它的 id 当作 `active teammate not found` 拒绝；队友在改 `src/` 时只有它拥有那棵树，所以等报告而不是全仓还原。（b8f）
+- 本仓开 Agent Team 时只开一个写手加只读审计：`tsc` / `pnpm test` / `pnpm build` 对整棵树生效、`lib/` 是共享产物，两个写手并行会互相把门禁弄红。（5d2）
 - 两个仓库里的核心缺陷类都是误归因：不同失败塌进一个 `undefined`，调用方报出一个主动错误的成因——静默劣化可以接受，错误成因不行；措辞分类器的残余误分类是已知可接受的（`CHANGELOG.md`），绝不当作已修。（379）
 - 隐藏字符数是模型没看到的输入的唯一痕迹：它覆盖读上限（`LoadedMemory.cappedDroppedChars`、`MAX_CONTEXT_CHARS` 切片）加输入适配，绝不含规范化——折叠或解码过的文档报规范化器自己的 `dropped`，不做规范化的分支报 `clipToLineBoundary` 的差值。（ff6）
 - 两个注入 provider 保持同步纯读（`cachedProjectRoot` 缓存的项目根加一次文件读），因为提示组装不能 await，`refreshContext` 在请求准入时重估它们，所以回合中编辑在下次准入生效；`Session.header.cwd` 是上游的项目身份，所以 `working_directory({cd})` 按设计让记忆锚在最初项目上；`engines.dsh` 字段会单独决定兼容线，必须覆盖整条受支持线。（390）
@@ -104,7 +112,7 @@
 - `entries.json` 的日期与条目尾标都不是年龄信号：id 由正文 sha256 派生，正文一改写就换标并重置日期，现存尾标多数与按当前正文重算的结果不同，判断新旧只能读内容。（ffa）
 - 2026-11-18 调查的既定裁定：护城河是写路径纪律（append-only `memory.jsonl` 作为权威、渲染文档是派生物、tier C 整 pass 拒绝且库字节不变、每次拒绝一条具名回执），不是功能清单；真正的缺口是检索与可观测性；绝不采纳 DB-first 权威、静默压缩、未评审的技能采纳或服务端依赖。（4e1）
 - dsh 自带压缩（`@deepseek-ai/dsh-compaction`，`packages/compaction/compaction-basic`）：`thresholdRatio 0.8` 受剩余容量约束，`retainRatio 0.16`，`agent/pre-step` 自动触发，`agent/request-error` 溢出重试，手动 `/compact` → `compactNow` 需要空闲 agent——本包不得实现压缩器或碰那条瀑布。（347）
-- 命令回执是以 `{kind, text}` 返回的纯文本，内嵌 `\n` 且客户端保留换行（裸 `/context` 返四行，`/session-log tree` 依赖缩进），但客户端会折叠：`GenericCommandCard` 把行折成一行 `white-space: nowrap` 省略摘要（`outcome.text` 的前缀），`<pre>` 正文仅当文本含换行才存在（默认折叠），所以单行回执永远无法展开且总被裁——回执首行必须带载荷。（4c1）
+- 命令回执是以 `{kind, text}` 返回的纯文本，客户端 `GenericCommandCard` 把摘要折成一行 `white-space: nowrap`、只有文本含换行才渲染可展开的 `<pre>`，所以判据是首行 ≤ 80 显示列（CJK 计 2）、整串超 80 必须含换行、载荷放首行；六类回执由 `src/project-handoff/command.ts` 的 `statusText`、`src/project-context/session-state.ts`、`src/project-autolearn/skill-state.ts` 与 `src/project-memory/{status-report,report}.ts` 构建，`test/receipt-layout.test.mjs` 钉住这一形状（中英两条回执各一条断言）。（b62）
 - 两个安装 profile 的 `cordis.patch.yml` 现在都带 `maxMemoryChars: 52000` 与 `maxOutputTokens: 49152`；两个键都是卡片可见的 `volatile` 字段，保存设置会写回同样的值，两个 profile 共用一个 `MEMORY.md`，所以任一侧更小的上限先裁——声称取值前现读这两个键。（cba）
 - `subagent-codex` 的 `config.model` 是必填（`z.string().min(1)`；省略会继承 `~/.codex/config.toml`）；desktop profile 钉 `auto/claude-opus-5-5`（luna 仍是用户排除的），`~/.codex/magpie-models.json` 里没有的 id 会在 thread 启动时失败；按 `- id: subagent-codex` 键定位 pin，绝不用行号。（2dc）
 - Codex 配置：`[features] async_compaction = true` 必须是布尔形式，store 构建拒绝嵌套表；完整陷阱（静默未知键、`trust_level` 追加、模型钉）见技能 `dsh-subagent-codex-model-pin`，证据 `f0ac43e`。（565）
@@ -124,30 +132,30 @@
 - 技能基线绑定（`bindableAnchors`，`src/project-autolearn/skill-state-source.ts:77-93`）故意跳过 `lib/`（每次构建都变）、`.agents/memory/`（本身易变）与项目根外的绝对路径；`orphan` 只判「MEMORY.md / CONTEXT.md 没有一行用路径引用它」，与 `drifted` / `moved` / `expired` 分开且只报告。（d8b）
 - `sessionSettledDays`（默认 7，范围 1–365）是 `live`/`settled` 分界、`abandoned` 判据与交接日志扫描门槛的唯一来源——同一个数，判定与扫描不再各用一条线；`autolearnExpireSkills`（默认 true）把「过期技能移出服役」与「要不要花模型调用沉淀」解耦，沉淀关闭时另走一条不做模型调用的只移出路径，即「过期技能自动移出」。（e64）
 - 新增配置键要同时落四个面：`src/shared/config.ts`、`src/shared/settings.ts` 的 schema、`client/card-fields.ts` 的 `ProjectContextSettings` 接口（独立副本，缺了会让 `tsc -p tsconfig.client.json` 直接报错）与 `ROWS`/locales，以及 `test/settings-form.test.mjs` 的每键一行断言。（a2f）
-- `bindSkills` 返回 `{bound, skipped}`，`SkillFacts.bindable` 让 `unbaselined` 分成「没人跑过 bind」与「根本没有可绑锚点」两句不同的 detail——跳过规则是对的，沉默不是。（f0a）
 - dsh 上游设置表单是一项一块的竖排 flex column（`ConfigField.tsx` 的 `.field` 为 `flex-direction: column; gap: 6px`，label、控件、错误各占行，无 hint 位、无网格/折叠）；我们的卡片用同行 `.dshPcRow` 更密，多一行的真实成本是每行一条 hint。（b53）
 - 设置卡片用上游 `SegmentedTabs` 分三个页签（记忆 / 技能 / 交接），分组仍由 `client/card-fields.ts` 的 `SECTIONS` 决定；三个面板都留在 DOM 只切可见性，所以切换不丢已暂存编辑、底部仍是一次保存一次原子写（`bfea9cd`）；`SegmentedTabs` 只在 0.2.x 的 `ui-primitives` 里，传 `size` 会编译失败。（5a4）
 - 让 memory / autolearn / handoff 各自导出 `Config` 出三张独立设置卡被否：共享 `project-context` 命名空间（一个 schema、一次保存、一个 revision）是有意的，拆成四份要迁移两个 profile 里已有的值，属单独一批、先出拆分 spec。（5e4）
 - 批次 AC 的修复闸在 `src/project-memory/lost-entry-repair.ts`：tier C 与 batch Z2 退休之后运行，只对 Invariants/Pitfalls 回填「规范化正文（去 id、压空白）消失、且它带的每个反引号字面量都从整篇消失」的条目，恢复旧原文含条目 id 并把 id 补进 `keepIds`；`supersedes:<id>` 点名的、`Project`/`Index` 的、回填后重渲染会丢东西的（`no-room`）都不回填，回执首行印 `Restored:`/`Not restored:` 各一行到 `errors.log`。（bb3）
-- 406-12 的 desktop profile 用 `file:./vendor/` 下的同名 tgz 装本插件（**不是** git pin）：更新是三步——覆盖同名 tgz、把 `pnpm-lock.yaml` 里那条 `tarball: file:vendor/…` 的 integrity 换成新 tgz 的 sha512、再用新 tgz 重解包 `node_modules/dsh-project-context`（n 项逐个 sha256 对 `git show <sha>:lib/…`）；本机 desktop/web 是 `git+ssh://…#<sha>`、ctxdev 是 `link:`，三者互不相通，改一处到不了另一处。2026-11-21 现读 406-12 跑 0.2.2-rc.3（此前记忆写的 rc.1 已过期）。（82f）
 - 治理文档重建落在 `3c1d6c4`（`docs(rules): rebuild the governance docs and add a terminology table`）：`RULES.md` 固定 11 章，软规则显式标注（3.4、4.5、7.4、7.6），其余每条带可运行判据；门禁必须给可复制命令、成功判据写退出码 0、并用已知失败样本实测非零；引用规则写章号，不写行号。（e03）
 - 治理文档改动单独提交 `docs(rules)`，一次只动 `RULES.md`、`AGENTS.md`、`docs/architecture.md`、`docs/GLOSSARY.md`、`docs/README.md` 与 `CHANGELOG.md` 的未发布登记；判据是 `git show --stat <commit>` 的路径列表不含 `src/`、`client/`、`test/`、`lib/`、`README.md`、`.agents/`。（679）
-- 依赖方向的唯一白名单是 `docs/architecture.md` 第 2 节（7 条边、12 个不同 specifier、共 14 处，含 `src/shared/conversation.ts` → `../project-handoff/language.js` 这条共享层例外），表里现在明文列出 12 个 specifier，`pnpm docs:check` 拿 `src/` 的实际 import 与表逐条比对。（a91）
+- 依赖方向的唯一白名单是 `docs/architecture.md` 第 2 节（现 8 条边、13 个不同 specifier、共 15 处，含 `src/shared/` → `project-handoff` 的共享层例外），表里明文列出每个 specifier，`pnpm docs:check` 拿 `src/` 的实际 import 与表逐条比对；新增一条跨插件 import 必须同笔改该表与 `RULES.md` 4.2 的计数，`RULES.md` 3.2 的大文件行数同理由门禁现读比对、只在越过基线时才改。（6f6, 389）（222）
 - 运行时依赖口径：host 侧唯一值依赖是 `schemastery`（声明在 peer）；客户端只 import 宿主提供的 `react` 与 `@deepseek-ai/dsh-client-ui-primitives`（在 devDependencies、不打包）。（788）
 - 自动改写受跟踪文件只发生在三处：`INDEX.md` 的启动对账（`src/project-context/index.ts` 的 `agent/created` → `reconcileSessionIndexOnce`，受同一 `archiveEnabled` 开关）、整理 pass 按条目状态退休（`consolidate.ts` 的 `retireWithinBudget` → `retiresEntry`）、技能 `expired` 移出 `expired-skills/`；三个状态核本身只读不写。（a00）
-- `RULES.md` 第 11 章登记三项未决、各带 `2026-12-31` 复查日：大文件拆分（`src/project-memory/consolidate.ts` 与 `index.ts` 都超过「只减不增」的 400 行线）、辅助调用超时（`src/shared/model-call.ts` 没有 timeout，`requestOptions` 只透传 `signal`）、证据冻结前豁免——都是用户裁定项，文档只登记、不动代码。（c56）
-- `RULES.md` 3.2 的大文件行数与 4.2 的依赖 7 边 / 12 specifier / 14 处是唯一允许写死基线的地方，由 `scripts/check-docs.mjs` 现读比对，文件或依赖一变门禁就失败并指向规则行。（389）
-- 文档改动的判据是 `pnpm docs:check` 退出码 0，并把命令与退出码写进结论；门禁首行的条目计数随文档漂移，引用时只引退出码。（fd1）
-- 门禁判据必须有失败方向：新增或改动文档判据时，同时在 `test/doc-governance.test.mjs` 里给一个已知坏样本，并做一次变异证明该用例会变红。（98c）
+- `RULES.md` 第 11 章的未决清单现只剩一项：`src/project-memory/consolidate.ts` 超过「只减不增」的 400 行线——`index.ts` 拆成 `index.ts`/`report.ts`/`update.ts` 后已退出，3.2 的大文件基线也只剩它；登记项都是用户裁定项，文档只登记、不动代码。（abe）
+- 命令回执的语言只有一个入口：`src/shared/receipt-language.ts` 的 `receiptLanguage(session, config)` 复用 handoff 的 `auto` 解析（用户消息采样 + 显式 `handoffLang` 优先），四个插件都从它取语言；`src/shared/language.ts` 提供 `pick(language, zh, en)` 与按单复数变化的 `counted(...)`；解析必须发生在命令处理器里，构建器的 `language` 参数默认 `"en"`，不传就是英文。（51a）
+- 标点随语言：中文回执用全角 `（）「」`、英文用 ASCII 圆括号与直引号，` · ` 两语言共用；设置名加引号（如 `「保留最近对话（token）」`，取自 `src/shared/setting-labels.ts`）是为把可拨的旋钮名与正文分开。（27e）
+- 回执本地化覆盖全部命令面，语言在处理器里解析一次：`/context` 与 `task`/`export`（`src/project-context/start.ts`）、`src/project-memory/{report,start}.ts`（`update|prune|reconcile|--accept` 全分支与拒绝行）、`src/project-autolearn/{start,candidate}.ts`、`src/project-handoff/command.ts`（`now` 七分支与 `settingPatch` 拒绝）；新增回执照此加中英双断言与变异。（8ac）
+- 回执行内数据也随语言（`820583e` feat + `dffc437` 登记，措辞对齐 `2627aca` + `f1102ba`）：`ENTRY_STATE_LABEL`（`entryStateOf(tid, facts, language)`）、`PRUNE_REASON_LABEL`、`TASK_STATUS_LABEL` / `taskUsageRow`、`/context find` 三种零、`/session-log tree` 注解、`/autolearn` 的 `evidenceText` 与冲突句、`/handoff status` 固定阈值句都在各自状态核的 label map 里本地化；整理 pass 提示词与 `purge.log` 保持英文。残余只剩 `/autolearn` 的 admission / skip 原因句（`shapeRejection`、`rejectionReason`、pass 的 `skipped`，在 pass 核生成、那一刻没有会话语言），要译得把「原因」改成「码 + 参数」的 `AutolearnOutcome` 类型变更，属单独一批（登记在 `CHANGELOG.md`）。（）（176）
+- 回执 i18n 统一批次是 `0efe64f`（feat）+ `7704e2f`（docs 登记与漂移锚点）；交接或上下文声称某批落在某提交时必须现读该提交的源码核对（本批就是靠 `report.ts` 里 `pick(` 出现 0 次发现的），profile 的 pin 与 `lib/` 的 sha256 一律现读、不写死。（909）
+- `docs/GLOSSARY.md` 新增「状态词（代码枚举 ↔ 回执中文）」一节，拥有五套词：记忆条目七态、技能六态、会话日志八态、任务三态（活跃 / 休眠 / 已归档）与清洗五类原因；概念表把「证据」拆成「证据目录」（`.agents/evidence/`）与「证据（引用）」（沉淀产出的 `evidence:` frontmatter，回执写「证据：N 个会话」）。（7d1）
+- 术语分工：**存档**是层名与存储（`① 存档`、`session-logs/`、「父会话不在存档」），**归档**是动作与状态（`归档会话数`、`已归档`）；「已 X」是完成态（技能 `drifted` = 已漂移），「X」是名词短语（条目 `anchor-drift` = 锚点漂移）——两者都含「漂移」是对的。（4c9）
+- 用户要求回执 i18n 一次统一，不接受分批留下半本地化的表面（2026-11-23 明确纠正）——新面要么同批接线，要么在任务里点名登记。（39f）
 
 ## Pitfalls
 - 记忆丢失发生在写之前或写时，所以干净重渲染证明不了什么；五个点是 `fitMemoryInput` 首尾裁剪、`renderMemoryDocument` 按段落预算丢条目、存储的上下文在适配前被切成 `MAX_CONTEXT_CHARS`、`renderContextDocument` 裁段、`normalizeMemoryDocument` 写时封顶；`ConsolidateReport` 带六个丢失计数加 `memoryWritten`/`contextWritten`。（bbc）
-- 文档到 `maxMemoryChars` 的约 100% 会逼每个 pass 为腾地方丢掉细节；抬上限只买时间且每轮多花提示 token，所以解法是留余量加损失闸，不是更大的 cap。（558）
-- `/memory update` 有两种无关的拒绝原因——段落预算（`lossy-refused`：`N section(s) exceeded their budget` / `N whole entry(ies) … reached its character cap`）与模型输出上限（`cut off by the model output limit`）；抬 `maxMemoryChars` 会加重输出那一半，治根是缩小文档，`fit-capped-refused` 说明输出预算装不下两份文档。（d54）
-- 闸门数字与占用率散文会过期：跑 `pnpm typecheck` / `pnpm build` / `pnpm test` / `pnpm docs:check` 读最新计数，`lib/client.js` 大小取自构建输出，期望 0 变异残留，并通过构建后的渲染器（`share-fit.mjs`）重测各段占用，而不是相信写死的百分比。（846）
-- `share-fit.mjs` 按库默认 `MAX_MEMORY_CHARS` 量，输入适配探针同理必须取 profile 的 `maxMemoryChars` / `maxOutputTokens`——否则各自报出运行宿主绝不会产生的有损结论或裁剪。（469）
-- 已加载记忆的陷阱：`loadMemory` 可能返回已带截断标记的文档，而状态对象仍报 `damaged: 0`、`poisoned: false`；标记的 `dropped` 是规范化长度减保留前缀长度，不是原长减保留——绝不靠算术验证，也绝不 grep 该标记。（1a8）
-- 自 `8ffb70f` 起 `/memory` 回执把历史截断标记（`Note:`）与真实读裁剪（`Warning:`）分开，所以只是仍带着旧标记的文档不再报它没丢的字符。（fea）
+- 文档逼近 `maxMemoryChars` 会逼每个 pass 为腾地方丢细节；抬上限只买时间、每轮多花提示 token 且加重输出那一半，治根是留余量加损失闸；`/memory update` 的两种拒绝原因（段落预算 `lossy-refused` 的 `exceeded their budget` / `reached its character cap`，与模型输出上限 `cut off by the model output limit`、`fit-capped-refused` 装不下两份文档）互不相关，判词要分开读。（a15）
+- 闸门数字与占用率散文会过期：跑 `pnpm typecheck` / `pnpm build` / `pnpm test` / `pnpm docs:check` 读最新计数，`lib/client.js` 大小取自构建输出，期望 0 变异残留，并通过构建后的渲染器（`share-fit.mjs`）重测各段占用，而不是相信写死的百分比；`share-fit.mjs` 按库默认 `MAX_MEMORY_CHARS` 量，输入适配探针必须取 profile 的 `maxMemoryChars` / `maxOutputTokens`——否则各自报出运行宿主绝不会产生的有损结论或裁剪。（846, 469）（a24）
+- 已加载记忆的陷阱：`loadMemory` 可能返回已带截断标记的文档，而状态对象仍报 `damaged: 0`、`poisoned: false`；标记的 `dropped` 是规范化长度减保留前缀长度，不是原长减保留——绝不靠算术验证，也绝不 grep 该标记；自 `8ffb70f` 起 `/memory` 回执把历史截断标记（`Note:`）与真实读裁剪（`Warning:`）分开，所以只是仍带着旧标记的文档不再报它没丢的字符。（1a8, fea）（57f）
 - `tsc` 把带标签模板输出成 `String.raw` 加一个空格再加模板，所以在模板内 `grep -cF` 一个标记返回 0，看着像还原失败或空变异；用 `grep -n "<NAME> = "` 在 `lib/` 里定位变异。（f6c）
 - 从会话日志取的字符串计数不可用，因为日志会回显 agent 自己的命令输出，`grep -c` 多半数的是探针自己；用只读接口（`cordis_inspect_query` 的 `Config`/`Service`、投影缓存）判现场行为。（d26）
 - 不要把多行日志按整行字符串与时间戳比较来过滤：堆栈的续行以 `{` 或空白开头、排在 `2026…` 之后，会被读成更新的条目并藏起那一条真错误——按行首时间戳匹配。（34b）
@@ -161,7 +169,7 @@
 - 自动交接只在 `turn/end` 评估、没有定时器，所以远超阈值却从不结束回合的会话永不交接；第二道门是紧随阈值的 `handoffPendingQuestion`，只有 `defer` 会挡。（f70）
 - 越阈值必要但不充分：最近 token 窗口已覆盖整个会话时决策还会以 `nothing-to-drop` 跳过，所以单凭阈值被越过绝不预言一次交接。（af4）
 - 不要乱序诊断：两个预检（待答问题、正在跑的子代理）都排在阈值之后，`/handoff now` 两个都不检查，`/handoff threshold 0.4` 也不越过膝点；要判现场就跨所有工作区验证，不只被问到的那一个。（a49）
-- 第三方插件能弄坏 desktop 启动，所以重启失败未必是你的改动：`~/.config/@deepseek-ai/dsh-desktop/logs/crash-*-host.log` 记着 `dsh: skipping profile bundle` 加一行 `peerDependencies` 不兼容，然后宿主停住；现读 `dsh --version`，按 mtime 归属文件。（f54）
+- 重启/验收失败未必是本包：第三方插件能让 desktop 停住（`~/.config/@deepseek-ai/dsh-desktop/logs/crash-*-host.log` 记 `dsh: skipping profile bundle` 加一行 `peerDependencies` 不兼容，然后宿主停住）；`dsh-desktop-restart.sh` 的探针 rc=0 还要求「enabled 但非 active」为 0（2026-11-23 是 `include:subagent-claude-code`），`--verify-only` 在另一个无关 desktop 活着时也失败，且它回落到自己的旧缺省口 `http://127.0.0.1:19387` 印 5 次 `fetch failed`（alpha.2 起宿主用 `--port 0`，19387 永不被占——脚本注释自己写着），本机真实口是 GUI 35687 与 Inspector 9230；判据读 `notActive` 行与 store 校验行，不是整体 RESULT；现读 `dsh --version`，按 mtime 归属文件。（d90, f54）（）（c1b）
 - 记忆文档 mtime 新而 `git status --short` 干净，通常是最后一次提交自己写的——把该 mtime 与最后一次碰该文件的提交时间比，读会话目录里的文件而不是目录 mtime，并记住 `wc -m` 数字符、`ls -l` 数字节。（548）
 - `cordis.patch.yml` 的 mtime 往前跳说明平台在持久化设置，不是有人在改配置：设置页经 `settings.mutate` 带 `revision` 整份重写（并发外部编辑被拒为 `settings/conflict`），所以一次卡片保存能冲掉手改的 `maxMemoryChars`；agent 改动会留 `.bak-<date>-<purpose>` 且行号会漂，grep 键而不是引用行号。（0b6）
 - `test/card-render.test.mjs` 必须自己提供 `react-dom` / `clsx` / `zustand` / `immer`（客户端包会 import 它们却只声明 cordis peer）加 `ui-primitives` 巨型入口的 passthrough；迁移后的卡片经一次平台 require 跑在 `lib/client.js` 里。（9f7）
@@ -170,67 +178,65 @@
 - 绝不要用前缀相对的替换去改长行：余下部分会活下来，行尾留下重复残段；把该行读回来确认同一句没有出现两次。（af3）
 - 拿 `.agents/memory/session-logs/INDEX.md` 对磁盘时，必须解析每条 bullet 的链接目标，绝不在整行里找 id（会话标题可能引用别的会话 id），也绝不用 `session-*` 通配数目录（会少算）。（51e）
 - 配置键改名是破坏性的、没有兼容读取器（batch H）：我们的值在各 profile 的 `cordis.patch.yml` 里，本仓库改不了它们，别名永远退不了场；失败只响一半——`project-context` 条目 apply 时抛错并丢卡片，另外三个静默退回 `DEFAULT_CONFIG`。先改两个 profile 再重启，并动六个面：`config.ts`、`settings.ts`、`client/card-fields.ts`、`locales.ts` 的 `field.*`、每个读取点与 `settingPatch` 写回键、测试。（0da）
-- 证明手改文档安全靠的是渲染往返而不是 `isMemoryTruncated`：cap 可以报 `truncated:false` 而某条超过 `MAX_LIST_ITEM_CHARS`（800）正排队被静默裁剪；`CONTEXT.md` 与 `MEMORY.md` 各需一次往返（`roundtrip.mjs` / `share-fit.mjs`）——`itemTruncated 0`、没有条目贴着上限、往返字节相同，并且是拆开长条而不是丢掉事实。（b96）
-- 上下文文档会饿死自己的尾部（Open tasks 曾占到其份额的 99.7%，下一 pass 就会丢尾部条目），所以任何大幅手改后要量各段占用；一条事实写一个 `- ` bullet 而不是追加纯文本（那会拼进上一条并吞掉标题），直接调 `renderContextDocument` 时要给 `options.updatedAt`。（33f）
+- 证明手改文档安全靠的是渲染往返而不是 `isMemoryTruncated`：cap 可以报 `truncated:false` 而某条超过 `MAX_LIST_ITEM_CHARS`（800）正排队被静默裁剪；`CONTEXT.md` 与 `MEMORY.md` 各需一次往返（`roundtrip.mjs` / `share-fit.mjs`）——`itemTruncated 0`、没有条目贴着上限、往返字节相同，并且是拆开长条而不是丢掉事实；上下文文档会饿死自己的尾部（Open tasks 曾占到其份额的 99.7%，下一 pass 就会丢尾部条目），所以任何大幅手改后要量各段占用；一条事实写一个 `- ` bullet 而不是追加纯文本（那会拼进上一条并吞掉标题），直接调 `renderContextDocument` 时要给 `options.updatedAt`。（b96, 33f）（6f0）
 - 一次拒绝的输入文档版本事后无法证明——请求体不落盘、成本台账按会话聚合、宿主不写 `[memory]` 运行日志——所以用 `MEMORY.md` 的 mtime 加「下次重启后的拒绝无歧义」来归属；任何「某批已生效」的书面断言都会衰减，必须重新推导。（0cf）
 - `dsh-live-inventory-probe.mjs` 的 `--expect` 收的是插件 `moduleName` 后缀而不是包名：我们的四行是 `dsh-project-context`、`dsh-project-context/memory`、`dsh-project-context/autolearn`、`dsh-project-context/handoff`，传 `dsh-project-memory` 会对一个完全加载的宿主报假 `NOT FOUND` / FAIL。（cf5）
 - 学到的正文只有模型用 `inspect_skill` 点名时才被取出，本轮没渲染正文的带标记名字在门与写路径上都被以 `body not shown this pass` 拒绝；简报在 `docs/archive/batch-{g,h}-*.md` 与 `docs/vocabulary-conventions.md`。（6f4）
 - dsh 在 store 仓库的 `docs/upgrade-guide/` 下有机器可读的升级指南——推理差异前按版本读，但指南写的是声明意图，要在已发的 `lib/` 里确认行为；dsh 的 schemastery 不再声明的陈旧配置键会被静默接受、什么都不做。（367）
 - 匹配渲染后段落标题的探针必须用裸的 `MEMORY_SECTIONS` / `CONTEXT_SECTIONS` 名：spec 里没有 `## `，按渲染串匹配会把占用少报几个数量级。（3db）
-- 全绿套件不代表活配置分支被覆盖：batch W 的变异 F 删掉 `handoffPendingQuestion === "defer"` 守卫，直到补一个用例才红，因为两个 profile 都写 `wait`——生产唯一读到的分支原本没测。（3b5）
+- 全绿套件不代表活配置分支被覆盖：batch W 的变异 F 删掉 `handoffPendingQuestion === "defer"` 守卫，直到补一个用例才红，因为两个 profile 都写 `wait`；回执语言同类——构建器有 `language` 参数而处理器没传，直接调构建器的用例全绿也抓不住，必须走真实 `apply()` 注册面的 `every status command resolves its language at the handler, not at the builder's default`。（3b5）
 - 全绿的验收探针加没有新失败签名，并不证明模型调用修复：重启后去路由日志里查一条由插件路径发出的辅助调用，因为主回合流量也带 `tools: []`。（ba9）
 - Batch Z8d：`removedSectionEntries` 只在 `stripEntryTid` 之后比条目，因为计划可能被盖章而写回没有；原样比会报 107 处删除而其中 96 条没变。由 `test/logic.test.mjs` 的 `batch Z8d` 钉住。（bde）
 - `retireSections` 在四个段落上建 id 映射，并对每段跑锚漂移与 180 天/未确认规则，所以 Project 或 Index 条目也能被当成未确认退役，而紧张的预算会剪掉它们的年龄数据、让老化暂停；Invariants → Pitfalls → Project → Index 的盖章顺序只有「Project/Index 每 pass 都被重写」这一个理由。（bd7）
-- 合并重复事实是赢余量最便宜的办法：只合并真正同义的重述（去重后文档里 Jaccard 最高的一对约 0.3），并用机械方法证明没丢东西——两条被合并行的每个反引号 token 与数字仍须出现在整篇里，加一次字节相同的往返；纯措辞压缩最多省几百字符，再多就得删已交付事实，那是用户的判断。（396）
+- 买记忆余量最便宜的是合并真正同义的重述（去重后文档里 Jaccard 最高的一对约 0.3）而不是删除或措辞压缩，并用机械方法证明没丢东西——两条被合并行的每个反引号 token 与数字仍须出现在整篇里，加一次字节相同的往返；要再省就得指针化：把操作流程压成一句加一个技能指针、把它带的字面量搬进那个技能，再用 `missing-literals-between` 证明文档里唯一消失的字面量是你搬走的那些。（396, 7b7）（07f）
 - 厂商文档在这里直接抓会失败（`developers.openai.com` / `learn.chatgpt.com` 403，部分 `raw.githubusercontent` 404）：走 `r.jina.ai/<url>`，把代理记进证据 manifest，未命中留在 `failures.tsv`；由捕获的 `.html` 派生的 `.txt` 不是独立证据。（650）
 - `workspace-write` 在这台机器上可能不可用（'no sandbox backend is usable … refusing to run unconfined'），bash 调用会还没执行就死；这是环境拒绝，不是命令写错。（c05）
 - `ctx.compaction.compactNow` 只能经 `agentPresets.serviceFor(agent,'compaction')` 取（压缩服务不在根域），且在 `turn/end` 回调里同步调必定抛 `ManualCompactionError('busy')`——那一刻 agent 一定 `running`，`busy` 是同步抛出所以 `.catch()` 接不住，要用 `whenIdle()` 等；接线需 8 条守卫；锁定线 0.1.7-rc.2 是否声明这两个 API 仍未确认。证据 `.agents/evidence/2026-11-21-sh10-compactnow-handle/finding.md`。（bbd）
-- profile `package.json` 里显式的 SHA pin（`git+ssh://…#<sha>`）永不自动升级，所以驻留宿主能跑几个月前的构建而树是新的；读那个 pin 而不是假设宿主被更新过，并把驻留模块与 HEAD 比来判可疑行为是旧代码还是当前代码（曾有一次 `consolidate.js` / `record.js` 与 HEAD 逐字节相同，只有 `index.js` 不同）。（38a）
+- profile `package.json` 里显式的 SHA pin（`git+ssh://…#<sha>`）永不自动升级，所以驻留宿主能跑几个月前的构建而树是新的；读那个 pin 而不是假设宿主被更新过，并把驻留模块与 HEAD 比来判可疑行为是旧代码还是当前代码。（38a）
 - 记忆文档的 token 差异审计必须逐行抽反引号 token：跨行正则会错位抽取并同时多报少报（有一次报了 74 个缺失 token，其中 13 个其实以纯文本存在）。（350）
 - `renderMemoryDocument` 的签名是 `(sections, cap: number)`——把选项对象当第二个参数会得出假的「往返不一致」结论。（467）
 - `record_memory` 回复的参数 JSON 畸形会得 `MALFORMED_RESPONSE`，它不在 `REQUEST_SHAPE_CODES` 里；自 `fbe88a8` 起记忆 pass 经 `ToolsFallbackOptions.extraCodes` 单独为它开一次无工具重试并记日志 `the model's record_memory reply was unusable (CODE); the pass was retried once without tools`，但该码没有更细子类（无效 SSE JSON 也用它），所以不相干的无用回复也能花掉它。（f74）
 - 引 6 篇日志的丢失数字要用（66 次转移、45% 零丢失、均值 5.41、最大 67、p90 13），不要用已退役的 `59 / 6.41 / 68`（§8 的 filter-at-match 规则在同一组档案上给出 `59 / 7.46 / 74`），其真正原因是缺裸文本规则而不是反引号错配。（cd2）
-- 最便宜的余量是指针化而不是删除：把操作流程压成一句加一个技能指针，把它带的字面量搬进那个技能，再用 `missing-literals-between` 证明——文档里唯一消失的字面量必须是你搬走的那些。（7b7）
 - AOCI 报告里关于我们 INDEX 对账中 `stranded` 行的说法在 `src/` 里没有对应物：`reconcileSessionIndexOnce` 只按目录重生成行，所以那条借鉴照写无法实现——`9a5062d` 已把报告面建出来，之后按新面重读。（572）
 - `changed under read` / 基线变化拒绝可能是这个 pass 自己的陈旧读取而不是并发写者：归罪别人前把文档 mtime 与 pass 开始时间比——有一次这样的拒绝来自一次跨了约 4h40m 的模型调用。（75d）
 - 不读 profile 的 `package.json` 就不要说它以 `link:` 装本包：只有 `~/.dsh/profiles/ctxdev` 是，desktop/web 钉 sha，所以 `src/` 改动只能靠抬 pin 重装加重启到达它们（`AGENTS.md` 到 `08bd032` 前都写着错的说法）。（f78）
 - `entryTid` 只认 `[0-9a-f]{3,4}`：测试夹具用 `hhh` 这类 id 时该条目被静默跳过，控制组形同虚设（`task-closed` 的变异因此两轮没被抓住）——状态测试必须用十六进制 id，并在用例里写明原因。（194）
-- 变异必须先编译且真的改变行为：不编译（`row`/`dir.meta` possibly undefined）或行为等价（`… && false`、条件恒真恒假而两支输出相同）都不算证据——先让变异编译再判红。（65c）
+- 变异必须先编译且真的改变行为：不编译（`row`/`dir.meta` possibly undefined）或行为等价（`… && false`、条件恒真恒假而两支输出相同）都不算证据——先让变异编译再判红；变异改到判定的共享常量时必须同步改夹具（`ABANDONED_AFTER_DAYS` 提出来后测试里写死的天数与常量脱钩）。（65c, c02）（63a）
 - 移动 `src/` 下的模块要同时改 `test/*.test.mjs` 里对 `lib/<旧路径>.js` 的 import：`anchors.ts` 挪到 `src/shared/` 后 `test/memory-staleness.test.mjs` 以 `ERR_MODULE_NOT_FOUND` 整体失败，看着像代码坏了。（0a6）
 - 时间相关判定的夹具必须把文件 mtime 写死成相对注入时钟足够旧，否则状态算成 `live` 而不是 `stale`（`session-state.test.mjs` 初次就折在这条上）。（53a）
-- 交接子会话可能完全没有 `session.jsonl`：把「读不到事件」当无事可做会让整条 `/session-log status` 以 ENOENT 失败，所以「没有日志」只能判成零人类回合。（e52）
-- 交接续接的第一个人类回合可能落在日志约 2.9MB 处（17 个交接子会话共约 71MB），所以判 `abandoned` 必须流式读到首个命中即停，不能整文件读入。（10c）
+- 交接子会话可能完全没有 `session.jsonl`：把「读不到事件」当无事可做会让整条 `/session-log status` 以 ENOENT 失败，所以「没有日志」只能判成零人类回合；交接续接的第一个人类回合可能落在日志约 2.9MB 处（17 个交接子会话共约 71MB），所以判 `abandoned` 必须流式读到首个命中即停，不能整文件读入。（e52, 10c）（1a1）
 - 技能回执曾把受管的 18 个技能当成全集（真实是 40 个里的 18）：`unmanaged` 恒 0 的变异只有加了分母断言才被打红，所以回执的数字必须有分母。（860）
-- 变异改到判定的共享常量时必须同步改夹具：`ABANDONED_AFTER_DAYS` 提出来后，测试里写死的天数与常量脱钩，会让「未测量当 0」这类变异不再被抓住。（c02）
-- 翻译或换措辞的 pass 可以在 `sectionDropped`/`droppedItems`/`itemTruncated` 全 0、状态 `updated` 的情况下丢掉代码标识符：tier C 只管结构丢失，`missing-literals.ts` 只报告不修，恢复只能手工并经插件自己的 `renderMemoryDocument` 做字节相同往返证明（`032d4a2` 补回 19 个仍成立的字面量）。（1e5）
-- 「永远绑不上」被印成「没人跑过 bind」是报告缺口不是规则缺口：跳过 `lib/`、`.agents/memory/` 与项目根外绝对路径是对的（构建产物每次都变），错的是 `bindSkills` 只报记了几条、`status` 用同一句话描述两种成因。（89f）
+- tier C 只量渲染期丢弃、`missing-literals.ts` 只报告不修，所以模型在渲染前整条省掉一个事实时两者都报 0、状态仍 `updated`——判断措辞级丢失别拿 tier C 的 0 当证据；恢复只能手工并经插件自己的 `renderMemoryDocument` 做字节相同往返证明（`032d4a2` 补回 19 个仍成立的字面量），2026-11-21 同一条 pitfall 一天内被删两次（20:40、20:48）才补上批次 AC 的回填闸。（5cb）
+- `bindSkills` 返回 `{bound, skipped}`、`SkillFacts.bindable` 让 `unbaselined` 分成「没人跑过 bind」与「根本没有可绑锚点」两句不同的 detail——「永远绑不上」被印成前者是报告缺口不是规则缺口；跳过 `lib/`、`.agents/memory/` 与项目根外绝对路径（构建产物每次都变）是对的，沉默才是错的。（44d）
 - 卡片按 profile 钉住的 dsh 类型编译，上游 0.2.x 才声明的属性不能传——给 `SegmentedTabs` 传 `size` 会让 `tsc -p tsconfig.client.json` 报 `Property 'size' does not exist`。（08f）
 - 手工恢复 `MEMORY.md` 后宿主会印 `adopted an externally edited MEMORY.md into the memory journal` 与 `memory regression: N … entry(ies) are no longer present`（按条目精确文本比），这是它发现外部改写的方式，不是故障。（89a）
-- tier C 量的是渲染期丢弃、`missing-literals.ts` 只报告，所以模型在渲染前整条省掉一个事实时两者都报 0、状态仍 `updated`；2026-11-21 一天内同一条 pitfall 被删两次（20:40、20:48）才补上批次 AC 的回填闸——判断措辞级丢失时不要拿 tier C 的 0 当证据。（b72）
 - 这台机器没有 `openssl`：tgz 的 sha512 integrity 用 `python3` 的 `hashlib` 加 `base64` 算，`tar` 往管道写也可能报「写错误」。（242）
-- 406-12 是中文 locale，`sha256sum -c` 成功时印「成功」而不是 `OK`，判据用 `sha256sum --quiet -c <manifest>; echo $?` 看退出码。（375）
-- 406-12 远端 shell 是 fish：复杂命令走 `ssh 406-12 'bash -lc "…"'`，多行逻辑 scp 成脚本再跑，别在引号里套 heredoc（否则报 `缺少结尾以平衡 for loop` / 未预期的 EOF）。（a61）
-- `127.0.0.1:9230` 是 dsh 自带的实验性 Inspector 桥（`apps/desktop/scripts/dev.ts` 的 `DSH_DESKTOP_HOST_INSPECT_PORT` 默认 9230；`/json/list` 里 target 标题 `DeepSeek Harness Host`、url `dsh://host`），不是探针残留——别用 `inspector.close()` 去关它，那只关会话级东西，端口照旧服务；查过源码再判归属。（809）
-- pnpm 装 profile 的 `git+ssh://…#<sha>` 依赖会在 profile 目录里跑 `git checkout <sha>`，拿不到该提交时以退出码 128 印「致命错误：无法读取树」（`This error happened while installing a direct dependency of ~/.dsh/profiles/desktop`）；先确认经远端能到那个 sha，不要以为本地树损坏。（22a）
-- 判浏览器是否拿到新的客户端代码，别把服务端响应与安装文件整文件比 sha256：combo `?rev=` 响应在安装字节之后多一行 `\n;\n//# sourceMappingURL=…&rev=<rev>`（2026-11-21 那次多 76 字节），所以只比前 `installedBytes` 字节，并按宿主公式复算 `rev`——`framedHash("plugin-artifact",[mtimeMs,ctimeMs,size])` 的 sha1 前 12 hex（`packages/client/modules/src/index.ts` 的 `artifactRevision`）。（7b6）
+- 406-12 是中文 locale，`sha256sum -c` 成功时印「成功」而不是 `OK`，判据用 `sha256sum --quiet -c <manifest>; echo $?` 看退出码；远端 shell 是 fish，复杂命令走 `ssh 406-12 'bash -lc "…"'`，多行逻辑 scp 成脚本再跑，别在引号里套 heredoc。（375, a61）（3ea）
+- `127.0.0.1:9230` 是 dsh 自带的实验性 Inspector 桥（`apps/desktop/scripts/dev.ts` 的 `DSH_DESKTOP_HOST_INSPECT_PORT` 默认 9230；`/json/list` 里 target 标题 `DeepSeek Assistant Host`、url `dsh://host`），不是探针残留——别用 `inspector.close()` 去关它，那只关会话级东西，端口照旧服务；查过源码再判归属。（809）
+- 经 `git+ssh` 装 profile 依赖时的网络失败不要当成树损坏：pnpm 会在 profile 目录里 `git checkout <sha>`，拿不到该提交就以退出码 128 印「致命错误：无法读取树」，`git push` 也可能报「无法读取远程仓库」或 `Connection closed by … port 443` 而实际已成功——先 `git ls-remote origin` 确认可达，以 push 退出码与 `HEAD` 对 `origin/main` 为判据；2026-11-23 远端不可达时用临时 `GIT_CONFIG_GLOBAL` 的 `url.insteadOf` 从本地检出取那个 commit，锁文件里记的仍是原 ssh remote，所以 `git show <sha>:lib/…` 的逐文件 sha256 比对仍是唯一判据。（22a, 866）（7b8）
 - 判断一批前端改动有没有到浏览器，便宜的判据是在服务端分发的 bundle 里数标记符号（页面结构符号、新配置键名、样式类名），而不是看本地 `lib/client.js`；符号缺失说明该 profile 装的是旧构建或宿主未重启。（f1c）
-- 行号会漂，所以治理文档的证据引用写 `path:line` 加符号名；`scripts/check-docs.mjs` 现能验证该符号落在这行的窗口内，但仍证不了语义，外部锚点脚本报的 `START LINE BLANK` 与 `bare missing` 都不是坏链。（378）
-- 治理文档不能写死计数、行号与提交类型分布：旧 `AGENTS.md` 的 `lib 199 / test 49 / 用例 725 / 技能 40` 与六类提交分布全部过期；新头部改成「计数一律现读」（`git ls-files lib | wc -l`、`ls test/*.mjs | wc -l`、`node --test 'test/**/*.test.mjs'`）。（c6d）
-- 依赖方向的判据只 grep `src/shared/` 时恒为 1，是空门；实测 `grep -rn 'from "\.\./project-' src/` 有 14 处 / 12 specifier（含 `project-context → project-memory`、`project-handoff → project-memory/context` 与 `shared → project-handoff/language`），白名单表只写在 `docs/architecture.md` 第 2 节，计数相等抓不住「删一条加一条」。（b1d）
+- 行号会漂，所以治理文档的证据引用写 `path:line` 加符号名；`scripts/check-docs.mjs` 现能验证该符号落在这行的窗口内，但仍证不了语义，外部锚点脚本报的 `START LINE BLANK` 与 `bare missing` 都不是坏链；引用调用行而不是定义行会 FAIL（`withMemoryLock` 在 `docs/architecture.md` 曾多处如此）——修文档锚点，不要放宽门禁。（378, 72b）（2df）
+- 治理文档不能写死计数、行号与提交类型分布：旧 `AGENTS.md` 头部（`lib 199 / test 49 / 用例 725 / 技能 40` 与六类提交分布）全部过期，新头部改成「计数一律现读」，三条现读命令就写在该头部。（）（206）
+- 依赖方向的判据只 grep `src/shared/` 时恒为 1，是空门；计数相等也抓不住「删一条加一条」，所以要按 specifier 逐条比对（`scripts/check-docs.mjs`），并记住白名单表只在 `docs/architecture.md` 第 2 节。（9bb）
 - `docs/architecture.md` 曾把三处写反（交接有模型调用、子会话也留档、INDEX 只留 200 行），重建后按实现写：`src/project-handoff/summary.ts` 自述 no model call、`isTopLevel` 门在 `src/project-context/index.ts`、`regenerateSessionIndex` 全量重建无截断（全仓唯一 `MAX_INDEX_ENTRIES = 50` 在 `src/project-autolearn/pass.ts` 是提示词切片）。（354）
 - `git diff --numstat` 只比索引↔工作树：已暂存的净增看不见，提交后输出为空，所以判「本提交净增长」要用 `git diff HEAD --numstat` 或 `git show --numstat`。（cfd）
 - 写「唯一」「只发生在」这类绝对断言前逐点 `grep`：曾把自动改写写成两处，漏掉 `agent/created` 启动对账（`grep -n 'reconcileSessionIndexOnce'` 才抓出来），收口轮因此判该条不成立。（f86）
 - `CHANGELOG.md` 未发布条目要写真实用例名（英文长句），写中文意译会让 `grep -n '<描述>' test/*.mjs` 空命中，复查时无法对应到用例。（86c）
-- `git push` 可能报「致命错误：无法读取远程仓库」（exit 128）或 `Connection closed by … port 443`，甚至推送成功后紧接着的 `git ls-remote` 仍失败：先 `git ls-remote origin` 确认可达再重推，以 push 退出码与本仓 `HEAD` 对 `origin/main` 为判据。（866）
-- 门禁的符号窗口：`path:line` 旁边的符号必须落在该行窗口内，所以引用调用行而不是定义行会 FAIL（`withMemoryLock` 在 `docs/architecture.md` 曾多处如此）——修文档锚点，不要放宽门禁。（72b）
 - 文档链接检查必须跳过代码块与行内代码：`docs/behavior.md` 的 INDEX 行格式示例 `[id](id/session.md)` 与 `docs/batch-z-six-problems-spec.md` 的 `[<id>](<id>/session.jsonl)` 是演示，按链接解析会报假死链。（4db）
-- 重启验证脚本可能因为与本仓库无关的原因印 `RESULT: FAIL`：`/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only` 在另一个无关 desktop 活着时失败，验收脚本自己的 `title-load verify` 一半在重启后重跑判据前也失败。（005）
+- 把模块内的本地包装换成同名 import 会变成静默自递归：边界迁移时 `src/project-memory/index.ts` 的 `projectionsOf` 一度被改成 `return projectionsOf(ctx)` 且 `tsc` 全绿（本地声明遮蔽了 host getter），删掉本地包装直接用 getter 才修好——重构后重名要看语义，别只等类型错误。（dfe）
+- 旧 dsh 探针脚本只映射六个宿主包，`contract.ts` 直接 import 的 `dsh-session-projection` 与 `dsh-token-meter` 会静默落回仓库 `node_modules`（= 地板版本），所以探针必须映射全部直接 import 并把「0 条解析自仓库 `node_modules`」做成判据（新脚本 `.agents/evidence/2026-11-22-dsh-022rc5-api-compat/run-probe.sh`，host 90/90、client 425/425 全来自候选树）。（69c）
+- `dsh --profile desktop --dump-config` 会被独占拒绝（`profile "desktop" is managed exclusively by the Electron application`，rc=1），所以 desktop 的装载检查只能从运行中的宿主取（Inspector / 驻留模块），peer 门与 skip 行用 web 与 ctxdev 两个 profile 判。（f75）
+- 把命令注册改成 `host.registerCommand` 会让按 `ctx.commands.register` 扫源码的套件漏掉命令：`test/routing-skill.test.mjs` 因此改为读插件目录全部 `.ts` 并同时认两种写法，否则 `/context`、`/session-log` 会从路由表消失。（8cc）
+- 移植后假 context 分两类：`apply()` 层的假 ctx 不必改（适配器惰性读 `logger` / `llm`），直接调 helper 的假 ctx 必须补 `log` / `services` / `llm` 字段；读语言的假 session 还要补 `deriveMessages()` / `deriveEventMessage()` / `snapshotEvents()`（`receiptLanguage` 经 `sessionLanguageMessages` → `src/shared/conversation.ts` 的 `conversationMessages` 取消息），否则处理器以 `… is not a function` 失败。（70c）
+- 契约的 `ProjectionKey` 含 `todos`，而宿主的 `SessionProjectionMap` 只有 `contextBreakdown` 一类键：要让 `keyof SessionProjectionMap` 在本程序里认出 `contextBreakdown`，`src/host/dsh/types.ts` 必须加 `import type {} from "@deepseek-ai/dsh-token-meter"`（否则报 `Type '"contextBreakdown"' is not assignable to type '"inbox"'`），宿主键表只能对被声明的那一个键 `satisfies Extract<keyof SessionProjectionMap, string>`，`todos` 不做宿主检查。（7c6）
+- 改回执首行布局会打红按精确文本断言的既有套件（`test/logic.test.mjs` 的 stale / lossy / 中文语言断言、`test/memory-status.test.mjs`、`test/skill-state.test.mjs`、`test/session-state.test.mjs` 与 handoff compaction 用例），必须同笔更新；`formatMemoryStatus` 的 `StalenessFacts` 夹具缺 `staleIds` / `missing` / `unverifiable` / `checked` 会在 `stalenessClause` 里炸，`writtenTarget` 印的是 `MEMORY.md and CONTEXT.md` 这种文件名而不是「project memory」。（44e）
 
 ## Index
 - `README.md` / `CHANGELOG.md` 描述当前行为；已发布正文在 `docs/changelog/<version>.md`，`docs/README.md` 是文档索引；README 是 `package.json` 之外唯一写版本行的地方，并载 `## 致谢` 署名段。（b5b）
 - `docs/README.md` 是唯一文档索引：长机制文档、`harness/`、`research/`、代码与测试仍引用的各批 spec，以及放每批简报的 `docs/archive/`。（1a1）
+- `docs/harness/integration.md` 是 dsh / pi / codex 三边接口登记面（9 行决定 / 11 个接口、2 类明确不接、第 6 节记 rc.5 探针）；真 shim 只剩 `SH-2`、`SH-3`（都在 dsh 侧），`SH-1` 已于 2026-11-05 拆除；同目录 `dsh.md` / `pi.md` / `codex.md` 分别是各宿主的状态机与接口面。（c0a）
 - `src/project-context/index.ts` 持有归档写门与命令面；`src/shared/config.ts` 与 `client/locales.ts` 持有配置键与客户端提示串。（f89）
-- 按目录的归属：`src/project-memory/` 读/渲染/封顶/tier C/注入，加 Z2 退休、Z5 todo、prune、重写损失度量，以及状态机（`entry-state.ts` 裁定者、`entry-states.ts` 聚合计数、`expiry.ts` / `expiry-source.ts`、`staleness-source.ts`、`retirement.ts`）；`src/project-autolearn/` 是 pass 加取代标记；`src/project-handoff/` 是纯决策核、适配器、回执、对话切分、种子盖章与语言检测；逐文件清单：`ls src/project-*/`。（fcd）
+- 按目录的归属：`src/host/` 是宿主适配扇门（`contract.ts` 公开面 + `dsh/*` 适配器），`src/project-memory/` 读/渲染/封顶/tier C/注入，加 Z2 退休、Z5 todo、prune、重写损失度量，以及状态机（`entry-state.ts` 裁定者、`entry-states.ts` 聚合计数、`expiry.ts` / `expiry-source.ts`、`staleness-source.ts`、`retirement.ts`），整理 pass 与回执在 `update.ts` / `report.ts`；`src/project-autolearn/` 是 pass 加取代标记；`src/project-handoff/` 是纯决策核、适配器、回执、对话切分、种子盖章与语言检测；逐文件清单：`ls src/project-*/`。（fcd）
 - `src/shared/model-call.ts`（`requestPluginTextWithMeta`、`auxiliaryReasoningEffort`、`callWithToolsFallback` 与其 `ToolsFallbackOptions`）是唯一辅助调用入口；`src/shared/lifecycle.ts` 是 durability tracker，其 `track` 只能包模型后那一半。（805）
 - 基于构建后 `lib/` 的离线探针在 `.agents/evidence/<date>-*/`：`share-fit.mjs`（份额适配）、`roundtrip.mjs`（字节相同往返）、`measure.mjs`、`missing-literals-between` 比较器；2026-11-06 那次记忆压缩余量探针要 `--self-test`。（d0a）
 - `test/` 放真实 `apply()` 接线、渲染/卡片与源码字符串套件（后者证明缺席不证明存在）；`.agents/evidence/` 放代码注释所引的逐轮探针与变异记录。（400）
@@ -242,13 +248,13 @@
 - `.agents/skills/dsh-command-receipt-render-verify/SKILL.md`（autolearn 提升且受跟踪）拥有回执设计：读服务端文本构建器与 `GenericCommandCard` 的折叠规则，把载荷放第一行，客户端重建加标签页硬刷新之后才证明。（336）
 - `/memory reconcile` 与 `/memory reconcile --accept <id>` 的实现与回执在 `src/project-memory/index.ts`（`memoryReconcileReply` / `memoryAcceptReply`，`MAX_RECONCILE_LINES = 10`），状态机在 `src/project-memory/entry-state.ts` + `entry-states.ts`；spec `docs/batch-aa2-reconcile-spec.md`。（fb0）
 - `.agents/memory/purge.log` 只在清理 pass 真删了东西时写一行（`reason=auto removed=N … trash=trash/<date>.tar result=ok`），所以 `/memory update` 后行数不变说明什么都没清。（efe）
-- 每份 `vendor/dsh-project-context-0.4.3.tgz.provenance.txt` 记着来源提交、三步替换、逐文件校验和、回滚路径与生效时机——动别人的 profile 前先读。（bf8）
+- 每份 `vendor/dsh-project-context-0.4.3.tgz.provenance.txt` 记着来源提交、三步替换、逐文件校验和、回滚路径与生效时机——动别人的 profile 前先读。（dcf）
 - dsh 自己的压缩源码在 dsh store 仓库的 `packages/compaction/`（`compaction`、`compaction-basic`、`compaction-image-offload`、`compaction-tool-result-pruner`），`compactNow` 在 `compaction/src/index.ts`；`docs/handoff-candidates-b-c.md` 记着触发路由裁定。（3b6）
 - 记忆 pass 从这些地方审计：`~/.dsh/profiles/<name>/cordis.patch.yml`（`project-context` 条目的配置，含 `maxMemoryChars`）、`.agents/memory/memory.jsonl`（最后一条的 `text` 长度等于落地文档）、`.agents/memory/entries.json`，以及任何还原前的 `/tmp` 备份。（8f4）
 - `docs/memory-rewrite-loss-gate-spec.md` 载有整篇记忆重写的丢失闸（标识符存活检查、先只报告），含 §9 评审发现与 §10 残余。（9f9）
-- 证据目录：`.agents/evidence/2026-11-20-codex-config-compat-review/`、`.agents/evidence/2026-11-20-codex-config-three-round-audit/`、`.agents/evidence/2026-11-21-missing-literals-calibration/` 与 `-closure/`、`2026-11-21-seed-identity-hash/RESULT.md`、`2026-11-21-sh10-compactnow-handle/finding.md`（SH-10 的 9 条不成立的假设）与批次 AC 对抗评审目录。（4c6）
-- 会话日志核在 `src/project-context/session-state.ts`（七态派生与回执）+ `session-state-source.ts`（读盘算细节，含 `abandoned` 的流式扫描与「无日志 = 零人类回合」），命令 `/session-log status` 接在 `src/project-context/index.ts`，套件 `test/session-state.test.mjs`。（fa5）
-- 技能核在 `src/project-autolearn/skill-state.ts`（六态）+ `skill-state-source.ts`，命令 `/autolearn status|bind|expire` 在 `src/project-autolearn/index.ts`，套件 `test/skill-state.test.mjs`；三段状态的 spec 是 `docs/batch-aa-state-machines-spec.md`。（528）
+- 证据目录：`.agents/evidence/2026-11-20-codex-config-compat-review/`、`.agents/evidence/2026-11-20-codex-config-three-round-audit/`、`.agents/evidence/2026-11-21-missing-literals-calibration/` 与 `-closure/`、`2026-11-21-seed-identity-hash/RESULT.md`、`2026-11-21-sh10-compactnow-handle/finding.md`（SH-10 的 9 条不成立的假设）、`2026-11-22-dsh-022rc5-api-compat/`（含可复用的 `run-probe.sh`）、`2026-11-22-host-contract-audit/`、`2026-11-22-contract-direction-2d/` 与批次 AC 对抗评审目录。（e9c）
+- 会话日志核在 `src/project-context/session-state.ts`（七态派生与回执）+ `session-state-source.ts`（读盘算细节，含 `abandoned` 的流式扫描与「无日志 = 零人类回合」），命令 `/session-log status` 接在 `src/project-context/index.ts`，套件 `test/session-state.test.mjs`。（e96）
+- 技能核在 `src/project-autolearn/skill-state.ts`（六态）+ `skill-state-source.ts`，命令 `/autolearn status|bind|expire` 在 `src/project-autolearn/index.ts`，套件 `test/skill-state.test.mjs`；三段状态的 spec 是 `docs/batch-aa-state-machines-spec.md`。（f79）
 - `docs/batch-aa-state-machines-spec.md` §12 / §13 / §14 分别记录 AA3 会话日志核、AA4 技能核、AA6 两个设置项与 bind 报告缺口的落地。（02d）
 - `src/shared/anchors.ts` 是锚点词法的唯一实现（`anchorCandidates`、`isLocalArtifact`），消费者是 `retirement.ts`、`staleness-source.ts` 与技能核。（92d）
 - `docs/research/2026-11-19-aoci.md` §7.1 记着三项借鉴的落地状态（派生/权威标记、种子身份哈希、漂移词汇）与 A/B 未启动；漂移词汇那段的原始理由（本仓库没有 INDEX 对账报告面）也留在文里供复查。（a3c）
@@ -257,7 +263,6 @@
 - `client/settings-card.tsx` 是设置卡渲染入口（三个页签包 `SettingsForm`），行与分组在 `client/card-fields.ts`（`ROWS` / `SECTIONS`），几何在 `client/styles.ts`（`dshPcRow`）；套件 `test/settings-form.test.mjs` 与 `test/card-render.test.mjs`。（cb6）
 - `.agents/skills/dsh-profile-sha-pin-lib-parity-verify/SKILL.md`（autolearn 提升、受跟踪）拥有把 desktop/web SHA pin 重指到新提交、用 profile store 里钉的 pnpm 安装、并对 `git show <sha>` 逐文件 sha256 证明装好 `lib/` 的流程。（576）
 - `.agents/evidence/2026-11-21-post-restart-acceptance/README.md` 记着重启后验收：驻留模块 sha256、client bundle 的 `rev` 复算与负控制（`lib/client.js` 在宿主 isolate 里 `not loaded`）。（202）
-- `src/project-handoff/summary.ts` 拥有交接的对话切分与「摘要」面，自述 no model call、no output budget、no timeout——判交接有没有模型调用读它，而不是读 `docs/architecture.md`。（15b）
-- `RULES.md`（11 章规程与可运行判据）、`AGENTS.md`（入职短页）、`docs/architecture.md`（架构与数据流叙述）、`docs/GLOSSARY.md`（术语表，术语唯一来源）是四份受跟踪治理文档，重建于 `3c1d6c4`；引用它们的计数或行号前按符号名现读 `src/`。（b05）
-- `scripts/check-docs.mjs` 是文档门禁实现，套件 `test/doc-governance.test.mjs`，入口 `pnpm docs:check`；改判据要同时改这两处与 `RULES.md` 第 3/4/6 章的判据行。（e2e）
 - `.agents/skills/dsh-batch-residual-closure/SKILL.md`（autolearn 派生、已受跟踪）拥有收口一批残余的流程：纯核实现、回执带分母、先在本机真库跑过、变异轮、重建 `lib/`、按残余逐条提交。（e10）
+- 回执本地化用例集中在 `test/receipt-layout.test.mjs`：`the memory action receipts and the export marker follow the same language` 逐行中文并断言 `Memory: updated` / `Memory prune:` / `Memory reconcile:` / `The export is a derived view` 不出现；行内词汇四条与中文 handoff 的 `固定阈值 300000 token` 断言也在该文件，用例名见 `CHANGELOG.md` 未发布段。（）（7df）
+- `.agents/skills/dsh-command-receipt-localization/SKILL.md` 拥有回执本地化的完整流程（`receiptLanguage` 入口、中英标点分开、双断言加变异轮、`src/shared/` 改动清单）；行内数据词汇的批次与新用例名见 `CHANGELOG.md` 未发布段。（3f2）

@@ -1,35 +1,40 @@
 # Project Context
 
-Last updated: 2026-11-22T09:53:52.213Z
+Last updated: 2026-11-23T11:24:16.593Z
 
 ## Summary
 
-本会话从 session-ebc40ab6 交接而来（链 ebc40ab6 → 41767aa6）。前半段是治理重建后的残余收口，已推两笔：`378738f docs(rules): scope the glossary to current docs and fix the AA index rows` 与 `37c8ece docs: align the current docs with the glossary and the model-free handoff`，修掉 `docs/behavior.md` 的摘要器措辞、种子含 `MEMORY.md` 的错误说法、`README.md` 对 `nothing-to-drop` 与 `handoffBudgetRecentTokens: 0` 的误述、`docs/settings.md` 说 handoff 受 `maxOutputTokens` 约束、`docs/README.md` 把 AA3 标未落地并链错章节，并统一 7 个现行文档的 17 处禁用异名。用户随后说「请全部修复」，本段把剩余可自主修的缺口全部落地，共 6 笔提交并推送，`HEAD = origin/main = 0d31478`：新增仓库自带文档门禁 `scripts/check-docs.mjs`（`pnpm docs:check`）与 `test/doc-governance.test.mjs`（仓库通过加五条失败夹具，变异只让对应用例变红）；`RULES.md` 3.2 / 3.6 / 4.2 改指该脚本、6.1 要求文档改动另跑门禁；`AGENTS.md` 与 `docs/development.md` 各加一行并声明 RULES 第 6 章权威；`docs/architecture.md` §2 补 12 个 specifier 名单使 4.2 可机器比对；冻结档案 5 处旧词统一（`batch-aa` 条目 id、`batch-ac` 设置卡片、`batch-z-six` 沉淀）；`README.md` 的「≤150 行」改成篇幅现读；adv-c/adv-d/adv-e 三份对抗审查冻结进 `.agents/evidence/2026-11-22-governance-docs-adversarial-review/` 并附逐条处置表；未跟踪的 autolearn 技能 `dsh-batch-residual-closure` 入库；记忆 pass 的快照一并提交，工作树干净。门禁实测：`pnpm docs:check` 135 项 0 失败 exit 0、`pnpm test` 793 pass / 0 fail / exit 0、提交前后 `git diff --exit-code -- lib` 皆空。`git push` 再次先报「致命错误：无法读取远程仓库」exit 128（并出现 `Connection closed by 198.18.0.179 port 443`），`git ls-remote` 成功后重推成功。`test/context-injection.test.mjs` 连跑 30 次全红 0，仍属「偶发、未定性」。剩下的是需要用户拍板或用户动作的项。
+本会话从 session-a8e77e7b-383b-468f-9b36-0ba80ea15a5b 交接（handoff-seed c6171818bd85）。用户裁定「现在就把行内证据一次译完」，于是把回执里由状态核生成的英文数据也本地化：`820583e`（feat(receipts): localize the data inside every receipt, not only the sentence）与 `dffc437`（CHANGELOG 登记）。随后用户追问「都是标准术语吗？」——核对 `docs/GLOSSARY.md` 与 `docs/vocabulary-conventions.md` 后确认概念词合规，但状态词没有规范来源，且两处措辞与 README 既有写法冲突（`/context task` 行、`/session-log tree` 的「父会话 X 不在存档」），改成 README 用词（`2627aca`），再把五套状态词与「证据」的两个义项登记进术语表、把「存档 vs 归档」「已 X vs 名词短语」写成规则（`f1102ba`）。门禁全绿，desktop/web pin 抬到 `f1102ba` 且逐文件 sha256 0 mismatch。用户重启后，用 9230 Inspector 探针逐模块比对 13 个模块全部判「running host executes the code on disk」，真实 `.agents/memory` 上的回执已全中文；`--verify-only` 因脚本回落到旧缺省口 19387 印 5 次 `fetch failed` 的假失败。剩余：406-12 的 tgz 仍停在旧构建、`/autolearn` 原因句残余、工作树里记忆文件待一次记忆 pass 对齐。
 
 ## Key points
 
-- 本段 6 笔提交已推送，`HEAD = origin/main = 0d31478`：`855f603 feat(scripts)`（文档门禁）、`4798baa docs(rules)`（判据改指门禁）、`1fe881d docs`（指南加门禁行 + 冻结 spec 术语）、`a4e534d docs(evidence)`（冻结审查）、`db9b4f2 chore(skills)`（跟踪 autolearn 技能）、`0d31478 docs(memory)`（记忆快照）。
-- 文档门禁 `scripts/check-docs.mjs` 查五类：受跟踪文档的相对链接（跳过代码块与行内代码示例）、`path:line` 锚点是否越界、紧邻锚点的符号是否落在那行的窗口内、`RULES.md` 3.2 的大文件基线、4.2 的依赖白名单；首行印条目计数与失败数，退出码 0 为通过。
-- `test/doc-governance.test.mjs` 钉两个方向：仓库自身通过，加坏链 / 越界锚点 / 符号不在位 / 基线不符 / 白名单外 import 五条失败夹具；变异（关掉链接的 fail 分支）只让链接用例变红，其余 5 条保持绿。
-- 接线：`RULES.md` 3.2 / 3.6 / 4.2 改指脚本、6.1 要求文档改动另跑 `pnpm docs:check`；`AGENTS.md`、`docs/development.md` 只答「什么时候跑哪条」并声明 RULES 第 6 章权威；`package.json` 新增 `docs:check`（先 `tsc` 再跑脚本）。
-- `docs/architecture.md` §2 现在明文列出 12 个 specifier，门禁拿 `src/` 实际 import 逐条比对，所以增删跨插件 import 必须同时改表——4.2 从人工比对变成可运行判据。
-- 冻结档案旧词统一：`docs/batch-aa-state-machines-spec.md`（尾标→条目 id）、`docs/batch-ac-settings-split-spec.md`（设置卡→设置卡片）、`docs/batch-z-six-problems-spec.md`（技能沉淀）；`README.md` 的「≤150 行」改为篇幅现读。
-- 对抗审查留档在 `.agents/evidence/2026-11-22-governance-docs-adversarial-review/`：adv-c 仅部分版（B 段在归档交接里被裁，README 已注明）、adv-d、adv-e 原文加逐条处置表（adv-e 结论：12 条修复中 8 条成立、3 条仍不精确、1 条不成立）。
-- 未跟踪的 autolearn 技能 `dsh-batch-residual-closure` 已随 `db9b4f2` 入库，工作树现在干净（记忆快照也已在 `0d31478` 提交）。
-- 门禁实测：`pnpm docs:check` → 135 项（33 链接文件 / 81 锚点 / 18 符号 / 2 基线 / 1 依赖检查）0 失败 exit 0；`pnpm test` → 793 pass / 0 fail exit 0；提交前后 `git diff --exit-code -- lib` 皆空。
-- `test/context-injection.test.mjs` 连跑 30 次全绿（0 红），本轮无法复现，仍按「偶发、未定性」记录。
-- `git push` 再次 exit 128「无法读取远程仓库」并伴 `Connection closed by 198.18.0.179 port 443`；`git ls-remote origin` 成功后再推即成功（`37c8ece..0d31478`），判据看 push 退出码与 `HEAD` 对 `origin/main`。
+- 交接来源 session-a8e77e7b-383b-468f-9b36-0ba80ea15a5b，handoff-seed c6171818bd85。
+- 行内数据批次：`820583e`（feat）+ `dffc437`（CHANGELOG 登记）；术语修复 `2627aca`（fix(receipts): name the task row and the tree annotation the way the glossary does）+ 术语表登记 `f1102ba`（docs(rules): register the five state vocabularies in the glossary）。`HEAD` = `origin/main` = `f1102ba`。
+- 行内词汇落点：`src/project-memory/entry-state.ts`（`ENTRY_STATE_LABEL`、`entryStateOf(tid, facts, language)`）、`prune.ts`（`PRUNE_REASON_LABEL`）、`report.ts`（`--accept` 两支）、`src/project-context/task-usage.ts`（`TASK_STATUS_LABEL` / `taskUsageRow`）、`search.ts`、`session-tree.ts`、`src/project-autolearn/evidence.ts`、`src/project-handoff/command.ts`。
+- 刻意保留英文：整理 pass 的提示词、`purge.log` 的机器拼写（数据不是回执）；构建器的 `language` 参数仍默认 `en`，语言在处理器里解析一次。
+- 新增用例 4 条（`test/receipt-layout.test.mjs`，各带英文对照）：条目状态词、prune 原因与任务行、find 与会话树计数、autolearn 证据与冲突句；另给中文 handoff 用例补 `固定阈值 300000 token` 断言。
+- 术语核对结论：概念词符合规范写法；状态词缺来源且两处与 README 冲突——已改并登记。`docs/GLOSSARY.md` 新增「状态词（代码枚举 ↔ 回执中文）」一节持有五套词；概念表把「证据」拆成「证据目录」与「证据（引用）」。
+- 刻意不统一并写成规则：技能 `drifted`=已漂移（完成态）与条目 `anchor-drift`=锚点漂移（名词短语）并存；**存档**是层名与存储、**归档**是动作与状态。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 0 失败、`pnpm docs:check` 0 失败、`pnpm test` 826/826、`pnpm build` 两遍 hash 相同（`lib/` 245 文件）。
+- 变异 6 个（回执布局 4 + 术语 2），先编译进 `lib/` 再跑，每个只红对应用例；从 `sha256sum -c` 校验过的 `/tmp/i18n-inline-mut/*.bak` 还原，`git status -- src/` 0 残留。
+- desktop/web pin 抬到 `f1102ba`（备份 `*.bak-i18nvocab-20261123`），各 245 文件 0 mismatch；锁文件 resolution commit = `f1102ba`，repo 仍记原 ssh remote。push 第一次报「无法读取远程仓库」，重试成功。
+- 重启后验收：9230 Inspector 探针逐模块比 13 个模块（entry-state / report / prune / entry-states / start / task-usage / session-tree / search / context start / autolearn evidence·candidate·start / handoff command）全部 `the running host executes the code on disk`；宿主进程启动 19:12:12，晚于 `f1102ba` 的 19:06:36。
+- 真实 `.agents/memory` 上的中文回执已确认：`/memory reconcile` 首行「记忆核对：41 / 260 个条目需要复查」+ 条目状态词中文、`/context task` 行「绑定会话数 / 未完成 todo / 最近活动」、`/session-log tree` 头与尾注、`/autolearn list` 的「证据 N 个会话」、`/memory prune` 保留规则句。
+- `--verify-only` 的 FAIL 是假失败：脚本回落到自己的旧缺省口 `http://127.0.0.1:19387`（alpha.2 起宿主 `--port 0`，19387 永不被占——脚本注释自述），本机真实口是 GUI 35687 与 Inspector 9230；验收判据取 9230 探针，不取脚本 RESULT。
+- 清掉 `src/project-memory/entry-states.ts` 里重复声明两遍的 `MemoryEntryState` / `MemoryStates`（TS 静默合并，属复制粘贴残留）。
 
 ## Open tasks
 
-- 用户裁定 `RULES.md` 第 11 章三项（各带 2026-12-31 复查日）：大文件拆分（`src/project-memory/consolidate.ts` 与 `index.ts` 超过「只减不增」400 行线）、辅助调用超时要不要真实现（`src/shared/model-call.ts` 无 timeout，`requestOptions` 只透传 `signal`）、`3.7` 冻结前豁免要不要写明文。
-- 406-12 用户侧目视验收：设置卡片三页签（记忆/技能/交接）加新选项、`/session-log status`、`/autolearn status` 首行带分母、跑一次 `/memory update` 看首行 `Restored: N entry(ies)`。
+- 待用户回答：是否把「`--verify-only` 在 rc.x 上回落到 19387 的假失败」写进 `docs/` 技巧记录，免得下次重启验收再误判。
+- 406-12 那台机的 tgz 仍停在 `7704e2f`：覆盖同名 tgz、改 `pnpm-lock.yaml` 的 integrity、重解包并逐文件 sha256 比对，再由用户重启那台机宿主。
+- 残余（已登记 CHANGELOG）：`/autolearn` 的 admission / skip 原因句（`shapeRejection`、`rejectionReason`、pass 的 `skipped`）在 pass 核里生成、那一刻没有会话语言；要中文化得把「原因」换成「码 + 参数」（`AutolearnOutcome` 类型变更），属单独一批，待用户定是否做。
+- 工作树里 `.agents/memory/{CONTEXT,MEMORY}.md` 与 `retired.md` 的未提交改动是既有状态：按写路径纪律等一次记忆 pass 对齐，不手工提交；是否重跑由用户定（`/memory update` 只由用户跑）。
+- 待用户决定是否查 `include:subagent-claude-code` 为何 enabled 未 active（外部 profile 项，会持续让重启验收的表印 notActive FAIL）。
+- `RULES.md` 第 11 章最后一项：`src/project-memory/consolidate.ts` 仍超 400 行「只减不增」线，属用户裁定项。
+- 接第二个宿主前的三件（`docs/host-context-2c-design.md` §6）：`fiber.config` 设置读取换中性接口、服务 getter 成契约接口、事件时序写进契约。
 - 设置拆分 6 个待拍板点（`docs/batch-ac-settings-split-spec.md`）待用户定案后单开一批。
-- SH-10：先确认锁定线 0.1.7-rc.2 是否声明 `compactNow` 与 `agentPresets.serviceFor`，再按 8 条守卫接线。
-- 15 条 `content-stale` 条目的 `/memory reconcile --accept <id>` 清单按用户需要重贴。
-- `test/context-injection.test.mjs` 连跑 30 次全绿仍未定性，需在无并发写入时定位偶发失败的触发条件。
-- P0 补强（`/memory status` 面板扩展、交接回执可视化）未拍板；可选 `dsh-code-index` 兼容性试验与 AOCI 可选动作 A/B 均未启动。
-- SSH 远端间歇性不可达（`Connection closed by 198.18.0.179 port 443`）：若需复核远端，等网络恢复后跑 `git ls-remote origin`。
-- 每次改 profile 设置或重启前复读 `cordis.patch.yml` 的 `maxMemoryChars`（当前 52000）与 `subagent-codex` 的 `model` 一行，防设置卡整份回写冲掉手改值。
+- SH-10：确认锁定线 0.1.7-rc.2 是否声明 `compactNow` 与 `agentPresets.serviceFor`，再按 8 条守卫接线。
+- `test/context-injection.test.mjs` 的偶发失败仍无定论，需在无并发写入时定位触发条件。
+- P0 补强（`/memory` 面板扩展、交接回执可视化）未拍板；dsh-code-index 兼容性试验与 AOCI 可选动作 A/B 均未启动。
 
-<!-- latest-session-title: 治理文档缺口全修：仓库文档门禁、审查留档与术语收尾 -->
+<!-- latest-session-title: 行内词汇本地化与术语表落到 f1102ba，重启后驻留宿主已验收 -->
