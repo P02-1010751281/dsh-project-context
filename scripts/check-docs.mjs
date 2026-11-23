@@ -146,7 +146,8 @@ function checkBaselines(root) {
 	if (!existsSync(rules)) return;
 	const declared = new Map();
 	for (const match of read(rules).matchAll(/`([^`]+\.ts)`\s*(\d+)\s*行/g)) declared.set(match[1], Number(match[2]));
-	if (declared.size === 0) return;
+	// An empty baseline list is the healthy state (no file over 900 lines), not a reason to skip the
+	// oversize half below — that half is what keeps the next 900+ line file from landing undeclared.
 	const files = [];
 	for (const dir of ["src", "client"]) {
 		const walk = (path) => {
