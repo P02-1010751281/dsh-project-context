@@ -208,8 +208,10 @@ for the client half, which `ServiceHost` satisfies structurally.
 
 ## 6 Gap to a real second adapter
 
-1. ~~**LLM.**~~ Closed 2026-11-22: `HostPorts.llm` is an `LlmPort`, the chunk union and the request
-   vocabulary live in the contract, and `src/host/dsh/llm.ts` owns the single widening.
+1. ~~**LLM.**~~ Closed 2026-11-22, and hardened 2026-11-23: `HostPorts.llm` is an `LlmPort`, the
+   request and chunk vocabularies live in the contract, and `src/host/dsh/llm.ts` now rebuilds the
+   host request field by field (`toHostRequest`) instead of widening the service — the last
+   `as unknown as` in the package is the documented `Session` identity in `projectionsOf`.
 2. **Settings publication.** The live config reader depends on the cordis Loader's `fiber.config`.
    A second harness needs its own way to read config updates; today that lives in the entry.
 3. **Service getters.** Partly open. `ServiceHost` in the contract is the port a helper takes, but

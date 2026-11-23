@@ -38,10 +38,9 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
   过期清单。独立审计（[证据](../.agents/evidence/2026-11-22-host-contract-audit/README.md)）：
   所有权成立；32 例谓词差分从 6 处不一致修到 0；并发现并修复了 `ownEvents()` 的隐藏读与一处
   写在适配器之外的 `declare module`。
-- **2b 的已知残余（登记为 2d 候选，不在 2b 修）**：正向（核心 → 宿主）仍有两处方向不匹配——契约的
-  `GenerateOptions` 不可赋给上游同名类型（`reasoningEffort` 放宽、消息形状不同），真实投影注册表
-  不接受任意字符串键；两者今天分别由 `src/host/dsh/llm.ts` 的断言与通用服务 getter 遮住。彻底修法
-  二选一：适配器逐字段构造宿主请求，或在入站边界包装每个宿主对象（`2d` 设计决定）。
+- **2b 的两处方向不匹配已在 2d 收口（2026-11-23）**，修法选的是「适配器逐字段构造 / 翻译」而不是
+  入站包装：出站请求由 `toHostRequest` 重建（品牌 id 用宿主的构造器，零 `as`），投影键由契约的闭合
+  `ProjectionKey` 加 `projectionsOf` 的键翻译约束。详见下面的 2d 条。
 - **2c（四插件全部落地，2026-11-22）**：`HostContext` 声明在 `contract.ts`（`on` / `registerCommand` /
   `addPromptContext` / `onDispose`），并 `extends HostPorts`——核心真正读的三件事 `log` / `services` /
   `llm` 单独成接口，只读一个具名服务的 helper 再收 `ServiceHost`；实现是
@@ -50,7 +49,19 @@ src/<plugin>/index.ts       唯一允许 ctx.on / ctx.commands.register / ctx.sy
   入口分别 39 / 32 / 40 / 100 行，核心 `start.ts` 分别 377 / 192 / 278 / 240 行，没有核心再命名
   cordis 类型。逐插件清单在 [host-context-2c-design.md](./host-context-2c-design.md) §5。接第二个
   宿主前还缺三件：`fiber.config` 设置读取要换成中性接口、服务 getter 要成契约接口、事件时序要写进
-  契约（同文 §6）；此外 2d 的两处方向不匹配仍开着，决策输入见
+  契约（同文 §6）。
+- **2d（已落地，2026-11-23）**：① 删掉四处残留 cast（`todo.ts` 两处、`model-call.ts` 两处）；
+  ② 契约新增闭合 `ProjectionKey`（`contextBreakdown` / `todos`），`projectionsOf` 把契约键翻成宿主
+  键、并用 `satisfies Record<ProjectionKey, string>` 对契约键穷尽（`todos` 声明的包不在本程序的类型
+  基线里，单独具名）；③ `toHostRequest` 逐字段重建宿主请求，`MessageId`/`ToolCallId`/
+  `ReasoningEffortId`/`SessionId` 都是宿主的值导出恒等函数，所以没有残余 `as`；契约
+  `GenerateOptions.messages` 收窄成 identity-free 的文本消息（`RequestUserMessage`）。
+  同时把 `StreamChunk` / `FinishReason` 也按「核心 narrow 的成员 + 适配器闭合的 opaque 注册表」
+  扩成宿主超集（`OpaqueChunkTypes` / `OtherFinishKinds` 由 `src/host/dsh/types.ts` 闭合），
+  入站方向不再 cast 服务。全仓只剩一处 `as unknown as`：`projectionsOf` 里 `Session` 的同一性放宽
+  （核心只持有宿主 `Session` 实例，契约把 `id` 写成 string）。判据：`test/fixtures/host-contract`
+  正负夹具 + `test/host-contract.test.mjs`（正控零诊断、负控恰好两条具名错误），变异删 `sessionId`
+  或拼错宿主键都变红。决策输入见
   [证据](../.agents/evidence/2026-11-22-contract-direction-2d/README.md)。
 
 ## 3 规则（`RULES.md` 4.6）
@@ -79,7 +90,7 @@ host 反向依赖、host 侧第二扇门），并各留一个放行方向。
 ## 5 复验
 
 ```bash
-pnpm boundary:check   # 113 个 src 文件，0 失败
+pnpm boundary:check   # 现读源文件数，0 失败
 pnpm docs:check       # 依赖表与 specifier 名单仍一致（host 层没有新增插件边）
 pnpm typecheck
 pnpm test
