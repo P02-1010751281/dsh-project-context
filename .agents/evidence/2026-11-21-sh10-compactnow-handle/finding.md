@@ -250,7 +250,38 @@ catch (e) { if (e?.code === 'busy') return; if (ac.signal.aborted) return; throw
 
 ### 残余（明确未证，不要当已证）
 
-- **编译基线**：`@deepseek-ai/dsh-agent-preset-registry` 与 `@deepseek-ai/dsh-compaction` 都不在 `package.json` 的 devDependencies，
-  本机 `node_modules` 里也没有这两个包，所以无法确认锁定线（0.1.7-rc.2）是否声明了 `agentPresets.serviceFor` / `compactNow`。
-  按 `integration.md:61` 的拆除判据，这一步必须在动 `src/` 之前单独验证；否则只能走结构视图 + `ctx.get`。
+- **编译基线（2026-11-23 已证，见 §⑥）**：两个包不在 `devDependencies`、本机 `node_modules` 里也没有它们时，确实无法从工作树确认；
+  改从**已发布的 0.1.7-rc.2 包**读声明，两个 API 都在、形状与 0.2.2-rc.5 相同，所以接线不需要按版本分支。
+  仍差的一小步是把这两个包加进 `devDependencies` 后 `pnpm typecheck` 仍绿（`src/` 现在没有 import 它们）。
 - 没有跑运行期探针：`agent.status` 在真实 `turn/end` 时的取值、`serviceFor` 在真实会话上返回的实例，都是从源码推的，未在现场观测。
+
+---
+
+## ⑥ 锁定线 0.1.7-rc.2 的两个声明（2026-11-23 补证）
+
+上一节的「编译基线」残余是这条链上最后一个未证点，补证方式：直接取**已发布的 0.1.7-rc.2 包**，读它自己的 `lib/**/*.d.ts`，
+再与运行中的 0.2.2-rc.5 store 源码逐项对照。取件走本机 `~/.npmrc` 的默认镜像 `registry.npmmirror.com`
+（官方 `registry.npmjs.org` 在这台机上 `curl` 直接 TLS 失败：`SSL routines::unexpected eof while reading`），
+`npm pack` 按 registry 报的 `dist.integrity` 校验，解包在 `/tmp/sh10-floor/`。
+
+| 事实 | 0.1.7-rc.2（地板） | 0.2.2-rc.5（运行） |
+|---|---|---|
+| `compactNow` 声明 | `abstract compactNow(agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId): Promise<CompactionResult \| null>` — `@deepseek-ai/dsh-compaction/lib/types/index.d.ts:137` | 同签名 — `packages/compaction/compaction/src/index.ts:162` |
+| `runMaintenance` 声明 | `ManualCompactAgentContext.runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>` — 同文件 `:65` | 同 |
+| `agentPresets.serviceFor` 声明 | `serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] \| undefined` — `@deepseek-ai/dsh-agent-preset-registry/lib/types/index.d.ts:101` | 同签名 — `packages/preset/agent-preset-registry/src/index.ts:340` |
+| 服务名 | `agentPresets: AgentPresetRegistry` — 同文件 `:17` 的 module augmentation | `:29` 与 `:68` 的 `super(ctx, 'agentPresets')` |
+| 根域能不能拿到 | **不能**：`@deepseek-ai/dsh-base/cordis.patch.yml:340` 把 `compaction-basic` 插在宿主平面，`@deepseek-ai/dsh-web-app/cordis.patch.yml:506-507` 再对同一 row id 设 `disabled: true`；backend 由 `@deepseek-ai/dsh-web-app/presets/cordis.patch.yml:62-70` 在 `cordis:group` 里以 `isolate: {compaction: true, toolResultPruner: true}` 按 preset 挂载 | 与 §⑤ 第 4 条相同（根域 `disabled: true`） |
+
+取件清单与哈希（registry `dist.integrity` / 本地 tgz `sha256`）：
+
+- `dsh-compaction@0.1.7-rc.2`：`sha512-NOrFYDM6EdvO+UBioNcpiZ+Klv5v2xvOxLXDWKtA0rjKKW8IvW7Rui2hBnOpchsWe5So5vwBvu4lNjTdl5/2CA==` / `3282a00bec6d784cce04ea8f686c32894bb6e69bc9af20fb5fc77dfd68b19ad9`
+- `dsh-agent-preset-registry@0.1.7-rc.2`：`sha512-qpB4H6uWuPx/Jqm2sLbNJPrWOtVhk3FLK+5PdqLBHqEDfCmpBZCBm6lUdSWsmnKmPnHiBeHSVZO9AZl9qJJlHQ==` / `8067f767b61bb499245ed3d9a67328723afa235fc3afb26868b15a9757896af8`
+- `dsh-compaction-basic@0.1.7-rc.2`：`b759fc49f76470fef70e86997fb1af2141dae64a03edfefba94cc3966c10f35f`
+- `dsh-web-app@0.1.7-rc.2`：`388709f10068cdec1997c37a69c282961b6b02afd41871dbc2ff8a17db41e7b4`
+- `dsh-base@0.1.7-rc.2`：`9d4573d4557d0517a5ece85813fb398f58fb910b19704f602c30ccdef5039ae8`
+
+**结论**：
+
+1. 地板**声明**这两个 API，形状与运行线一致 ⇒ 接线不需要按版本分支，也不需要结构类型垫片；第一个残余只剩「把它们加进 `devDependencies` 后 `pnpm typecheck` 仍绿」。
+2. 「只能经 `agentPresets.serviceFor(agent, 'compaction')` 拿引擎」在 0.1.7-rc.2 上**同样成立**——根域那一行被 web-app 显式关掉，backend 在 preset 隔离域里。
+3. 仍未证：运行期实测（`agent.status` 在真实 `turn/end` 的取值、`serviceFor` 在真实会话上返回的实例）。§④ 的 8 条守卫清单不受本补证影响，照旧适用。
