@@ -82,8 +82,21 @@
   （`test/receipt-layout.test.mjs`，经 `apply()` 的真实注册面调处理器；两个变异——各把一条处理器改回
   显式 `"en"`——都只让这一条变红）。`test/session-state.test.mjs` 与 `test/skill-state.test.mjs`
   三处假 session 补 `deriveMessages()` / `snapshotEvents()`，否则处理器读语言时以属性缺失失败。
-- 残余：`/memory update`、`/memory prune`、`/memory reconcile`、`/memory reconcile --accept` 四条回执的
-  正文仍是英文（`src/project-memory/report.ts` 的四个构建器尚未接语言），属下一片。
+- 命令面的回执一次接完，不再留半本地化的表面：`/memory update`、`/memory prune`、`/memory reconcile`
+  与 `/memory reconcile --accept` 四条动作回执（`src/project-memory/report.ts` 的四个构建器及其
+  `memoryLossDetail` / `refusedLossCause` / `writtenTarget` 三个助手，全部按 `language` 出词，标点随语言）、
+  `/context` 与 `/session-log` 的每一条回执（`src/project-context/start.ts`，含 `export` 的派生/权威句
+  「导出是派生视图；权威是记忆日志。」）、`/autolearn` 的 `list|bind|expire|approve|reject` 与 pass 结论
+  （`src/project-autolearn/start.ts`、`candidate.ts`）、`/handoff` 的 `on|off|threshold|budget|pending|lang`
+  写入回执与 `/handoff now` 的七个分支（`src/project-handoff/{start,command}.ts`）都接上同一个
+  `receiptLanguage` / `resolveHandoffLanguage`，语言在处理器里解析一次。
+- 用例名：`the memory action receipts and the export marker follow the same language`
+  （`test/receipt-layout.test.mjs`，断言四条动作回执与导出标记逐行中文并列出禁止出现的英文片段，
+  英文分支仍由既有断言钉住；变异把 `memoryUpdateReply` 的首行改回 `pick("en", …)`，只红这一条）。
+  顺带修 `test/autolearn.test.mjs` 与 `test/skill-state.test.mjs` 的假 session（补
+  `deriveMessages()` / `deriveEventMessage()`），否则处理器读语言时以属性缺失失败。
+- 残余：`/autolearn` 与 `/memory reconcile` 行内附带的证据/冲突/状态细节（`evidenceText`、`conflictText`、
+  `entryStateOf` 的 `detail`）仍是英文——它们是数据描述而非回执骨架，属下一片。
 
 **receipt-layout-2（回执两处收口，2026-11-23）**
 

@@ -123,7 +123,7 @@ docs/                  机制文档、规格与索引（docs/README.md）
 4. 模型调用：`requestPluginTextWithMeta`（`src/shared/model-call.ts:192`）；`tools` 被拒时换一次无工具重试。
 5. 解析回复：`resolveReply`（`src/project-memory/consolidate.ts:533`）优先 `record_memory` 工具调用，其次四段 Markdown，最后不透明文本。
 6. 有损闸（tier C）：会丢整条目的回复先定向重试，仍丢则整次拒绝、零写入，状态 `lossy-refused`
-   （判定 `src/project-memory/consolidate.ts:1111` 的 `memoryLossyRefused`，回执行 `memoryUpdateReply`（`src/project-memory/report.ts:284`））。
+   （判定 `src/project-memory/consolidate.ts:1111` 的 `memoryLossyRefused`，回执行 `memoryUpdateReply`（`src/project-memory/report.ts:309`））。
 7. 回填闸：tier C 与退休之后补回措辞级丢失（`src/project-memory/lost-entry-repair.ts:119`），`no-room` 时不写。
 8. 渲染：`renderMemoryDocument` 只在到 cap 时丢整条目（`src/project-memory/sections.ts:173`）。
 9. 落盘：`withMemoryLock`（`src/shared/lock.ts:213`）→ `backupMemoryBeforeWrite`（`src/project-memory/backup.ts:33`）→ `recordMemoryDocument`（`src/project-memory/record.ts:97`，基线变了就拒绝 `src/project-memory/record.ts:116`）→ `writeAtomic`（`src/shared/files.ts:68`）→ 上下文文档（`contextPath`，`src/project-memory/update.ts:282`）。
