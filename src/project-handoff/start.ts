@@ -15,6 +15,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { isTopLevel } from "../shared/lifecycle.js";
 import { getProjectRoot, getProjectRootSync, logError } from "../shared/project-state.js";
+import { pick } from "../shared/language.js";
 import { resolveHandoffLanguage, sessionLanguageMessages } from "./conversation.js";
 import { clearHandoffPressure, handoffPressureIsOver, handoffPressureText, recordHandoffGate } from "./display.js";
 import { resolveHandoffGate } from "./gate.js";
@@ -196,16 +197,18 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		input: { hint: "status | now | on|off | threshold auto|0.4 | budget summary 64k | budget recent 20k | pending defer|wait | lang auto|zh|en" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const args = rawInput.trim();
+			// One language for every `/handoff` verb receipt, resolved the same way the status receipt is.
+			const language = resolveHandoffLanguage(sessionLanguageMessages(agent.session), effectivePluginConfig(entry));
 			if (args === "" || args === "now") return runManual(host, agent.session, entry, signal);
 			// `force` was the third spelling of `now` and is retired rather than kept as an alias (one
 			// fact, one spelling), so it is told which name to use instead of quietly doing nothing.
-			if (args === "force") return { kind: "error" as const, text: "`/handoff force` was retired; use `/handoff now`." };
+			if (args === "force") return { kind: "error" as const, text: pick(language, "`/handoff force` 已退役；请用 `/handoff now`。", "`/handoff force` was retired; use `/handoff now`.") };
 			if (args === "status") return { kind: "success" as const, text: await statusText(host, agent.session, entry, signal) };
 
-			const parsed = settingPatch(args);
+			const parsed = settingPatch(args, language);
 			if (parsed === undefined) return { kind: "error" as const, text: USAGE };
 			if (parsed.error !== undefined) return { kind: "error" as const, text: parsed.error };
-			const failure = await writeSetting(host, parsed.patch ?? {});
+			const failure = await writeSetting(host, parsed.patch ?? {}, language);
 			if (failure !== undefined) return { kind: "error" as const, text: failure };
 			// The four writes the receipt's *resolution* reads can each turn a working configuration into a
 			// refusal (or back): the two threshold keys, and the carried tail, which builds the physical floor
@@ -221,10 +224,10 @@ export function start(host: HostContext, entry: PluginConfig): void {
 					return { kind: "success" as const, text: await statusText(host, agent.session, entry, signal, parsed.patch as Partial<PluginConfig>) };
 				} catch (error: unknown) {
 					const reason = error instanceof Error ? error.message : String(error);
-					return { kind: "success" as const, text: `Handoff setting updated: ${args} (the status receipt could not be built: ${reason})` };
+					return { kind: "success" as const, text: pick(language, `交接设置已更新：${args}（状态回执无法构建：${reason}）`, `Handoff setting updated: ${args} (the status receipt could not be built: ${reason})`) };
 				}
 			}
-			return { kind: "success" as const, text: `Handoff setting updated: ${args}` };
+			return { kind: "success" as const, text: pick(language, `交接设置已更新：${args}`, `Handoff setting updated: ${args}`) };
 		},
 	});
 }

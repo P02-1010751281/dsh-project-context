@@ -27,7 +27,7 @@ import { skillStatusReceipt } from "../lib/project-autolearn/skill-state.js";
 import { apply as applyContext } from "../lib/project-context/index.js";
 import { sessionStatusReceipt } from "../lib/project-context/session-state.js";
 import { formatMemoryStatus } from "../lib/project-memory/status-report.js";
-import { memoryAcceptReply, memoryPruneReply, memoryUpdateReply } from "../lib/project-memory/report.js";
+import { memoryAcceptReply, memoryPruneReply, memoryReconcileReply, memoryUpdateReply } from "../lib/project-memory/report.js";
 import { DEFAULT_CONFIG } from "../lib/shared/config.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 
@@ -230,6 +230,45 @@ test("every status command resolves its language at the handler, not at the buil
 	const skills = await call("autolearn", "status");
 	assert.match(skills.text, /^已学技能：/m, "the /autolearn status receipt is Chinese");
 	assert.ok(!skills.text.includes("Learned skills:"), "no English head survives in the Chinese receipt");
+});
+
+test("the memory action receipts and the export marker follow the same language", () => {
+	// The status receipts were localized first; the four action receipts and the `/context export`
+	// marker used to be English-only, so one Chinese session saw "记忆：…" above "Memory: updated …".
+	// Every one of them takes the language as an argument, and the English branch is pinned below it.
+	const zh = (text) => {
+		assert.ok(!/Memory (update|prune|reconcile):|Memory: updated|The export is a derived view/.test(text), text);
+	};
+	const updated = memoryUpdateReply(report({ status: "updated" }), "zh").text;
+	assertLayout("memory update (zh)", updated);
+	assert.match(updated, /^记忆：/);
+	zh(updated);
+
+	const stale = memoryUpdateReply(report({ status: "stale" }), "zh").text;
+	assertLayout("memory update stale (zh)", stale);
+	assert.match(stale, /^记忆：/);
+	zh(stale);
+
+	const preview = memoryPruneReply({ status: "nothing", plan: { bytes: 0, candidates: [] } }, ROOT, "zh").text;
+	assertLayout("memory prune (zh)", preview);
+	assert.match(preview, /^记忆清理：/);
+	zh(preview);
+
+	const reconcile = memoryReconcileReply({
+		checked: true,
+		total: 3,
+		entries: [{ tid: "abc", state: "content-stale", detail: "cites src/a.ts" }],
+	}, { cappedDroppedChars: 0 }, "zh").text;
+	assert.match(reconcile, /^记忆核对：/);
+	zh(reconcile);
+
+	const accept = memoryAcceptReply({ kind: "healthy" }, "abc", "zh").text;
+	assert.match(accept, /^记忆核对：/);
+	zh(accept);
+
+	// The control: the same builders still render the English wording.
+	assert.match(memoryUpdateReply(report({ status: "updated" })).text, /^Memory: updated /);
+	assert.match(memoryAcceptReply({ kind: "healthy" }, "abc").text, /^Memory reconcile: entry abc/);
 });
 
 test("the memory status receipt leads with the size, not the section breakdown", () => {

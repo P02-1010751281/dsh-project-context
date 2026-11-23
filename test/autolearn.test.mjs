@@ -104,6 +104,9 @@ function fakeAgent(cwd, { id = "session-current", turns = 2, events: explicit } 
 			id,
 			header: { cwd, createdAt: Date.now() },
 			snapshotEvents: () => events,
+			// The receipt language samples the session's own messages, so the fixture projects them.
+			deriveMessages: () => [],
+			deriveEventMessage: () => null,
 			requestHeader: () => undefined,
 		},
 	};

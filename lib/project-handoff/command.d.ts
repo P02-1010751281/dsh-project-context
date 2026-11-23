@@ -5,6 +5,7 @@
 import { type HostPorts, type ServiceHost } from "../host/contract.js";
 import { type Session } from "../host/contract.js";
 import { type PluginConfig } from "../shared/config.js";
+import { type DocumentLanguage } from "../shared/language.js";
 import { parseTokenCount } from "../shared/threshold-spec.js";
 /**
  * Parse "0.4", "40%", or "40" into a ratio. Exported for tests.
@@ -18,13 +19,13 @@ export declare function parseRatio(input: string): number | undefined;
 export { parseTokenCount };
 /** Map one command argument to a settings patch. */
 /** Exported for tests: the settings patch `/handoff <args>` produces, if any. */
-export declare function settingPatch(args: string): {
+export declare function settingPatch(args: string, language?: DocumentLanguage): {
     patch?: Record<string, unknown>;
     error?: string;
 } | undefined;
 export declare const USAGE = "Usage: /handoff [status|now|on|off|threshold auto|<ratio>|<tokens>|budget summary <tokens>|budget recent <tokens>|pending defer|wait|lang auto|zh|en]";
 /** Persist one settings patch through the mounted settings service. */
-export declare function writeSetting(host: ServiceHost, patch: Record<string, unknown>): Promise<string | undefined>;
+export declare function writeSetting(host: ServiceHost, patch: Record<string, unknown>, language?: DocumentLanguage): Promise<string | undefined>;
 /** Human-readable handoff state for the current session. */
 /**
  * The `/handoff status` receipt. Exported so a test can read the skip report without going through

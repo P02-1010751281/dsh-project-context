@@ -2,6 +2,7 @@
  * Candidate skills on disk: the pending `<name>.md` files, the admission rules a proposal must
  * pass, and the approve/reject transitions the `/autolearn` command drives.
  */
+import { type DocumentLanguage } from "../shared/language.js";
 import { type ProposedSkill } from "./skill.js";
 /**
  * The shape rules every skill must pass, whichever path read it. A proposal from the model and a
@@ -48,12 +49,12 @@ export declare function listCandidateDetails(projectRoot: string): Promise<Candi
 /** Candidate names, sorted (used by the tests and the reject path's siblings). */
 export declare function listCandidates(projectRoot: string): Promise<string[]>;
 /** Promote a candidate to a live skill. Exported for the plugin. */
-export declare function approveCandidate(projectRoot: string, name: string | undefined): Promise<{
+export declare function approveCandidate(projectRoot: string, name: string | undefined, language?: DocumentLanguage): Promise<{
     ok: boolean;
     message: string;
 }>;
 /** Drop a candidate. Exported for the plugin. */
-export declare function rejectCandidate(projectRoot: string, name: string | undefined): Promise<{
+export declare function rejectCandidate(projectRoot: string, name: string | undefined, language?: DocumentLanguage): Promise<{
     ok: boolean;
     message: string;
 }>;

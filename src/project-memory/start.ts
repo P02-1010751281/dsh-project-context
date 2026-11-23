@@ -15,7 +15,7 @@ import { type PluginConfig } from "../shared/config.js";
 import { effectivePluginConfig } from "../shared/settings.js";
 import { buildContextInjection, buildMemoryInjection, buildTaskInjection, buildTaskListInjection, type TaskListEntry } from "./injection.js";
 import { boundTaskSync, dateStamp, listTasksSync, taskRelativePath, taskViews } from "./tasks.js";
-import { detectDocumentLanguage } from "../shared/language.js";
+import { detectDocumentLanguage, pick } from "../shared/language.js";
 import { isTopLevel, projectCwd, SessionWorkTracker } from "../shared/lifecycle.js";
 import { receiptLanguage } from "../shared/receipt-language.js";
 import {
@@ -243,12 +243,12 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			const language = receiptLanguage(agent.session, config);
 			if (verb === "update") {
 				const report = await consolidateProject(host, config, agent, { force: true, silent: false, signal });
-				return memoryUpdateReply(report);
+				return memoryUpdateReply(report, language);
 			}
 			if (verb === "prune" || verb === "prune --apply") {
 				const projectRoot = await getProjectRoot(projectCwd(agent.session));
 				const outcome = await pruneProjectMemory(projectRoot, { apply: verb.endsWith("--apply"), reason: "manual" });
-				return memoryPruneReply(outcome, projectRoot);
+				return memoryPruneReply(outcome, projectRoot, language);
 			}
 			if (verb === "reconcile" || verb.startsWith("reconcile ")) {
 				const projectRoot = await getProjectRoot(projectCwd(agent.session));
@@ -260,19 +260,25 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				if (rest.startsWith("--accept")) {
 					const tid = rest.slice("--accept".length).trim();
 					if (!/^[0-9a-f]{3,4}$/.test(tid)) {
-						return { kind: "error" as const, text: "Usage: /memory reconcile --accept <id>\nAn entry id is three or four lower-case hex characters, as shown by /memory reconcile." };
+						return { kind: "error" as const, text: pick(language,
+							"用法：/memory reconcile --accept <id>\n条目 id 是三个或四个小写十六进制字符，/memory reconcile 会显示它们。",
+							"Usage: /memory reconcile --accept <id>\nAn entry id is three or four lower-case hex characters, as shown by /memory reconcile.") };
 					}
-					return memoryAcceptReply(await acceptEntryState(projectRoot, memory.text, states, tid), tid);
+					return memoryAcceptReply(await acceptEntryState(projectRoot, memory.text, states, tid), tid, language);
 				}
 				if (rest !== "") {
-					return { kind: "error" as const, text: `Unknown option "${rest}". Usage: /memory reconcile | /memory reconcile --accept <id>` };
+					return { kind: "error" as const, text: pick(language,
+						`未知选项「${rest}」。用法：/memory reconcile | /memory reconcile --accept <id>`,
+						`Unknown option "${rest}". Usage: /memory reconcile | /memory reconcile --accept <id>`) };
 				}
-				return memoryReconcileReply(states, { cappedDroppedChars: memory.cappedDroppedChars });
+				return memoryReconcileReply(states, { cappedDroppedChars: memory.cappedDroppedChars }, language);
 			}
 			// `status` is a word here, not only the bare form: every sibling command spells it out
 			// (`/handoff status`, `/session-log status`, `/autolearn status`), so rejecting the spelling
 			// that works everywhere else was the one inconsistent surface. Both reach the same receipt.
-			if (verb !== "" && verb !== "status") return { kind: "error" as const, text: `Unknown option "${verb}". Usage: /memory [status] | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]` };
+			if (verb !== "" && verb !== "status") return { kind: "error" as const, text: pick(language,
+					`未知选项「${verb}」。用法：/memory [status] | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]`,
+					`Unknown option "${verb}". Usage: /memory [status] | /memory update | /memory prune [--apply] | /memory reconcile [--accept <id>]`) };
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			const memory = await loadMemory(projectRoot, config.maxMemoryChars);
 			return memoryStatusReply(memory, {

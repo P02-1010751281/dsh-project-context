@@ -205,7 +205,7 @@ export declare function memoryStatusReply(memory: Awaited<ReturnType<typeof load
  * @param report - what the consolidation attempt did, including the loss it caused.
  * @returns the command result.
  */
-export declare function memoryUpdateReply(report: ConsolidateReport): {
+export declare function memoryUpdateReply(report: ConsolidateReport, language?: DocumentLanguage): {
     kind: "success" | "error";
     text: string;
 };
@@ -219,7 +219,7 @@ export declare function memoryUpdateReply(report: ConsolidateReport): {
  * @param projectRoot - the project root, for paths relative to it.
  * @returns the command result.
  */
-export declare function memoryPruneReply(outcome: PruneOutcome, projectRoot: string): {
+export declare function memoryPruneReply(outcome: PruneOutcome, projectRoot: string, language?: DocumentLanguage): {
     kind: "success" | "error";
     text: string;
 };
@@ -266,7 +266,7 @@ export declare function acceptEntryState(projectRoot: string, text: string, stat
  */
 export declare function memoryReconcileReply(states: MemoryStates, context: {
     cappedDroppedChars: number;
-}): {
+}, language?: DocumentLanguage): {
     kind: "success" | "error";
     text: string;
 };
@@ -280,7 +280,7 @@ export declare function memoryReconcileReply(states: MemoryStates, context: {
  * @param tid - the entry id the user named.
  * @returns the command result.
  */
-export declare function memoryAcceptReply(result: AcceptResult, tid: string): {
+export declare function memoryAcceptReply(result: AcceptResult, tid: string, language?: DocumentLanguage): {
     kind: "success" | "error";
     text: string;
 };

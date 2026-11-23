@@ -233,7 +233,7 @@ test("the bind receipt carries the skills no baseline can cover", async () => {
 		},
 		resolvePluginConfig({ provider: "test-provider", model: "test-model" }),
 	);
-	const receipt = await handler({ agent: { session: { header: { cwd: root, id: "session-current" } } }, rawInput: "bind" });
+	const receipt = await handler({ agent: { session: { header: { cwd: root, id: "session-current" }, deriveMessages: () => [], snapshotEvents: () => [], deriveEventMessage: () => null } }, rawInput: "bind" });
 	assert.equal(receipt.kind, "success", receipt.text);
 	assert.match(receipt.text, /1 skill\(s\) have no bindable path/);
 	assert.match(receipt.text, /buildonly/);

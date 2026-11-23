@@ -5,6 +5,7 @@
 
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { pick, type DocumentLanguage } from "../shared/language.js";
 import { MAX_SKILL_BODY_CHARS, memoryDir, readOptional, skillsDir, validSkillName, writeAtomic } from "../shared/project-state.js";
 import { conflictFindings, conflictText, evidenceText, normalizeEvidence } from "./evidence.js";
 import { evidenceOfDocument, readEvidenceCorpus, withEvidenceFrontmatter } from "./evidence-source.js";
@@ -166,11 +167,11 @@ export async function listCandidates(projectRoot: string): Promise<string[]> {
 }
 
 /** Promote a candidate to a live skill. Exported for the plugin. */
-export async function approveCandidate(projectRoot: string, name: string | undefined): Promise<{ ok: boolean; message: string }> {
-	if (!name || !validSkillName(name)) return { ok: false, message: "Usage: /autolearn approve <name>" };
+export async function approveCandidate(projectRoot: string, name: string | undefined, language: DocumentLanguage = "en"): Promise<{ ok: boolean; message: string }> {
+	if (!name || !validSkillName(name)) return { ok: false, message: pick(language, "用法：/autolearn approve <name>", "Usage: /autolearn approve <name>") };
 	const file = candidateFile(projectRoot, name);
 	const raw = await readOptional(file);
-	if (!raw) return { ok: false, message: `No candidate named "${name}".` };
+	if (!raw) return { ok: false, message: pick(language, `没有名为「${name}」的候选。`, `No candidate named "${name}".`) };
 	const description = skillDescription(raw);
 	const body = candidateBody(raw);
 	// The same rules the pass applied when it stored this candidate, minus the evidence rules (a
@@ -182,14 +183,14 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	// pass applies and this path silently skips — a hand-written candidate could then activate a
 	// document the pass refused. Only the value that gets written is the capped one.
 	const shape = shapeRejection(skillDescription(raw, Number.MAX_SAFE_INTEGER), body);
-	if (shape !== undefined) return { ok: false, message: `Candidate "${name}" is not activatable (${shape}); not activating.` };
+	if (shape !== undefined) return { ok: false, message: pick(language, `候选「${name}」不可激活（${shape}）；未激活。`, `Candidate "${name}" is not activatable (${shape}); not activating.`) };
 	const destination = path.join(skillsDir(projectRoot), name, "SKILL.md");
 	const existing = await readOptional(destination);
 	// The same boundary the proposal path applies, read off the file being replaced rather than a
 	// cached inventory: only a skill this pipeline generated may be superseded, so a name freed by
 	// deleting a skill and later taken by a hand-written one is never overwritten.
 	if (existing && !autolearnProvenance(existing)) {
-		return { ok: false, message: `Skill "${name}" already exists; remove the candidate manually.` };
+		return { ok: false, message: pick(language, `技能「${name}」已存在；请手动移除该候选。`, `Skill "${name}" already exists; remove the candidate manually.`) };
 	}
 	// The citations travel from the candidate file to the promoted one. They are not re-verified here
 	// on purpose: the pass verified them when it stored the candidate, and re-reading the archive at
@@ -214,18 +215,20 @@ export async function approveCandidate(projectRoot: string, name: string | undef
 	return {
 		ok: true,
 		message: [
-			`${existing ? "Updated" : "Activated"} project skill: ${name}${existing ? " — approved by hand; the body was not shown to the approval" : ""}`,
-			`Evidence: ${evidenceText(evidence)}`,
+			pick(language,
+				`${existing ? "已更新" : "已激活"}项目技能：${name}${existing ? "——手工批准；正文未展示给审批" : ""}`,
+				`${existing ? "Updated" : "Activated"} project skill: ${name}${existing ? " — approved by hand; the body was not shown to the approval" : ""}`),
+			pick(language, `证据：${evidenceText(evidence)}`, `Evidence: ${evidenceText(evidence)}`),
 			conflictText(conflicts),
 		].join("\n"),
 	};
 }
 
 /** Drop a candidate. Exported for the plugin. */
-export async function rejectCandidate(projectRoot: string, name: string | undefined): Promise<{ ok: boolean; message: string }> {
-	if (!name || !validSkillName(name)) return { ok: false, message: "Usage: /autolearn reject <name>" };
+export async function rejectCandidate(projectRoot: string, name: string | undefined, language: DocumentLanguage = "en"): Promise<{ ok: boolean; message: string }> {
+	if (!name || !validSkillName(name)) return { ok: false, message: pick(language, "用法：/autolearn reject <name>", "Usage: /autolearn reject <name>") };
 	const file = candidateFile(projectRoot, name);
-	if (!(await readOptional(file))) return { ok: false, message: `No candidate named "${name}".` };
+	if (!(await readOptional(file))) return { ok: false, message: pick(language, `没有名为「${name}」的候选。`, `No candidate named "${name}".`) };
 	await rm(file, { force: true });
-	return { ok: true, message: `Removed candidate skill: ${name}` };
+	return { ok: true, message: pick(language, `已移除候选技能：${name}`, `Removed candidate skill: ${name}`) };
 }
