@@ -38,6 +38,7 @@
 | 墓碑（tombstone） | 退休记录，写在 `retired.md` | `src/project-memory/retired.ts:114`（`appendTombstones`） |
 | 侧车（sidecar） | `entries.json`：条目 id → 日期 / 确认，不进文档正文 | `src/project-memory/entry-sidecar.ts` |
 | 证据（evidence） | `.agents/evidence/` 下冻结的取证材料 | `RULES.md` 3.7 |
+| 证据（引用） | 沉淀产出的 `evidence:` frontmatter：被核对的 session id 列表；回执写作「证据：N 个会话」 | `src/project-autolearn/evidence.ts`（`evidenceText`） |
 | 变异验证（mutation check） | 把修复改回原样、确认具名用例变红的证明 | `.agents/skills/dsh-plugin-mutation-round/SKILL.md` |
 | 权威（authority） | 唯一事实源（journal、`session.jsonl`）；`MEMORY.md` 与 `INDEX.md` 是派生投影 | `docs/architecture.md` 第 8 节 |
 
@@ -50,3 +51,50 @@
 - 交接摘要 / 摘要器 → **交接**（handoff）；本项目**没有**摘要器（见 `src/project-handoff/summary.ts`）
 - 尾标 → **条目 id**
 - 清理 / 清洗 → **退休**（retire）或 **清洗通道**（prune，仅指 `src/project-memory/prune.ts`）
+
+## 状态词（代码枚举 ↔ 回执中文）
+
+四张状态核与两张词表各只有一处中文映射（下表最后一列），回执里出现英文枚举名即视为缺陷。改词表与改本表
+必须同轮，否则下一个改回执的人会另造一个写法。
+
+| 词表 | 英文枚举 | 中文规范写法 | 唯一来源 |
+|---|---|---|---|
+| 记忆条目态（七态） | `superseded` | 已被取代 | `ENTRY_STATE_LABEL`（`src/project-memory/entry-state.ts`） |
+| | `anchor-drift` | 锚点漂移 | |
+| | `task-closed` | 任务已归档 | |
+| | `version-shipped` | 版本已发布 | |
+| | `age-unconfirmed` | 年龄未确认 | |
+| | `content-stale` | 内容已变 | |
+| | `healthy` | 健康 | |
+| 技能态（六态） | `unbaselined` | 未建基线 | `SKILL_STATE_LABEL`（`src/project-autolearn/skill-state.ts`） |
+| | `expired` | 已过期 | |
+| | `moved` | 已搬走 | |
+| | `drifted` | 已漂移 | |
+| | `orphan` | 无引用 | |
+| | `intact` | 完好 | |
+| 会话日志态（八态） | `live` | 进行中 | `SESSION_STATE_LABEL`（`src/project-context/session-state.ts`） |
+| | `settled` | 已结束 | |
+| | `stale` | 已过期 | |
+| | `orphan` | 无行 | |
+| | `missing` | 缺失 | |
+| | `abandoned` | 已遗弃 | |
+| | `dangling` | 悬挂 | |
+| | `unbaselined` | 未对账 | |
+| 任务态（三态） | `active` | 活跃 | `TASK_STATUS_LABEL`（`src/project-context/task-usage.ts`） |
+| | `dormant` | 休眠 | |
+| | `archived` | 已归档 | |
+| 清洗原因（五类） | `byte-backup` | 字节备份 | `PRUNE_REASON_LABEL`（`src/project-memory/prune.ts`） |
+| | `journal-archive` | 归档日志 | |
+| | `journal-temp` | 日志临时文件 | |
+| | `error-log` | 错误日志 | |
+| | `skill-candidate` | 技能候选 | |
+
+两条词形规则：
+
+- **「已 X」是完成态，「X」是名词短语**。`anchor-drift` 是「锚点漂移」（条目引用的路径不在了，名词短语，
+  与 `docs/batch-z-six-problems-spec.md` 的用法一致），技能态 `drifted` 是「已漂移」（提升后的正文被改过）。
+  两者都含「漂移」是对的，不要合并成一个词。
+- **存档 / 归档分工**：**存档**是层名与存储（`① 存档`、`session-logs/`、「父会话不在存档」），**归档**是动作与
+  状态（`归档会话数`、`已归档`、`被归档`）。README 的层表用「存档」、`/memory` 摘要用「归档会话数」，两者都
+  不改。同义异名清单里的「清理 / 清洗」只被 `/memory prune` 的**通道名**（清洗通道）占用，原因列是分类词，
+  不是通道名。

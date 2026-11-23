@@ -22,14 +22,21 @@
     预览行改成 `名称（原因，大小）`（中文全角括号），`purge.log` 仍记机器拼写（映射不命中的原因原样打印，
     不打印 `undefined`）。
   - `src/project-context/task-usage.ts` 新增 `TASK_STATUS_LABEL` 与 `taskStatusLabel`；`/context task`
-    列表行按语言出 `sessions N` / `N 个会话`、`open todos N` / `N 条未完成`、`last seen` / `最后活动`、
-    `(this session)` / `（本会话）`，绑定回执里的状态词同源。
+    列表行按语言出 `sessions N` / `绑定会话数 N`、`open todos N` / `未完成 todo N`、`last seen` /
+    `最近活动`、`(this session)` / `（本会话）`，绑定回执里的状态词同源——中文词形取 README 为该行记的
+    列名（slug / 状态 / 标题 / 绑定会话数 / 未完成 todo 数 / 最近活动）。
   - `src/project-autolearn/evidence.ts` 的 `evidenceText`、`conflictFindings`（目标标签 `skill "x"` /
     `技能「x」`）、`conflictText` 接 `language`；`/autolearn list` 的 ` · evidence ` 前缀随语言。
   - `/context find` 的三种零与省略行（`src/project-context/search.ts`）、`/session-log tree` 的
-    标题 / 计数 / 注解（`src/project-context/session-tree.ts`）、`/handoff status` 的固定阈值与
-    「本进程内已经交接」两行（`src/project-handoff/command.ts`）一并中文化；`/session-log import`
-    的摘要括号也改全角。`search()` 里只用于预算的 `header` 常量仍按英文计长度——它不进入回执。
+    标题 / 计数 / 注解（`src/project-context/session-tree.ts`，父会话缺失写作「父会话 X 不在存档」，
+    取 README 为该注解记的原文）、`/handoff status` 的固定阈值与「本进程内已经交接」两行
+    （`src/project-handoff/command.ts`）一并中文化；`/session-log import` 的摘要括号也改全角。
+    `search()` 里只用于预算的 `header` 常量仍按英文计长度——它不进入回执。
+  - 术语表补上这五张词表：`docs/GLOSSARY.md` 新增「状态词（代码枚举 ↔ 回执中文）」一节（七态 / 六态 /
+    八态 / 任务三态 / 清洗五类，逐条指到 `ENTRY_STATE_LABEL`、`SKILL_STATE_LABEL`、
+    `SESSION_STATE_LABEL`、`TASK_STATUS_LABEL`、`PRUNE_REASON_LABEL`），并写明两条词形规则
+    （「已 X」是完成态、「X」是名词短语；存档是层名与存储、归档是动作与状态）。概念表同时把
+    「证据」拆成证据目录与证据（引用）两行——README 的 `/autolearn` 一行用的是引用义。
 - 用例名（`test/receipt-layout.test.mjs`，每条都带英文对照断言）：
   `the entry state name inside a reconcile line follows the session language`、
   `the prune reason and the task row name their data in the session's language`、
@@ -38,7 +45,7 @@
   `固定阈值 300000 token` 一条。四个变异（reconcile 行改回裸枚举、任务行绕过词汇表、冲突句固定英文、
   分隔符固定 `; `）各自只红对应那一条，从 sha256 校验过的 `/tmp` 副本还原。
 - 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 122 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
-  `pnpm test` 826/826、`pnpm build` 两次 sha256 同为 `43ad041c…`（245 个 `lib/` 文件）。
+  `pnpm test` 826/826、`pnpm build` 两次 sha256 同为 `ab2e2415…`（245 个 `lib/` 文件）。
 - 残余：autolearn 的 admission / skip **原因句**（`shapeRejection`、`rejectionReason`、pass 的
   `skipped`）在 pass 核里生成，那时还没有会话语言；要中文化得把原因改成码加参数（`AutolearnOutcome`
   的类型变更），属单独一批。
