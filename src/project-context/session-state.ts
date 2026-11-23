@@ -176,15 +176,17 @@ export function brokenSession(state: SessionState): boolean {
 export function sessionStatusReceipt(report: SessionStateReport, named = 10): string {
 	const healthy = report.counts.live + report.counts.settled;
 	const broken = report.verdicts.filter((verdict) => brokenSession(verdict.state));
-	const indexNote = report.indexPresent ? "" : " (INDEX.md is absent, so no row was compared)";
-	const head = `Session log: ${report.verdicts.length} session(s) — ${healthy} healthy (${report.counts.live} live, ${report.counts.settled} settled), ${broken.length} needing a repair${indexNote}.`;
-	if (!report.indexPresent) return head;
-	if (broken.length === 0) return `${head}\nNothing to repair: every directory has a row, every row has a directory, and every meta.json agrees with its row.`;
+	// The counts lead and the absent-index note gets its own line: the client clips the folded summary
+	// after roughly eighty columns, so a parenthetical here would push the repair count out of view.
+	const head = `Session log: ${report.verdicts.length} session(s) — ${broken.length} needing a repair.`;
+	const healthyLine = `${healthy} healthy (${report.counts.live} live, ${report.counts.settled} settled).`;
+	if (!report.indexPresent) return `${head}\n${healthyLine}\nINDEX.md is absent, so no row was compared.`;
+	if (broken.length === 0) return `${head}\n${healthyLine}\nNothing to repair: every directory has a row, every row has a directory, and every meta.json agrees with its row.`;
 	const worst = [...SESSION_SEVERITY];
 	const lines = broken
 		.sort((left, right) => worst.indexOf(left.state) - worst.indexOf(right.state) || left.id.localeCompare(right.id))
 		.slice(0, named)
 		.map((verdict) => `  ${verdict.state} — ${verdict.id} — ${verdict.detail}`);
 	const more = broken.length > lines.length ? `\n  … and ${broken.length - lines.length} more` : "";
-	return `${head}\n${lines.join("\n")}${more}`;
+	return `${head}\n${healthyLine}\n${lines.join("\n")}${more}`;
 }

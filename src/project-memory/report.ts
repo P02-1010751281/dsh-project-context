@@ -300,7 +300,15 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 	const target = writtenTarget(report);
 	// A refused reply is not a write: the memory changed while the reply was being built, so the newer
 	// bytes stay effective, and neither artifact was published. The wording may not claim either one.
-	if (report.status === "stale") return { kind: "success", text: "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it." };
+	if (report.status === "stale") {
+		return {
+			kind: "success",
+			text: [
+				"Memory: was not rewritten — it changed while this pass's reply was being built.",
+				"The newer memory stays effective; run /memory update again to consolidate from it.",
+			].join("\n"),
+		};
+	}
 	if (report.status === "partial-refused") {
 		// Batch Q2's refusal: the reply was in this extension's shape but could not be merged, so writing
 		// it would have replaced content this pass cannot account for. Saying "lossy" or naming the cap
@@ -309,11 +317,17 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		// Two causes, two levers: a store that is not a four-section document can only be replaced by a
 		// complete one, while a reply whose sections are not plain `- ` entries is fixed in the reply.
 		// Offering the wrong one is a dead lever, so the reason decides the sentence.
-		const base = "Memory: was kept unchanged — the reply could not be merged into the stored memory (see .agents/memory/errors.log).";
 		const lever = report.partialRefusal === "store-not-sections"
-			? " Send the complete four-section document (## Project / ## Invariants / ## Pitfalls / ## Index) to replace the stored one."
-			: " Rewrite the reply so every line under a section is a `- ` entry at column 0, or send a subset of the four sections to merge the rest from the stored memory.";
-		return { kind: "success", text: `${base}${lever}` };
+			? "Send the complete four-section document (## Project / ## Invariants / ## Pitfalls / ## Index) to replace the stored one."
+			: "Rewrite the reply so every line under a section is a `- ` entry at column 0, or send a subset of the four sections to merge the rest from the stored memory.";
+		return {
+			kind: "success",
+			text: [
+				"Memory: was kept unchanged — the reply could not be merged into the stored memory.",
+				lever,
+				"See .agents/memory/errors.log for the merge failure.",
+			].join("\n"),
+		};
 	}
 	if (report.status === "read-capped-refused") {
 		// A refusal decided before the model call: the pass was shown only part of a stored artifact, and
@@ -333,7 +347,14 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		}
 		const what = hidden.length > 0 ? hidden.join(" and ") : "part of the stored memory";
 		const lever = levers.length > 0 ? levers.join("; ") : "raise maxMemoryChars";
-		return { kind: "success", text: `Memory: was kept unchanged — the pass did not run, because ${what} would have been hidden from the model, and a reply built from that shortened view would have replaced the stored file with it. To unblock: ${lever}, then run /memory update again.` };
+		return {
+			kind: "success",
+			text: [
+				"Memory: was kept unchanged — the pass did not run.",
+				`${what} would have been hidden from the model, and a reply built from that shortened view would have replaced the stored file with it.`,
+				`To unblock: ${lever}, then run /memory update again.`,
+			].join("\n"),
+		};
 	}
 	if (report.status === "fit-capped-refused") {
 		// The read caps were satisfied, so `maxMemoryChars` cannot be the lever here: the documents are
@@ -356,48 +377,71 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 		const lever = levers.length > 0
 			? `raise maxOutputTokens, or ${levers.join(" and ")}`
 			: "raise maxOutputTokens";
-		return { kind: "success", text: `Memory: was kept unchanged — the pass did not run, because ${budget} cannot hold both stored documents and ${what} would have been hidden from the model, and a reply built from that shortened view would have replaced the stored file with it. To unblock: ${lever}, then run /memory update again.` };
+		return {
+			kind: "success",
+			text: [
+				`Memory: was kept unchanged — the pass did not run.`,
+				`${budget} cannot hold both stored documents, and ${what} would have been hidden from the model; a reply built from that shortened view would have replaced the stored file with it.`,
+				`To unblock: ${lever}, then run /memory update again.`,
+			].join("\n"),
+		};
 	}
 	if (report.status === "lossy-refused") {
 		// A refusal is neither a failure nor a write: the stored memory is byte-identical, and the reply
 		// is named through its own counts so the operator can act (usually by raising `maxMemoryChars`).
 		// Both artifacts are withheld with the refusal, so no landed count can describe this pass.
-		const base = `Memory: was kept unchanged — ${refused} and the one targeted retry did not fix it.`;
 		// The pass itself is cached for `forceDedupeMs`, so an immediate re-run can only re-report this
 		// refusal; the lever that actually gives the reply room is the cap.
-		return { kind: "success", text: `${base} Raise maxMemoryChars, or retry the pass later, to give the reply more room.` };
+		return {
+			kind: "success",
+			text: [
+				"Memory: was kept unchanged — the reply would have lost content.",
+				`${refused}; the one targeted retry did not fix it.`,
+				"Raise maxMemoryChars, or retry the pass later, to give the reply more room.",
+			].join("\n"),
+		};
 	}
-	const updated = detail === "" ? `Memory: updated ${target}.` : `Memory: updated ${target}, but the rewrite was lossy: ${detail}.`;
-	// The verdict is a separate sentence: it describes the sources, not the write, and a pass that
-	// measured nothing must not borrow the write's certainty.
-	// Only a verdict that judged something earns a sentence: "stale 0 (no entry cites a bound file)"
-	// on every update would teach the reader to skip the line that matters.
-	const verdict = report.staleness === undefined || !report.staleness.checked || report.staleness.bound === 0
-		? ""
-		: ` Source bindings: ${stalenessClause(report.staleness)}.`;
+	// One fact per line, and the numbers stay on the first one. The client folds a receipt into a single
+	// ellipsized row and offers the expandable body only when the text contains a newline; the loss
+	// counters used to trail four long sentences, so the clip ate them and there was no body to open.
+	// The verdict plus the counts is what a reader needs at a glance; each sentence and sample follows.
+	const counts: string[] = [];
+	if (report.missingLiterals !== undefined && report.missingLiterals.count > 0) counts.push(`missing literals ${report.missingLiterals.count}`);
+	if (report.restoredEntries !== undefined && report.restoredEntries.count > 0) counts.push(`restored ${report.restoredEntries.count}`);
+	if (report.unrestoredEntries !== undefined && report.unrestoredEntries.count > 0) counts.push(`not restored ${report.unrestoredEntries.count}`);
+	if (report.contextMissingLiterals !== undefined && report.contextMissingLiterals.count > 0) counts.push(`context missing ${report.contextMissingLiterals.count}`);
+	const head = `${detail === "" ? `Memory: updated ${target}` : `Memory: updated ${target}, but the rewrite was lossy`}${counts.length > 0 ? ` · ${counts.join(" · ")}` : ""}.`;
+	const lines: string[] = [head];
+	if (detail !== "") lines.push(`Rewrite loss: ${detail}.`);
+	// The verdict is its own line: it describes the sources, not the write, and a pass that measured
+	// nothing must not borrow the write's certainty. Only a verdict that judged something earns a line:
+	// "stale 0 (no entry cites a bound file)" on every update would teach the reader to skip it.
+	if (report.staleness !== undefined && report.staleness.checked && report.staleness.bound > 0) {
+		lines.push(`Source bindings: ${stalenessClause(report.staleness)}.`);
+	}
 	// The rewrite loss gate's sentence: `detail` reports structure, so a document regenerated in
 	// condensed wording lands with a clean detail while facts leave. This is the only receipt line that
-	// names that loss, and it stays on the first line because a folded command card shows only that one.
-	// Two samples here and `MISSING_LITERAL_SAMPLES` in `errors.log`: the count is the evidence, the log
-	// is where to look. `count > 0` implies at least one sample, so the parenthetical cannot be empty.
-	const missing = report.missingLiterals === undefined || report.missingLiterals.count === 0
-		? ""
-		: ` Missing literals: ${report.missingLiterals.count} backticked literal(s) the previous memory carried no longer appear (e.g. ${report.missingLiterals.samples.slice(0, 2).join(" | ")}).`;
-	// The repair's own sentence. It sits on the first line too: a pass that silently dropped an entry and
-	// had it put back is not a clean pass, and the reader needs to know the document grew without the
-	// model saying so. It never appears together with `unrestored` for the same entries.
-	const restored = report.restoredEntries === undefined || report.restoredEntries.count === 0
-		? ""
-		: ` Restored: ${report.restoredEntries.count} entry(ies) the reply had dropped (e.g. ${report.restoredEntries.samples.slice(0, 2).join(" | ")}).`;
-	const unrestored = report.unrestoredEntries === undefined || report.unrestoredEntries.count === 0
-		? ""
-		: ` Not restored: ${report.unrestoredEntries.count} entry(ies) the reply dropped did not fit back under the cap (e.g. ${report.unrestoredEntries.samples.slice(0, 2).join(" | ")}).`;
+	// names that loss. Two samples here and `MISSING_LITERAL_SAMPLES` in `errors.log`: the count is the
+	// evidence, the log is where to look. `count > 0` implies at least one sample, so the parenthetical
+	// cannot be empty.
+	if (report.missingLiterals !== undefined && report.missingLiterals.count > 0) {
+		lines.push(`Missing literals: ${report.missingLiterals.count} backticked literal(s) the previous memory carried no longer appear (e.g. ${report.missingLiterals.samples.slice(0, 2).join(" | ")}).`);
+	}
+	// The repair's own line: a pass that silently dropped an entry and had it put back is not a clean
+	// pass, and the reader needs to know the document grew without the model saying so. It never appears
+	// together with `unrestored` for the same entries.
+	if (report.restoredEntries !== undefined && report.restoredEntries.count > 0) {
+		lines.push(`Restored: ${report.restoredEntries.count} entry(ies) the reply had dropped (e.g. ${report.restoredEntries.samples.slice(0, 2).join(" | ")}).`);
+	}
+	if (report.unrestoredEntries !== undefined && report.unrestoredEntries.count > 0) {
+		lines.push(`Not restored: ${report.unrestoredEntries.count} entry(ies) the reply dropped did not fit back under the cap (e.g. ${report.unrestoredEntries.samples.slice(0, 2).join(" | ")}).`);
+	}
 	// The context half of the same measure. It names the document it came from because `/memory update`
 	// answers for both artifacts, and a bound session writes a task document instead of `CONTEXT.md`.
-	const contextMissing = report.contextMissingLiterals === undefined || report.contextMissingLiterals.count === 0
-		? ""
-		: ` Context missing literals: ${report.contextMissingLiterals.count} backticked literal(s) the previous ${report.contextTarget ?? "CONTEXT.md"} carried no longer appear (e.g. ${report.contextMissingLiterals.samples.slice(0, 2).join(" | ")}).`;
-	return { kind: "success", text: `${updated}${verdict}${missing}${restored}${unrestored}${contextMissing}` };
+	if (report.contextMissingLiterals !== undefined && report.contextMissingLiterals.count > 0) {
+		lines.push(`Context missing literals: ${report.contextMissingLiterals.count} backticked literal(s) the previous ${report.contextTarget ?? "CONTEXT.md"} carried no longer appear (e.g. ${report.contextMissingLiterals.samples.slice(0, 2).join(" | ")}).`);
+	}
+	return { kind: "success", text: lines.join("\n") };
 }
 
 /**
@@ -413,32 +457,67 @@ export function memoryUpdateReply(report: ConsolidateReport): { kind: "success" 
 export function memoryPruneReply(outcome: PruneOutcome, projectRoot: string): { kind: "success" | "error"; text: string } {
 	const memory = path.relative(projectRoot, memoryDir(projectRoot)) || memoryDir(projectRoot);
 	const size = formatBytes(outcome.plan.bytes);
-	const listed = outcome.plan.candidates
+	// One fact per line: the client folds a receipt into a single ellipsized row and only offers the
+	// expandable body when the text contains a newline, so a one-line prune report was both clipped and
+	// impossible to open. The verdict leads; the file list and the remedy follow.
+	const candidateLines = outcome.plan.candidates
 		.slice(0, 8)
-		.map((candidate) => `${candidate.name} (${candidate.reason}, ${formatBytes(candidate.bytes)})`)
-		.join(", ");
-	const more = outcome.plan.candidates.length > 8 ? `, and ${outcome.plan.candidates.length - 8} more` : "";
+		.map((candidate) => `  ${candidate.name} (${candidate.reason}, ${formatBytes(candidate.bytes)})`);
+	const hidden = outcome.plan.candidates.length - candidateLines.length;
+	const more = hidden > 0 ? [`  … and ${hidden} more`] : [];
 	const trash = outcome.trash === undefined ? undefined : path.relative(projectRoot, outcome.trash) || outcome.trash;
 	const log = path.relative(projectRoot, purgeLogFile(projectRoot)) || purgeLogFile(projectRoot);
 	if (outcome.status === "failed") {
 		// Fail closed: the archive is written before the first removal, so a failure here means the
 		// directory is untouched. Say that, and do not imply a partial cleanup.
-		return { kind: "error", text: `Memory prune: nothing was deleted — ${outcome.error ?? "the bytes could not be archived"}. The ${outcome.plan.candidates.length} planned file(s) (${size}) are still in ${memory}; nothing was logged as removed.` };
+		return {
+			kind: "error",
+			text: [
+				`Memory prune: nothing was deleted — ${outcome.error ?? "the bytes could not be archived"}.`,
+				`The ${outcome.plan.candidates.length} planned file(s) (${size}) are still in ${memory}; nothing was logged as removed.`,
+			].join("\n"),
+		};
 	}
 	if (outcome.status === "nothing") {
-		return { kind: "success", text: "Memory prune: nothing to clean — backups keep the newest 3, archived journals and stray journal temporaries are kept 90 days, errors.log is truncated above 1 MB, and skill candidates for 60 days." };
+		return {
+			kind: "success",
+			text: [
+				"Memory prune: nothing to clean.",
+				"The retention rules: backups keep the newest 3, archived journals and stray journal temporaries are kept 90 days, errors.log is truncated above 1 MB, skill candidates for 60 days.",
+			].join("\n"),
+		};
 	}
 	if (outcome.status === "preview") {
-		return { kind: "success", text: `Memory prune: ${outcome.plan.candidates.length} file(s), ${size}, could be cleaned from ${memory} — ${listed}${more}. Nothing was deleted; /memory prune --apply removes them after archiving the bytes to ${memory}/trash/<date>.tar and appending one line to ${log}.` };
+		return {
+			kind: "success",
+			text: [
+				`Memory prune: ${outcome.plan.candidates.length} file(s), ${size}, could be cleaned from ${memory}.`,
+				...candidateLines,
+				...more,
+				`Nothing was deleted; /memory prune --apply removes them after archiving the bytes to ${memory}/trash/<date>.tar and appending one line to ${log}.`,
+			].join("\n"),
+		};
 	}
 	const actions: string[] = [];
 	if (outcome.removed > 0) actions.push(`removed ${outcome.removed} file(s)`);
 	if (outcome.truncated > 0) actions.push(`truncated ${outcome.truncated} file(s) in place`);
 	const did = actions.join(" and ");
 	if (outcome.status === "partial") {
-		return { kind: "success", text: `Memory prune: ${did} of ${outcome.plan.candidates.length} planned (${size}), ${outcome.failed} file(s) could not be cleaned${outcome.error === undefined ? "" : ` (${outcome.error})`}; the bytes that left are archived in ${trash}. One line was appended to ${log}.` };
+		return {
+			kind: "success",
+			text: [
+				`Memory prune: ${did} of ${outcome.plan.candidates.length} planned (${size}); ${outcome.failed} file(s) could not be cleaned${outcome.error === undefined ? "" : ` (${outcome.error})`}.`,
+				`The bytes that left are archived in ${trash}; one line was appended to ${log}.`,
+			].join("\n"),
+		};
 	}
-	return { kind: "success", text: `Memory prune: ${did} (${size}); bytes archived in ${trash}, one line appended to ${log}.` };
+	return {
+		kind: "success",
+		text: [
+			`Memory prune: ${did} (${size}).`,
+			`Bytes archived in ${trash}; one line appended to ${log}.`,
+		].join("\n"),
+	};
 }
 
 /** How many entries a reconciliation receipt lists before it stops being a receipt. */
@@ -538,16 +617,21 @@ export function memoryReconcileReply(
  */
 export function memoryAcceptReply(result: AcceptResult, tid: string): { kind: "success" | "error"; text: string } {
 	if (result.kind === "confirmed") {
-		return { kind: "success", text: `Memory reconcile: accepted ${tid} — recorded that you confirmed it, so "${result.reason}" stops being reported. Any other reason for the same entry still is.` };
+		return {
+			kind: "success",
+			// Verdict first, cause second: the folded summary shows the first line only, and the cause is
+			// the part a reader can act on.
+			text: `Memory reconcile: accepted ${tid} — recorded that you confirmed it.\n"${result.reason}" stops being reported; any other reason for the same entry still is.`,
+		};
 	}
 	if (result.kind === "healthy") {
 		return { kind: "success", text: `Memory reconcile: entry ${tid} has no reason to re-verify.` };
 	}
 	if (result.kind === "unknown-entry") {
-		return { kind: "error", text: `Memory reconcile: no entry ${tid} in this memory. Run /memory reconcile to list the entries that carry a reason.` };
+		return { kind: "error", text: `Memory reconcile: no entry ${tid} in this memory.\nRun /memory reconcile to list the entries that carry a reason.` };
 	}
 	if (result.kind === "retirable") {
-		return { kind: "error", text: `Memory reconcile: entry ${tid} is ${result.state} — the retirement engine owns that state, so run /memory update instead of accepting it.` };
+		return { kind: "error", text: `Memory reconcile: entry ${tid} is ${result.state} — the retirement engine owns that state.\nRun /memory update instead of accepting it.` };
 	}
 	if (result.kind === "unreadable-store") {
 		return { kind: "error", text: "Memory reconcile: the memory document or its entry sidecar could not be read; nothing was changed." };
@@ -555,7 +639,10 @@ export function memoryAcceptReply(result: AcceptResult, tid: string): { kind: "s
 	const outcome = result.outcome;
 	switch (outcome.status) {
 		case "accepted":
-			return { kind: "success", text: `Memory reconcile: accepted ${tid} — ${outcome.paths.length} changed file(s) re-baselined (${outcome.paths.join(", ")}); this entry stops being reported as stale.` };
+			return {
+				kind: "success",
+				text: `Memory reconcile: accepted ${tid} — ${outcome.paths.length} changed file(s) re-baselined.\n${outcome.paths.join(", ")}; this entry stops being reported as stale.`,
+			};
 		case "unknown-entry":
 			return { kind: "error", text: `Memory reconcile: no entry ${tid} in this memory.` };
 		case "no-binding":
@@ -563,9 +650,15 @@ export function memoryAcceptReply(result: AcceptResult, tid: string): { kind: "s
 		case "not-stale":
 			return { kind: "success", text: `Memory reconcile: entry ${tid} is not stale; its baseline already matches every file it cites.` };
 		case "anchor-missing":
-			return { kind: "error", text: `Memory reconcile: entry ${tid} cites a file that no longer exists (${outcome.paths.join(", ")}). That is anchor drift, which retires the entry — run /memory update instead of accepting it.` };
+			return {
+				kind: "error",
+				text: `Memory reconcile: entry ${tid} cites a file that no longer exists (${outcome.paths.join(", ")}).\nThat is anchor drift, which retires the entry — run /memory update instead of accepting it.`,
+			};
 		case "unreadable":
-			return { kind: "error", text: `Memory reconcile: entry ${tid} cites a file that could not be read (${outcome.paths.join(", ")}); a baseline is not written from an unread state.` };
+			return {
+				kind: "error",
+				text: `Memory reconcile: entry ${tid} cites a file that could not be read (${outcome.paths.join(", ")}).\nA baseline is not written from an unread state.`,
+			};
 		case "unreadable-store":
 			return { kind: "error", text: "Memory reconcile: the memory document or its entry sidecar could not be read; nothing was changed." };
 		case "raced":

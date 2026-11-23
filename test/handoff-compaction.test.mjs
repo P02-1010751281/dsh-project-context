@@ -190,11 +190,13 @@ test("the status receipt reports the compaction history next to the occupancy", 
 	const session = fakeSession("session-compaction-receipt-1", dshEvents);
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffLang: "en", handoffBudgetRecentTokens: 0 });
 	const receipt = await statusText(portsOf(pluginContext({ occupancy: 900_000 })), session, config, signal);
-	const parts = receipt.split(" · ");
-	const context = parts.findIndex((part) => part.startsWith("context "));
-	const compactions = parts.findIndex((part) => part.startsWith("compactions "));
-	assert.ok(compactions > context, "the line follows the occupancy lines it is read with");
-	assert.match(parts[compactions], /^compactions 2 \(summarized 2, pruned 0\), last shadowed 4000 tokens, test-provider\/test-model$/);
+	// The head is one line and the compaction history is its own line below it: the folded card shows the
+	// head, and the history is the detail a reader expands for.
+	const lines = receipt.split("\n");
+	assert.match(lines[0], /context 900000\/1000000 \(90%\)/, "the occupancy is on the head line");
+	const compactions = lines.findIndex((line) => line.startsWith("compactions "));
+	assert.ok(compactions > 0, "the compaction line follows the head");
+	assert.equal(lines[compactions], "compactions 2 (summarized 2, pruned 0), last shadowed 4000 tokens, test-provider/test-model");
 });
 
 test("the line still renders when there is no route or meter to measure — that is the receipt that matters", async () => {

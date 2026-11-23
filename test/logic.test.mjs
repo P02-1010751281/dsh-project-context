@@ -1647,7 +1647,10 @@ test("a lossy pass is receipted by mechanism and count, and a clean pass reads w
 	// otherwise the receipt would blame the context for a memory that was never written. Batch T2
 	// added the context to the refusal: the reply is not published at all, so neither artifact may
 	// be named, and the one wording a stale pass has says exactly that much.
-	assert.equal(memoryUpdateReply(plainReport("stale")).text, "Memory: was not rewritten — it changed while this pass's reply was being built, so the newer memory stays effective. Run /memory update again to consolidate from it.");
+	assert.equal(memoryUpdateReply(plainReport("stale")).text, [
+		"Memory: was not rewritten — it changed while this pass's reply was being built.",
+		"The newer memory stays effective; run /memory update again to consolidate from it.",
+	].join("\n"));
 	assert.doesNotMatch(memoryUpdateReply(plainReport("stale")).text, /context/, "a stale report names neither artifact, because neither landed");
 
 	// The other two loss sites the same receipt has to name: the reply's own write cap (an opaque or
@@ -2502,7 +2505,8 @@ test("a refused pass never touches CONTEXT.md, so an unwritable one cannot turn 
 	assert.equal(report.memoryWritten, false);
 	assert.equal(report.contextWritten, false);
 	assert.ok(report.refusedLoss !== undefined, "the refusal is reported, not swallowed by a failed write");
-	assert.match(memoryUpdateReply(report).text, /was kept unchanged — .*would have been stored lossily/);
+	// The verdict leads and the cause is its own line: the folded card shows only the first line.
+	assert.match(memoryUpdateReply(report).text, /was kept unchanged — the reply would have lost content\.\nthe reply would have been stored lossily/);
 	// The pass skipped the write rather than attempting and failing it: the gate's own line says so.
 	assert.match(
 		await readFile(path.join(root, ".agents", "memory", "errors.log"), "utf8"),
@@ -3019,7 +3023,7 @@ test("the /memory reply reports a memory that is riding the character cap", asyn
 	assert.doesNotMatch(healthy.text, /cap|dropped|truncat/i, "a memory inside the cap is reported as plain healthy");
 	// The measurements lead the first line, because the client flattens the whole receipt onto one
 	// clipped line and only a newline makes it expandable; the source path gets its own line.
-	assert.match(healthy.text, /^Memory: \d+\/32000 chars \(\d+%\) · /, healthy.text);
+	assert.match(healthy.text, /^Memory: \d+\/32000 chars \(\d+%\)$/m, healthy.text);
 	assert.match(healthy.text, /^source \.agents\/memory\/MEMORY\.md$/m, "the healthy fixture still names its exact source");
 	assert.match(healthy.text, /^journal \.agents\/memory\/memory\.jsonl none yet$/m);
 	assert.match(healthy.text, /^0 backups/m);
@@ -3986,7 +3990,7 @@ test("the status receipt follows the handoff language and names the setting by i
 	assert.match(status, /lang auto \(zh\)/, "the receipt reports the language it resolved");
 	assert.match(status, /阈值不可用：不是窗口的问题/);
 	assert.match(status, /调小「保留最近对话（token）」/, "the lever is named by the card's own zh label");
-	assert.doesNotMatch(status, /threshold unavailable/, "a Chinese session is not given the English account");
+	assert.doesNotMatch(status.split("\n")[0], /threshold unavailable/, "a Chinese session is not given the English account on the line the card shows");
 	assert.doesNotMatch(status, /keep\b/, "the internal shorthand never reaches the receipt");
 });
 

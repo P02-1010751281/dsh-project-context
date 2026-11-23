@@ -118,10 +118,9 @@ test("an absent index is reported, never turned into a wall of orphans", () => {
 test("the receipt puts the counts on line one and names the worst states first", () => {
 	const report = sessionStates(fixture());
 	const receipt = sessionStatusReceipt(report);
-	const [first] = receipt.split("\n");
-	assert.match(first, /^Session log: 7 session\(s\) — 2 healthy/, `the payload must survive the collapsed card, got ${first}`);
-	assert.match(first, /5 needing a repair/);
-	assert.match(first, /1 live, 1 settled/, "the split is the part a reader acts on: what is still moving");
+	const [first, second] = receipt.split("\n");
+	assert.match(first, /^Session log: 7 session\(s\) — 5 needing a repair\.$/, `the payload must survive the collapsed card, got ${first}`);
+	assert.match(second, /^2 healthy \(1 live, 1 settled\)\.$/, "the split is the part a reader acts on: what is still moving");
 	const order = receipt.split("\n").filter((line) => line.startsWith("  ")).map((line) => line.trim().split(" — ")[0]);
 	assert.deepEqual(order.slice(0, 3), ["missing", "orphan", "unbaselined"], "worst first, in the declared order");
 });

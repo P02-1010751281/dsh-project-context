@@ -255,7 +255,7 @@ test("every acceptance outcome says its own cause, so the reader's next move dif
 	assert.equal(confirmed.kind, "success");
 	assert.match(confirmed.text, /recorded that you confirmed it/);
 	assert.match(confirmed.text, /"task-closed" stops being reported/);
-	assert.match(confirmed.text, /Any other reason for the same entry still is/, "accepting one claim must not imply the others");
+	assert.match(confirmed.text, /any other reason for the same entry still is/, "accepting one claim must not imply the others");
 
 	const missing = memoryAcceptReply({ kind: "content-stale", outcome: { status: "anchor-missing", paths: ["src/gone.ts"] } }, "aaa");
 	assert.equal(missing.kind, "error");

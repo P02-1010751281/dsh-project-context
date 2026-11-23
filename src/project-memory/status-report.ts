@@ -167,10 +167,14 @@ export function formatMemoryStatus(report: MemoryStatusReport): { kind: "success
 	// A document we could not load has no size or sections to report; saying `0 chars` for it would be
 	// the same wrong cause the unreadable wording above refuses to tell.
 	if (!report.unreadable && !empty) {
-		const measurement = `${document.length}/${report.maxChars} chars (${Math.round((document.length / report.maxChars) * 100)}%) · ${sectionsClause(report.document)}`;
+		const measurement = `${document.length}/${report.maxChars} chars (${Math.round((document.length / report.maxChars) * 100)}%)`;
 		// Every other branch's `primary` is a finished sentence naming the broken thing; only the healthy
 		// branch is a bare label waiting for its numbers.
 		lines.push(primary.endsWith(":") ? `${primary} ${measurement}` : `${primary} · ${measurement}`);
+		// The section breakdown is its own line. On one line it pushed the folded summary past the
+		// client's clip, and the size above is the number a reader acts on.
+		const sections = sectionsClause(report.document);
+		lines.push(sections.startsWith("sections ") ? sections : `sections: ${sections}`);
 		// Only a document we could parse has entries to judge; the field is absent when nothing measured.
 		if (report.staleness !== undefined) lines.push(stalenessClause(report.staleness));
 	} else {

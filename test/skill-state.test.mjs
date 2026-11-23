@@ -64,7 +64,10 @@ test("the five states are derived from what the skill cites, worst first in a re
 	// The corpus denominator: a report of 18 learned skills out of 40 must say where the other 22 went.
 	const scoped = skillStates(facts, { total: 40 });
 	assert.equal(scoped.unmanaged, 34, "hand-written skills are counted, not silently dropped");
-	assert.match(skillStatusReceipt(scoped).split("\n")[0], /6 of 40 skill\(s\) \(34 hand-written, not managed\)/);
+	// The denominator stays on the collapsed line; the hand-written split is its own line so the
+	// `needing a look` count is not pushed past the client's clip.
+	assert.match(skillStatusReceipt(scoped).split("\n")[0], /6 of 40 skill\(s\) — \d+ intact, \d+ needing a look/);
+	assert.match(skillStatusReceipt(scoped), /^34 hand-written skill\(s\) are not managed/m);
 
 	const order = receipt.split("\n").filter((line) => line.startsWith("  ")).map((line) => line.trim().split(" — ")[0]);
 	// Consecutive duplicates collapsed: two `drifted` entries are one group in the order, not a repeat.

@@ -77,12 +77,13 @@ test("a stored four-section document reports its length and its section counts, 
 	const { memory, reply } = await status(root);
 	// The first line is the only one a collapsed command row shows, so it carries the measurements;
 	// the source path is named on the journal line instead of leading and being clipped.
-	assert.match(reply.text, /^Memory: \d+\/\d+ chars \(\d+%\) · /, reply.text);
+	assert.match(reply.text, /^Memory: \d+\/\d+ chars \(\d+%\)$/m, reply.text);
 	assert.match(reply.text, new RegExp(`^source ${memoryFile(root).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"), reply.text);
 	// The receipt sizes the *loaded* document — what a consolidation pass would see — so a loader
 	// normalization (a trailing newline) is already reflected in both numbers.
 	assert.match(reply.text, new RegExp(`${memory.text.length}/${CAP} chars \\(${Math.round((memory.text.length / CAP) * 100)}%\\)`), reply.text);
-	assert.match(reply.text, /10 entries \(Project 2, Invariants 3, Pitfalls 1, Index 4\)/);
+	// The breakdown is its own line: on the size line it pushed the folded summary past the clip.
+	assert.match(reply.text, /^sections: 10 entries \(Project 2, Invariants 3, Pitfalls 1, Index 4\)$/m);
 	assert.doesNotMatch(reply.text, /cap|dropped|truncat/i, "a memory inside the cap is not warned about");
 
 	// Independent recomputation from the file the user would open.

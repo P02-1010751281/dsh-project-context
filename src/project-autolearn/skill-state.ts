@@ -133,14 +133,18 @@ export function retiresSkill(state: SkillState): boolean {
 export function skillStatusReceipt(report: SkillStateReport, named = 10): string {
 	const broken = report.verdicts.filter((verdict) => verdict.state !== "intact");
 	const scope = report.unmanaged > 0
-		? `${report.verdicts.length} of ${report.total} skill(s) (${report.unmanaged} hand-written, not managed)`
+		? `${report.verdicts.length} of ${report.total} skill(s)`
 		: `${report.verdicts.length} skill(s)`;
+	// The denominator stays on the first line, the hand-written split moves below it: the client clips
+	// the folded summary after roughly eighty columns, and the parenthetical used to push the
+	// `needing a look` count past that edge.
 	const head = `Learned skills: ${scope} — ${report.counts.intact} intact, ${broken.length} needing a look.`;
-	if (broken.length === 0) return `${head}\nEvery learned skill still matches the files it cites and is still referenced.`;
+	const unmanaged = report.unmanaged > 0 ? `\n${report.unmanaged} hand-written skill(s) are not managed (only learned skills are judged).` : "";
+	if (broken.length === 0) return `${head}${unmanaged}\nEvery learned skill still matches the files it cites and is still referenced.`;
 	const lines = broken
 		.sort((left, right) => SKILL_SEVERITY.indexOf(left.state) - SKILL_SEVERITY.indexOf(right.state) || left.name.localeCompare(right.name))
 		.slice(0, named)
 		.map((verdict) => `  ${verdict.state} — ${verdict.name} — ${verdict.detail}`);
 	const more = broken.length > lines.length ? `\n  … and ${broken.length - lines.length} more` : "";
-	return `${head}\n${lines.join("\n")}${more}`;
+	return `${head}${unmanaged}\n${lines.join("\n")}${more}`;
 }
