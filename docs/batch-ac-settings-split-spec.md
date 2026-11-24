@@ -575,3 +575,42 @@ const yaml = requireFromProfile("yaml");           // 已实测返回 parse
 3. **profile patch 的 `name:` 是否必须。** `applyEntryPatches` 只在 `name` 存在且不匹配时跳过（`include/lib/index.js:95-99`）；写精确的 `name` 更安全，不写也能按 id 命中。迁移探针的“四个 id 出现且键集合正确”是判据。
 4. **volatile-only 保存后 revision 是否按预期移动。** 这是现有卡片的冲突判定基础（`client/settings-card.tsx:120-127` 依赖它）；拆后按 ns 独立。用两个标签页的 §6.2 第 5 条验收；若发现 revision 不动，先查 Host 的 `describe()` 是否在写后被调用（`SettingsForms.write` 末尾的 `this.describe()`，`HOST/.../settings/src/index.ts:424`）。
 5. **共用条目失败时三个功能入口的退回值是否需要额外告警。** 当前设计只靠宿主 apply 错误 + 卡片消失；若希望更响亮，可在 `effectiveSharedSettings` 的 fallback 分支写一行带条目名的 `errors.log`（需要项目根，事件路径里多数有），但这是新增行为，未包含在本规格的默认实现里。
+## 8.3 裁定记录（2026-11-24）
+
+用户答「all」后，六条按本文推荐值逐条裁定。裁定即定案，落地批次按这里执行，不再回头讨论：
+
+| # | 议题 | 裁定 | 依据 |
+|---|---|---|---|
+| 1 | 四份 schema 还是三份 | **四份**（三张功能卡 + `project-context` 共用/归档卡） | §2.5 拒绝「三份」的理由：共用键落记忆卡时，memory 条目失败会让 autolearn/handoff 静默退回 `DEFAULT_CONFIG`（`maxMemoryChars` 52000→40000、`provider`/`model` →空） |
+| 2 | 共用卡放哪 | **留在 bundle 页**（`plugins.bundle.config`，key `dsh-project-context`） | 与现状同位置，迁移面最小；放 row 页只换来对称，代价是多一次点击 |
+| 3 | `provider`/`model` 成对检查 | **做**，在共用卡保存前拦 | §4.4；不做则半对保存被 `livePluginConfig` 静默回退，重启后共用卡消失 |
+| 4 | `maxMemoryChars` 归属 | **共用卡** | 三个入口都读（project-context / project-memory / project-autolearn）；放记忆卡会让另两个在 memory 失败时退回 40000 |
+| 5 | 迁移执行人 | **本仓 agent 执行**，按 §3.3 步骤，两个 profile 各留 `*.bak-<date>-settings-split` | profile 属用户存储，但用户已授权本批；备份与只读校验探针（§3.6）是前提 |
+| 6 | 同批移除 `SegmentedTabs` | **同批移除** | §2.6：拆后每卡最多 9 行，页签只多一次点击；代价是与卡结构同批改 `client/settings-card.tsx`、`client/styles.ts`、`test/card-render.test.mjs` 三处 |
+
+### 8.4 落地前必须先解决的一件事（阻塞项，2026-11-24 记）
+
+这一批**不能单独落地**，原因是 §3.5 已写明的配对约束加上宿主的启动路径：
+
+- 新代码 + 旧 profile patch、旧代码 + 新 profile patch **都不是受支持的稳态**。前者的表现是
+  `project-memory` / `project-autolearn` / `project-handoff` 三个条目挂在 `project-context` 的
+  键上被严格解析器拒绝 → 那三个静默退回 `DEFAULT_CONFIG`；后者是 `project-context` apply 时抛错 →
+  卡片消失而另外三个照常跑默认值。
+- 两个 profile 的 `package.json` 当前钉在 `c25240b`（本日 2c-1 的提交），宿主自 14:31 起跑的是更早的
+  构建。也就是说**下一次重启本来就要加载 2c-1**。
+- 若把设置拆分也塞进同一次重启：一旦六面里任何一面写错（schema 漏 `volatile`、patch 键放错条目、
+  客户端表格与 schema 不齐），宿主起来后卡片消失或三个插件静默降级，而**验收只能靠重启后的现场**——
+  那一刻没有可用的 agent 会话去修它。
+
+因此落地顺序必须是一次协调切换，且切换窗口由用户掌握：
+
+1. 代码 + `client/` + 测试 + `lib/` 一次提交并 push（本仓可验证的部分：typecheck / boundary /
+   docs / test / build 可复现）；
+2. 同一次操作里改两个 profile 的 `cordis.patch.yml`（备份 + §3.6 只读探针五项断言）；
+3. 抬两个 profile 的 pin 到该提交并按 §2fe 逐文件 sha256 比对；
+4. **用户重启宿主**，按 §6.2 验收四张卡；失败则代码与 profile 一起回滚到 `c25240b` 与备份 patch。
+
+第 2 步之后、第 4 步之前，仓库与两个 profile 处于「都已改、都未验」的状态，这是唯一允许的
+中间态，且必须由同一轮操作完成——所以这一批应在一次专门的会话里做，而不是接在一个已经把
+pin 抬到 `c25240b` 的批次后面。
+
