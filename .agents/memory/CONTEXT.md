@@ -4,10 +4,15 @@ Last updated: 2026-11-23T11:24:16.593Z
 
 ## Summary
 
-本会话从 session-a8e77e7b-383b-468f-9b36-0ba80ea15a5b 交接（handoff-seed c6171818bd85）。用户裁定「现在就把行内证据一次译完」，于是把回执里由状态核生成的英文数据也本地化：`820583e`（feat(receipts): localize the data inside every receipt, not only the sentence）与 `dffc437`（CHANGELOG 登记）。随后用户追问「都是标准术语吗？」——核对 `docs/GLOSSARY.md` 与 `docs/vocabulary-conventions.md` 后确认概念词合规，但状态词没有规范来源，且两处措辞与 README 既有写法冲突（`/context task` 行、`/session-log tree` 的「父会话 X 不在存档」），改成 README 用词（`2627aca`），再把五套状态词与「证据」的两个义项登记进术语表、把「存档 vs 归档」「已 X vs 名词短语」写成规则（`f1102ba`）。门禁全绿，desktop/web pin 抬到 `f1102ba` 且逐文件 sha256 0 mismatch。用户重启后，用 9230 Inspector 探针逐模块比对 13 个模块全部判「running host executes the code on disk」，真实 `.agents/memory` 上的回执已全中文；`--verify-only` 因脚本回落到旧缺省口 19387 印 5 次 `fetch failed` 的假失败。剩余：406-12 的 tgz 仍停在旧构建、`/autolearn` 原因句残余、工作树里记忆文件待一次记忆 pass 对齐。
+本会话从 session-dec39c6d 续接（handoff-seed fd2d75ac51e2），上一轮把八项残余收口到 `f46c801`。 本轮用户答「all」，于是把四条并列路线一次推进：先补掉 SH-10 最后一个未证点的**运行期**半边 （`.agents/evidence/2026-11-24-sh10-runtime-reachability/`），确认能经 `agentPresets.serviceFor(agent,"compaction")` 拿到真引擎、根域 `root.get("compaction")` 是 `undefined`、样本 agent 处于 `running`；顺带发现并实测一条门禁盲区——`src/shared/settings.ts:24` 值依赖 `../host/dsh/lifecycle.js`，而 `check-boundary.mjs` 只查反方向，把路径改错后门禁仍 `0 failure(s)`、只有 `tsc` 报错。据此写出接第二宿主 2c-1 的规格 `docs/host-context-2c1-settings-port-spec.md`（`SettingsPort` + 补门禁 + 正负控制），并把 `docs/batch-ac-settings-split-spec.md` §8.1 漏掉的第 6 个拍板点（是否移除 `SegmentedTabs`）补上， 使待裁决项由 5 条回到文档索引声称的 6 条。宿主已于 14:31:40 重启，晚于最后一次 `src/` 提交 （20:42 前一日），驻留模块与磁盘一致；归档不变量 221 = 221 仍对齐。
 
 ## Key points
 
+- 本轮运行期取证（`2026-11-24`）：宿主 pid 5876 启动 `14:31:40`，store `0.2.2-rc.5`，Inspector `9230`；`prompt.js` / `reply.js` / `consolidate.js` / `autolearn/reasons.js` 四个模块驻留 sha256 与磁盘逐字节相同（`consolidate-types.js` 未被该 isolate 解析，属正常），`git show 4fbb972:lib/…` 是它们共同的来源。
+- Inspector 的 `Runtime.evaluate` 落在 `dsh-desktop-host` 主 realm，**那里没有 cordis 根**（139 个全局无 `loader`/`ctx`，符号键只有 cost-meter、mounted-plugins 空表等）。可达入口是 `globalThis[Symbol.for("dsh.inspector.realm-object-registries")]` → `RealmObjectRegistry.retained` 里 `keys` 含 `root`/`registry`/`events` 的那个对象。
+- SH-10 运行期读数：`root.get("compaction")` 与 `root.get("commandCompact")` 均 `undefined`（宿主平面被 web-app patch 关掉），`root.get("agentPresets").serviceFor(agent,"compaction")` 返回 `engine(function)`；样本 agent `status = running` 且 `whenIdle`/`runMaintenance` 都在。**未调用 `compactNow`**，所以 `compaction-vs-handoff.md` §9 的重开条件 3 仍不满足。
+- 门禁盲区（已实测）：`check-boundary.mjs` 只实现「`src/host/` 不得依赖 core/shared」，没有反向的「`src/shared/` 不得依赖 `../host/dsh/`」。把 `settings.ts:24` 指向不存在的模块后，门禁仍印 `boundary check: 126 source file(s), 0 failure(s)`，只有 `tsc` 以 `TS2307` 报红——拦住它的是类型解析，不是分层规则。新判据不能一刀切禁 `../host/`：`src/shared/` 对 `contract.js` 有 6 处值导入，是合法的中立依赖。
+- `docs/batch-ac-settings-split-spec.md` 的拍板项实为 6 条而 §8.1 只列 5 条，第 6 条（移除 `SegmentedTabs`，见 §2.6）藏在正文里，`docs/README.md` 的「6 个待拍板点」才是对的；已补进 §8.1 并写明代价（同批改掉现有卡片外观与 `test/card-render.test.mjs` 断言）。
 - 交接来源 session-a8e77e7b-383b-468f-9b36-0ba80ea15a5b，handoff-seed c6171818bd85。
 - 行内数据批次：`820583e`（feat）+ `dffc437`（CHANGELOG 登记）；术语修复 `2627aca`（fix(receipts): name the task row and the tree annotation the way the glossary does）+ 术语表登记 `f1102ba`（docs(rules): register the five state vocabularies in the glossary）。`HEAD` = `origin/main` = `f1102ba`。
 - 行内词汇落点：`src/project-memory/entry-state.ts`（`ENTRY_STATE_LABEL`、`entryStateOf(tid, facts, language)`）、`prune.ts`（`PRUNE_REASON_LABEL`）、`report.ts`（`--accept` 两支）、`src/project-context/task-usage.ts`（`TASK_STATUS_LABEL` / `taskUsageRow`）、`search.ts`、`session-tree.ts`、`src/project-autolearn/evidence.ts`、`src/project-handoff/command.ts`。
@@ -25,6 +30,9 @@ Last updated: 2026-11-23T11:24:16.593Z
 
 ## Open tasks
 
+- 待拍板（`docs/batch-ac-settings-split-spec.md` §8.1，6 条）：四份 schema 还是三份、共用卡放哪、`provider`/`model` 成对检查、`maxMemoryChars` 归属、迁移执行人、是否同批移除 `SegmentedTabs`。定案后才动 `src/`。
+- 待拍板（`docs/host-context-2c1-settings-port-spec.md`）：2c-1 是否开工。规格已含门禁补丁、正负控制与 4 条用例，落地时先加检查后修代码（顺序反了就证明不了门禁会响）。
+- SH-10 仍差两件才能谈接线：真的调一次 `compactNow`（会压缩本会话并花一次模型调用），以及 `agent/status = idle` 窗口里与 `retireIfPending` 的竞态实测。二者都需用户点头与一个空闲窗口。
 - 待用户回答：是否把「`--verify-only` 在 rc.x 上回落到 19387 的假失败」写进 `docs/` 技巧记录，免得下次重启验收再误判。
 - 406-12 那台机的 tgz 仍停在 `7704e2f`：覆盖同名 tgz、改 `pnpm-lock.yaml` 的 integrity、重解包并逐文件 sha256 比对，再由用户重启那台机宿主。
 - 残余（已登记 CHANGELOG）：`/autolearn` 的 admission / skip 原因句（`shapeRejection`、`rejectionReason`、pass 的 `skipped`）在 pass 核里生成、那一刻没有会话语言；要中文化得把「原因」换成「码 + 参数」（`AutolearnOutcome` 类型变更），属单独一批，待用户定是否做。
