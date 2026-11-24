@@ -4,10 +4,16 @@ Last updated: 2026-11-23T11:24:16.593Z
 
 ## Summary
 
-本会话从 session-dec39c6d 续接（handoff-seed fd2d75ac51e2），上一轮把八项残余收口到 `f46c801`。 本轮用户答「all」，于是把四条并列路线一次推进：先补掉 SH-10 最后一个未证点的**运行期**半边 （`.agents/evidence/2026-11-24-sh10-runtime-reachability/`），确认能经 `agentPresets.serviceFor(agent,"compaction")` 拿到真引擎、根域 `root.get("compaction")` 是 `undefined`、样本 agent 处于 `running`；顺带发现并实测一条门禁盲区——`src/shared/settings.ts:24` 值依赖 `../host/dsh/lifecycle.js`，而 `check-boundary.mjs` 只查反方向，把路径改错后门禁仍 `0 failure(s)`、只有 `tsc` 报错。据此写出接第二宿主 2c-1 的规格 `docs/host-context-2c1-settings-port-spec.md`（`SettingsPort` + 补门禁 + 正负控制），并把 `docs/batch-ac-settings-split-spec.md` §8.1 漏掉的第 6 个拍板点（是否移除 `SegmentedTabs`）补上， 使待裁决项由 5 条回到文档索引声称的 6 条。宿主已于 14:31:40 重启，晚于最后一次 `src/` 提交 （20:42 前一日），驻留模块与磁盘一致；归档不变量 221 = 221 仍对齐。
+本会话从 session-dec39c6d 续接（handoff-seed fd2d75ac51e2），上一轮把八项残余收口到 `f46c801`。 本轮用户答「all」，于是把四条并列路线一次推进：先补掉 SH-10 最后一个未证点的**运行期**半边 （`.agents/evidence/2026-11-24-sh10-runtime-reachability/`），确认能经 `agentPresets.serviceFor(agent,"compaction")` 拿到真引擎、根域 `root.get("compaction")` 是 `undefined`、样本 agent 处于 `running`；顺带发现并实测一条门禁盲区——`src/shared/settings.ts:24` 值依赖 `../host/dsh/lifecycle.js`，而 `check-boundary.mjs` 只查反方向，把路径改错后门禁仍 `0 failure(s)`、只有 `tsc` 报错。据此写出接第二宿主 2c-1 的规格 `docs/host-context-2c1-settings-port-spec.md`（`SettingsPort` + 补门禁 + 正负控制），并把 `docs/batch-ac-settings-split-spec.md` §8.1 漏掉的第 6 个拍板点（是否移除 `SegmentedTabs`）补上， 使待裁决项由 5 条回到文档索引声称的 6 条。宿主已于 14:31:40 重启，晚于最后一次 `src/` 提交 （20:42 前一日），驻留模块与磁盘一致；归档不变量 221 = 221 仍对齐。 本轮（用户第二次答 all）把 2c-1 落地：SettingsPort 挂到 HostContext、settings.ts 改走 host.settings.current() 与 host.onDispose、门禁新增「src/shared/ 不得值依赖 ../host/<harness>/」并先用既有违规边做正控制（改前 1 failure、改后 0），4 条新用例与 3 个有效变异（M1 行为等价已作废）；随后在 /tmp 探针 agent 上跑通 SH-10 成功路径（mount preset 后 serviceFor 给真引擎、空闲时 compactNow 返回 null 不抛错不写事件、对 running 会话同步抛 busy、未 mount 的新 agent serviceFor 是 undefined）；设置拆分六点已裁定并记下 §8.4 的协调切换约束。两个 profile 的 pin 已抬到 c25240b，各 253 文件 0 mismatch。
 
 ## Key points
 
+- 2c-1（`210f909` 代码 + `00d9070` 文档）：`SettingsPort.current(): unknown` 挂在 **`HostContext`**（不是 `HostPorts`）；`host-context.ts` 用 `(ctx as { fiber?: { config?: unknown } }).fiber?.config` 实现、每次调用读；`readLiveSettings` 三级降级（抛错 / undefined / 形状解不出）都回退到**发布方**的 entry config。
+- 门禁判据只禁 `../host/<harness>/`，**不能一刀切禁 `../host/`**：`src/shared/` 有 6 处对 `contract.js` 的合法值导入。正控制用改动前的 `settings.ts:24` 实测（`1 failure(s)`、rc=1）。
+- 解析**不能缓存**：按 raw 对象记忆化会被 `volatile settings are read through their live references, not snapshotted` 打红（volatile 是同一对象上的活引用）；因此发布值只可按值比较，原用例的 `assert.equal` 已改成 `deepEqual`。
+- SH-10 成功路径（`c25240b`）：`agents.create({ meta: { agentPreset: "standard" } })` **只记名字、不建挂载**，`serviceFor` 仍是 `undefined`；必须显式 `presets.mount(agent.ctx, "standard")`。空闲 agent 上 `compactNow` 返回 `null`（无安全区间）、不抛错不写事件；对 `running` 的活会话同步抛 `ManualCompactionError` / `code:"busy"`。
+- 设置拆分六点裁定在 spec §8.3（四份 schema、共用卡留 bundle 页、做 provider/model 成对、`maxMemoryChars` 归共用卡、本仓 agent 执行、同批移除 `SegmentedTabs`）；§8.4 记明必须与两个 profile 的 patch + 重启一次协调切换，中间态会让三个插件静默退回 `DEFAULT_CONFIG`。
+- 两个 profile 的 pin 现为 `c25240b`（store pnpm 11.27.0），各 253 文件与 `git show c25240b:lib/…` 逐字节 0 mismatch；**重启后**才加载 2c-1。
 - 本轮运行期取证（`2026-11-24`）：宿主 pid 5876 启动 `14:31:40`，store `0.2.2-rc.5`，Inspector `9230`；`prompt.js` / `reply.js` / `consolidate.js` / `autolearn/reasons.js` 四个模块驻留 sha256 与磁盘逐字节相同（`consolidate-types.js` 未被该 isolate 解析，属正常），`git show 4fbb972:lib/…` 是它们共同的来源。
 - Inspector 的 `Runtime.evaluate` 落在 `dsh-desktop-host` 主 realm，**那里没有 cordis 根**（139 个全局无 `loader`/`ctx`，符号键只有 cost-meter、mounted-plugins 空表等）。可达入口是 `globalThis[Symbol.for("dsh.inspector.realm-object-registries")]` → `RealmObjectRegistry.retained` 里 `keys` 含 `root`/`registry`/`events` 的那个对象。
 - SH-10 运行期读数：`root.get("compaction")` 与 `root.get("commandCompact")` 均 `undefined`（宿主平面被 web-app patch 关掉），`root.get("agentPresets").serviceFor(agent,"compaction")` 返回 `engine(function)`；样本 agent `status = running` 且 `whenIdle`/`runMaintenance` 都在。**未调用 `compactNow`**，所以 `compaction-vs-handoff.md` §9 的重开条件 3 仍不满足。
@@ -30,6 +36,9 @@ Last updated: 2026-11-23T11:24:16.593Z
 
 ## Open tasks
 
+- 待用户重启：两个 profile 已钉 `c25240b`（含 2c-1），宿主自 14:31 起跑的是更早构建。验收按 `docs/development.md`「重启验收」读 9230 探针，不取 `--verify-only` 的 RESULT。
+- 设置拆分（§8.3 六点已裁定）**未落地**：§8.4 记明必须与两个 profile 的 patch + 重启一次做完，属专门一批。
+- SH-10 仍差：拿到 `result !== null` 的真实压缩（需给探针灌历史、花模型调用）、idle 窗口与 `retireIfPending` 的竞态、压缩后 gate 重算；§9 的重开条件仍不满足。
 - 待拍板（`docs/batch-ac-settings-split-spec.md` §8.1，6 条）：四份 schema 还是三份、共用卡放哪、`provider`/`model` 成对检查、`maxMemoryChars` 归属、迁移执行人、是否同批移除 `SegmentedTabs`。定案后才动 `src/`。
 - 待拍板（`docs/host-context-2c1-settings-port-spec.md`）：2c-1 是否开工。规格已含门禁补丁、正负控制与 4 条用例，落地时先加检查后修代码（顺序反了就证明不了门禁会响）。
 - SH-10 仍差两件才能谈接线：真的调一次 `compactNow`（会压缩本会话并花一次模型调用），以及 `agent/status = idle` 窗口里与 `retireIfPending` 的竞态实测。二者都需用户点头与一个空闲窗口。
