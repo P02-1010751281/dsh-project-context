@@ -39,6 +39,10 @@ async function projectWith(skills, memory = "") {
 
 const REFERENCED = "# Project Memory\n\n## Index\n- `.agents/skills/usable/SKILL.md` owns the procedure\n";
 
+/*** applyAutolearn, fed only the keys the autolearn card owns (batch AC split the schema into four cards). */
+const applyAutolearnCard = cardApplied(applyAutolearn, "autolearn");
+import { cardApplied } from "./card-config.mjs";
+
 test("the five states are derived from what the skill cites, worst first in a receipt", () => {
 	const facts = [
 		{ name: "usable", bound: 2, changed: [], missing: [], moved: [], references: 1 },
@@ -139,7 +143,7 @@ test("the registered /autolearn command routes 'status' to the corpus report", a
 	await bindSkills(root);
 
 	let handler;
-	applyAutolearn(
+	applyAutolearnCard(
 		{
 			get: () => undefined,
 			logger: { info() {}, warn() {} },
@@ -167,7 +171,7 @@ test("an idle agent moves an expired skill before the pass spends a model call",
 	await rm(path.join(root, "src", "a.ts"));
 
 	const handlers = new Map();
-	applyAutolearn(
+	applyAutolearnCard(
 		{
 			get: () => undefined,
 			logger: { info() {}, warn() {} },
@@ -223,7 +227,7 @@ test("the bind receipt carries the skills no baseline can cover", async () => {
 	await mkdir(path.join(root, "lib"), { recursive: true });
 	await writeFile(path.join(root, "lib", "client.js"), "x\n", "utf8");
 	let handler;
-	applyAutolearn(
+	applyAutolearnCard(
 		{
 			get: () => undefined,
 			logger: { info() {}, warn() {} },
@@ -247,7 +251,7 @@ test("the expiry switch is independent of the distillation switch", async () => 
 	await bindSkills(moved);
 	await rm(path.join(moved, "src", "a.ts"));
 	const idle = new Map();
-	applyAutolearn(
+	applyAutolearnCard(
 		{
 			get: () => undefined,
 			logger: { info() {}, warn() {} },
@@ -272,7 +276,7 @@ test("the expiry switch is independent of the distillation switch", async () => 
 	await bindSkills(kept);
 	await rm(path.join(kept, "src", "a.ts"));
 	const handlers = new Map();
-	applyAutolearn(
+	applyAutolearnCard(
 		{
 			get: () => undefined,
 			logger: { info() {}, warn() {} },
@@ -294,7 +298,7 @@ test("the expiry switch is independent of the distillation switch", async () => 
 	await bindSkills(passOnly);
 	await rm(path.join(passOnly, "src", "a.ts"));
 	const passHandlers = new Map();
-	applyAutolearn(
+	applyAutolearnCard(
 		{
 			get: () => undefined,
 			logger: { info() {}, warn() {} },

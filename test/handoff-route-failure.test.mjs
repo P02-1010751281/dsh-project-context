@@ -27,7 +27,11 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { apply } from "../lib/project-handoff/index.js";
+import { apply as applyHandoffEntry } from "../lib/project-handoff/index.js";
+import { cardApplied } from "./card-config.mjs";
+
+/** The handoff entry, fed only the keys its card owns (batch AC split the schema). */
+const apply = cardApplied(applyHandoffEntry, "handoff");
 import { clearHandoffPressure, handoffPressureText, recordHandoffGate } from "../lib/project-handoff/display.js";
 import { resolveHandoffGate } from "../lib/project-handoff/gate.js";
 import {

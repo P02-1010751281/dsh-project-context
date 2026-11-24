@@ -11,7 +11,6 @@
  */
 
 const css = `
-.dshPcTabs { margin: 2px 0 14px; }
 .dshPcSection { margin-top: 18px; }
 .dshPcSection:first-child { margin-top: 4px; }
 .dshPcSectionTitle {

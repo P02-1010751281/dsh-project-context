@@ -16,7 +16,7 @@ import {
 import { parseRatioInput } from "../shared/ratio.js";
 import { pick, type DocumentLanguage } from "../shared/language.js";
 import { formatThresholdSpec, parseThresholdSpec, parseTokenCount, thresholdSpecHelp } from "../shared/threshold-spec.js";
-import { SETTINGS_NAMESPACE, effectivePluginConfig } from "../shared/settings.js";
+import { HANDOFF_SETTINGS_NAMESPACE } from "../shared/settings-namespaces.js";
 import { HANDOFF_BUDGET_RECENT_LABEL } from "../shared/setting-labels.js";
 import { pendingSubagentWork } from "./guard.js";
 import { HandoffDeferred, handoffFailureIsTransient } from "./classify.js";
@@ -94,7 +94,7 @@ export async function writeSetting(host: ServiceHost, patch: Record<string, unkn
 	const settings = settingsServiceOf(host.services);
 	if (settings === undefined) return pick(language, "本 profile 没有设置服务；请直接改插件配置", "the settings service is unavailable in this profile; edit the plugin config instead");
 	try {
-		await settings.update(SETTINGS_NAMESPACE, patch);
+		await settings.update(HANDOFF_SETTINGS_NAMESPACE, patch);
 		return undefined;
 	} catch (error: unknown) {
 		return pick(language, `设置更新失败：${error instanceof Error ? error.message : String(error)}`, `settings update failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -120,7 +120,7 @@ export async function statusText(
 	/** The raw patch a just-completed write will put in force — stored spellings, not resolved values. */
 	pending?: Partial<Record<keyof PluginConfig, unknown>>,
 ): Promise<string> {
-	const live = effectivePluginConfig(entry);
+	const live = entry;
 	// The threshold's stored spelling is a string (`400k`) while the resolved config holds the parsed
 	// spec, so the pending value has to go through the one reader: spreading it raw would hand the
 	// receipt a mode-less object and explain the write as `fixed 0%`.
@@ -243,7 +243,7 @@ export async function statusText(
  */
 export async function runManual(host: HostPorts, session: Session, entry: PluginConfig, signal: AbortSignal) {
 	const key = String(session.id);
-	const config = effectivePluginConfig(entry);
+	const config = entry;
 	// One language for every `/handoff now` receipt, resolved from the same conversation sample the
 	// status receipt uses. Resolved before the in-flight refusal so that refusal is localized too.
 	const language = resolveHandoffLanguage(sessionLanguageMessages(session), config);

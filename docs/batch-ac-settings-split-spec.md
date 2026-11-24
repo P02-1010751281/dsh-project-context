@@ -4,6 +4,13 @@
 > 上游基线：API 基线 `0.1.7-rc.2`（`package.json:80-107`），本机运行线 `0.2.2-rc.3`。
 > 宿主源码下称 `HOST/` = `/nix/store/xbbn6inj2q64j88gsmjrljqkh1m572sy-dsh-desktop-0.2.2-rc.3/lib/dsh-desktop/repo/`；换 store 路径后按符号名重新定位。
 > 本文只写规格：落地批次改 `src/`、`client/`、`lib/`、`test/` 与两个 profile 的 `cordis.patch.yml`，本文件本身不改这些。
+>
+> **状态（2026-11-24）：代码与测试已落地**（`src/`、`client/`、`lib/`、`test/` 一次提交）。
+> 两个 profile 的 `cordis.patch.yml` 值迁移与 pin 抬升见 §3.3，仍在同一次协调切换里（§8.4）：
+> 仓库与 profile 都必须改完才重启，中间态不受支持。落地时发现并按 §2.2 规则 1 修正了一处映射：
+> `handoffLang` 从交接卡移到共用卡（`receiptLanguage` 被四个入口读）。
+> 另有一处读取实现的必然要求：发布值必须先窄化到共用键再去解析，否则整份 fiber config 会被
+> 卡片解析器拒绝并静默回退默认值。
 
 ## 0. 结论速查
 

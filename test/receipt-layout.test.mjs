@@ -22,10 +22,11 @@ import path from "node:path";
 import test from "node:test";
 
 import { statusText } from "../lib/project-handoff/command.js";
-import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
+import { apply as applyAutolearnEntry } from "../lib/project-autolearn/index.js";
 import { conflictFindings, conflictText, evidenceText } from "../lib/project-autolearn/evidence.js";
 import { skillStatusReceipt } from "../lib/project-autolearn/skill-state.js";
-import { apply as applyContext } from "../lib/project-context/index.js";
+import { apply as applyHandoffEntry } from "../lib/project-handoff/index.js";
+import { apply as applyContextEntry } from "../lib/project-context/index.js";
 import { renderSearchReport } from "../lib/project-context/search.js";
 import { buildSessionTree, renderSessionTree } from "../lib/project-context/session-tree.js";
 import { sessionStatusReceipt } from "../lib/project-context/session-state.js";
@@ -112,6 +113,12 @@ function report(overrides = {}) {
 		...overrides,
 	};
 }
+
+import { cardApplied, publishSharedFor } from "./card-config.mjs";
+
+const applyAutolearn = cardApplied(applyAutolearnEntry, "autolearn");
+const applyContext = cardApplied(applyContextEntry, "shared");
+const applyHandoff = cardApplied(applyHandoffEntry, "handoff");
 
 test("the handoff status receipt leads with the numbers it decides on", async () => {
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffBudgetRecentTokens: 20_000 });
@@ -225,6 +232,12 @@ test("every status command resolves its language at the handler, not at the buil
 	};
 	// `handoffLang: "zh"` is the explicit override, so this pins the wiring rather than the detector.
 	const config = resolvePluginConfig({ provider: "test-provider", model: "test-model", handoffLang: "zh" });
+	// The routed model and `handoffLang` sit on different cards now (shared and handoff), so the fixture
+	// publishes the shared nine and hands each entry its own keys.
+	publishSharedFor(config);
+	// `handoffLang` is the handoff entry's own key, and the shared read overlays only the shared nine:
+	// without this entry the language falls back to `auto` and the receipt comes back English.
+	applyHandoff(ctx, config);
 	applyContext(ctx, config);
 	applyAutolearn(ctx, config);
 

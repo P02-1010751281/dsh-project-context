@@ -69,10 +69,10 @@ export interface FieldRow {
 }
 
 /** One tab, and the panel of rows it shows. */
-export type FieldSectionValue = "memory" | "autolearn" | "handoff";
+export type FieldSectionValue = "memory" | "autolearn" | "handoff" | "archive" | "auxiliary";
 
-/** One rendered group of rows, shown as a tab panel when its tab is selected. */
-interface FieldSection {
+/** One headed group of rows within a card. No tab any more: every group is on screen at once. */
+export interface FieldSection {
 	readonly value: FieldSectionValue;
 	/** Tab label; the title and description below it name the panel once selected. */
 	readonly tabKey: SettingsCardKey;
@@ -85,33 +85,60 @@ interface FieldSection {
  * The card's rows in their three groups, in render order. Every key of the host schema appears
  * exactly once; `test/settings-form.test.mjs` compares this set with the schema's.
  */
-export const SECTIONS: readonly FieldSection[] = [
+export const SHARED_SECTIONS: readonly FieldSection[] = [
+	{
+		value: "archive",
+		tabKey: "tab.memory",
+		titleKey: "section.archive.title",
+		descriptionKey: "section.archive.description",
+		rows: [
+			{ key: "archiveEnabled", kind: "boolean" },
+			// The one boundary the session archive judges by, and therefore also the abandoned test:
+			// one number, so the receipt and the display cannot disagree about what settled means.
+			{ key: "sessionSettledDays", kind: "number", bounds: { min: 1, max: 365 } },
+			// Who may create a task, and whether age may change its status: `assisted`/`manual` both
+			// refuse to invent a task from a bare slug (creation needs the explicit `new`), `manual`
+			// additionally freezes the stored status, so only `delegated` lets the pass act alone.
+			{ key: "taskMode", kind: "union", options: ["assisted", "delegated", "manual"] },
+		],
+	},
+	{
+		value: "auxiliary",
+		tabKey: "tab.memory",
+		titleKey: "section.auxiliary.title",
+		descriptionKey: "section.auxiliary.description",
+		rows: [
+			// Shared auxiliary route: consolidation, autolearn and the handoff summary all use it.
+			{ key: "provider", kind: "text" },
+			{ key: "model", kind: "text" },
+			// Read by every entry through `receiptLanguage`: the explicit language override for all four
+			// command surfaces, so it sits with the other keys everyone shares.
+			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
+			{ key: "maxTokens", kind: "number" },
+			{ key: "maxOutputTokens", kind: "number" },
+			{ key: "maxMemoryChars", kind: "number" },
+			// Read by two entries (memory and autolearn), so it belongs to the shared card: on either
+			// feature card it would fall back to a default whenever that one entry failed to apply.
+			{ key: "forceDedupeMs", kind: "number" },
+		],
+	},
+];
+
+export const MEMORY_SECTIONS_TABLE: readonly FieldSection[] = [
 	{
 		value: "memory",
 		tabKey: "tab.memory",
 		titleKey: "section.memory.title",
 		descriptionKey: "section.memory.description",
 		rows: [
-			{ key: "archiveEnabled", kind: "boolean" },
-			// The one boundary the session archive judges by, and therefore also the abandoned test:
-			// one number, so the receipt and the display cannot disagree about what settled means.
-			{ key: "sessionSettledDays", kind: "number", bounds: { min: 1, max: 365 } },
 			{ key: "memoryEnabled", kind: "boolean" },
 			{ key: "consolidateTurns", kind: "number" },
 			{ key: "consolidateIntervalMs", kind: "number" },
-			{ key: "forceDedupeMs", kind: "number" },
-			// Shared auxiliary route: consolidation, autolearn and the handoff summary all use it.
-			{ key: "maxTokens", kind: "number" },
-			{ key: "maxOutputTokens", kind: "number" },
-			{ key: "maxMemoryChars", kind: "number" },
-			// Who may create a task, and whether age may change its status: `assisted`/`manual` both
-			// refuse to invent a task from a bare slug (creation needs the explicit `new`), `manual`
-			// additionally freezes the stored status, so only `delegated` lets the pass act alone.
-			{ key: "taskMode", kind: "union", options: ["assisted", "delegated", "manual"] },
-			{ key: "provider", kind: "text" },
-			{ key: "model", kind: "text" },
 		],
 	},
+];
+
+export const AUTOLEARN_SECTIONS_TABLE: readonly FieldSection[] = [
 	{
 		value: "autolearn",
 		tabKey: "tab.autolearn",
@@ -126,6 +153,9 @@ export const SECTIONS: readonly FieldSection[] = [
 			{ key: "autolearnIntervalMs", kind: "number" },
 		],
 	},
+];
+
+export const HANDOFF_SECTIONS_TABLE: readonly FieldSection[] = [
 	{
 		value: "handoff",
 		tabKey: "tab.handoff",
@@ -150,7 +180,6 @@ export const SECTIONS: readonly FieldSection[] = [
 				bounds: { min: MIN_HANDOFF_RECENT_TOKENS, max: MAX_HANDOFF_RECENT_TOKENS },
 			},
 			{ key: "handoffPendingQuestion", kind: "union", options: ["defer", "wait"] },
-			{ key: "handoffLang", kind: "union", options: ["auto", "zh", "en"] },
 			// A trade, not a free switch: with retirement off the replaced session stays in the sidebar and
 			// keeps whatever runs in it, but it also sorts above the continuation that replaced it — the
 			// symptom retirement was added for. The hint says so, because the two effects cannot be split.
@@ -159,8 +188,38 @@ export const SECTIONS: readonly FieldSection[] = [
 	},
 ];
 
-/** Every row, flattened: what both the spec list and the projection walk. */
-export const ROWS: readonly FieldRow[] = SECTIONS.flatMap((section) => section.rows);
+/**
+ * The four cards, in the order the Plugins page shows them.
+ *
+ * The size is the ruling (four schemas, four cards): the shared nine are read by every entry, so they
+ * cannot live on a feature card without that feature's failure silently resetting the other three.
+ * `test/settings-form.test.mjs` compares these sets with the four host schemas key by key.
+ */
+export const CARD_TABLES: Readonly<Record<"shared" | "memory" | "autolearn" | "handoff", readonly FieldSection[]>> = {
+	shared: SHARED_SECTIONS,
+	memory: MEMORY_SECTIONS_TABLE,
+	autolearn: AUTOLEARN_SECTIONS_TABLE,
+	handoff: HANDOFF_SECTIONS_TABLE,
+};
+
+/** Kept for the shared card's own renderer, which is the one custom component. */
+export const SECTIONS: readonly FieldSection[] = SHARED_SECTIONS;
+
+/** Every row of one card, flattened: what both the spec list and the projection walk. */
+function rowsOf(sections: readonly FieldSection[]): readonly FieldRow[] {
+	return sections.flatMap((section) => section.rows);
+}
+
+/** The shared/archive card's rows (the one custom component renders these). */
+export const ROWS: readonly FieldRow[] = rowsOf(SHARED_SECTIONS);
+
+/** Each feature card's rows, for the three auto-projected forms. */
+export const CARD_ROWS: Readonly<Record<"shared" | "memory" | "autolearn" | "handoff", readonly FieldRow[]>> = {
+	shared: ROWS,
+	memory: rowsOf(MEMORY_SECTIONS_TABLE),
+	autolearn: rowsOf(AUTOLEARN_SECTIONS_TABLE),
+	handoff: rowsOf(HANDOFF_SECTIONS_TABLE),
+};
 
 /**
  * A row's visible label key. The convention is fixed by the dictionaries (`field.<key>`), and the

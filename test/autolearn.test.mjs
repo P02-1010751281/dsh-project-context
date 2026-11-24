@@ -181,6 +181,10 @@ async function waitFor(probe, ms) {
 	}
 }
 
+/*** applyAutolearn, fed only the keys the autolearn card owns (batch AC split the schema into four cards). */
+const applyAutolearnCard = cardApplied(applyAutolearn, "autolearn");
+import { cardApplied } from "./card-config.mjs";
+
 test("the gate timestamp survives a restart and new material re-opens it", async () => {
 	const root = await project({ sessions: ["session-a"] });
 	const config = resolvePluginConfig({ autolearnTurns: 1, autolearnIntervalMs: 60 * 60 * 1000 });
@@ -761,7 +765,7 @@ test("a project with no memory or context reports the skip, not a claim about th
 			stream: () => (async function* generate() { yield { type: "text-delta", text: "{}" }; })(),
 		},
 	};
-	applyAutolearn(commandCtx, config);
+	applyAutolearnCard(commandCtx, config);
 	const commandRoot = await project({ sessions: ["session-a"] });
 	await writeFile(memoryFile(commandRoot), "");
 	await writeFile(contextFile(commandRoot), "");
@@ -853,7 +857,7 @@ test("the autolearnEnabled switch alone suppresses the automatic pass", async ()
 	});
 	const settings = { autolearnEnabled: false, autolearnTurns: 1, autolearnIntervalMs: 1000, provider: "test-provider", model: "test-model" };
 
-	applyAutolearn(makeCtx(), resolvePluginConfig(settings));
+	applyAutolearnCard(makeCtx(), resolvePluginConfig(settings));
 	const off = fakeAgent(root, { turns: 5 });
 	await handlers.get("agent/status")({ agent: off, status: "idle" });
 	// `session/flush` drains only a pass's write phase (batch S), so it can no longer say whether a
@@ -865,7 +869,7 @@ test("the autolearnEnabled switch alone suppresses the automatic pass", async ()
 
 	// Positive control: the same project with the switch on does run one, so the assertion above
 	// cannot pass merely because no pass can run at all.
-	applyAutolearn(makeCtx(), resolvePluginConfig({ ...settings, autolearnEnabled: true }));
+	applyAutolearnCard(makeCtx(), resolvePluginConfig({ ...settings, autolearnEnabled: true }));
 	const on = fakeAgent(root, { turns: 5 });
 	await handlers.get("agent/status")({ agent: on, status: "idle" });
 	assert.equal(await waitFor(() => modelCalls.length > 0, 500), true, "the same event runs a pass once the switch is on");
@@ -911,7 +915,7 @@ test("a proposed skill the admission rules refuse is not reported as \"no skill 
 			stream: () => (async function* generate() { yield { type: "text-delta", text: proposal }; })(),
 		},
 	};
-	applyAutolearn(commandCtx, config);
+	applyAutolearnCard(commandCtx, config);
 	const commandRoot = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
 	const reply = await handlers.get("command").handler({ agent: fakeAgent(commandRoot, { turns: 2, id: "session-reject-cmd" }), rawInput: "", signal: new AbortController().signal });
 	assert.equal(reply.kind, "success");
@@ -933,7 +937,7 @@ test("a proposed skill the admission rules refuse is not reported as \"no skill 
 			stream: () => (async function* generate() { yield { type: "text-delta", text: proposal }; })(),
 		},
 	};
-	applyAutolearn(zhCtx, zhConfig);
+	applyAutolearnCard(zhCtx, zhConfig);
 	const zhRoot = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
 	const zhReply = await zhHandlers.get("command").handler({ agent: fakeAgent(zhRoot, { turns: 2, id: "session-reject-zh" }), rawInput: "", signal: new AbortController().signal });
 	assert.match(zhReply.text, /^技能被拒：正文过短。/, zhReply.text);
@@ -968,7 +972,7 @@ test("a second /autolearn inside the dedupe window does not claim the model prop
 			stream: () => { streams += 1; return (async function* generate() { yield { type: "text-delta", text: '{"skill": null}' }; })(); },
 		},
 	};
-	applyAutolearn(commandCtx, config);
+	applyAutolearnCard(commandCtx, config);
 	const root = await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] });
 	const command = handlers.get("command");
 	const agent = fakeAgent(root, { turns: 2, id: "session-dedupe" });
@@ -1010,7 +1014,7 @@ test("a model answer with no usable skill says only what is verifiable", async (
 			stream: () => (async function* generate() { yield { type: "text-delta", text: '{"skill": {"name": "broken", "body": "' + "x".repeat(300) + '"}}' }; })(),
 		},
 	};
-	applyAutolearn(commandCtx, config);
+	applyAutolearnCard(commandCtx, config);
 	const reply = await handlers.get("command").handler({ agent: fakeAgent(await project({ sessions: ["session-a", "session-b"], index: ["session-a", "session-b"] }), { turns: 2, id: "session-unusable-cmd" }), rawInput: "", signal: new AbortController().signal });
 	assert.equal(reply.kind, "success");
 	assert.match(reply.text, /the model's answer contained no usable skill/, `reply was dishonest: ${reply.text}`);
@@ -1441,7 +1445,7 @@ test("/autolearn list shows each candidate's evidence and an old learned skill's
 		logger: { info() {}, warn() {} },
 		llm: { resolveModelInfo: async () => ({ provider: "test-provider", id: "test-model", name: "test-model" }) },
 	};
-	applyAutolearn(ctx, resolvePluginConfig({ provider: "test-provider", model: "test-model" }));
+	applyAutolearnCard(ctx, resolvePluginConfig({ provider: "test-provider", model: "test-model" }));
 	const result = await registered.get("autolearn").handler({ agent: fakeAgent(root), rawInput: "list", signal: new AbortController().signal });
 	assert.equal(result.kind, "success");
 	assert.match(result.text, /^Skill candidates:\n- draft-workflow · evidence 1 session\(s\) — aaaa1111$/m);

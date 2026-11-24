@@ -72,6 +72,26 @@ import type { Context } from "../host/contract.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { isHandoffContinuationText, REPLAY_MARKER } from "./language.js";
 export declare const name = "project-handoff";
+/**
+ * The handoff card: the Host projects a settings form from this schema, keyed by this entry's id.
+ * Every field carries the `volatile` mark — schemastery drops a schema whose fields are all
+ * ordinary, and the card would then disappear with no error anywhere.
+ */
+export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
+    handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
+    handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
+    handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
+    handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+}>, Schemastery.ObjectT<{
+    handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
+    handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
+    handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
+    handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
+    handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+}>>;
 export declare const inject: string[];
 /** Stable title prefix for the fresh handoff session (the browser half switches on it). */
 export { HANDOFF_TITLE_PREFIX };
@@ -80,8 +100,8 @@ export { isHandoffContinuationText, REPLAY_MARKER };
 /** The settings whose value the status receipt threshold resolution reads; the core owns it. */
 export { movesThreshold } from "./start.js";
 /**
- * Cordis entry: resolve the plugin config and hand the core a façade over this context. This plugin
- * publishes no settings namespace — the archive entry (`project-context`) owns it.
+ * Cordis entry: resolve this card's seven keys and hand the core a façade over this context.
+ * It publishes no settings namespace; `/handoff` writes go to this entry's own namespace.
  * @param ctx - the plugin context.
  * @param rawConfig - the raw config the Loader passed.
  */

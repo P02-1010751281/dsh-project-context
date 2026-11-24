@@ -132,7 +132,7 @@ const result = await build({
 			'export { createElement } from "react";',
 			'export { renderToStaticMarkup } from "react-dom/server";',
 			'export { ProjectContextSettingsCard, ProjectContextSettingsCardController } from "./client/settings-card.tsx";',
-			'export { ROWS, SECTIONS } from "./client/card-fields.ts";',
+			'export { CARD_ROWS, CARD_TABLES, ROWS, SECTIONS } from "./client/card-fields.ts";',
 		].join("\n"),
 		resolveDir: root,
 		loader: "tsx",
@@ -166,6 +166,8 @@ const {
 	renderToStaticMarkup,
 	ProjectContextSettingsCard,
 	ProjectContextSettingsCardController,
+	CARD_ROWS,
+	CARD_TABLES,
 	ROWS,
 	SECTIONS,
 } = await import(pathToFileURL(bundlePath).href);
@@ -202,8 +204,18 @@ const PILL_TOTAL = UNION_ROWS.reduce((sum, row) => sum + (row.options?.length ??
 /** The rows the platform's own field draws: nothing hides a row any more, so this is the table. */
 const PLATFORM_ROWS = ROWS.filter((row) => PLATFORM_KINDS.has(row.kind));
 
+/** The same, per card: a case that exercises the handoff card must not be measured against the shared one. */
+const cardRows = (card) => CARD_ROWS[card];
+const cardBooleans = (card) => cardRows(card).filter((row) => row.kind === "boolean");
+const cardUnions = (card) => cardRows(card).filter((row) => row.kind === "union");
+const cardPills = (card) => cardUnions(card).reduce((sum, row) => sum + (row.options?.length ?? 0), 0);
+const cardPlatformRows = (card) => cardRows(card).filter((row) => PLATFORM_KINDS.has(row.kind));
+const cardButtons = (card) => cardBooleans(card).length + cardPills(card) + 1;
+
 /** Every clickable control a clean page is allowed: one switch per boolean, one pill per option, one tab per section, one save. */
-const CLEAN_BUTTONS = BOOLEAN_ROWS.length + PILL_TOTAL + SECTIONS.length + 1;
+// No tab strip any more (batch AC §2.6): the buttons on a clean card are exactly one per switch,
+// one per pill option, and the save itself. A section count here would have counted tab buttons.
+const CLEAN_BUTTONS = BOOLEAN_ROWS.length + PILL_TOTAL + 1;
 
 const occurrences = (haystack, needle) => haystack.split(needle).length - 1;
 const tick = () => new Promise((resolve) => { setImmediate(resolve); });
@@ -235,14 +247,19 @@ function makeScope(options = {}) {
 }
 
 /** @param scope - the fake section form the card stages over. */
-function mount(scope) {
-	const controller = new ProjectContextSettingsCardController(scope);
+/**
+ * @param scope - the bound form scope.
+ * @param rows - which card's rows to mount; the shared card unless a case names another.
+ */
+function mount(scope, rows = ROWS, sections = SECTIONS) {
+	const controller = new ProjectContextSettingsCardController(scope, rows);
 	const face = controller.inject();
 	const store = face.hooks.projectContextSettingsCard;
 	const props = {
 		...face,
 		view: "page",
 		t: (key) => key,
+		sections,
 		useProjectContextSettingsCard: (select) => select(store.getSnapshot()),
 	};
 	return { controller, face, store, props };
@@ -270,9 +287,14 @@ function render(props, view = "page") {
 }
 
 /** Render the served page over a scope built from the options. */
-function page(options) {
+function page(options = {}) {
 	const scope = makeScope(options);
-	const { controller, props } = mount(scope);
+	const card = options.card;
+	const { controller, props } = mount(
+		scope,
+		options.rows ?? (card ? cardRows(card) : ROWS),
+		card ? CARD_TABLES[card] : SECTIONS,
+	);
 	const rendered = render(props);
 	controller.dispose();
 	return { scope, rendered };
@@ -344,11 +366,11 @@ test("the trigger is one row in every mode, and its spelling is what the row sho
 	// The trigger used to be two rows with a gate: a switch and a fixed ratio that appeared only while the
 	// switch was off. They are one fact now, so hiding the row in `auto` would hide the only control.
 	for (const stored of ["auto", "0.8", "400000"]) {
-		const { rendered } = page({ value: { ...VALUE, handoffThreshold: stored } });
+		const { rendered } = page({ value: { ...VALUE, handoffThreshold: stored }, card: "handoff" });
 		assert.ok(rendered.fieldKeys.includes("handoffThreshold"), `${stored}: the trigger row must render`);
-		assert.equal(rendered.fieldKeys.length, PLATFORM_ROWS.length, `${stored}: one row, no gate`);
+		assert.equal(rendered.fieldKeys.length, cardPlatformRows("handoff").length, `${stored}: one row, no gate`);
 	}
-	const { controller, face, props } = mount(makeScope());
+	const { controller, face, props } = mount(makeScope(), cardRows("handoff"), CARD_TABLES.handoff);
 	face.edit("handoffThreshold", "400k");
 	await tick();
 	assert.ok(render(props).html.includes('id="dsh-pc-handoffThreshold"'), "editing the row keeps it on the page");
@@ -360,7 +382,7 @@ test("Reset previews the unset the save would stage, not the user layer's own va
 	// is an unset that re-inherits the schema default (`auto`) — showing the overridden `0.4` there would
 	// preview a write the save does not make.
 	const scope = makeScope({ user: { handoffThreshold: "0.4" } });
-	const { controller, face, props, store } = mount(scope);
+	const { controller, face, props, store } = mount(scope, cardRows("handoff"), CARD_TABLES.handoff);
 	face.resetField("handoffThreshold");
 	await tick();
 	const html = render(props).html;
@@ -379,7 +401,7 @@ test("Reset previews the unset the save would stage, not the user layer's own va
 
 test("a budget amount outside the Host's range is refused on the card instead of staged", async () => {
 	const tooLow = makeScope();
-	const low = mount(tooLow);
+	const low = mount(tooLow, cardRows("handoff"), CARD_TABLES.handoff);
 	low.face.edit("handoffBudgetSummaryTokens", "7999");
 	await tick();
 	assert.equal(low.store.getSnapshot().invalid, true, "below the schema minimum must block the save");
@@ -390,7 +412,7 @@ test("a budget amount outside the Host's range is refused on the card instead of
 	low.controller.dispose();
 
 	const tooHigh = makeScope();
-	const high = mount(tooHigh);
+	const high = mount(tooHigh, cardRows("handoff"), CARD_TABLES.handoff);
 	high.face.edit("handoffBudgetRecentTokens", "200001");
 	await tick();
 	assert.equal(high.store.getSnapshot().invalid, true, "above the schema maximum must block the save");
@@ -401,7 +423,7 @@ test("a budget amount outside the Host's range is refused on the card instead of
 
 	// The bounds are inclusive, and the low end of `recent` is a real value: carry no verbatim tail.
 	const ok = makeScope();
-	const legal = mount(ok);
+	const legal = mount(ok, cardRows("handoff"), CARD_TABLES.handoff);
 	legal.face.edit("handoffBudgetRecentTokens", "0");
 	await tick();
 	legal.face.save();
@@ -417,7 +439,7 @@ test("a budget amount outside the Host's range is refused on the card instead of
 test("a failed save names the cause the card can observe", async () => {
 	// The frame reports one `failed` flag for two causes; the document's revision is what separates them.
 	const refused = makeScope({ accept: false });
-	const rejected = mount(refused);
+	const rejected = mount(refused, cardRows("memory"), CARD_TABLES.memory);
 	rejected.face.edit("consolidateTurns", "20");
 	await tick();
 	rejected.face.save();
@@ -427,7 +449,7 @@ test("a failed save names the cause the card can observe", async () => {
 	rejected.controller.dispose();
 
 	const raced = makeScope({ accept: false, revisionAfterRefused: 9 });
-	const conflict = mount(raced);
+	const conflict = mount(raced, cardRows("memory"), CARD_TABLES.memory);
 	conflict.face.edit("consolidateTurns", "20");
 	await tick();
 	conflict.face.save();
@@ -438,7 +460,7 @@ test("a failed save names the cause the card can observe", async () => {
 
 	// A save that lands reports no cause at all.
 	const ok = makeScope();
-	const landed = mount(ok);
+	const landed = mount(ok, cardRows("memory"), CARD_TABLES.memory);
 	landed.face.edit("consolidateTurns", "20");
 	await tick();
 	landed.face.save();
@@ -452,7 +474,7 @@ test("the threshold row is a text input and the budget rows stay numeric", () =>
 	// `numeric` is what makes the platform's field numeric; the threshold must NOT be, because `400k` and
 	// `auto` are not numbers. This harness edits through the action, so a wrong input mode would otherwise
 	// stay invisible.
-	const { rendered } = page();
+	const { rendered } = page({ card: "handoff" });
 	for (const key of ["handoffBudgetSummaryTokens", "handoffBudgetRecentTokens"]) {
 		const input = new RegExp(`<input[^>]*id="dsh-pc-${key}"[^>]*>`).exec(rendered.html)?.[0] ?? "";
 		assert.match(input, /inputmode="numeric"/i, `${key}'s input must be numeric: ${input}`);
@@ -467,7 +489,7 @@ test("the threshold row folds every spelling the command accepts into the stored
 	// `40` or `400k` through to a string schema would store a value that re-parses as something else.
 	for (const [typed, stored] of [["auto", "auto"], ["0.4", "0.4"], ["40", "0.4"], ["40%", "0.4"], ["400k", "400000"], ["400000", "400000"]]) {
 		const scope = makeScope({ value: { ...VALUE } });
-		const { controller, face, props, store } = mount(scope);
+		const { controller, face, props, store } = mount(scope, cardRows("handoff"), CARD_TABLES.handoff);
 		face.edit("handoffThreshold", typed);
 		await tick();
 		assert.equal(store.getSnapshot().invalid, false, `${typed} is a draft the card must accept`);
@@ -484,7 +506,7 @@ test("the threshold row folds every spelling the command accepts into the stored
 
 	// A draft the reader refuses is refused here, rather than staged into a write the Host drops.
 	const refused = makeScope({ value: { ...VALUE } });
-	const over = mount(refused);
+	const over = mount(refused, cardRows("handoff"), CARD_TABLES.handoff);
 	over.face.edit("handoffThreshold", String(MAX_THRESHOLD_RATIO + 0.01));
 	await tick();
 	assert.equal(over.store.getSnapshot().invalid, true, "a fraction outside the accepted pair must block the save");
@@ -494,15 +516,16 @@ test("the threshold row folds every spelling the command accepts into the stored
 	over.controller.dispose();
 });
 
-test("the card groups its rows behind the platform's tab list", () => {
-	// The platform owns the tab list (`SegmentedTabs`); the card owns which panel is shown. Every
-	// panel stays in the DOM so a staged edit survives a switch and the field list stays complete;
-	// exactly one is visible at a time.
+test("the card has no tab strip and shows every row at once", () => {
+	// Batch AC §2.6 removed `SegmentedTabs`: after the split this card carries nine rows in two headed
+	// groups, and the platform's form is already one item per row, so a tab strip only added a click.
+	// The property that matters is that every row is in the DOM and visible — no hidden panel can
+	// swallow a field the user needs to see.
 	const { rendered } = page();
-	assert.equal(occurrences(rendered.html, 'role="tablist"'), 1, "one tab list, not one per section");
-	assert.equal(occurrences(rendered.html, 'role="tab"'), SECTIONS.length, "one tab per section");
-	const panels = [...rendered.html.matchAll(/<section[^>]*role="tabpanel"[^>]*>/g)].map((match) => match[0]);
-	assert.equal(panels.length, SECTIONS.length, "one panel per section");
-	assert.equal(panels.filter((tag) => !/\bhidden\b/.test(tag)).length, 1, "only the selected panel is visible");
-	assert.match(panels[0], new RegExp(`aria-labelledby="dsh-pc-tab-${SECTIONS[0].value}"`), "each panel is labelled by its tab");
+	assert.equal(occurrences(rendered.html, 'role="tablist"'), 0, "no tab list");
+	assert.equal(occurrences(rendered.html, 'role="tabpanel"'), 0, "no tab panels");
+	assert.equal(occurrences(rendered.html, "dshPcTabs"), 0, "and no tab styling hook");
+	const hidden = occurrences(rendered.html, "hidden");
+	assert.equal(hidden, 0, "nothing is hidden: every row is on screen");
 });
+

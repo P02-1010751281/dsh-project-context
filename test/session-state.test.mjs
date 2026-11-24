@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { apply as applyContext } from "../lib/project-context/index.js";
+import { apply as applyContextEntry } from "../lib/project-context/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { SETTLED_DAYS, sessionStates, sessionStatusReceipt } from "../lib/project-context/session-state.js";
 import { measureSessionStates } from "../lib/project-context/session-state-source.js";
@@ -50,6 +50,10 @@ function fixture() {
 		settledDays: SETTLED_DAYS,
 	};
 }
+
+import { cardApplied } from "./card-config.mjs";
+
+const applyContext = cardApplied(applyContextEntry, "shared");
 
 test("every failure the index can have is named, from both sides at once", () => {
 	const report = sessionStates(fixture());

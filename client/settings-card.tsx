@@ -23,14 +23,12 @@ import {
 	SECTIONS,
 	unionField,
 	type FieldRow,
-	type FieldSectionValue,
+	type FieldSection,
 	type ProjectContextSettings,
 } from "./card-fields.ts";
-import { useState } from "react";
 import {
 	Button,
 	Pill,
-	SegmentedTabs,
 	SettingsForm,
 	SettingsFormModel,
 	SettingsValueField,
@@ -42,7 +40,6 @@ import {
 	type SettingsFieldState,
 	type SettingsFormActions,
 	type SettingsFormScope,
-	type SegmentedTab,
 	type SettingsFormShell,
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { SnapshotStore } from "@deepseek-ai/dsh-client-store";
@@ -93,10 +90,17 @@ export class ProjectContextSettingsCardController {
 	/** Revision the document was at when the first edit of the current dirty session was staged. */
 	private revisionAtEdit: number | undefined;
 
-	/** @param scope - the bound configuration form for the `project-context` namespace. */
-	constructor(scope: SettingsFormScope<ProjectContextSettings>) {
+	/** The row table this card projects; one of {@link CARD_ROWS}. */
+	private readonly rows: readonly FieldRow[];
+
+	/**
+	 * @param scope - the bound configuration form for this card's namespace.
+	 * @param rows - the card's rows; defaults to the shared/archive card.
+	 */
+	constructor(scope: SettingsFormScope<ProjectContextSettings>, rows: readonly FieldRow[] = ROWS) {
 		this.scope = scope;
-		this.form = new SettingsFormModel(scope, ROWS.map((row) => SPEC_BUILDERS[row.kind](row)));
+		this.rows = rows;
+		this.form = new SettingsFormModel(scope, rows.map((row) => SPEC_BUILDERS[row.kind](row)));
 		this.store = this.form.bind(() => this.projection());
 	}
 
@@ -104,7 +108,7 @@ export class ProjectContextSettingsCardController {
 	// twice, or be missing from the projection, without the table itself changing.
 	private projection(): ProjectContextSettingsCardState {
 		const fields = {} as Record<keyof ProjectContextSettings, SettingsFieldState>;
-		for (const row of ROWS) fields[row.key] = this.form.field(row.key);
+		for (const row of this.rows) fields[row.key] = this.form.field(row.key);
 		const shell = this.form.shell();
 		return { ...shell, fields, saveFailure: this.saveFailure(shell.failed) };
 	}
@@ -151,7 +155,11 @@ export class ProjectContextSettingsCardController {
 type ProjectContextSettingsCardProps =
 	& PropsRuntime<"plugins.bundle.config">
 	& PropsLocale<"project-context">
-	& InjectFace<ProjectContextSettingsCardFace>;
+	& InjectFace<ProjectContextSettingsCardFace>
+	& {
+		/** The card's headed groups; defaults to the shared/archive card's. */
+		readonly sections?: readonly FieldSection[];
+	};
 
 /** Copy every row's control shares. */
 interface RowCopy {
@@ -284,22 +292,17 @@ function Row(props: { row: FieldRow; state: SettingsFieldState; copy: RowCopy; o
 export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProps) {
 	const { t } = props;
 	const state = props.useProjectContextSettingsCard((snapshot) => snapshot);
+	// Render the table this card was built from. A case that mounts the handoff card must not be given
+	// the shared card's rows: the controller only projected its own, so those rows would have no state.
+	const sections = props.sections ?? SECTIONS;
+	// No tabs: after the split this card carries nine rows in two headed groups, and the platform's
+	// own form is already a one-item-per-row column, so a tab strip would only add a click.
+	//
 	// Today the Plugins page renders the keyed `plugins.bundle.config` slot with `view: 'page'` only
 	// (`PluginManagerPage.tsx`), so this branch is not on the live path. It stays because `view` is
 	// typed `'summary' | 'page'` for every configuration slot alike, and rendering the whole form
 	// inside a one-line row would be the failure mode if a surface ever asked for the summary.
 	if (props.view === "summary") return t("card.description");
-
-	// One tab per group, the platform's own `SegmentedTabs`: the card is too long as a single
-	// column once every sub-feature owns settings, and a tab keeps one save and one draft over all
-	// of them (only the panels are hidden, so switching never drops a staged edit).
-	const [tab, setTab] = useState<FieldSectionValue>(SECTIONS[0]?.value ?? "memory");
-	const tabs = SECTIONS.map((section) => ({
-		value: section.value,
-		label: t(section.tabKey),
-		id: `dsh-pc-tab-${section.value}`,
-		panelId: `dsh-pc-panel-${section.value}`,
-	})) as [SegmentedTab<FieldSectionValue>, ...SegmentedTab<FieldSectionValue>[]];
 
 	const copy = (row: FieldRow): RowCopy => ({
 		label: t(labelKey(row.key)),
@@ -312,22 +315,8 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 
 	return (
 		<SettingsForm labels={formLabels(t, state.saveFailure)} state={state} onSave={props.save} onDiscard={props.discard}>
-			<SegmentedTabs
-				className="dshPcTabs"
-				label={t("tabs.label")}
-				value={tab}
-				onChange={setTab}
-				items={tabs}
-			/>
-			{SECTIONS.map((section) => (
-				<section
-					key={section.value}
-					className="dshPcSection"
-					role="tabpanel"
-					id={`dsh-pc-panel-${section.value}`}
-					aria-labelledby={`dsh-pc-tab-${section.value}`}
-					hidden={section.value !== tab}
-				>
+			{sections.map((section) => (
+				<section key={section.value} className="dshPcSection">
 					<h3 className="dshPcSectionTitle">{t(section.titleKey)}</h3>
 					<p className="dshPcSectionDescription">{t(section.descriptionKey)}</p>
 					{section.rows.map((row) => (

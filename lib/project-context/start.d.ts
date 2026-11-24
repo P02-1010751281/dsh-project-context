@@ -13,6 +13,6 @@ import type { PluginConfig } from "../shared/config.js";
  * Start the archive core: register its lifecycle listeners and its two commands.
  * @param host - the registration façade the entry adapted from its harness context.
  * @param entry - the config this plugin entry was applied with; every read goes through
- * `effectivePluginConfig(entry)` so a settings write reaches it without a restart.
+ * `currentConfig()` so a settings write reaches it without a restart.
  */
 export declare function start(host: HostContext, entry: PluginConfig): void;

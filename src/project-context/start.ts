@@ -11,7 +11,7 @@
 import type { HostContext } from "../host/contract.js";
 import path from "node:path";
 import type { PluginConfig } from "../shared/config.js";
-import { effectivePluginConfig } from "../shared/settings.js";
+import { effectiveSharedSettings, withShared } from "../shared/settings.js";
 import { projectCwd, isTopLevel, SessionWorkTracker } from "../shared/lifecycle.js";
 import { contextFile, getProjectRoot, logsDir, memoryDir, sessionIndexFile, writeAtomic } from "../shared/project-state.js";
 import { renderTaskDocument } from "../project-memory/context-doc.js";
@@ -131,9 +131,15 @@ async function exportReply(projectRoot: string, args: string, maxMemoryChars: nu
  * Start the archive core: register its lifecycle listeners and its two commands.
  * @param host - the registration façade the entry adapted from its harness context.
  * @param entry - the config this plugin entry was applied with; every read goes through
- * `effectivePluginConfig(entry)` so a settings write reaches it without a restart.
+ * `currentConfig()` so a settings write reaches it without a restart.
  */
 export function start(host: HostContext, entry: PluginConfig): void {
+	/**
+	 * This entry's config as currently in force: the shared nine come from its own publication
+	 * (never the `entry` snapshot, which a volatile-only save does not refresh), and the rest from
+	 * the entry — this card owns only the shared nine, so `withShared` is the whole config.
+	 */
+	const currentConfig = (): PluginConfig => withShared(entry, effectiveSharedSettings(entry));
 	/** In-flight archive work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 
@@ -145,7 +151,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		// path never ran) is otherwise only picked up by some unrelated session's next write.
 		void getProjectRoot(projectCwd(agent.session))
 			.then(async (projectRoot) => {
-				if (!effectivePluginConfig(entry).archiveEnabled) return;
+				if (!currentConfig().archiveEnabled) return;
 				try {
 					await reconcileSessionIndexOnce(projectRoot);
 				} catch (error) {
@@ -173,7 +179,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 	host.on("session/event", (session, event) => {
 		if (event.type !== "turn/end") return;
 		if (!isTopLevel(session)) return;
-		if (!effectivePluginConfig(entry).archiveEnabled) return;
+		if (!currentConfig().archiveEnabled) return;
 		void queueSessionArtifacts(session, { markdown: false });
 	});
 
@@ -182,13 +188,13 @@ export function start(host: HostContext, entry: PluginConfig): void {
 	host.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle") return;
 		if (!isTopLevel(agent.session)) return;
-		if (!effectivePluginConfig(entry).archiveEnabled) return;
+		if (!currentConfig().archiveEnabled) return;
 		pending.track(agent.session, queueSessionArtifacts(agent.session, { markdown: true }));
 	});
 
 	host.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
-		if (!effectivePluginConfig(entry).archiveEnabled) return;
+		if (!currentConfig().archiveEnabled) return;
 		pending.track(agent.session, queueSessionArtifacts(agent.session, { markdown: true }));
 	});
 
@@ -203,7 +209,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		// The same flag the other three points honour. This point used to write anyway, so turning
 		// archiving off still produced a session.jsonl + session.md + index line on dispose, against
 		// README's "关掉后不再自动写会话存档与索引".
-		if (!effectivePluginConfig(entry).archiveEnabled) return releaseSessionQueue(session);
+		if (!currentConfig().archiveEnabled) return releaseSessionQueue(session);
 		void queueSessionArtifacts(session, { markdown: true }).finally(() => releaseSessionQueue(session));
 	});
 
@@ -213,7 +219,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		input: { hint: "find <query> | export [--write] | task [<slug> [new|archive|activate]] | task none" },
 		handler: async ({ agent, rawInput }) => {
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
-			const config = effectivePluginConfig(entry);
+			const config = currentConfig();
 			// One language per receipt, resolved at the handler: a builder cannot know the session.
 			const language = receiptLanguage(agent.session, config);
 			const today = dateStamp();
@@ -332,7 +338,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		input: { hint: "status | write | tree | import <session.jsonl|archive.zip|dir>…" },
 		handler: async ({ agent, rawInput }) => {
 			const args = rawInput.trim();
-			const language = receiptLanguage(agent.session, effectivePluginConfig(entry));
+			const language = receiptLanguage(agent.session, currentConfig());
 			// The bare command is the "what is my state" habit, so it reads; `write` writes. `now` was the
 			// old spelling of the write and is retired rather than kept as an alias (one fact, one spelling),
 			// so it gets told which name to use instead of quietly doing nothing.
@@ -369,7 +375,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			// index and the directory it describes, so one side alone can never show them.
 			if (args === "status") {
 				const projectRoot = await getProjectRoot(projectCwd(agent.session));
-				const config = effectivePluginConfig(entry);
+				const config = currentConfig();
 				try {
 					// The language is resolved here, at the handler, not left to the builder's `"en"` default:
 					// a Chinese session used to get an English session-log line beside a Chinese `/memory` one.

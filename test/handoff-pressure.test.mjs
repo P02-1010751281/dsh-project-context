@@ -18,7 +18,11 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { apply } from "../lib/project-handoff/index.js";
+import { apply as applyHandoffEntry } from "../lib/project-handoff/index.js";
+import { cardApplied } from "./card-config.mjs";
+
+/** The handoff entry, fed only the keys its card owns (batch AC split the schema). */
+const apply = cardApplied(applyHandoffEntry, "handoff");
 import { clearHandoffPressure, handoffPressureIsOver, handoffPressureText, recordHandoffDeferral, recordHandoffGate } from "../lib/project-handoff/display.js";
 import { resolveHandoffGate } from "../lib/project-handoff/gate.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";

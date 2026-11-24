@@ -14,15 +14,14 @@ import type { Context } from "../host/contract.js";
 export declare const name = "project-context";
 export declare const inject: string[];
 /**
- * The settings schema the Host projects into the Plugins page, and the one namespace all four
- * plugins share: the entry id below (`project-context`) is what the web card edits, and
- * {@link publishProjectContextSettings} republishes the value this entry was applied with.
+ * The shared/archive card: nine keys read by every entry (archive, budgets, `taskMode`, the auxiliary
+ * route). Each of the other three entries exports its own narrow schema, so this is one of four cards,
+ * not the only one — but it is still the one that publishes, because its nine keys are what the other
+ * three overlay onto their own.
  */
 export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
     archiveEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    memoryEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    consolidateTurns: import("@deepseek-ai/schemastery").default<number, number>;
-    consolidateIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+    sessionSettledDays: import("@deepseek-ai/schemastery").default<number, number>;
     forceDedupeMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxTokens: import("@deepseek-ai/schemastery").default<number, number>;
     maxOutputTokens: import("@deepseek-ai/schemastery").default<number, number>;
@@ -30,23 +29,10 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     taskMode: import("@deepseek-ai/schemastery").default<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: import("@deepseek-ai/schemastery").default<string, string>;
     model: import("@deepseek-ai/schemastery").default<string, string>;
-    autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
-    autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
-    autolearnExpireSkills: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    sessionSettledDays: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
-    handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
     handoffLang: import("@deepseek-ai/schemastery").default<"zh" | "en" | "auto", "zh" | "en" | "auto">;
-    handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     archiveEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    memoryEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    consolidateTurns: import("@deepseek-ai/schemastery").default<number, number>;
-    consolidateIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+    sessionSettledDays: import("@deepseek-ai/schemastery").default<number, number>;
     forceDedupeMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxTokens: import("@deepseek-ai/schemastery").default<number, number>;
     maxOutputTokens: import("@deepseek-ai/schemastery").default<number, number>;
@@ -54,18 +40,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     taskMode: import("@deepseek-ai/schemastery").default<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: import("@deepseek-ai/schemastery").default<string, string>;
     model: import("@deepseek-ai/schemastery").default<string, string>;
-    autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
-    autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
-    autolearnExpireSkills: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    sessionSettledDays: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
-    handoffThreshold: import("@deepseek-ai/schemastery").default<string, string>;
-    handoffBudgetSummaryTokens: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffBudgetRecentTokens: import("@deepseek-ai/schemastery").default<number, number>;
-    handoffPendingQuestion: import("@deepseek-ai/schemastery").default<"defer" | "wait", "defer" | "wait">;
     handoffLang: import("@deepseek-ai/schemastery").default<"zh" | "en" | "auto", "zh" | "en" | "auto">;
-    handoffRetireReplaced: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>>;
 /**
  * The cordis entry: resolve the config, publish the shared settings namespace, adapt the context to

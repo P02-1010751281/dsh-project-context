@@ -26,7 +26,7 @@ import { turnOpenNow, turnStartedAfter } from "../lib/project-handoff/guard.js";
 import { continuation } from "../lib/project-handoff/summary.js";
 import { MIN_DROP_TOKENS, qualityLimit, resolveThreshold, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { measuredContext, projectionEnvelope } from "../lib/project-handoff/runtime.js";
-import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
+import { DEFAULT_CONFIG, resolvePluginConfig, resolveSharedConfig } from "../lib/shared/config.js";
 import { renderContextDocument } from "../lib/project-memory/context-doc.js";
 import { consolidateProjectState, CONSOLIDATION_PROMPT_RULES, CONVERSATION_CAPTION, FOREIGN_STATE_RULE, fallbackUpdate, memoryLossRetryRule, memorySectionRule, MEMORY_KEEP_RULE, MEMORY_SURVIVAL_CAPTION } from "../lib/project-memory/consolidate.js";
 import { memorySectionBudgets, memorySectionPromptBudgets } from "../lib/project-memory/memory-schema.js";
@@ -56,7 +56,7 @@ import {
 } from "../lib/shared/project-state.js";
 import { MAX_CONTEXT_CHARS } from "../lib/shared/limits.js";
 import { releaseSessionQueue, writeSessionArtifacts } from "../lib/project-context/session-log.js";
-import { effectivePluginConfig, publishProjectContextSettings } from "../lib/shared/settings.js";
+import { effectiveSharedSettings, publishProjectContextSettings, sharedOf } from "../lib/shared/settings.js";
 import { apply as applyMemory, consolidateProject, memoryUpdateReply, memoryStatusReply } from "../lib/project-memory/index.js";
 import { bindAndMeasure } from "../lib/project-memory/staleness-source.js";
 import { isMemoryTruncated, loadMemory, normalizeMemoryDocument } from "../lib/project-memory/memory-store.js";
@@ -69,7 +69,53 @@ import { portsOf } from "./host-ports.mjs";
  * `test/handoff-pressure.test.mjs`'s subject; this wrapper keeps the fixtures that predate it
  * testing what they are about.
  */
-const apply = (ctx, config) => applyHandoff({ systemPrompt: { context: () => () => undefined }, ...ctx }, config);
+/**
+ * A config shaped for one card.
+ *
+ * Batch AC gave each entry its own card, and an entry's `apply` now rejects a key another card owns —
+ * so a fixture that used to hand one object to every plugin has to hand each plugin only that plugin's
+ * keys. The shared nine reach a feature entry through the publisher's publication, not through `apply`.
+ * @param card - the card whose keys to keep.
+ * @param over - the fixture's overrides.
+ * @returns the keys of that card only.
+ */
+const cardConfig = (card, over = {}) => {
+	const resolved = resolvePluginConfig(over);
+	const out = {};
+	for (const key of CARD_KEYS[card]) out[key] = resolved[key];
+	return out;
+};
+const CARD_KEYS = {
+	shared: ["archiveEnabled", "sessionSettledDays", "forceDedupeMs", "maxTokens", "maxOutputTokens", "maxMemoryChars", "taskMode", "provider", "model", "handoffLang"],
+	memory: ["memoryEnabled", "consolidateTurns", "consolidateIntervalMs"],
+	autolearn: ["autolearnEnabled", "autolearnExpireSkills", "autolearnTurns", "autolearnIntervalMs"],
+	handoff: ["handoffEnabled", "handoffThreshold", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens", "handoffPendingQuestion", "handoffRetireReplaced"],
+};
+
+
+/**
+ * Play the settings publisher for a fixture that only wires one feature entry.
+ *
+ * Batch AC moved the shared nine (including `provider`/`model`) onto the archive entry, which publishes
+ * them; a fixture that applies a feature entry alone would otherwise see the defaults. This publishes a
+ * value into the module-level reader the same way `project-context`'s apply does.
+ * @param ctx - the fixture context; unused beyond its disposal hook.
+ * @param over - the shared values to publish.
+ */
+function applyContextLikePublisher(ctx, over = {}) {
+	const entry = sharedOf({ ...DEFAULT_CONFIG, ...over });
+	publishProjectContextSettings(
+		{ settings: { current: () => entry }, onDispose: () => () => undefined },
+		entry,
+	);
+}
+
+const apply = (ctx, config) => {
+	// The routed model and the caps are shared keys: publish them from the same fixture config so the
+	// feature entry sees what the profile would have given it through the archive entry.
+	applyContextLikePublisher(ctx, config ?? {});
+	return applyHandoff({ systemPrompt: { context: () => () => undefined }, ...ctx }, cardConfig("handoff", config));
+};
 
 function message(role, text) {
 	return { role, source: { kind: role }, content: [{ type: "text", text }] };
@@ -1165,24 +1211,26 @@ test("the shared settings value is republished on reload and survives a stale fi
 		settings: { current: () => config },
 		onDispose: (cleanup) => { cleanups.push(cleanup); },
 	});
-	const first = { ...DEFAULT_CONFIG, archiveEnabled: true };
-	const second = { ...DEFAULT_CONFIG, archiveEnabled: false };
-	const own = { ...DEFAULT_CONFIG, maxTokens: 1 };
+	// The publication owns the shared nine, so a fixture carrying a feature card's key would be refused.
+	const shared = (over) => sharedOf({ ...DEFAULT_CONFIG, ...over });
+	const first = shared({ archiveEnabled: true });
+	const second = shared({ archiveEnabled: false });
+	const own = shared({ maxTokens: 1 });
 
 	// Values, not object identity: the reader resolves each volatile reference into a fresh object, so
 	// the published config is equal by value and never the same reference the caller passed in.
 	publishProjectContextSettings(fakeHost(first), first);
-	assert.deepEqual(effectivePluginConfig(own), resolvePluginConfig(first), "the published entry config is the live shared value");
+	assert.deepEqual(effectiveSharedSettings(own), first, "the published entry config is the live shared value");
 	publishProjectContextSettings(fakeHost(second), second);
-	assert.deepEqual(effectivePluginConfig(own), resolvePluginConfig(second), "a reload republishes the namespace owner's config");
+	assert.deepEqual(effectiveSharedSettings(own), second, "a reload republishes the namespace owner's config");
 
 	// An update can dispose the old fiber after the new one published: that stale
 	// cleanup must not release the live publication.
 	cleanups[0]();
-	assert.deepEqual(effectivePluginConfig(own), resolvePluginConfig(second), "a stale fiber must not release a newer publication");
+	assert.deepEqual(effectiveSharedSettings(own), second, "a stale fiber must not release a newer publication");
 
 	cleanups[1]();
-	assert.deepEqual(effectivePluginConfig(own), own, "the owner's cleanup restores each plugin's own entry config");
+	assert.deepEqual(effectiveSharedSettings(own), own, "the owner's cleanup restores each plugin's own entry config");
 });
 
 test("a dirty or in-flight composer defers the auto handoff switch", () => {
@@ -1516,7 +1564,11 @@ test("the memory command carries status and update, and the removed /context-upd
 			})(),
 		},
 	};
-	applyMemory(ctx, { provider: "test-provider", model: "test-model" });
+	// The routed model is a shared key now (batch AC put it on the archive card), so the fixture has to
+	// play the publisher too: without it every feature entry sees the shared defaults and the auxiliary
+	// call has no route to use.
+	applyContextLikePublisher(ctx, { provider: "test-provider", model: "test-model" });
+	applyMemory(ctx, cardConfig("memory"));
 	assert.deepEqual([...commands.keys()], ["memory"], "the plugin registers exactly one command, with no /context-update alias");
 	const agent = { session: { id: "session-cmd", header: { cwd: root, createdAt: Date.now() }, snapshotEvents: () => [], deriveMessages: () => [], requestHeader: () => undefined } };
 	const command = commands.get("memory");

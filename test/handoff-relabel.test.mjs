@@ -34,7 +34,7 @@ import test from "node:test";
 import { Context, Service } from "@deepseek-ai/cordis";
 import { SessionId, SessionStore } from "@deepseek-ai/dsh-session";
 import { firstHandoffInput } from "../lib/project-handoff/conversation.js";
-import { apply as applyHandoff } from "../lib/project-handoff/index.js";
+import { apply as applyHandoffEntry } from "../lib/project-handoff/index.js";
 import { isHandoffContinuationText, SCAFFOLDING } from "../lib/project-handoff/language.js";
 import { HANDOFF_TITLE_PREFIX } from "../lib/project-handoff/marker.js";
 import { relabelHandoffChild, storedHandoffLabel } from "../lib/project-handoff/relabel.js";
@@ -99,6 +99,10 @@ function fakeContext(titles, warnings = []) {
 
 /** The write is deferred past the dispatch envelope, so settle it before judging what it wrote. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+import { cardApplied } from "./card-config.mjs";
+
+const applyHandoff = cardApplied(applyHandoffEntry, "handoff");
 
 test("a continuation is named after its own first input, read from the durable log", () => {
 	const label = (events, derived) => firstHandoffInput(fakeSession(events, derived));

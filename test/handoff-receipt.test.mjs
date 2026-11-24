@@ -26,7 +26,11 @@ import test from "node:test";
 import { maybeAutoHandoff } from "../lib/project-handoff/auto.js";
 import { statusText, runManual } from "../lib/project-handoff/command.js";
 import { handoffCarry, handoffSplit, questionDisposition } from "../lib/project-handoff/conversation.js";
-import { apply } from "../lib/project-handoff/index.js";
+import { apply as applyHandoffEntry } from "../lib/project-handoff/index.js";
+import { cardApplied } from "./card-config.mjs";
+
+/** The handoff entry, fed only the keys its card owns (batch AC split the schema). */
+const apply = cardApplied(applyHandoffEntry, "handoff");
 import { performHandoff } from "../lib/project-handoff/perform.js";
 import { countFileIndex, seedReceiptLine } from "../lib/project-handoff/receipt.js";
 import { handoffReceipts } from "../lib/project-handoff/state.js";

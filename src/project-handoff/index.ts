@@ -71,12 +71,20 @@
 
 import type { Context } from "../host/contract.js";
 import { hostContextOf } from "../host/dsh/host-context.js";
-import { resolvePluginConfig } from "../shared/config.js";
+import { resolveHandoffConfig } from "../shared/config.js";
 import { HANDOFF_TITLE_PREFIX } from "./marker.js";
 import { isHandoffContinuationText, REPLAY_MARKER } from "./language.js";
+import { HandoffSettingsSchema } from "../shared/settings.js";
 import { start } from "./start.js";
 
 export const name = "project-handoff";
+
+/**
+ * The handoff card: the Host projects a settings form from this schema, keyed by this entry's id.
+ * Every field carries the `volatile` mark — schemastery drops a schema whose fields are all
+ * ordinary, and the card would then disappear with no error anywhere.
+ */
+export const Config = HandoffSettingsSchema;
 
 export const inject = ["llm", "systemPrompt", "commands"];
 
@@ -90,11 +98,11 @@ export { isHandoffContinuationText, REPLAY_MARKER };
 export { movesThreshold } from "./start.js";
 
 /**
- * Cordis entry: resolve the plugin config and hand the core a façade over this context. This plugin
- * publishes no settings namespace — the archive entry (`project-context`) owns it.
+ * Cordis entry: resolve this card's seven keys and hand the core a façade over this context.
+ * It publishes no settings namespace; `/handoff` writes go to this entry's own namespace.
  * @param ctx - the plugin context.
  * @param rawConfig - the raw config the Loader passed.
  */
 export function apply(ctx: Context, rawConfig: unknown): void {
-	start(hostContextOf(ctx), resolvePluginConfig(rawConfig));
+	start(hostContextOf(ctx), resolveHandoffConfig(rawConfig));
 }

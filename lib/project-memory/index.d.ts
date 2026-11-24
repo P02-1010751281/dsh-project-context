@@ -17,11 +17,25 @@ export type { ConsolidateReport, ConsolidateStatus, RefusedLoss } from "./report
 export { consolidateProject } from "./update.js";
 export { writeTodoSnapshot } from "./start.js";
 export declare const name = "project-memory";
+/**
+ * The memory card: the Host projects a settings form from this schema, keyed by this entry's id.
+ * Every field carries the `volatile` mark — schemastery drops a schema whose fields are all
+ * ordinary, and the card would then disappear with no error anywhere.
+ */
+export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    memoryEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    consolidateTurns: import("@deepseek-ai/schemastery").default<number, number>;
+    consolidateIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+}>, Schemastery.ObjectT<{
+    memoryEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    consolidateTurns: import("@deepseek-ai/schemastery").default<number, number>;
+    consolidateIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+}>>;
 export declare const inject: string[];
 /**
- * Cordis entry: resolve the plugin config and hand the core a façade over this context. This plugin
- * publishes no settings namespace — the archive entry (`project-context`) owns it, and
- * `effectivePluginConfig` is what the core reads.
+ * Cordis entry: resolve this card's three keys and hand the core a façade over this context.
+ * This plugin publishes no settings namespace: the archive entry (`project-context`) publishes the
+ * shared nine, and `start.ts` overlays them onto these keys on every read.
  * @param ctx - the plugin context.
  * @param rawConfig - the raw config the Loader passed.
  */

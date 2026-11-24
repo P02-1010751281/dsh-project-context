@@ -22,7 +22,7 @@ import {
 	resolveLanguage,
 } from "../lib/project-handoff/language.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
-import { PluginSettingsSchema } from "../lib/shared/settings.js";
+import { HandoffSettingsSchema, SharedSettingsSchema } from "../lib/shared/settings.js";
 import { sessionViews } from "./session-views.mjs";
 
 /** One raw sample message in the shape `handoffSplit` produces. */
@@ -328,10 +328,20 @@ test("handoffLang and maxOutputTokens are wired through every layer", () => {
 	assert.throws(() => resolvePluginConfig({ handoffLang: "fr" }), /handoffLang/);
 	assert.throws(() => resolvePluginConfig({ maxOutputTokens: 12 }), /maxOutputTokens/);
 
-	const schemaDefaults = PluginSettingsSchema({});
+	// `handoffLang` is read by every entry through `receiptLanguage`, so batch AC put it on the shared
+	// card; `maxOutputTokens` was always there. Neither is on the handoff card's own schema.
+	const schemaDefaults = SharedSettingsSchema({});
 	assert.equal(schemaDefaults.handoffLang, "auto");
 	assert.equal(schemaDefaults.maxOutputTokens, 32_768);
-	assert.equal(PluginSettingsSchema({ handoffLang: "en" }).handoffLang, "en");
+	assert.equal(SharedSettingsSchema({ handoffLang: "en" }).handoffLang, "en");
+	assert.equal("handoffLang" in HandoffSettingsSchema({}), false, "it must not also live on the handoff card");
+
+	// schemastery *passes through* a key no schema declares, so the projected object is not the
+	// discriminator — `schema.dict` (the declared set) is. This is the property that keeps one key on
+	// exactly one card: a key declared twice would appear in two cards' forms.
+	assert.equal("handoffEnabled" in SharedSettingsSchema.dict, false, "a feature key must not be declared on the shared card");
+	assert.equal("handoffLang" in HandoffSettingsSchema.dict, false, "and `handoffLang` must not also be declared on the handoff card");
+	assert.equal("handoffLang" in SharedSettingsSchema.dict, true, "it is declared on the shared card instead");
 });
 
 test("an unsettled continuable background subagent defers the automatic handoff", () => {

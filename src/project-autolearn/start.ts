@@ -10,8 +10,8 @@
 
 import path from "node:path";
 import type { Agent, HostContext, HostPorts } from "../host/contract.js";
-import { type PluginConfig } from "../shared/config.js";
-import { effectivePluginConfig } from "../shared/settings.js";
+import { type PluginConfig, resolveAutolearnConfig } from "../shared/config.js";
+import { effectiveSharedSettings, livePluginConfig, withShared } from "../shared/settings.js";
 import { isTopLevel, projectCwd, SerialQueue, SessionWorkTracker } from "../shared/lifecycle.js";
 import { approveCandidate, listCandidateDetails, rejectCandidate } from "./candidate.js";
 import { evidenceText } from "./evidence.js";
@@ -88,12 +88,21 @@ function runAutolearn(host: HostPorts, config: PluginConfig, agent: Agent, optio
  * @param entry - the resolved plugin config, shared with the other three plugins.
  */
 export function start(host: HostContext, entry: PluginConfig): void {
+	/**
+	 * This entry's own keys, re-resolved on every call, overlaid with the shared nine.
+	 *
+	 * The `entry` handed to `apply` is a snapshot: a volatile-only save lands in the running
+	 * fiber's live references and never restarts the entry, so reading the snapshot would show
+	 * a saved value in the card and keep using the old one. The shared nine come from the
+	 * `project-context` publication (or this entry's own values when it is not loaded).
+	 */
+	const currentConfig = (): PluginConfig => withShared(livePluginConfig(host, entry, resolveAutolearnConfig), effectiveSharedSettings(entry));
 	/** In-flight autolearn work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 
 	host.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
-		const current = effectivePluginConfig(entry);
+		const current = currentConfig();
 		if (!current.autolearnEnabled) {
 			// Expiry keeps its own switch, so a project that turned distillation off still retires a
 			// skill pointing at deleted code — silently, and without the model call the pass would spend.
@@ -107,7 +116,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 
 	host.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
-		const current = effectivePluginConfig(entry);
+		const current = currentConfig();
 		if (!current.autolearnEnabled) {
 			if (current.autolearnExpireSkills) void runSkillExpiry(host, agent, true).catch(() => undefined);
 			return;
@@ -127,7 +136,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			const verb = (parts[0] ?? "").toLowerCase();
 			const projectRoot = await getProjectRoot(projectCwd(agent.session));
 			// One language for every `/autolearn` receipt, resolved at the handler.
-			const language = receiptLanguage(agent.session, effectivePluginConfig(entry));
+			const language = receiptLanguage(agent.session, currentConfig());
 			if (verb === "list") {
 				// Two groups, because they answer two questions: which proposals wait for a decision, and
 				// what the learned population already records as its provenance. A learned skill from before
@@ -157,7 +166,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 					kind: "success" as const,
 					text: skillStatusReceipt(
 						await measureSkillStates(projectRoot),
-						receiptLanguage(agent.session, effectivePluginConfig(entry)),
+						receiptLanguage(agent.session, currentConfig()),
 					),
 				};
 			}
@@ -190,7 +199,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				const result = await rejectCandidate(projectRoot, parts[1] ?? "", language);
 				return result.ok ? { kind: "success" as const, text: result.message } : { kind: "error" as const, text: result.message };
 			}
-			const outcome = await runAutolearn(host, effectivePluginConfig(entry), agent, { force: true, silent: false, signal });
+			const outcome = await runAutolearn(host, currentConfig(), agent, { force: true, silent: false, signal });
 			if (outcome === undefined) return { kind: "error", text: pick(language, "自动学习没有运行（没有 provider/model，或本轮失败；见 errors.log）。", "Autolearn did not run (no provider/model, or the pass failed; see errors.log).") };
 			if (outcome.candidate && outcome.skill) {
 				return { kind: "success", text: pick(language, `技能候选「${outcome.skill.name}」已保存待审——/autolearn approve ${outcome.skill.name}`, `Skill candidate "${outcome.skill.name}" saved for review — /autolearn approve ${outcome.skill.name}`) };

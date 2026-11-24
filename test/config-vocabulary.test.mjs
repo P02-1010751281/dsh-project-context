@@ -28,7 +28,6 @@ import { apply as applyHandoff } from "../lib/project-handoff/index.js";
 import { settingPatch } from "../lib/project-handoff/command.js";
 import { apply as applyMemory } from "../lib/project-memory/index.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
-import { PluginSettingsSchema } from "../lib/shared/settings.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -109,6 +108,25 @@ function stubCtx() {
 	return ctx;
 }
 
+/** The four card schemas, loaded once so the synchronous cases can read them. */
+const settings = await import("../lib/shared/settings.js");
+
+/**
+ * Every key the four cards declare, as one object.
+ *
+ * Batch AC split the single settings schema into four; a case that means "the whole settings surface"
+ * (a renamed key, a written-back key) has to ask all four rather than the one that used to hold them.
+ * @returns the union of the four schemas' keys.
+ */
+function allSettingsKeys(settings) {
+	return [
+		...Object.keys(settings.SharedSettingsSchema({})),
+		...Object.keys(settings.MemorySettingsSchema({})),
+		...Object.keys(settings.AutolearnSettingsSchema({})),
+		...Object.keys(settings.HandoffSettingsSchema({})),
+	];
+}
+
 test("every renamed key keeps its value and its type", () => {
 	assert.equal(resolvePluginConfig({ memoryEnabled: false }).memoryEnabled, false);
 	assert.equal(resolvePluginConfig({ autolearnEnabled: false }).autolearnEnabled, false);
@@ -131,7 +149,7 @@ test("every renamed key keeps its value and its type", () => {
 test("the retired handoffThinking key is absent from every face", () => {
 	assert.equal(Object.keys(DEFAULT_CONFIG).includes(RETIRED_KEY), false, "the default config must not declare it");
 	assert.equal(RETIRED_KEY in resolvePluginConfig({}), false, "nor must the resolved config");
-	assert.equal(Object.keys(PluginSettingsSchema({})).includes(RETIRED_KEY), false, "nor the settings schema");
+	assert.equal(allSettingsKeys(settings).includes(RETIRED_KEY), false, "nor any card's schema");
 	// A stored value is an unknown key, not a silent fallback: the settings-namespace owner throws.
 	assert.throws(
 		() => resolvePluginConfig({ [RETIRED_KEY]: "session" }),
@@ -155,7 +173,7 @@ test("the retired handoffThinking key is absent from every face", () => {
 });
 
 test("the settings schema exposes the new spellings and none of the old ones", () => {
-	const keys = Object.keys(PluginSettingsSchema({}));
+	const keys = allSettingsKeys(settings);
 	const missing = Object.values(RENAMED_KEYS).filter((name) => !keys.includes(name));
 	assert.deepEqual(missing, [], "every renamed field must still project a card field");
 	for (const old of Object.keys(RENAMED_KEYS)) {
@@ -184,7 +202,17 @@ test("a retired spelling is an unknown key, not a silent fallback to the default
 	assert.doesNotThrow(() => resolvePluginConfig({ handoffBudgetRecentTokens: 0 }));
 });
 
-test("the post-rename profile shapes resolve and every apply() accepts them, while today's shapes throw", () => {
+test("each entry accepts its own card's keys and names the card that owns a foreign one", () => {
+	// Batch AC split one schema into four, so an entry's `apply` no longer takes the whole profile shape:
+	// it resolves its own card's keys and rejects a key another card owns, naming that card. That is the
+	// property this pins — a mis-placed profile line must fail loudly, once, on the entry that read it.
+	const CARDS = {
+		shared: ["archiveEnabled", "sessionSettledDays", "forceDedupeMs", "maxTokens", "maxOutputTokens", "maxMemoryChars", "taskMode", "provider", "model", "handoffLang"],
+		memory: ["memoryEnabled", "consolidateTurns", "consolidateIntervalMs"],
+		autolearn: ["autolearnEnabled", "autolearnExpireSkills", "autolearnTurns", "autolearnIntervalMs"],
+		handoff: ["handoffEnabled", "handoffThreshold", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens", "handoffPendingQuestion", "handoffRetireReplaced"],
+	};
+
 	for (const [profile, shape] of Object.entries(PROFILE_SHAPES)) {
 		// The edit the deploy step owes, pinned here: the shape the files persist *right now* is an
 		// unknown-key error, which is why it cannot be deferred past the restart.
@@ -198,16 +226,22 @@ test("the post-rename profile shapes resolve and every apply() accepts them, whi
 		assert.equal(resolved.maxMemoryChars, 40_000, `${profile}: maxMemoryChars survives`);
 		assert.equal(resolved.handoffBudgetRecentTokens, 0, `${profile}: the recent budget survives`);
 		assert.equal(resolved.handoffPendingQuestion, "wait", `${profile}: the pending-question gate survives`);
-		for (const [name, apply] of Object.entries(PLUGINS)) {
-			assert.doesNotThrow(() => apply(stubCtx(), shape), `${name} accepts the shape the ${profile} profile must adopt`);
-			// The positive control: the same ctx and the same call site do surface a stale key, so the
-			// line above is evidence about the shape rather than about a fixture that cannot throw.
-			assert.throws(
-				() => apply(stubCtx(), { handoffKeepTokens: 0 }),
-				/unknown config key "handoffKeepTokens"/,
-				`${name} would reject a profile that was not renamed`,
-			);
-		}
+	}
+
+	for (const [name, apply] of Object.entries(PLUGINS)) {
+		// The entry id and the card name differ for the publisher: it owns the shared/archive card.
+		const card = name === "project-context" ? "shared" : name.replace("project-", "");
+		const own = Object.fromEntries(CARDS[card].map((key) => [key, resolvePluginConfig({})[key]]));
+		assert.doesNotThrow(() => apply(stubCtx(), own), `${name} accepts its own card's keys`);
+		// The positive control: the same ctx and call site do surface a foreign card's key, naming it.
+		const foreign = card === "handoff" ? "maxTokens" : "handoffThreshold";
+		assert.throws(
+			() => apply(stubCtx(), { [foreign]: resolvePluginConfig({})[foreign] }),
+			/belongs to the .* card/,
+			`${name} must refuse ${foreign}, which another card owns`,
+		);
+		// A retired name still throws on every entry.
+		assert.throws(() => apply(stubCtx(), { handoffKeepTokens: 0 }), /unknown config key "handoffKeepTokens"/, `${name} would reject a profile that was not renamed`);
 	}
 });
 
@@ -237,7 +271,7 @@ test("every key the handoff verbs write back is a schema key", () => {
 	// Compare against the schema the Host projects, not `DEFAULT_CONFIG`: the two sets happen to be
 	// identical today, but the contract is "the card's namespace declares it", and a key could be added
 	// to one without the other.
-	const schemaKeys = Object.keys(PluginSettingsSchema({}));
+	const schemaKeys = allSettingsKeys(settings);
 	for (const key of written) {
 		assert.ok(schemaKeys.includes(key), `${key} is written back but is not a key the settings schema declares`);
 	}

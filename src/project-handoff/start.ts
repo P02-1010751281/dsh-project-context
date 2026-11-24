@@ -11,8 +11,8 @@
  */
 
 import type { HostContext, Session } from "../host/contract.js";
-import { type PluginConfig } from "../shared/config.js";
-import { effectivePluginConfig } from "../shared/settings.js";
+import { type PluginConfig, resolveHandoffConfig } from "../shared/config.js";
+import { effectiveSharedSettings, livePluginConfig, withShared } from "../shared/settings.js";
 import { isTopLevel } from "../shared/lifecycle.js";
 import { getProjectRoot, getProjectRootSync, logError } from "../shared/project-state.js";
 import { pick } from "../shared/language.js";
@@ -33,6 +33,15 @@ import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil
  * @param entry - the resolved plugin config, shared with the other three plugins.
  */
 export function start(host: HostContext, entry: PluginConfig): void {
+	/**
+	 * This entry's own keys, re-resolved on every call, overlaid with the shared nine.
+	 *
+	 * The `entry` handed to `apply` is a snapshot: a volatile-only save lands in the running
+	 * fiber's live references and never restarts the entry, so reading the snapshot would show
+	 * a saved value in the card and keep using the old one. The shared nine come from the
+	 * `project-context` publication (or this entry's own values when it is not loaded).
+	 */
+	const currentConfig = (): PluginConfig => withShared(livePluginConfig(host, entry, resolveHandoffConfig), effectiveSharedSettings(entry));
 	// One attempt at a time per session. A `turn/end` that lands while an attempt is running is
 	// remembered rather than dropped: it may be the settled turn this handoff was waiting for.
 	const attempt = (session: Session, triggerSeq: number): void => {
@@ -44,7 +53,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		}
 		const backoff = failedUntil.get(key);
 		if (backoff !== undefined && Date.now() < backoff) return;
-		const config = effectivePluginConfig(entry);
+		const config = currentConfig();
 		if (!config.handoffEnabled) return;
 
 		inFlight.add(key);
@@ -105,7 +114,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		if (!isTopLevel(session)) return;
 		const key = String(session.id);
 		if (handoffPressureIsOver(key) || ticking.has(key)) return;
-		const config = effectivePluginConfig(entry);
+		const config = currentConfig();
 		if (!config.handoffEnabled) return;
 		ticking.add(key);
 		void resolveHandoffGate(host, session, config)
@@ -131,7 +140,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		text: (assembleContext) => {
 			const session = assembleContext.agent?.session;
 			if (session === undefined || !isTopLevel(session)) return "";
-			if (!effectivePluginConfig(entry).handoffEnabled) return "";
+			if (!currentConfig().handoffEnabled) return "";
 			return handoffPressureText(session);
 		},
 	});
@@ -144,7 +153,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 			// and drops a generated banner (`firstHandoffInput` owns that predicate), a session that is
 			// not a continuation is refused by the prefix test, and the seq is what tells the write this
 			// very event is the one that carried the first naming input.
-			if (event.data.source.kind === "user" && isTopLevel(session) && effectivePluginConfig(entry).handoffEnabled) relabelHandoffChild(host, session, event.seq);
+			if (event.data.source.kind === "user" && isTopLevel(session) && currentConfig().handoffEnabled) relabelHandoffChild(host, session, event.seq);
 			return;
 		}
 		if (event.type !== "turn/end") {
@@ -198,12 +207,12 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		handler: async ({ agent, rawInput, signal }) => {
 			const args = rawInput.trim();
 			// One language for every `/handoff` verb receipt, resolved the same way the status receipt is.
-			const language = resolveHandoffLanguage(sessionLanguageMessages(agent.session), effectivePluginConfig(entry));
-			if (args === "" || args === "now") return runManual(host, agent.session, entry, signal);
+			const language = resolveHandoffLanguage(sessionLanguageMessages(agent.session), currentConfig());
+			if (args === "" || args === "now") return runManual(host, agent.session, currentConfig(), signal);
 			// `force` was the third spelling of `now` and is retired rather than kept as an alias (one
 			// fact, one spelling), so it is told which name to use instead of quietly doing nothing.
 			if (args === "force") return { kind: "error" as const, text: pick(language, "`/handoff force` 已退役；请用 `/handoff now`。", "`/handoff force` was retired; use `/handoff now`.") };
-			if (args === "status") return { kind: "success" as const, text: await statusText(host, agent.session, entry, signal) };
+			if (args === "status") return { kind: "success" as const, text: await statusText(host, agent.session, currentConfig(), signal) };
 
 			const parsed = settingPatch(args, language);
 			if (parsed === undefined) return { kind: "error" as const, text: USAGE };
@@ -221,7 +230,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				// failed write — that is the same misattribution in reverse. Say the write landed and why the
 				// receipt is missing.
 				try {
-					return { kind: "success" as const, text: await statusText(host, agent.session, entry, signal, parsed.patch as Partial<PluginConfig>) };
+					return { kind: "success" as const, text: await statusText(host, agent.session, currentConfig(), signal, parsed.patch as Partial<PluginConfig>) };
 				} catch (error: unknown) {
 					const reason = error instanceof Error ? error.message : String(error);
 					return { kind: "success" as const, text: pick(language, `交接设置已更新：${args}（状态回执无法构建：${reason}）`, `Handoff setting updated: ${args} (the status receipt could not be built: ${reason})`) };

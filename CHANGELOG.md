@@ -10,6 +10,34 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**settings-split（一份 schema 拆成四张卡，2026-11-24，批次 AC）**
+
+- 23 键的设置 schema 拆成四份，各由自己的 Loader 条目导出 `Config`：共用/归档（`project-context`，10 键）、
+  记忆（`project-memory`，3 键）、技能（`project-autolearn`，4 键）、交接（`project-handoff`，6 键）。
+  `src/shared/config.ts` 新增四个严格子集解析器，非本卡的键抛
+  `config key "X" belongs to <entry> (<card> card)`——放错一行配置会在读它的条目上响亮失败，
+  而不是被静默忽略。
+- 读取契约：删除 `effectivePluginConfig`。共用值只由 `project-context` 发布，功能入口经
+  `withShared(livePluginConfig(host, entry, resolver), effectiveSharedSettings(entry))` 合并，
+  每次事件/命令现读，绝不快照（volatile-only 保存不重启条目）。
+- **一处规格修正**：`handoffLang` 原排在交接卡，但 `receiptLanguage` 被四个插件都调用，按 §2.2 规则 1
+  （被两个及以上入口读 → 共用卡）移到共用卡。规格的映射表漏了这一条；`SharedSettingsSchema.dict`
+  与 `HandoffSettingsSchema.dict` 因此是判据（schemastery 会透传未声明键，投影对象不能当判据）。
+- 发布读取必须先窄化：fiber config 带着该条目声明的全部键，整份交给卡片解析器会永远抛错并静默
+  回退默认值（`maxTokens: 8000` 被读成 `8192`）。`publishedSharedOf` 只递交共用键。
+- 客户端：`CARD_ROWS`/`CARD_TABLES` 四套行表；`SegmentedTabs` 移除（§2.6），每张卡 `<h3>` 分组、
+  一次保存；控制器接受行表参数，组件按传入的 `sections` 渲染，所以四个入口共用同一个组件。
+  `plugins.row.config` 由平台按条目自动投影三张功能卡。
+- `src/shared/settings-namespaces.ts` 只放四个命名空间常量，`/handoff` 的 `settings.update` 改写
+  `HANDOFF_SETTINGS_NAMESPACE`。
+- 测试：新增 `test/card-config.mjs`（`cardConfig` / `publishSharedFor` / `cardApplied`），沿用
+  「非 `*.test.mjs` 夹具模块」惯例；16 个套件改为按卡片喂 `apply()`。`card-render` 由「页签分组」
+  改为「无 tablist、所有行一次可见」；`settings-form` 由「一张表覆盖 schema」改为「四张表覆盖四份
+  schema（并按 `DEFAULT_CONFIG` 校验并集恰好 23 键）」。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 127 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
+  `pnpm test` **832/832**、`pnpm build` 两次哈希同为 `202e467d…`（255 个 `lib/` 文件）。
+- 规格：`docs/batch-ac-settings-split-spec.md`（§8.3 六点裁定已按此落地）。
+
 **memory-cap-headroom（记忆顶到硬上限后抬 cap 并压缩，2026-11-24）**
 
 - 现象（用户裁定前实测）：`MEMORY.md` 51999 字符、`maxMemoryChars` 52000，但按分配器自己的度量

@@ -20,7 +20,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { resolvePluginConfig } from "../lib/shared/config.js";
-import { consolidateProject, apply as applyMemory, memoryPruneReply } from "../lib/project-memory/index.js";
+import { consolidateProject, apply as applyMemoryEntry, memoryPruneReply } from "../lib/project-memory/index.js";
 import { PRUNE_BACKUPS_KEPT, planPrune, pruneProjectMemory } from "../lib/project-memory/prune.js";
 import { MAX_ERROR_LOG_BYTES } from "../lib/shared/error-log.js";
 import { portsOf } from "./host-ports.mjs";
@@ -77,6 +77,10 @@ async function purgeLines(root) {
 // ---------------------------------------------------------------------------------------------------
 // The rules
 // ---------------------------------------------------------------------------------------------------
+
+import { cardApplied } from "./card-config.mjs";
+
+const applyMemory = cardApplied(applyMemoryEntry, "memory");
 
 test("a preview names the plan and touches nothing, not even the log", async () => {
 	const root = await memoryRoot("dsh-prune-preview-");

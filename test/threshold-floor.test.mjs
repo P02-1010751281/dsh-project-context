@@ -17,11 +17,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseRatio, settingPatch } from "../lib/project-handoff/command.js";
-import { apply as applyHandoff, movesThreshold } from "../lib/project-handoff/index.js";
+import { apply as applyHandoffEntry, movesThreshold } from "../lib/project-handoff/index.js";
 import { MIN_DROP_TOKENS, resolveThreshold, thresholdOverrideText, thresholdRefusal, thresholdRefusalText } from "../lib/project-handoff/threshold.js";
 import { DEFAULT_CONFIG, resolvePluginConfig } from "../lib/shared/config.js";
 import { MAX_THRESHOLD_RATIO, MIN_THRESHOLD_RATIO } from "../lib/shared/limits.js";
-import { PluginSettingsSchema } from "../lib/shared/settings.js";
+import { HandoffSettingsSchema } from "../lib/shared/settings.js";
 
 /** A resolved config on the test route; `over` drives one field at a time. */
 const config = (over) => resolvePluginConfig({ provider: "test-provider", model: "test-model", ...over });
@@ -31,10 +31,18 @@ const config = (over) => resolvePluginConfig({ provider: "test-provider", model:
  * supplies the service; these cases are about the receipt, not about that line
  * (test/handoff-pressure.test.mjs owns its behaviour).
  */
-const apply = (ctx, rawConfig) => applyHandoff({ systemPrompt: { context: () => () => undefined }, ...ctx }, rawConfig);
+// The threshold receipt reads the routed model and the caps, which are shared keys now (batch AC put
+// them on the archive card), so the fixture publishes them as the archive entry would.
+const apply = (ctx, rawConfig) => {
+	publishSharedFor(rawConfig ?? {});
+	return applyHandoffEntry({ systemPrompt: { context: () => () => undefined }, ...ctx }, cardConfig("handoff", rawConfig));
+};
 
 /** The measurement with no harness envelope: the floor carries only the terms this plugin owns. */
 const plain = { totalTokens: 0, surfaceTokens: 0 };
+
+import { cardConfig, publishSharedFor } from "./card-config.mjs";
+
 
 test("fixed mode obeys the physical floor, and the boundary is the floor itself", () => {
 	// The knob is the kept tail rather than the window, so the boundary is exact: at a 400_000-token window
@@ -121,7 +129,7 @@ test("the ratio range comes from one exported pair, and every reader follows it"
 		assert.equal(parseRatio(String(bound)), bound, `the parser accepts the ${bound} bound`);
 		assert.deepEqual(resolvePluginConfig({ handoffThreshold: String(bound) }).handoffThreshold, { mode: "ratio", ratio: bound },
 			`the validator accepts the ${bound} bound`);
-		assert.equal(PluginSettingsSchema({ handoffThreshold: String(bound) }).handoffThreshold, String(bound),
+		assert.equal(HandoffSettingsSchema({ handoffThreshold: String(bound) }).handoffThreshold, String(bound),
 			"the schema stores the spelling it was given");
 	}
 	for (const outside of [(MIN_THRESHOLD_RATIO - 0.01).toFixed(2), (MAX_THRESHOLD_RATIO + 0.01).toFixed(2)]) {

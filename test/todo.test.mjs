@@ -127,6 +127,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // The line format
 // ---------------------------------------------------------------------------------------------------
 
+/*** applyMemory, fed only the keys the memory card owns (batch AC split the schema into four cards). */
+const applyMemoryCard = cardApplied(applyMemory, "memory");
+import { cardApplied } from "./card-config.mjs";
+
 test("a projection's unfinished items become mechanic lines, and completed ones are dropped", () => {
 	assert.deepEqual(
 		todoLines([
@@ -256,7 +260,7 @@ test("a turn end folds the unfinished items into CONTEXT.md", async () => {
 		{ content: "run the gate", status: "in_progress" },
 		{ content: "already done", status: "completed" },
 	]);
-	applyMemory(ctx, resolvePluginConfig({}));
+	applyMemoryCard(ctx, resolvePluginConfig({}));
 	const session = fakeSession(root, "session-todo-top");
 	await fireTurnEnd(handlers, session);
 	assert.ok(await waitFor(async () => (await readFile(contextFile(root), "utf8")).includes("[todo] ship the batch")));
@@ -272,7 +276,7 @@ test("the same snapshot on the next turn rewrites nothing", async () => {
 	const root = await project();
 	await writeFile(contextFile(root), document({ openTasks: ["model task"] }));
 	const { handlers, ctx } = pluginFixture([{ content: "ship the batch", status: "pending" }]);
-	applyMemory(ctx, resolvePluginConfig({}));
+	applyMemoryCard(ctx, resolvePluginConfig({}));
 	const session = fakeSession(root, "session-todo-idempotent");
 	await fireTurnEnd(handlers, session);
 	assert.ok(await waitFor(async () => (await readFile(contextFile(root), "utf8")).includes("[todo] ship the batch")));
@@ -289,7 +293,7 @@ test("a session that never wrote todos produces no [todo] line and no write", as
 	const before = document({ openTasks: ["model task"] });
 	await writeFile(contextFile(root), before);
 	const { handlers, ctx } = pluginFixture(null);
-	applyMemory(ctx, resolvePluginConfig({}));
+	applyMemoryCard(ctx, resolvePluginConfig({}));
 	const session = fakeSession(root, "session-todo-never");
 	const first = await stat(contextFile(root), { bigint: true });
 	await fireTurnEnd(handlers, session);
@@ -304,13 +308,13 @@ test("a finished list clears the block at the next turn end", async () => {
 	await writeFile(contextFile(root), document({ openTasks: ["model task"] }));
 	const session = fakeSession(root, "session-todo-finish");
 	const pending = pluginFixture([{ content: "ship it", status: "pending" }]);
-	applyMemory(pending.ctx, resolvePluginConfig({}));
+	applyMemoryCard(pending.ctx, resolvePluginConfig({}));
 	await fireTurnEnd(pending.handlers, session);
 	assert.ok(await waitFor(async () => (await readFile(contextFile(root), "utf8")).includes("[todo] ship it")));
 
 	// A new turn: the projection is cleared and the tool writes the list again, now completed.
 	const finished = pluginFixture([{ content: "ship it", status: "completed" }]);
-	applyMemory(finished.ctx, resolvePluginConfig({}));
+	applyMemoryCard(finished.ctx, resolvePluginConfig({}));
 	await fireTurnEnd(finished.handlers, session);
 	assert.ok(await waitFor(async () => !(await readFile(contextFile(root), "utf8")).includes("[todo]")));
 	assert.equal(openTasksBody(await readFile(contextFile(root), "utf8")), "- model task");
@@ -345,7 +349,7 @@ test("a bound session folds the todo block into its own task document", async ()
 	await setSessionTask(root, session, "release");
 
 	const { handlers, ctx } = pluginFixture([{ content: "ship the batch", status: "pending" }]);
-	applyMemory(ctx, resolvePluginConfig({}));
+	applyMemoryCard(ctx, resolvePluginConfig({}));
 	await fireTurnEnd(handlers, session);
 
 	assert.ok(await waitFor(async () => (await readFile(taskFile(root, "release"), "utf8")).includes("[todo] ship the batch")));

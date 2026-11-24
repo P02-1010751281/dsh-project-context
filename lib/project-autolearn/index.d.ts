@@ -14,10 +14,26 @@
  */
 import type { Context } from "../host/contract.js";
 export declare const name = "project-autolearn";
+/**
+ * The skills card: the Host projects a settings form from this schema, keyed by this entry's id.
+ * Every field carries the `volatile` mark — schemastery drops a schema whose fields are all
+ * ordinary, and the card would then disappear with no error anywhere.
+ */
+export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    autolearnExpireSkills: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
+    autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+}>, Schemastery.ObjectT<{
+    autolearnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    autolearnExpireSkills: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    autolearnTurns: import("@deepseek-ai/schemastery").default<number, number>;
+    autolearnIntervalMs: import("@deepseek-ai/schemastery").default<number, number>;
+}>>;
 export declare const inject: string[];
 /**
- * Cordis entry: resolve the plugin config, publish nothing (the memory card owns the namespace), and
- * hand the core a façade over this context.
+ * Cordis entry: resolve this card's four keys and hand the core a façade over this context.
+ * It publishes nothing; `start.ts` overlays the shared nine from the archive entry's publication.
  * @param ctx - the plugin context.
  * @param rawConfig - the raw config the Loader passed.
  */

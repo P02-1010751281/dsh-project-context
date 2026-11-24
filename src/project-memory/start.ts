@@ -11,8 +11,8 @@
 
 import { projectionsOf } from "../host/dsh/services.js";
 import type { HostContext, HostPorts, ServiceHost, Session } from "../host/contract.js";
-import { type PluginConfig } from "../shared/config.js";
-import { effectivePluginConfig } from "../shared/settings.js";
+import { type PluginConfig, resolveMemoryConfig } from "../shared/config.js";
+import { effectiveSharedSettings, livePluginConfig, withShared } from "../shared/settings.js";
 import { buildContextInjection, buildMemoryInjection, buildTaskInjection, buildTaskListInjection, type TaskListEntry } from "./injection.js";
 import { boundTaskSync, dateStamp, listTasksSync, taskRelativePath, taskViews } from "./tasks.js";
 import { detectDocumentLanguage, pick } from "../shared/language.js";
@@ -142,6 +142,15 @@ export async function writeTodoSnapshot(host: ServiceHost, config: PluginConfig,
  * @param entry - the resolved plugin config, shared with the other three plugins.
  */
 export function start(host: HostContext, entry: PluginConfig): void {
+	/**
+	 * This entry's own keys, re-resolved on every call, overlaid with the shared nine.
+	 *
+	 * The `entry` handed to `apply` is a snapshot: a volatile-only save lands in the running
+	 * fiber's live references and never restarts the entry, so reading the snapshot would show
+	 * a saved value in the card and keep using the old one. The shared nine come from the
+	 * `project-context` publication (or this entry's own values when it is not loaded).
+	 */
+	const currentConfig = (): PluginConfig => withShared(livePluginConfig(host, entry, resolveMemoryConfig), effectiveSharedSettings(entry));
 	/** In-flight consolidation work per session, awaited by durability flushes. */
 	const pending = new SessionWorkTracker();
 
@@ -152,7 +161,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		name: "project-memory",
 		order: 190,
 		interpolate: false,
-		text: (assembleContext) => projectMemoryInjection(assembleContext.agent?.session.header.cwd, effectivePluginConfig(entry).maxMemoryChars),
+		text: (assembleContext) => projectMemoryInjection(assembleContext.agent?.session.header.cwd, currentConfig().maxMemoryChars),
 	});
 	host.addPromptContext({
 		name: "project-context",
@@ -161,7 +170,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		text: (assembleContext) => projectContextInjection(
 			assembleContext.agent?.session.header.cwd,
 			assembleContext.agent === undefined ? undefined : String(assembleContext.agent.session.id),
-			effectivePluginConfig(entry).taskMode,
+			currentConfig().taskMode,
 		),
 	});
 
@@ -180,7 +189,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 				if (result.importedSkills > 0) details.push(`imported ${result.importedSkills} skill${result.importedSkills === 1 ? "" : "s"}`);
 				// The legacy `.omp` import holds the memory lock and refuses to run beside an
 				// existing journal, so it is its own step rather than part of the layout migration.
-				if (await importLegacyMemory(projectRoot, effectivePluginConfig(entry).maxMemoryChars)) details.push("imported legacy OMP memory");
+				if (await importLegacyMemory(projectRoot, currentConfig().maxMemoryChars)) details.push("imported legacy OMP memory");
 				if (details.length > 0) host.log.info(`dsh-project-context: project memory in ${memoryDir(projectRoot)}: ${details.join("; ")}`);
 				// The legacy counterpart was older, so the current file won and the legacy bytes are
 				// gone. Say so: the migration used to report these as "moved", which is false.
@@ -201,7 +210,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 
 	host.on("agent/status", ({ agent, status }) => {
 		if (status !== "idle" || !isTopLevel(agent.session)) return;
-		const current = effectivePluginConfig(entry);
+		const current = currentConfig();
 		if (!current.memoryEnabled) return;
 		// Only the pass's write phase reaches the tracker (`SessionWorkTracker`); the span itself is
 		// observed here so a rejection stays as invisible as it was when the tracker carried it.
@@ -210,7 +219,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 
 	host.on("agent/disposed", ({ agent }) => {
 		if (!isTopLevel(agent.session)) return;
-		const current = effectivePluginConfig(entry);
+		const current = currentConfig();
 		if (!current.memoryEnabled) return;
 		// Silent: the UI may already be rebuilding for a session switch.
 		void consolidateProject(host, current, agent, { force: true, silent: true, track: (work) => pending.track(agent.session, work) }).catch(() => undefined);
@@ -223,7 +232,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 	host.on("session/event", (session, event) => {
 		if (event.type !== "turn/end") return;
 		if (!isTopLevel(session)) return;
-		const current = effectivePluginConfig(entry);
+		const current = currentConfig();
 		if (!current.memoryEnabled) return;
 		void writeTodoSnapshot(host, current, session).catch((error: unknown) => logError(projectCwd(session), "memory", error));
 	});
@@ -236,7 +245,7 @@ export function start(host: HostContext, entry: PluginConfig): void {
 		input: { hint: "status | update | prune [--apply] | reconcile [--accept <id>]" },
 		handler: async ({ agent, rawInput, signal }) => {
 			const verb = (rawInput ?? "").trim().toLowerCase();
-			const config = effectivePluginConfig(entry);
+			const config = currentConfig();
 			// One language for every `/memory` receipt. The resolver is the handoff one, so all four
 			// commands and `/handoff status` agree about the same conversation instead of each deciding
 			// separately (two copies of "enough Chinese" could disagree about one session).

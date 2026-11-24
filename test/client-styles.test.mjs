@@ -51,10 +51,14 @@ test("every control on the card is the platform's own", () => {
 
 test("the card's table is the only place a field is declared", () => {
 	// One table drives the specs, the projection and the rows; a second list of keys is how the three
-	// drift apart (a spec with no row, a row reading another field's state).
-	assert.match(cardCode, /ROWS\.map\(\(row\) => SPEC_BUILDERS\[row\.kind\]\(row\)\)/, "specs must come from the table");
-	assert.match(cardCode, /for \(const row of ROWS\) fields\[row\.key\] = this\.form\.field\(row\.key\)/, "the projection must walk the table");
-	assert.match(cardCode, /SECTIONS\.map\(/, "the rows must come from the table's sections");
+	// drift apart (a spec with no row, a row reading another field's state). Batch AC made the table a
+	// per-card parameter (four cards), so the table is now `this.rows` — the property is unchanged: the
+	// controller never names a key of its own.
+	assert.match(cardCode, /rows\.map\(\(row\) => SPEC_BUILDERS\[row\.kind\]\(row\)\)/, "specs must come from the table");
+	assert.match(cardCode, /for \(const row of this\.rows\) fields\[row\.key\] = this\.form\.field\(row\.key\)/, "the projection must walk the table");
+	assert.match(cardCode, /sections\.map\(/, "the rows must come from the table's sections");
+	// And the component still reads its groups from a table rather than a literal list of keys.
+	assert.match(cardCode, /const sections = props\.sections \?\? SECTIONS;/, "the component's groups come from the table");
 });
 
 test("the card's own stylesheet paints nothing", () => {

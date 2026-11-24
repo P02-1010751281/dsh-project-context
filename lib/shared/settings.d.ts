@@ -15,15 +15,13 @@
  * also means "a live reference, not a remount trigger"; cordis still restarts the entry on a write
  * (`Fiber.update` → `restart`), so the publication below is refreshed by the owner's next `apply`.
  *
- * All four plugins still share that one namespace: the archive plugin publishes the config its entry
- * was applied with, and the other three read it, so one card edit reaches every feature. Without the
- * archive plugin (or before it applies) each plugin falls back to its own entry config.
+ * Batch AC gave each of the four entries its own card, so this module now exports four schemas. The
+ * publisher is still the archive entry: its nine keys are the ones every entry reads, and the other
+ * three overlay them onto their own keys on every read.
  */
 import type { HostContext } from "../host/contract.js";
 import z from "@deepseek-ai/schemastery";
-import { type PluginConfig } from "./config.js";
-/** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */
-export declare const SETTINGS_NAMESPACE: "project-context";
+import { SHARED_KEYS, type PluginConfig } from "./config.js";
 /**
  * Wire schema shown by the web settings card and validated by the host; exported as the owner's `Config`.
  *
@@ -34,11 +32,9 @@ export declare const SETTINGS_NAMESPACE: "project-context";
  * only nameable through schemastery's pnpm-internal path, so exporting the schema would stop compiling
  * (`TS2742`). The mark alone is what the form projection reads.
  */
-export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
+export declare const SharedSettingsSchema: z<Schemastery.ObjectS<{
     archiveEnabled: z<boolean, boolean>;
-    memoryEnabled: z<boolean, boolean>;
-    consolidateTurns: z<number, number>;
-    consolidateIntervalMs: z<number, number>;
+    sessionSettledDays: z<number, number>;
     forceDedupeMs: z<number, number>;
     maxTokens: z<number, number>;
     maxOutputTokens: z<number, number>;
@@ -46,23 +42,10 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     taskMode: z<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: z<string, string>;
     model: z<string, string>;
-    autolearnEnabled: z<boolean, boolean>;
-    autolearnTurns: z<number, number>;
-    autolearnIntervalMs: z<number, number>;
-    autolearnExpireSkills: z<boolean, boolean>;
-    sessionSettledDays: z<number, number>;
-    handoffEnabled: z<boolean, boolean>;
-    handoffThreshold: z<string, string>;
-    handoffBudgetSummaryTokens: z<number, number>;
-    handoffBudgetRecentTokens: z<number, number>;
-    handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
     handoffLang: z<"zh" | "en" | "auto", "zh" | "en" | "auto">;
-    handoffRetireReplaced: z<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     archiveEnabled: z<boolean, boolean>;
-    memoryEnabled: z<boolean, boolean>;
-    consolidateTurns: z<number, number>;
-    consolidateIntervalMs: z<number, number>;
+    sessionSettledDays: z<number, number>;
     forceDedupeMs: z<number, number>;
     maxTokens: z<number, number>;
     maxOutputTokens: z<number, number>;
@@ -70,17 +53,44 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
     taskMode: z<"assisted" | "delegated" | "manual", "assisted" | "delegated" | "manual">;
     provider: z<string, string>;
     model: z<string, string>;
+    handoffLang: z<"zh" | "en" | "auto", "zh" | "en" | "auto">;
+}>>;
+/** The memory entry's own three keys; `Config` in `src/project-memory/index.ts` is this schema. */
+export declare const MemorySettingsSchema: z<Schemastery.ObjectS<{
+    memoryEnabled: z<boolean, boolean>;
+    consolidateTurns: z<number, number>;
+    consolidateIntervalMs: z<number, number>;
+}>, Schemastery.ObjectT<{
+    memoryEnabled: z<boolean, boolean>;
+    consolidateTurns: z<number, number>;
+    consolidateIntervalMs: z<number, number>;
+}>>;
+/** The autolearn entry's own four keys. */
+export declare const AutolearnSettingsSchema: z<Schemastery.ObjectS<{
     autolearnEnabled: z<boolean, boolean>;
+    autolearnExpireSkills: z<boolean, boolean>;
     autolearnTurns: z<number, number>;
     autolearnIntervalMs: z<number, number>;
+}>, Schemastery.ObjectT<{
+    autolearnEnabled: z<boolean, boolean>;
     autolearnExpireSkills: z<boolean, boolean>;
-    sessionSettledDays: z<number, number>;
+    autolearnTurns: z<number, number>;
+    autolearnIntervalMs: z<number, number>;
+}>>;
+/** The handoff entry's own seven keys. */
+export declare const HandoffSettingsSchema: z<Schemastery.ObjectS<{
     handoffEnabled: z<boolean, boolean>;
     handoffThreshold: z<string, string>;
     handoffBudgetSummaryTokens: z<number, number>;
     handoffBudgetRecentTokens: z<number, number>;
     handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
-    handoffLang: z<"zh" | "en" | "auto", "zh" | "en" | "auto">;
+    handoffRetireReplaced: z<boolean, boolean>;
+}>, Schemastery.ObjectT<{
+    handoffEnabled: z<boolean, boolean>;
+    handoffThreshold: z<string, string>;
+    handoffBudgetSummaryTokens: z<number, number>;
+    handoffBudgetRecentTokens: z<number, number>;
+    handoffPendingQuestion: z<"defer" | "wait", "defer" | "wait">;
     handoffRetireReplaced: z<boolean, boolean>;
 }>>;
 /**
@@ -104,5 +114,39 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
  * config does not resolve.
  */
 export declare function publishProjectContextSettings(host: HostContext, entry: PluginConfig): void;
-/** Live effective config: the owner's published value, else the caller's own entry config. */
-export declare function effectivePluginConfig(fallback: PluginConfig): PluginConfig;
+/** The nine keys whose value is shared across entries, owned by the `project-context` entry. */
+export type SharedSettings = Pick<PluginConfig, (typeof SHARED_KEYS)[number]>;
+/** Cut a full config down to the shared nine. */
+export declare function sharedOf(config: PluginConfig): SharedSettings;
+/**
+ * The shared values currently in force.
+ *
+ * Read through the owner's publication on every call, never snapshotted: a volatile-only save is
+ * committed straight into the running fiber's live references and does not restart the entry, so a
+ * snapshot would show the save in the form and leave it inert everywhere else.
+ * @param fallback - the caller's own entry config, used when the owner never applied.
+ * @returns the shared nine, from the owner if it is live.
+ */
+export declare function effectiveSharedSettings(fallback: PluginConfig): SharedSettings;
+/**
+ * Overlay the shared nine onto a feature card's own keys.
+ *
+ * A feature entry's resolver only fills its own keys, so reading a shared key off it would silently read
+ * a default. This is the one way to get the whole config a feature actually runs with.
+ * @param own - the feature card's own resolved config.
+ * @param shared - the shared nine currently in force.
+ * @returns one full config: `shared` for the nine, `own` for everything else.
+ */
+export declare function withShared(own: PluginConfig, shared: SharedSettings): PluginConfig;
+/**
+ * Re-resolve this entry's own config on every read.
+ *
+ * The value `apply` received is a snapshot; a volatile-only settings write never restarts the entry, so
+ * only the fiber's live config shows a later save. Three degradations each return the applied value:
+ * the host has no fiber, it publishes nothing, or what it publishes does not resolve.
+ * @param host - the entry's host façade.
+ * @param fallback - the config this entry was applied with.
+ * @param resolve - this card's resolver.
+ * @returns the config currently in force for this entry.
+ */
+export declare function livePluginConfig(host: HostContext, fallback: PluginConfig, resolve: (raw: unknown) => PluginConfig): PluginConfig;

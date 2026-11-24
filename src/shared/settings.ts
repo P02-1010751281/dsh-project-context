@@ -15,14 +15,14 @@
  * also means "a live reference, not a remount trigger"; cordis still restarts the entry on a write
  * (`Fiber.update` → `restart`), so the publication below is refreshed by the owner's next `apply`.
  *
- * All four plugins still share that one namespace: the archive plugin publishes the config its entry
- * was applied with, and the other three read it, so one card edit reaches every feature. Without the
- * archive plugin (or before it applies) each plugin falls back to its own entry config.
+ * Batch AC gave each of the four entries its own card, so this module now exports four schemas. The
+ * publisher is still the archive entry: its nine keys are the ones every entry reads, and the other
+ * three overlay them onto their own keys on every read.
  */
 
 import type { HostContext } from "../host/contract.js";
 import z from "@deepseek-ai/schemastery";
-import { DEFAULT_CONFIG, resolvePluginConfig, type PluginConfig } from "./config.js";
+import { DEFAULT_CONFIG, SHARED_KEYS, resolveSharedConfig, type PluginConfig } from "./config.js";
 import {
 	MAX_HANDOFF_RECENT_TOKENS,
 	MAX_HANDOFF_SUMMARY_TOKENS,
@@ -31,9 +31,6 @@ import {
 } from "./limits.js";
 import { MAX_MEMORY_CHARS_LIMIT, MIN_MEMORY_CHARS } from "./project-state.js";
 import { formatThresholdSpec } from "./threshold-spec.js";
-
-/** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */
-export const SETTINGS_NAMESPACE = "project-context" as const;
 
 /**
  * Wire schema shown by the web settings card and validated by the host; exported as the owner's `Config`.
@@ -45,11 +42,9 @@ export const SETTINGS_NAMESPACE = "project-context" as const;
  * only nameable through schemastery's pnpm-internal path, so exporting the schema would stop compiling
  * (`TS2742`). The mark alone is what the form projection reads.
  */
-export const PluginSettingsSchema = z.object({
+export const SharedSettingsSchema = z.object({
 	archiveEnabled: z.boolean().default(DEFAULT_CONFIG.archiveEnabled).extra("volatile", true),
-	memoryEnabled: z.boolean().default(DEFAULT_CONFIG.memoryEnabled).extra("volatile", true),
-	consolidateTurns: z.natural().min(1).default(DEFAULT_CONFIG.consolidateTurns).extra("volatile", true),
-	consolidateIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.consolidateIntervalMs).extra("volatile", true),
+	sessionSettledDays: z.natural().min(1).max(365).default(DEFAULT_CONFIG.sessionSettledDays).extra("volatile", true),
 	forceDedupeMs: z.natural().default(DEFAULT_CONFIG.forceDedupeMs).extra("volatile", true),
 	maxTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxTokens).extra("volatile", true),
 	maxOutputTokens: z.natural().min(256).default(DEFAULT_CONFIG.maxOutputTokens).extra("volatile", true),
@@ -57,17 +52,33 @@ export const PluginSettingsSchema = z.object({
 	taskMode: z.union(["assisted", "delegated", "manual"]).default(DEFAULT_CONFIG.taskMode).extra("volatile", true),
 	provider: z.string().default(DEFAULT_CONFIG.provider).extra("volatile", true),
 	model: z.string().default(DEFAULT_CONFIG.model).extra("volatile", true),
+	// Read by every entry through `receiptLanguage`, not just by handoff: it is the explicit language
+	// override for all four command surfaces, so it belongs to the card everyone reads.
+	handoffLang: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLang).extra("volatile", true),
+});
+
+/** The memory entry's own three keys; `Config` in `src/project-memory/index.ts` is this schema. */
+export const MemorySettingsSchema = z.object({
+	memoryEnabled: z.boolean().default(DEFAULT_CONFIG.memoryEnabled).extra("volatile", true),
+	consolidateTurns: z.natural().min(1).default(DEFAULT_CONFIG.consolidateTurns).extra("volatile", true),
+	consolidateIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.consolidateIntervalMs).extra("volatile", true),
+});
+
+/** The autolearn entry's own four keys. */
+export const AutolearnSettingsSchema = z.object({
 	autolearnEnabled: z.boolean().default(DEFAULT_CONFIG.autolearnEnabled).extra("volatile", true),
+	autolearnExpireSkills: z.boolean().default(DEFAULT_CONFIG.autolearnExpireSkills).extra("volatile", true),
 	autolearnTurns: z.natural().min(1).default(DEFAULT_CONFIG.autolearnTurns).extra("volatile", true),
 	autolearnIntervalMs: z.natural().min(1000).default(DEFAULT_CONFIG.autolearnIntervalMs).extra("volatile", true),
-	autolearnExpireSkills: z.boolean().default(DEFAULT_CONFIG.autolearnExpireSkills).extra("volatile", true),
-	sessionSettledDays: z.natural().min(1).max(365).default(DEFAULT_CONFIG.sessionSettledDays).extra("volatile", true),
+});
+
+/** The handoff entry's own seven keys. */
+export const HandoffSettingsSchema = z.object({
 	handoffEnabled: z.boolean().default(DEFAULT_CONFIG.handoffEnabled).extra("volatile", true),
 	handoffThreshold: z.string().default(formatThresholdSpec(DEFAULT_CONFIG.handoffThreshold)).extra("volatile", true),
 	handoffBudgetSummaryTokens: z.natural().min(MIN_HANDOFF_SUMMARY_TOKENS).max(MAX_HANDOFF_SUMMARY_TOKENS).default(DEFAULT_CONFIG.handoffBudgetSummaryTokens).extra("volatile", true),
 	handoffBudgetRecentTokens: z.natural().min(MIN_HANDOFF_RECENT_TOKENS).max(MAX_HANDOFF_RECENT_TOKENS).default(DEFAULT_CONFIG.handoffBudgetRecentTokens).extra("volatile", true),
 	handoffPendingQuestion: z.union(["defer", "wait"]).default(DEFAULT_CONFIG.handoffPendingQuestion).extra("volatile", true),
-	handoffLang: z.union(["auto", "zh", "en"]).default(DEFAULT_CONFIG.handoffLang).extra("volatile", true),
 	handoffRetireReplaced: z.boolean().default(DEFAULT_CONFIG.handoffRetireReplaced).extra("volatile", true),
 });
 
@@ -123,13 +134,90 @@ function readLiveSettings(host: HostContext, entry: PluginConfig): PluginConfig 
 	try {
 		// Resolved on every read, never cached: the host hands each field over as a live reference whose
 		// value changes under the same object, so caching by object identity would freeze a write out.
-		return resolvePluginConfig(resolved);
+		//
+		// Only this card's keys are handed to the resolver: a fiber's config carries every key the entry
+		// declares, and a card resolver rejects a key another card owns, so passing the whole object would
+		// always throw and silently pin every read to the applied default.
+		return { ...DEFAULT_CONFIG, ...resolveSharedConfig(sharedKeysOf(resolved)) };
 	} catch {
 		return entry;
 	}
 }
 
-/** Live effective config: the owner's published value, else the caller's own entry config. */
-export function effectivePluginConfig(fallback: PluginConfig): PluginConfig {
-	return live?.() ?? fallback;
+/**
+ * Narrow a raw config object to the shared nine.
+ *
+ * The publisher's fiber config carries every key the entry declares, and a card resolver rejects a key
+ * it does not own — so the publication must hand over only what it is responsible for.
+ * @param raw - an object as the host exposes it.
+ * @returns an object holding just the shared keys it found.
+ */
+function sharedKeysOf(raw: unknown): Record<string, unknown> {
+	if (typeof raw !== "object" || raw === null) return {};
+	const source = raw as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const key of SHARED_KEYS) if (key in source) out[key] = source[key];
+	return out;
+}
+
+/** The nine keys whose value is shared across entries, owned by the `project-context` entry. */
+export type SharedSettings = Pick<PluginConfig, (typeof SHARED_KEYS)[number]>;
+
+/** Cut a full config down to the shared nine. */
+export function sharedOf(config: PluginConfig): SharedSettings {
+	const out: Partial<SharedSettings> = {};
+	for (const key of SHARED_KEYS) (out as Record<string, unknown>)[key] = config[key];
+	return out as SharedSettings;
+}
+
+/**
+ * The shared values currently in force.
+ *
+ * Read through the owner's publication on every call, never snapshotted: a volatile-only save is
+ * committed straight into the running fiber's live references and does not restart the entry, so a
+ * snapshot would show the save in the form and leave it inert everywhere else.
+ * @param fallback - the caller's own entry config, used when the owner never applied.
+ * @returns the shared nine, from the owner if it is live.
+ */
+export function effectiveSharedSettings(fallback: PluginConfig): SharedSettings {
+	return sharedOf(live?.() ?? fallback);
+}
+
+/**
+ * Overlay the shared nine onto a feature card's own keys.
+ *
+ * A feature entry's resolver only fills its own keys, so reading a shared key off it would silently read
+ * a default. This is the one way to get the whole config a feature actually runs with.
+ * @param own - the feature card's own resolved config.
+ * @param shared - the shared nine currently in force.
+ * @returns one full config: `shared` for the nine, `own` for everything else.
+ */
+export function withShared(own: PluginConfig, shared: SharedSettings): PluginConfig {
+	return { ...own, ...shared };
+}
+
+/**
+ * Re-resolve this entry's own config on every read.
+ *
+ * The value `apply` received is a snapshot; a volatile-only settings write never restarts the entry, so
+ * only the fiber's live config shows a later save. Three degradations each return the applied value:
+ * the host has no fiber, it publishes nothing, or what it publishes does not resolve.
+ * @param host - the entry's host façade.
+ * @param fallback - the config this entry was applied with.
+ * @param resolve - this card's resolver.
+ * @returns the config currently in force for this entry.
+ */
+export function livePluginConfig(host: HostContext, fallback: PluginConfig, resolve: (raw: unknown) => PluginConfig): PluginConfig {
+	let raw: unknown;
+	try {
+		raw = host.settings.current();
+	} catch {
+		return fallback;
+	}
+	if (raw === undefined) return fallback;
+	try {
+		return resolve(raw);
+	} catch {
+		return fallback;
+	}
 }

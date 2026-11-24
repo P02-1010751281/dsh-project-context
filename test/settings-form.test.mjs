@@ -42,58 +42,75 @@ async function loadClientTables() {
 
 const { fields, locales } = await loadClientTables();
 
-test("the card's table covers the host schema exactly once, with copy for every row", async () => {
-	const { PluginSettingsSchema } = await import("../lib/shared/settings.js");
-	const schemaKeys = Object.keys(PluginSettingsSchema({}));
-	assert.ok(schemaKeys.length > 0, "the schema must declare settings fields");
+test("each card's table covers its own host schema exactly once, with copy for every row", async () => {
+	const settings = await import("../lib/shared/settings.js");
 
-	const rows = fields.ROWS;
-	const rowKeys = rows.map((row) => row.key);
-	// Set equality both ways: a field with no row is invisible, and a row with no field writes a
+	// Batch AC split one 23-key schema into four, each owned by an entry. The tables and the schemas
+	// have to agree card by card: a field with no row is invisible, and a row with no field writes a
 	// namespace member the Host does not have.
-	assert.deepEqual([...rowKeys].sort(), [...schemaKeys].sort(), "every schema key needs exactly one row");
-	assert.equal(new Set(rowKeys).size, rowKeys.length, "a key must not appear in two rows");
+	const pairs = [
+		["shared", settings.SharedSettingsSchema],
+		["memory", settings.MemorySettingsSchema],
+		["autolearn", settings.AutolearnSettingsSchema],
+		["handoff", settings.HandoffSettingsSchema],
+	];
 
-	// The table is the only place a row is declared: the sections must partition it, or a row would
-	// render nowhere (the card maps over SECTIONS, not ROWS).
-	assert.deepEqual(
-		fields.SECTIONS.flatMap((section) => section.rows.map((row) => row.key)).sort(),
-		[...rowKeys].sort(),
-		"every row must live in exactly one section",
-	);
+	const seen = new Set();
+	for (const [card, schema] of pairs) {
+		const schemaKeys = Object.keys(schema({}));
+		assert.ok(schemaKeys.length > 0, `${card}: the schema must declare settings fields`);
 
-	for (const row of rows) {
-		assert.ok(["boolean", "number", "text", "union", "threshold"].includes(row.kind), `${row.key} has an unknown kind`);
-		if (row.kind === "union") {
-			assert.ok(Array.isArray(row.options) && row.options.length > 0, `${row.key} is a union without options`);
-			// The row renders one control per option, so drift here loses a value the host still accepts:
-			// the card would offer fewer choices than the schema allows. `card-render.test.mjs` counts
-			// pills from this same table, so the count can never notice — only this comparison can.
-			const declaredOptions = PluginSettingsSchema.dict[row.key].list.map((member) => member.value);
-			assert.deepEqual([...row.options].sort(), [...declaredOptions].sort(), `${row.key}'s options must be the schema's union members`);
-		} else {
-			assert.equal(row.options, undefined, `${row.key} is not a union and must not carry options`);
+		const rows = fields.CARD_ROWS[card];
+		const rowKeys = rows.map((row) => row.key);
+		assert.deepEqual([...rowKeys].sort(), [...schemaKeys].sort(), `${card}: every schema key needs exactly one row`);
+		assert.equal(new Set(rowKeys).size, rowKeys.length, `${card}: a key must not appear in two rows`);
+
+		// A key may only live on one card: two cards writing the same key is the drift this split exists
+		// to prevent, since each entry has its own namespace.
+		for (const key of rowKeys) {
+			assert.equal(seen.has(key), false, `${key} is declared on two cards`);
+			seen.add(key);
 		}
-		// A label or hint key with no entry renders as its raw key name on the card.
-		for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
-			assert.equal(typeof dict[fields.labelKey(row.key)], "string", `${name} is missing ${fields.labelKey(row.key)}`);
-			assert.equal(typeof dict[fields.hintKey(row.key)], "string", `${name} is missing ${fields.hintKey(row.key)}`);
+
+		// The sections must partition the card's rows, or a row renders nowhere.
+		assert.deepEqual(
+			fields.CARD_TABLES[card].flatMap((section) => section.rows.map((row) => row.key)).sort(),
+			[...rowKeys].sort(),
+			`${card}: every row must live in exactly one section`,
+		);
+
+		for (const row of rows) {
+			assert.ok(["boolean", "number", "text", "union", "threshold"].includes(row.kind), `${row.key} has an unknown kind`);
+			if (row.kind === "union") {
+				assert.ok(Array.isArray(row.options) && row.options.length > 0, `${row.key} is a union without options`);
+				const declaredOptions = schema.dict[row.key].list.map((member) => member.value);
+				assert.deepEqual([...row.options].sort(), [...declaredOptions].sort(), `${row.key}'s options must be the schema's union members`);
+			} else {
+				assert.equal(row.options, undefined, `${row.key} is not a union and must not carry options`);
+			}
+			for (const [name, dict] of [["zh", locales.zh], ["en", locales.en]]) {
+				assert.equal(typeof dict[fields.labelKey(row.key)], "string", `${name} is missing ${fields.labelKey(row.key)}`);
+				assert.equal(typeof dict[fields.hintKey(row.key)], "string", `${name} is missing ${fields.hintKey(row.key)}`);
+			}
 		}
 	}
 
-	const sectionKeys = fields.SECTIONS.flatMap((section) => [section.tabKey, section.titleKey, section.descriptionKey]);
-	// One tab per section, and the tabs must cover the panels: a section with no tab is a screen no
-	// reader can reach, which the render test cannot notice because every panel is in the DOM.
-	assert.equal(new Set(fields.SECTIONS.map((section) => section.value)).size, fields.SECTIONS.length, "each section needs its own tab value");
-	for (const dict of [locales.zh, locales.en]) assert.equal(typeof dict["tabs.label"], "string", "the tab list needs an accessible name");
+	// The four cards together are the whole 23-key config: a key dropped from every card is a setting
+	// nobody can reach any more.
+	const { DEFAULT_CONFIG } = await import("../lib/shared/config.js");
+	assert.deepEqual([...seen].sort(), Object.keys(DEFAULT_CONFIG).sort(), "the four cards must cover the config exactly");
+
+	const sectionKeys = Object.values(fields.CARD_TABLES).flatMap((sections) =>
+		sections.flatMap((section) => [section.titleKey, section.descriptionKey]),
+	);
 	for (const key of [...sectionKeys, "card.description", "chrome.overridden", "chrome.reset", "chrome.invalidNumber", "chrome.saveFailed", "chrome.saveFailedRejected", "chrome.saveFailedConflict"]) {
 		for (const dict of [locales.zh, locales.en]) {
 			assert.equal(typeof dict[key], "string", `${key} must exist in both dictionaries`);
 		}
 	}
 
-	// No dead copy: every `field.*` key in the dictionaries belongs to a row of this table.
-	const expected = new Set(rows.flatMap((row) => [fields.labelKey(row.key), fields.hintKey(row.key)]));
+	// No dead copy: every `field.*` key in the dictionaries belongs to a row of some card.
+	const expected = new Set(Object.values(fields.CARD_ROWS).flat().flatMap((row) => [fields.labelKey(row.key), fields.hintKey(row.key)]));
 	const declared = Object.keys(locales.zh).filter((key) => key.startsWith("field."));
 	assert.deepEqual(
 		declared.filter((key) => !expected.has(key)),
@@ -102,19 +119,35 @@ test("the card's table covers the host schema exactly once, with copy for every 
 	);
 });
 
+/** The four card schemas, loaded once: a case that needs bounds or marks reads the owning card's. */
+let SCHEMAS;
+test.before(async () => {
+	const settings = await import("../lib/shared/settings.js");
+	SCHEMAS = {
+		shared: settings.SharedSettingsSchema,
+		memory: settings.MemorySettingsSchema,
+		autolearn: settings.AutolearnSettingsSchema,
+		handoff: settings.HandoffSettingsSchema,
+	};
+});
+
 test("every bounded number row enforces exactly the Host schema's inclusive bounds", async () => {
 	// Derived from the schema object rather than restated, so changing `settings.ts` without the card
 	// turns this red while a change made in the one shared pair moves both sides together.
-	const { PluginSettingsSchema } = await import("../lib/shared/settings.js");
-	const schemaDict = PluginSettingsSchema.dict;
-	const bounded = fields.ROWS.filter((row) => row.kind === "number" && row.bounds !== undefined);
+	// Across all four cards: the bounded rows now live on two of them.
+	const bounded = Object.values(fields.CARD_ROWS).flat().filter((row) => row.kind === "number" && row.bounds !== undefined);
 	assert.deepEqual(
 		bounded.map((row) => row.key).sort(),
 		["handoffBudgetRecentTokens", "handoffBudgetSummaryTokens", "sessionSettledDays"],
 		"the two handoff budget amounts and the archive's day boundary are the rows that carry bounds",
 	);
+	// The bounds must be read from the schema that owns the row, not from one merged schema.
+	const ownerOf = (key) => {
+		for (const [card, rows] of Object.entries(fields.CARD_ROWS)) if (rows.some((row) => row.key === key)) return card;
+		throw new Error(`no card owns ${key}`);
+	};
 	for (const row of bounded) {
-		const meta = schemaDict[row.key].meta;
+		const meta = SCHEMAS[ownerOf(row.key)].dict[row.key].meta;
 		assert.equal(row.bounds.min, meta.min, `${row.key}'s lower bound must be the schema's`);
 		assert.equal(row.bounds.max, meta.max, `${row.key}'s upper bound must be the schema's`);
 		const spec = fields.boundedNumberField(row.key, row.bounds);
@@ -190,23 +223,31 @@ test("a union row accepts only its declared values, and blocks the save on anyth
 	assert.equal(spec.parse("handoffLang"), undefined);
 });
 
-test("the archive entry exports the Config schema the Host projects a settings form from", async () => {
+test("every entry exports the Config schema the Host projects its own card from", async () => {
 	// dsh 0.1.7-rc.2 dropped runtime section registration (`settings.installSection`): the Host reads
 	// the schema off the owning module (`SettingsForms.schema(entry) = entry.fiber.runtime.Config`)
 	// and keys the form by the Loader entry id. So the `project-context` entry only gets a form while
 	// its module exports `Config` — without it the card disappears with no error and no log, which is
 	// the drift that made it invisible on alpha.1/alpha.2 and that this assertion pins.
-	const entry = await import("../lib/project-context/index.js");
-	assert.ok(entry.Config !== undefined, "the archive entry must export the settings schema as Config");
-	assert.equal(typeof entry.Config.toJSON, "function", "Config must be a schemastery schema");
-	const { PluginSettingsSchema, SETTINGS_NAMESPACE } = await import("../lib/shared/settings.js");
-	assert.deepEqual(entry.Config({}), PluginSettingsSchema({}), "the exported schema is the shared settings schema");
-	assert.equal(SETTINGS_NAMESPACE, "project-context", "the form's namespace is the archive entry's Loader id");
+	// Batch AC: four entries, four schemas, four cards. Every entry must export its own `Config` — an
+	// entry without one is served by nobody, and its card silently never appears.
+	const entries = {
+		shared: await import("../lib/project-context/index.js"),
+		memory: await import("../lib/project-memory/index.js"),
+		autolearn: await import("../lib/project-autolearn/index.js"),
+		handoff: await import("../lib/project-handoff/index.js"),
+	};
+	for (const [card, entry] of Object.entries(entries)) {
+		assert.ok(entry.Config !== undefined, `${card}: the entry must export its settings schema as Config`);
+		assert.equal(typeof entry.Config.toJSON, "function", `${card}: Config must be a schemastery schema`);
+		assert.deepEqual(entry.Config({}), SCHEMAS[card]({}), `${card}: the exported schema is that card's schema`);
+	}
 
-	// The browser card binds that same namespace; a private copy drifting from the entry id would
-	// leave the card watching a namespace the Host never serves.
+	// Only the publishing entry keeps the loader id the browser card binds.
+	const { CONTEXT_SETTINGS_NAMESPACE } = await import("../lib/shared/settings-namespaces.js");
+	assert.equal(CONTEXT_SETTINGS_NAMESPACE, "project-context", "the publisher's namespace is its Loader id");
 	const client = await readFile(new URL("../client/index.ts", import.meta.url), "utf8");
-	assert.ok(client.includes(`const NS = "${SETTINGS_NAMESPACE}"`), "the card must bind the namespace the Host serves");
+	assert.ok(client.includes(`const NS = "${CONTEXT_SETTINGS_NAMESPACE}"`), "the card must bind the namespace the Host serves");
 });
 
 test("every settings field carries the volatile mark the Host's form projection requires", async () => {
@@ -216,32 +257,37 @@ test("every settings field carries the volatile mark the Host's form projection 
 	// reaches the client's describe mirror, `whileServed` never fires, and the card disappears with no
 	// error and no log. Measured on dsh 0.1.7-rc.2: without the marks the Host serves 23 namespaces and
 	// not this one; with them it serves 24 including `project-context`.
-	const { PluginSettingsSchema } = await import("../lib/shared/settings.js");
-	const dict = PluginSettingsSchema.dict ?? {};
-	const keys = Object.keys(dict);
-	assert.ok(keys.length > 0, "the schema must declare settings fields");
-	for (const key of keys) {
-		assert.equal(dict[key].meta?.volatile, true, `${key} must be volatile or the Host drops the whole namespace`);
+	for (const [card, schema] of Object.entries(SCHEMAS)) {
+		const dict = schema.dict ?? {};
+		const keys = Object.keys(dict);
+		assert.ok(keys.length > 0, `${card}: the schema must declare settings fields`);
+		for (const key of keys) {
+			assert.equal(dict[key].meta?.volatile, true, `${card}.${key} must be volatile or the Host drops that whole namespace`);
+		}
 	}
 });
 
 test("volatile settings are read through their live references, not snapshotted", async () => {
 	// The mark makes schemastery hand each field over as a live reference (cosmokit's shared protocol,
 	// branded with a global symbol), and the Loader commits a volatile-only settings write straight into
-	// those references (`Entry._commitVolatile`) without restarting the entry. So both halves matter:
-	// the owner must be able to resolve a reference, and every reader must see a later write.
+	// those references (`Entry._commitVolatile`) without restarting the entry. Batch AC split the readers,
+	// so all three paths have to follow a reference: the card resolvers, the publisher's read, and the
+	// feature entry's own live read.
 	const WRITE = Symbol.for("cosmokit.volatile.write");
 	const reference = (value) => {
 		let current = value;
 		return Object.freeze({ get: () => current, [WRITE]: (next) => { current = next; } });
 	};
 
-	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	assert.equal(resolvePluginConfig({ handoffLang: reference("zh") }).handoffLang, "zh");
-	assert.equal(resolvePluginConfig({ archiveEnabled: reference(false) }).archiveEnabled, false);
+	const { resolveSharedConfig, resolveHandoffConfig, resolveMemoryConfig } = await import("../lib/shared/config.js");
+	// `handoffLang` is read by all four entries through `receiptLanguage`, so it is on the shared card.
+	assert.equal(resolveSharedConfig({ handoffLang: reference("zh") }).handoffLang, "zh");
+	assert.equal(resolveSharedConfig({ archiveEnabled: reference(false) }).archiveEnabled, false);
+	assert.equal(resolveHandoffConfig({ handoffThreshold: reference("0.4") }).handoffThreshold.mode, "ratio");
+	assert.equal(resolveMemoryConfig({ consolidateTurns: reference(9) }).consolidateTurns, 9);
 
-	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
-	const fiberConfig = { archiveEnabled: reference(true), handoffBudgetSummaryTokens: reference(64_000) };
+	const { effectiveSharedSettings, livePluginConfig, publishProjectContextSettings, withShared } = await import("../lib/shared/settings.js");
+	const fiberConfig = { archiveEnabled: reference(true), maxTokens: reference(8192) };
 	let release;
 	// The adapter's façade shape: `settings.current()` reads the fiber config on every call, and
 	// `onDispose` registers the cleanup this test triggers by hand.
@@ -249,16 +295,29 @@ test("volatile settings are read through their live references, not snapshotted"
 		settings: { current: () => fiberConfig },
 		onDispose: (cleanup) => { release = cleanup; },
 	};
-	publishProjectContextSettings(host, resolvePluginConfig({}));
-	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true);
+	publishProjectContextSettings(host, resolveSharedConfig({}));
+	assert.equal(effectiveSharedSettings(resolveSharedConfig({})).archiveEnabled, true);
 	fiberConfig.archiveEnabled[WRITE](false);
 	assert.equal(
-		effectivePluginConfig(resolvePluginConfig({})).archiveEnabled,
+		effectiveSharedSettings(resolveSharedConfig({})).archiveEnabled,
 		false,
-		"a volatile write must reach the other plugins without a remount",
+		"a volatile write must reach the other entries without a remount",
 	);
+
+	// The feature entry's own read follows a live reference the same way.
+	const ownFiber = { consolidateTurns: reference(11) };
+	const ownHost = { settings: { current: () => ownFiber } };
+	const applied = resolveMemoryConfig({});
+	assert.equal(livePluginConfig(ownHost, applied, resolveMemoryConfig).consolidateTurns, 11);
+	ownFiber.consolidateTurns[WRITE](12);
+	assert.equal(
+		withShared(livePluginConfig(ownHost, applied, resolveMemoryConfig), effectiveSharedSettings(applied)).consolidateTurns,
+		12,
+		"and a later write is visible without re-applying",
+	);
+
 	release?.();
-	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true, "releasing restores the caller's own config");
+	assert.equal(effectiveSharedSettings(resolveSharedConfig({})).archiveEnabled, true, "releasing restores the caller's own config");
 });
 
 test("the save-failure copy does not promise a retry that cannot work", () => {
@@ -302,24 +361,22 @@ test("the hint states the range the host enforces and the default it re-inherits
 	}
 });
 
-test("the settings port is read on every call, never captured at apply", async () => {
+test("the shared value is read on every call, never captured at apply", async () => {
 	// The publication is a reader, not a snapshot (see `publishProjectContextSettings`): a volatile-only
 	// save never restarts the entry, so a value captured when the port was built would leave the card's
 	// writes visible in the form and inert everywhere else.
-	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+	const { resolveSharedConfig } = await import("../lib/shared/config.js");
+	const { effectiveSharedSettings, publishProjectContextSettings } = await import("../lib/shared/settings.js");
 
-	let current = resolvePluginConfig({ handoffBudgetSummaryTokens: 8_000 });
+	let current = resolveSharedConfig({ maxTokens: 8_000 });
 	publishProjectContextSettings(
 		{ settings: { current: () => current }, onDispose: () => undefined },
-		resolvePluginConfig({}),
+		resolveSharedConfig({}),
 	);
-	const own = resolvePluginConfig({ maxTokens: 1_024 });
-
-	assert.equal(effectivePluginConfig(own).handoffBudgetSummaryTokens, 8_000, "the first read sees the published value");
-	current = resolvePluginConfig({ handoffBudgetSummaryTokens: 120_000 });
+	assert.equal(effectiveSharedSettings(resolveSharedConfig({})).maxTokens, 8_000, "the first read sees the published value");
+	current = resolveSharedConfig({ maxTokens: 120_000 });
 	assert.equal(
-		effectivePluginConfig(own).handoffBudgetSummaryTokens,
+		effectiveSharedSettings(resolveSharedConfig({})).maxTokens,
 		120_000,
 		"a later read must see the new value, so the port cannot be snapshotted at apply time",
 	);
@@ -329,20 +386,19 @@ test("an unreadable settings port falls back to the entry config instead of fail
 	// Two degradations the adapter can produce, both must be silent: the host may not expose settings at
 	// all (`undefined`), or its reader may throw. Each caller is an event handler, so an exception here
 	// would take down a turn rather than a settings read.
-	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
-	const own = resolvePluginConfig({ maxTokens: 1_024 });
+	const { resolveSharedConfig } = await import("../lib/shared/config.js");
+	const { effectiveSharedSettings, publishProjectContextSettings } = await import("../lib/shared/settings.js");
 	const releases = [];
 	t.after(() => { for (const release of releases) release(); });
 
-	// The fallback is the publisher's entry config, not the caller's: `live()` returns the value the
-	// namespace-owning entry was applied with, exactly as it did before this port existed.
-	const published = resolvePluginConfig({});
+	// The fallback is the publisher's entry config, not the caller's: the publication returns the value
+	// the namespace-owning entry was applied with.
+	const published = resolveSharedConfig({});
 	publishProjectContextSettings(
 		{ settings: { current: () => undefined }, onDispose: (cleanup) => { releases.push(cleanup); } },
 		published,
 	);
-	assert.equal(effectivePluginConfig(own).maxTokens, published.maxTokens, "a port that publishes nothing leaves the publisher's entry config");
+	assert.equal(effectiveSharedSettings(resolveSharedConfig({ maxTokens: 1_024 })).maxTokens, published.maxTokens, "a port that publishes nothing leaves the publisher's entry config");
 
 	publishProjectContextSettings(
 		{
@@ -353,21 +409,20 @@ test("an unreadable settings port falls back to the entry config instead of fail
 			},
 			onDispose: (cleanup) => { releases.push(cleanup); },
 		},
-		resolvePluginConfig({}),
+		resolveSharedConfig({}),
 	);
-	assert.equal(effectivePluginConfig(own).maxTokens, published.maxTokens, "a throwing port leaves the publisher's entry config");
+	assert.equal(effectiveSharedSettings(resolveSharedConfig({ maxTokens: 1_024 })).maxTokens, published.maxTokens, "a throwing port leaves the publisher's entry config");
 });
 
 test("a config the port publishes in the wrong shape also falls back, never half-applied", async (t) => {
-	// `resolvePluginConfig` rejects an unknown or malformed key; the reader must treat that as "unreadable"
+	// The card resolver rejects an unknown or malformed key; the reader must treat that as "unreadable"
 	// rather than surfacing a partial config built from whichever fields happened to parse.
-	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
-	const own = resolvePluginConfig({ maxTokens: 1_024 });
+	const { resolveSharedConfig } = await import("../lib/shared/config.js");
+	const { effectiveSharedSettings, publishProjectContextSettings } = await import("../lib/shared/settings.js");
 	const releases = [];
 	t.after(() => { for (const release of releases) release(); });
 
-	const published = resolvePluginConfig({});
+	const published = resolveSharedConfig({});
 	publishProjectContextSettings(
 		{
 			settings: { current: () => ({ maxMemoryChars: "not a number" }) },
@@ -375,28 +430,29 @@ test("a config the port publishes in the wrong shape also falls back, never half
 		},
 		published,
 	);
-	assert.equal(effectivePluginConfig(own).maxTokens, published.maxTokens, "a malformed published config falls back whole");
-	assert.equal(effectivePluginConfig(own).maxMemoryChars, published.maxMemoryChars, "no field is taken from the rejected shape");
+	assert.equal(effectiveSharedSettings(resolveSharedConfig({ maxTokens: 1_024 })).maxTokens, published.maxTokens, "a malformed published config falls back whole");
 });
 
 test("only the newest publication releases the shared value", async () => {
-	// A config change restarts the entry, and the Loader builds the new fiber before disposing the old
-	// one, so the old cleanup runs while the new publication is already live. Releasing on that cleanup
-	// would drop every plugin back to its own entry config until the next write.
-	const { resolvePluginConfig } = await import("../lib/shared/config.js");
-	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
-	const cleanups = [];
-	const hostFor = (value) => ({
-		settings: { current: () => value },
-		onDispose: (cleanup) => { cleanups.push(cleanup); },
+	// A config change that restarts the entry builds the new fiber before disposing the old one, so the
+	// stale fiber's cleanup must not clear a newer publication.
+	const { resolveSharedConfig } = await import("../lib/shared/config.js");
+	const { effectiveSharedSettings, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+	const releases = [];
+	const host = (config) => ({
+		settings: { current: () => config },
+		onDispose: (cleanup) => { releases.push(cleanup); },
 	});
-	const own = resolvePluginConfig({ maxTokens: 1_024 });
 
-	publishProjectContextSettings(hostFor(resolvePluginConfig({ maxTokens: 4_096 })), resolvePluginConfig({}));
-	publishProjectContextSettings(hostFor(resolvePluginConfig({ maxTokens: 2_048 })), resolvePluginConfig({}));
-	cleanups[0]();
-	assert.equal(effectivePluginConfig(own).maxTokens, 2_048, "the stale fiber's cleanup must not release the newer publication");
-
-	cleanups[1]();
-	assert.equal(effectivePluginConfig(own).maxTokens, 1_024, "the owning fiber's cleanup restores the caller's own config");
+	const first = resolveSharedConfig({ maxTokens: 8_000 });
+	const second = resolveSharedConfig({ maxTokens: 16_000 });
+	const own = resolveSharedConfig({ maxTokens: 1_024 });
+	publishProjectContextSettings(host(first), first);
+	assert.equal(effectiveSharedSettings(own).maxTokens, 8_000);
+	publishProjectContextSettings(host(second), second);
+	assert.equal(effectiveSharedSettings(own).maxTokens, 16_000, "a reload republishes");
+	releases[0]();
+	assert.equal(effectiveSharedSettings(own).maxTokens, 16_000, "a stale fiber must not release a newer publication");
+	releases[1]();
+	assert.equal(effectiveSharedSettings(own).maxTokens, 1_024, "the owner's cleanup restores each plugin's own entry config");
 });

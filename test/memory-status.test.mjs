@@ -25,7 +25,7 @@ import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { apply as applyMemory, memoryStatusReply } from "../lib/project-memory/index.js";
+import { apply as applyMemoryEntry, memoryStatusReply } from "../lib/project-memory/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { loadMemory } from "../lib/project-memory/load.js";
 import { memoryJournalFile } from "../lib/project-memory/journal.js";
@@ -53,6 +53,10 @@ async function status(root, cap = CAP) {
 	const reply = await memoryStatusReply(memory, { projectRoot: root, journal: memoryJournalFile(root), maxMemoryChars: cap });
 	return { memory, reply };
 }
+
+import { cardApplied } from "./card-config.mjs";
+
+const applyMemory = cardApplied(applyMemoryEntry, "memory");
 
 test("an empty project says none yet, and every count is a measured zero rather than a guess", async () => {
 	const root = await freshProject();

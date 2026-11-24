@@ -42,10 +42,10 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { apply as applyAutolearn } from "../lib/project-autolearn/index.js";
-import { apply as applyContext } from "../lib/project-context/index.js";
-import { apply as applyHandoff } from "../lib/project-handoff/index.js";
-import { apply as applyMemory, consolidateProject } from "../lib/project-memory/index.js";
+import { apply as applyAutolearnEntry } from "../lib/project-autolearn/index.js";
+import { apply as applyContextEntry } from "../lib/project-context/index.js";
+import { apply as applyHandoffEntry } from "../lib/project-handoff/index.js";
+import { apply as applyMemoryEntry, consolidateProject } from "../lib/project-memory/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 import { contextFile, logsDir, memoryFile, sessionIndexFile } from "../lib/shared/project-state.js";
 import { portsOf } from "./host-ports.mjs";
@@ -232,6 +232,7 @@ async function handoffCreates(origin) {
 	agent.session.deriveMessages = () => conversation;
 	agent.session.snapshotEvents = () => own;
 	agent.session.ownEvents = () => own;
+	publishSharedFor({ provider: "test-provider", model: "test-model" });
 	applyHandoff(
 		{
 			get: () => undefined,
@@ -272,6 +273,13 @@ async function handoffCreates(origin) {
 	assert.equal(modelCalls, 0, "the handoff must not call a model");
 	return created.length;
 }
+
+import { cardApplied, publishSharedFor } from "./card-config.mjs";
+
+const applyAutolearn = cardApplied(applyAutolearnEntry, "autolearn");
+const applyContext = cardApplied(applyContextEntry, "shared");
+const applyHandoff = cardApplied(applyHandoffEntry, "handoff");
+const applyMemory = cardApplied(applyMemoryEntry, "memory");
 
 test("project-memory: a delegated session runs no consolidation on either lifecycle event", async () => {
 	for (const event of ["agent/status", "agent/disposed"]) {

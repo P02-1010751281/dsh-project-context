@@ -23,7 +23,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { apply as applyMemory } from "../lib/project-memory/index.js";
+import { apply as applyMemoryEntry } from "../lib/project-memory/index.js";
 import { resolvePluginConfig } from "../lib/shared/config.js";
 
 /** Apply the memory plugin to a minimal host whose `systemPrompt.context` records its registrations. */
@@ -44,6 +44,10 @@ function registrations() {
 	);
 	return seen;
 }
+
+import { cardApplied } from "./card-config.mjs";
+
+const applyMemory = cardApplied(applyMemoryEntry, "memory");
 
 test("both injected documents opt out of prompt interpolation", () => {
 	const seen = registrations();

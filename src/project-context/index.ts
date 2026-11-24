@@ -13,19 +13,20 @@
 
 import type { Context } from "../host/contract.js";
 import { hostContextOf } from "../host/dsh/host-context.js";
-import { resolvePluginConfig } from "../shared/config.js";
-import { PluginSettingsSchema, publishProjectContextSettings } from "../shared/settings.js";
+import { resolveSharedConfig } from "../shared/config.js";
+import { SharedSettingsSchema, publishProjectContextSettings } from "../shared/settings.js";
 import { start } from "./start.js";
 
 export const name = "project-context";
 export const inject = ["commands"];
 
 /**
- * The settings schema the Host projects into the Plugins page, and the one namespace all four
- * plugins share: the entry id below (`project-context`) is what the web card edits, and
- * {@link publishProjectContextSettings} republishes the value this entry was applied with.
+ * The shared/archive card: nine keys read by every entry (archive, budgets, `taskMode`, the auxiliary
+ * route). Each of the other three entries exports its own narrow schema, so this is one of four cards,
+ * not the only one — but it is still the one that publishes, because its nine keys are what the other
+ * three overlay onto their own.
  */
-export const Config = PluginSettingsSchema;
+export const Config = SharedSettingsSchema;
 
 /**
  * The cordis entry: resolve the config, publish the shared settings namespace, adapt the context to
@@ -33,7 +34,7 @@ export const Config = PluginSettingsSchema;
  * that names the framework.
  */
 export function apply(ctx: Context, rawConfig: unknown): void {
-	const entry = resolvePluginConfig(rawConfig);
+	const entry = resolveSharedConfig(rawConfig);
 	const host = hostContextOf(ctx);
 	// Publication precedes `start`: the core's first read of the shared settings must already see the
 	// live reader, not only the config this entry was applied with.

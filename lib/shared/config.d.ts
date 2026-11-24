@@ -82,3 +82,23 @@ export interface PluginConfig {
 export declare const DEFAULT_CONFIG: PluginConfig;
 /** Validate one raw cordis config object and apply defaults. Throws on unknown keys or bad types. */
 export declare function resolvePluginConfig(raw: unknown): PluginConfig;
+/**
+ * The four settings cards' key sets, one per owning entry.
+ *
+ * Each entry exports its own `Config` schema, so the Host projects one form per entry and a save lands in
+ * that entry's own fiber. A resolver therefore accepts only its own keys: a key that belongs to another
+ * card is a mistake to name loudly (with the card it belongs to), not to ignore — silently accepting it
+ * would make a mis-placed profile line look applied while nothing reads it.
+ */
+export declare const SHARED_KEYS: readonly ["archiveEnabled", "sessionSettledDays", "forceDedupeMs", "maxTokens", "maxOutputTokens", "maxMemoryChars", "taskMode", "provider", "model", "handoffLang"];
+export declare const MEMORY_KEYS: readonly ["memoryEnabled", "consolidateTurns", "consolidateIntervalMs"];
+export declare const AUTOLEARN_KEYS: readonly ["autolearnEnabled", "autolearnExpireSkills", "autolearnTurns", "autolearnIntervalMs"];
+export declare const HANDOFF_KEYS: readonly ["handoffEnabled", "handoffThreshold", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens", "handoffPendingQuestion", "handoffRetireReplaced"];
+/** The shared/archive card's nine keys. Also the only resolver that enforces the provider/model pairing. */
+export declare function resolveSharedConfig(raw: unknown): PluginConfig;
+/** The memory card's three keys. */
+export declare function resolveMemoryConfig(raw: unknown): PluginConfig;
+/** The skills card's four keys. */
+export declare function resolveAutolearnConfig(raw: unknown): PluginConfig;
+/** The handoff card's seven keys. */
+export declare function resolveHandoffConfig(raw: unknown): PluginConfig;
