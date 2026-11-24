@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildContextInjection, buildMemoryInjection, CONTEXT_INJECTION, MEMORY_INJECTION, renderProgressiveBody } from "../lib/project-memory/injection.js";
+import { buildContextInjection, buildMemoryInjection, CONTEXT_INJECTION, documentHeadings, MEMORY_INJECTION, renderProgressiveBody } from "../lib/project-memory/injection.js";
 import { detectDocumentLanguage } from "../lib/shared/language.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -124,6 +124,21 @@ test("a heading name quoted inside a kept section is not counted as a pointer", 
 	assert.equal(pointerCount(out, "Index"), 1, "the prose mention is not a second pointer");
 });
 
+test("documentHeadings sees the renderer's sections, not a fence-blind regex", () => {
+	// The discriminator the real-document case depends on: a `## …` line inside a fenced example is
+	// content to the renderer, so it must not be reported as a section either. A regex scan reports
+	// it, and when that fence sits in an *indexed* section the section is replaced by its pointer
+	// line — the "heading" then looks uncovered even though the render is correct.
+	const fenced = ["# Title", "", "## Project", "- a fact", "", "```", "## Example Heading", "demo", "```", "", "## Invariants", "- a rule", ""].join("\n");
+	assert.deepEqual(documentHeadings(fenced), ["Project", "Invariants"], "a heading inside a fence is not a section");
+	assert.equal([...fenced.matchAll(/^## (.+)$/gm)].length, 3, "the fence-blind regex disagrees, which is why the case above matters");
+	// The real shape: the fence lives in the indexed section, so the regex-scanned heading belongs to
+	// no rendered section at all.
+	const rendered = renderProgressiveBody(fenced, spec, "en", "/root");
+	assert.ok(!rendered.includes("## Example Heading"), "the indexed section took its fenced example with it");
+	assert.ok(rendered.includes("- a rule"), "the kept section still renders");
+});
+
 test("the real tracked documents keep every heading", () => {
 	// Content-independence matters here: this is the only case that reads the *tracked* documents,
 	// and another session's memory pass may rewrite them between runs. So the expectation is derived
@@ -131,6 +146,16 @@ test("the real tracked documents keep every heading", () => {
 	// that a rewrite may legitimately change — and a pointer is counted by its *label* (unique per
 	// heading) rather than by the `` `## <heading>` `` prefix, which a memory bullet describing this
 	// very mechanism can quote at line start.
+	//
+	// The headings come from the renderer's own fence-aware scan, never from `/^## (.+)$/gm`: a
+	// fenced example inside an *indexed* section is content, and that section is replaced by its
+	// pointer line, so a regex-scanned heading there is asked about a section the document does not
+	// have — a correct render read as a failure.
+	//
+	// Deriving the expectation from the same scan makes this case blind to a scan that *under-reports*
+	// (that is why the case below, not this one, pins the scan rule); what this case still pins is the
+	// property the documents actually care about: no section the document carries is dropped from the
+	// render, and none is both inline and pointed at.
 	for (const [file, injection, build] of [
 		["MEMORY.md", MEMORY_INJECTION, buildMemoryInjection],
 		["CONTEXT.md", CONTEXT_INJECTION, buildContextInjection],
@@ -139,7 +164,7 @@ test("the real tracked documents keep every heading", () => {
 		const language = detectDocumentLanguage([text]);
 		const rendered = build(text, repoRoot);
 		const headingLines = rendered.split("\n");
-		const headings = [...text.matchAll(/^## (.+)$/gm)].map((match) => match[1].trim());
+		const headings = documentHeadings(text);
 		assert.ok(headings.length > 0, `${file}: the document carries no sections at all`);
 		for (const heading of new Set(headings)) {
 			const inline = headingLines.includes(`## ${heading}`);

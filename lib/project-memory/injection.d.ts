@@ -32,6 +32,17 @@ interface InjectionSpec {
     readonly path: string;
 }
 /**
+ * The level-two headings a rendered document actually carries, in document order.
+ *
+ * Exported so a test can derive its expectation from the same scan the renderer uses: a fence-blind
+ * `/^## (.+)$/gm` reports a heading inside a fenced example, and the renderer — correctly — treats it
+ * as content, so a test that scans by regex asks about a section that does not exist and turns a
+ * correct render red. One rule, two readers.
+ * @param text - a rendered document.
+ * @returns each `## <heading>` outside a fenced block, duplicates preserved in order.
+ */
+export declare function documentHeadings(text: string): string[];
+/**
  * The body for one injected document: the preamble and every document-level note stay inline, the
  * kept sections follow in document order, and the sections with a pointer are reduced to one line
  * each. `root` is where the pointer path resolves when the caller knows the project root, because

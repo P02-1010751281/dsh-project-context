@@ -10,6 +10,26 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**injection-heading-scan（真实文档用例改读渲染器自己的标题扫描，2026-11-24）**
+
+- `test/context-injection.test.mjs` 的 `the real tracked documents keep every heading` 改用
+  `documentHeadings`（`src/project-memory/injection.ts` 新增导出，返回 `scanDocument` 认出的 `##` 标题）
+  ——此前用无视代码围栏的 `/^## (.+)$/gm`，而围栏内的 `## …` 在渲染器里是内容；当这段围栏落在被索引的
+  段落（Project / Index）里，该段被指针行整体替换，正则扫出的标题就指向一个不存在的段落，正确渲染被读成失败。
+- 新增用例 `documentHeadings sees the renderer's sections, not a fence-blind regex`：合成文档里让围栏落在
+  被索引段落，断言 `documentHeadings` 不报它、渲染结果里也没有它。
+- 分工写进注释：真实文档用例只钉「文档带的段落一个都不丢、也不既行内又指针化」，扫描规则由合成用例钉
+  ——期望从同一个扫描派生，对「少报」天然盲（变异 M3 只红合成用例，如实记录、不当作已覆盖）。
+- 同批三条既有噪声成因排查结论（此前记为「无定论」）：插件写文档走 `writeAtomic`（`src/shared/files.ts`）先写
+  临时文件再 `rename`，`readFileSync` 拿不到半截；`renderMemoryDocument` 恒输出四个标题，所以「文档缺
+  Project/Index 致渲染器提前返回」不可达；归档日志里真实的失败签名全部早于 `1c51298`，且该提交前后的断言
+  对同一触发形状给出相反结果（负控制：改前 FAIL、HEAD PASS）。
+- 变异 3 个，先编译进 `lib/` 再判红，各自只红目标用例：M1（`documentHeadings` 退回正则）、
+  M2（闭合围栏永不识别）、M3（丢掉最后一段）。从 `/tmp/ci-mut/injection.ts.good` 还原，
+  `grep -rn "MUTANT|slice(0, -1)|matchAll(/^## )" src/` 0 命中。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 126 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
+  `pnpm test` 832/832、`pnpm build` 两次哈希同为 `3b2b1be3…`（253 个 `lib/` 文件）。
+
 **settings-port（设置发布从 `fiber.config` 解耦成宿主端口，2026-11-24）**
 
 - 新增 `SettingsPort`（`src/host/contract.ts` 的 `current(): unknown`），挂在 `HostContext` 上而不是
