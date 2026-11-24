@@ -1,57 +1,31 @@
 # Project Context
 
-Last updated: 2026-11-23T11:24:16.593Z
+Last updated: 2026-11-24T12:45:44.233Z
 
 ## Summary
 
-本会话从 session-dec39c6d 续接（handoff-seed fd2d75ac51e2），上一轮把八项残余收口到 `f46c801`。 本轮用户答「all」，于是把四条并列路线一次推进：先补掉 SH-10 最后一个未证点的**运行期**半边 （`.agents/evidence/2026-11-24-sh10-runtime-reachability/`），确认能经 `agentPresets.serviceFor(agent,"compaction")` 拿到真引擎、根域 `root.get("compaction")` 是 `undefined`、样本 agent 处于 `running`；顺带发现并实测一条门禁盲区——`src/shared/settings.ts:24` 值依赖 `../host/dsh/lifecycle.js`，而 `check-boundary.mjs` 只查反方向，把路径改错后门禁仍 `0 failure(s)`、只有 `tsc` 报错。据此写出接第二宿主 2c-1 的规格 `docs/host-context-2c1-settings-port-spec.md`（`SettingsPort` + 补门禁 + 正负控制），并把 `docs/batch-ac-settings-split-spec.md` §8.1 漏掉的第 6 个拍板点（是否移除 `SegmentedTabs`）补上， 使待裁决项由 5 条回到文档索引声称的 6 条。宿主已于 14:31:40 重启，晚于最后一次 `src/` 提交 （20:42 前一日），驻留模块与磁盘一致；归档不变量 221 = 221 仍对齐。 本轮（用户第二次答 all）把 2c-1 落地：SettingsPort 挂到 HostContext、settings.ts 改走 host.settings.current() 与 host.onDispose、门禁新增「src/shared/ 不得值依赖 ../host/<harness>/」并先用既有违规边做正控制（改前 1 failure、改后 0），4 条新用例与 3 个有效变异（M1 行为等价已作废）；随后在 /tmp 探针 agent 上跑通 SH-10 成功路径（mount preset 后 serviceFor 给真引擎、空闲时 compactNow 返回 null 不抛错不写事件、对 running 会话同步抛 busy、未 mount 的新 agent serviceFor 是 undefined）；设置拆分六点已裁定并记下 §8.4 的协调切换约束。两个 profile 的 pin 已抬到 c25240b，各 253 文件 0 mismatch。
+本会话从 session-278cee57 续接，Batch AC 设置拆分已全部落地并推送。代码：一份 23 键 schema 拆成四份（共用 10 / 记忆 3 / 技能 4 / 交接 6），四个入口各自 `export const Config`，删掉 `effectivePluginConfig`，读取改成 `withShared(livePluginConfig(...), effectiveSharedSettings(...))` 每次现读；`resolveTarget` 仍从 `currentConfig()` 取路由，所以交接不受拆分影响。落地时两处修正：`handoffLang` 从交接卡移到共用卡（`receiptLanguage` 被四个入口读，规格映射漏了）；发布值必须先窄化到共用键再解析，否则整份 fiber config 被拒并静默回退默认值。客户端：四套行表、移除 `SegmentedTabs`、控制器与组件都接受传入的行表，一个组件服务四个入口。测试：新增 `test/card-config.mjs`（`cardConfig` / `publishSharedFor` / `cardApplied`），16 个套件改为按卡片喂 `apply()`。门禁全绿：typecheck 0、boundary 127 文件 0 失败、docs 138 项 0 失败、test 832/832、build 可复现 `202e467d`（255 个 lib 文件）。提交 `fc414cf`（feat）+ `8cf7af5`（SH-10 证据），已推送，HEAD = origin/main。profile：两个 profile 的 `cordis.patch.yml` 已把错卡键迁到各自条目（备份 `.bak-20261124-2055-settingssplit`），pin 抬到 `8cf7af5`（备份 `package.json.bak-20261124-2100-settingssplit`），装好并与提交逐文件 sha256 比对 255/255 一致、旧 sha 残留 0。等用户重启 desktop 宿主：重启后四张卡应都出现，且 `maxMemoryChars: 54000` 才生效。
 
 ## Key points
 
-- 2c-1（`210f909` 代码 + `00d9070` 文档）：`SettingsPort.current(): unknown` 挂在 **`HostContext`**（不是 `HostPorts`）；`host-context.ts` 用 `(ctx as { fiber?: { config?: unknown } }).fiber?.config` 实现、每次调用读；`readLiveSettings` 三级降级（抛错 / undefined / 形状解不出）都回退到**发布方**的 entry config。
-- 门禁判据只禁 `../host/<harness>/`，**不能一刀切禁 `../host/`**：`src/shared/` 有 6 处对 `contract.js` 的合法值导入。正控制用改动前的 `settings.ts:24` 实测（`1 failure(s)`、rc=1）。
-- 解析**不能缓存**：按 raw 对象记忆化会被 `volatile settings are read through their live references, not snapshotted` 打红（volatile 是同一对象上的活引用）；因此发布值只可按值比较，原用例的 `assert.equal` 已改成 `deepEqual`。
-- SH-10 成功路径（`c25240b`）：`agents.create({ meta: { agentPreset: "standard" } })` **只记名字、不建挂载**，`serviceFor` 仍是 `undefined`；必须显式 `presets.mount(agent.ctx, "standard")`。空闲 agent 上 `compactNow` 返回 `null`（无安全区间）、不抛错不写事件；对 `running` 的活会话同步抛 `ManualCompactionError` / `code:"busy"`。
-- 设置拆分六点裁定在 spec §8.3（四份 schema、共用卡留 bundle 页、做 provider/model 成对、`maxMemoryChars` 归共用卡、本仓 agent 执行、同批移除 `SegmentedTabs`）；§8.4 记明必须与两个 profile 的 patch + 重启一次协调切换，中间态会让三个插件静默退回 `DEFAULT_CONFIG`。
-- 两个 profile 的 pin 现为 `c25240b`（store pnpm 11.27.0），各 253 文件与 `git show c25240b:lib/…` 逐字节 0 mismatch；**重启后**才加载 2c-1。
-- 本轮运行期取证（`2026-11-24`）：宿主 pid 5876 启动 `14:31:40`，store `0.2.2-rc.5`，Inspector `9230`；`prompt.js` / `reply.js` / `consolidate.js` / `autolearn/reasons.js` 四个模块驻留 sha256 与磁盘逐字节相同（`consolidate-types.js` 未被该 isolate 解析，属正常），`git show 4fbb972:lib/…` 是它们共同的来源。
-- Inspector 的 `Runtime.evaluate` 落在 `dsh-desktop-host` 主 realm，**那里没有 cordis 根**（139 个全局无 `loader`/`ctx`，符号键只有 cost-meter、mounted-plugins 空表等）。可达入口是 `globalThis[Symbol.for("dsh.inspector.realm-object-registries")]` → `RealmObjectRegistry.retained` 里 `keys` 含 `root`/`registry`/`events` 的那个对象。
-- SH-10 运行期读数：`root.get("compaction")` 与 `root.get("commandCompact")` 均 `undefined`（宿主平面被 web-app patch 关掉），`root.get("agentPresets").serviceFor(agent,"compaction")` 返回 `engine(function)`；样本 agent `status = running` 且 `whenIdle`/`runMaintenance` 都在。**未调用 `compactNow`**，所以 `compaction-vs-handoff.md` §9 的重开条件 3 仍不满足。
-- 门禁盲区（已实测）：`check-boundary.mjs` 只实现「`src/host/` 不得依赖 core/shared」，没有反向的「`src/shared/` 不得依赖 `../host/dsh/`」。把 `settings.ts:24` 指向不存在的模块后，门禁仍印 `boundary check: 126 source file(s), 0 failure(s)`，只有 `tsc` 以 `TS2307` 报红——拦住它的是类型解析，不是分层规则。新判据不能一刀切禁 `../host/`：`src/shared/` 对 `contract.js` 有 6 处值导入，是合法的中立依赖。
-- `docs/batch-ac-settings-split-spec.md` 的拍板项实为 6 条而 §8.1 只列 5 条，第 6 条（移除 `SegmentedTabs`，见 §2.6）藏在正文里，`docs/README.md` 的「6 个待拍板点」才是对的；已补进 §8.1 并写明代价（同批改掉现有卡片外观与 `test/card-render.test.mjs` 断言）。
-- 交接来源 session-a8e77e7b-383b-468f-9b36-0ba80ea15a5b，handoff-seed c6171818bd85。
-- 行内数据批次：`820583e`（feat）+ `dffc437`（CHANGELOG 登记）；术语修复 `2627aca`（fix(receipts): name the task row and the tree annotation the way the glossary does）+ 术语表登记 `f1102ba`（docs(rules): register the five state vocabularies in the glossary）。`HEAD` = `origin/main` = `f1102ba`。
-- 行内词汇落点：`src/project-memory/entry-state.ts`（`ENTRY_STATE_LABEL`、`entryStateOf(tid, facts, language)`）、`prune.ts`（`PRUNE_REASON_LABEL`）、`report.ts`（`--accept` 两支）、`src/project-context/task-usage.ts`（`TASK_STATUS_LABEL` / `taskUsageRow`）、`search.ts`、`session-tree.ts`、`src/project-autolearn/evidence.ts`、`src/project-handoff/command.ts`。
-- 刻意保留英文：整理 pass 的提示词、`purge.log` 的机器拼写（数据不是回执）；构建器的 `language` 参数仍默认 `en`，语言在处理器里解析一次。
-- 新增用例 4 条（`test/receipt-layout.test.mjs`，各带英文对照）：条目状态词、prune 原因与任务行、find 与会话树计数、autolearn 证据与冲突句；另给中文 handoff 用例补 `固定阈值 300000 token` 断言。
-- 术语核对结论：概念词符合规范写法；状态词缺来源且两处与 README 冲突——已改并登记。`docs/GLOSSARY.md` 新增「状态词（代码枚举 ↔ 回执中文）」一节持有五套词；概念表把「证据」拆成「证据目录」与「证据（引用）」。
-- 刻意不统一并写成规则：技能 `drifted`=已漂移（完成态）与条目 `anchor-drift`=锚点漂移（名词短语）并存；**存档**是层名与存储、**归档**是动作与状态。
-- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 0 失败、`pnpm docs:check` 0 失败、`pnpm test` 826/826、`pnpm build` 两遍 hash 相同（`lib/` 245 文件）。
-- 变异 6 个（回执布局 4 + 术语 2），先编译进 `lib/` 再跑，每个只红对应用例；从 `sha256sum -c` 校验过的 `/tmp/i18n-inline-mut/*.bak` 还原，`git status -- src/` 0 残留。
-- desktop/web pin 抬到 `f1102ba`（备份 `*.bak-i18nvocab-20261123`），各 245 文件 0 mismatch；锁文件 resolution commit = `f1102ba`，repo 仍记原 ssh remote。push 第一次报「无法读取远程仓库」，重试成功。
-- 重启后验收：9230 Inspector 探针逐模块比 13 个模块（entry-state / report / prune / entry-states / start / task-usage / session-tree / search / context start / autolearn evidence·candidate·start / handoff command）全部 `the running host executes the code on disk`；宿主进程启动 19:12:12，晚于 `f1102ba` 的 19:06:36。
-- 真实 `.agents/memory` 上的中文回执已确认：`/memory reconcile` 首行「记忆核对：41 / 260 个条目需要复查」+ 条目状态词中文、`/context task` 行「绑定会话数 / 未完成 todo / 最近活动」、`/session-log tree` 头与尾注、`/autolearn list` 的「证据 N 个会话」、`/memory prune` 保留规则句。
-- `--verify-only` 的 FAIL 是假失败：脚本回落到自己的旧缺省口 `http://127.0.0.1:19387`（alpha.2 起宿主 `--port 0`，19387 永不被占——脚本注释自述），本机真实口是 GUI 35687 与 Inspector 9230；验收判据取 9230 探针，不取脚本 RESULT。
-- 清掉 `src/project-memory/entry-states.ts` 里重复声明两遍的 `MemoryEntryState` / `MemoryStates`（TS 静默合并，属复制粘贴残留）。
+- HEAD = origin/main = `8cf7af5`；本批代码与 `lib/` 都已提交，pin 一致。
+- 四个卡片解析器 `resolveCard` / `resolveSharedConfig` / `resolveMemoryConfig` / `resolveHandoffConfig`（另 `resolveAutolearnConfig`），错卡键抛 `config key "X" belongs to <entry> (<card> card)`。
+- 共用十键：`archiveEnabled`、`forceDedupeMs`、`handoffLang`、`maxMemoryChars`、`maxOutputTokens`、`maxTokens`、`model`、`provider`、`sessionSettledDays`、`taskMode`；记忆三键、技能四键、交接六键，合计 23。
+- 判据是 `schema.dict`（声明集），不是投影对象：schemastery 会把未声明的键原样透传，所以 `SharedSettingsSchema({handoffEnabled:false})` 的输出里仍带它，但 `dict` 里没有。
+- `publishedSharedOf` 先窄化再解析：fiber config 带该条目声明的全部键，整份交给卡片解析器必定抛错并静默钉在 apply 时的默认值（`maxTokens: 8000` 被读回 8192）。
+- `test/card-config.mjs` 的 `cardApplied(apply, card)` 同时窄化并发布共享值，所以套件原有夹具语义不变；自带包装的套件必须直接调 entry，经 `cardApplied` 二次窄化会丢掉共享键。
+- 两个 profile 都迁完并通过新解析器验证（负控制：`resolveSharedConfig({handoffThreshold})` 抛错）；`handoffLang` 留在交接卡以外，其余值不动。
+- `test/client-styles.test.mjs` 现在断言 `rows.map((row) => SPEC_BUILDERS[row.kind](row))` 与 `sections.map(`，因为表已按卡片参数化。
 
 ## Open tasks
 
-- 待用户重启：两个 profile 已钉 `c25240b`（含 2c-1），宿主自 14:31 起跑的是更早构建。验收按 `docs/development.md`「重启验收」读 9230 探针，不取 `--verify-only` 的 RESULT。
-- 设置拆分（§8.3 六点已裁定）**未落地**：§8.4 记明必须与两个 profile 的 patch + 重启一次做完，属专门一批。
-- SH-10 仍差：拿到 `result !== null` 的真实压缩（需给探针灌历史、花模型调用）、idle 窗口与 `retireIfPending` 的竞态、压缩后 gate 重算；§9 的重开条件仍不满足。
-- 待拍板（`docs/batch-ac-settings-split-spec.md` §8.1，6 条）：四份 schema 还是三份、共用卡放哪、`provider`/`model` 成对检查、`maxMemoryChars` 归属、迁移执行人、是否同批移除 `SegmentedTabs`。定案后才动 `src/`。
-- 待拍板（`docs/host-context-2c1-settings-port-spec.md`）：2c-1 是否开工。规格已含门禁补丁、正负控制与 4 条用例，落地时先加检查后修代码（顺序反了就证明不了门禁会响）。
-- SH-10 仍差两件才能谈接线：真的调一次 `compactNow`（会压缩本会话并花一次模型调用），以及 `agent/status = idle` 窗口里与 `retireIfPending` 的竞态实测。二者都需用户点头与一个空闲窗口。
-- 待用户回答：是否把「`--verify-only` 在 rc.x 上回落到 19387 的假失败」写进 `docs/` 技巧记录，免得下次重启验收再误判。
-- 406-12 那台机的 tgz 仍停在 `7704e2f`：覆盖同名 tgz、改 `pnpm-lock.yaml` 的 integrity、重解包并逐文件 sha256 比对，再由用户重启那台机宿主。
-- 残余（已登记 CHANGELOG）：`/autolearn` 的 admission / skip 原因句（`shapeRejection`、`rejectionReason`、pass 的 `skipped`）在 pass 核里生成、那一刻没有会话语言；要中文化得把「原因」换成「码 + 参数」（`AutolearnOutcome` 类型变更），属单独一批，待用户定是否做。
-- 工作树里 `.agents/memory/{CONTEXT,MEMORY}.md` 与 `retired.md` 的未提交改动是既有状态：按写路径纪律等一次记忆 pass 对齐，不手工提交；是否重跑由用户定（`/memory update` 只由用户跑）。
-- 待用户决定是否查 `include:subagent-claude-code` 为何 enabled 未 active（外部 profile 项，会持续让重启验收的表印 notActive FAIL）。
-- `RULES.md` 第 11 章最后一项：`src/project-memory/consolidate.ts` 仍超 400 行「只减不增」线，属用户裁定项。
-- 接第二个宿主前的三件（`docs/host-context-2c-design.md` §6）：`fiber.config` 设置读取换中性接口、服务 getter 成契约接口、事件时序写进契约。
-- 设置拆分 6 个待拍板点（`docs/batch-ac-settings-split-spec.md`）待用户定案后单开一批。
-- SH-10：确认锁定线 0.1.7-rc.2 是否声明 `compactNow` 与 `agentPresets.serviceFor`，再按 8 条守卫接线。
-- `test/context-injection.test.mjs` 的偶发失败仍无定论，需在无并发写入时定位触发条件。
-- P0 补强（`/memory` 面板扩展、交接回执可视化）未拍板；dsh-code-index 兼容性试验与 AOCI 可选动作 A/B 均未启动。
+- 用户重启 desktop 宿主后验四张卡都在、`maxMemoryChars: 54000` 生效（跑 9230 Inspector 探针读运行期 cap，不看 `--verify-only` 的 RESULT）。
+- SH-10 的 `result !== null` 已在真实宿主上两次复现（证据 `.agents/evidence/2026-11-24-sh10-compact-result/`）；接线前仍差：真实 `performHandoff`/`scheduleRetirement` 与压缩的端到端交叠、压缩后 gate 重算、自动压缩三条路径、其余五个 `ManualCompactionError` 码。
+- 406-12 那台机的 tgz 仍停在 `7704e2f`。
+- `RULES.md` 第 11 章：`src/project-memory/consolidate.ts` 仍超 400 行线，属用户裁定项。
+- 残余：`/autolearn` 的 admission / skip 原因句要中文化需 `AutolearnOutcome` 类型变更。
+- 接第二个宿主前的三件（`docs/host-context-2c1-settings-port-spec.md` §6）：服务 getter 进契约、事件时序写进契约。
+- 待用户回答：`--verify-only` 回落到 19387 的假失败是否写进 `docs/`；`include:subagent-claude-code` 为何 enabled 未 active。
+- P0 补强与 AOCI 可选动作 A/B 未启动。
 
-<!-- latest-session-title: 行内词汇本地化与术语表落到 f1102ba，重启后驻留宿主已验收 -->
+<!-- latest-session-title: Batch AC 设置拆分 -->
