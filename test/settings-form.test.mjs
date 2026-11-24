@@ -243,11 +243,13 @@ test("volatile settings are read through their live references, not snapshotted"
 	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
 	const fiberConfig = { archiveEnabled: reference(true), handoffBudgetSummaryTokens: reference(64_000) };
 	let release;
-	const ctx = {
-		effect: (callback) => { release = callback(); return release; },
-		fiber: { config: fiberConfig },
+	// The adapter's façade shape: `settings.current()` reads the fiber config on every call, and
+	// `onDispose` registers the cleanup this test triggers by hand.
+	const host = {
+		settings: { current: () => fiberConfig },
+		onDispose: (cleanup) => { release = cleanup; },
 	};
-	publishProjectContextSettings(ctx, resolvePluginConfig({}));
+	publishProjectContextSettings(host, resolvePluginConfig({}));
 	assert.equal(effectivePluginConfig(resolvePluginConfig({})).archiveEnabled, true);
 	fiberConfig.archiveEnabled[WRITE](false);
 	assert.equal(
@@ -298,4 +300,103 @@ test("the hint states the range the host enforces and the default it re-inherits
 		assert.ok(hint.includes(range), `${name} hint must state ${range}: ${hint}`);
 		assert.ok(hint.includes("auto"), `${name} hint must state the default: ${hint}`);
 	}
+});
+
+test("the settings port is read on every call, never captured at apply", async () => {
+	// The publication is a reader, not a snapshot (see `publishProjectContextSettings`): a volatile-only
+	// save never restarts the entry, so a value captured when the port was built would leave the card's
+	// writes visible in the form and inert everywhere else.
+	const { resolvePluginConfig } = await import("../lib/shared/config.js");
+	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+
+	let current = resolvePluginConfig({ handoffBudgetSummaryTokens: 8_000 });
+	publishProjectContextSettings(
+		{ settings: { current: () => current }, onDispose: () => undefined },
+		resolvePluginConfig({}),
+	);
+	const own = resolvePluginConfig({ maxTokens: 1_024 });
+
+	assert.equal(effectivePluginConfig(own).handoffBudgetSummaryTokens, 8_000, "the first read sees the published value");
+	current = resolvePluginConfig({ handoffBudgetSummaryTokens: 120_000 });
+	assert.equal(
+		effectivePluginConfig(own).handoffBudgetSummaryTokens,
+		120_000,
+		"a later read must see the new value, so the port cannot be snapshotted at apply time",
+	);
+});
+
+test("an unreadable settings port falls back to the entry config instead of failing a handler", async (t) => {
+	// Two degradations the adapter can produce, both must be silent: the host may not expose settings at
+	// all (`undefined`), or its reader may throw. Each caller is an event handler, so an exception here
+	// would take down a turn rather than a settings read.
+	const { resolvePluginConfig } = await import("../lib/shared/config.js");
+	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+	const own = resolvePluginConfig({ maxTokens: 1_024 });
+	const releases = [];
+	t.after(() => { for (const release of releases) release(); });
+
+	// The fallback is the publisher's entry config, not the caller's: `live()` returns the value the
+	// namespace-owning entry was applied with, exactly as it did before this port existed.
+	const published = resolvePluginConfig({});
+	publishProjectContextSettings(
+		{ settings: { current: () => undefined }, onDispose: (cleanup) => { releases.push(cleanup); } },
+		published,
+	);
+	assert.equal(effectivePluginConfig(own).maxTokens, published.maxTokens, "a port that publishes nothing leaves the publisher's entry config");
+
+	publishProjectContextSettings(
+		{
+			settings: {
+				current: () => {
+					throw new Error("settings service unavailable");
+				},
+			},
+			onDispose: (cleanup) => { releases.push(cleanup); },
+		},
+		resolvePluginConfig({}),
+	);
+	assert.equal(effectivePluginConfig(own).maxTokens, published.maxTokens, "a throwing port leaves the publisher's entry config");
+});
+
+test("a config the port publishes in the wrong shape also falls back, never half-applied", async (t) => {
+	// `resolvePluginConfig` rejects an unknown or malformed key; the reader must treat that as "unreadable"
+	// rather than surfacing a partial config built from whichever fields happened to parse.
+	const { resolvePluginConfig } = await import("../lib/shared/config.js");
+	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+	const own = resolvePluginConfig({ maxTokens: 1_024 });
+	const releases = [];
+	t.after(() => { for (const release of releases) release(); });
+
+	const published = resolvePluginConfig({});
+	publishProjectContextSettings(
+		{
+			settings: { current: () => ({ maxMemoryChars: "not a number" }) },
+			onDispose: (cleanup) => { releases.push(cleanup); },
+		},
+		published,
+	);
+	assert.equal(effectivePluginConfig(own).maxTokens, published.maxTokens, "a malformed published config falls back whole");
+	assert.equal(effectivePluginConfig(own).maxMemoryChars, published.maxMemoryChars, "no field is taken from the rejected shape");
+});
+
+test("only the newest publication releases the shared value", async () => {
+	// A config change restarts the entry, and the Loader builds the new fiber before disposing the old
+	// one, so the old cleanup runs while the new publication is already live. Releasing on that cleanup
+	// would drop every plugin back to its own entry config until the next write.
+	const { resolvePluginConfig } = await import("../lib/shared/config.js");
+	const { effectivePluginConfig, publishProjectContextSettings } = await import("../lib/shared/settings.js");
+	const cleanups = [];
+	const hostFor = (value) => ({
+		settings: { current: () => value },
+		onDispose: (cleanup) => { cleanups.push(cleanup); },
+	});
+	const own = resolvePluginConfig({ maxTokens: 1_024 });
+
+	publishProjectContextSettings(hostFor(resolvePluginConfig({ maxTokens: 4_096 })), resolvePluginConfig({}));
+	publishProjectContextSettings(hostFor(resolvePluginConfig({ maxTokens: 2_048 })), resolvePluginConfig({}));
+	cleanups[0]();
+	assert.equal(effectivePluginConfig(own).maxTokens, 2_048, "the stale fiber's cleanup must not release the newer publication");
+
+	cleanups[1]();
+	assert.equal(effectivePluginConfig(own).maxTokens, 1_024, "the owning fiber's cleanup restores the caller's own config");
 });

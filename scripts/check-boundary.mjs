@@ -99,6 +99,16 @@ function check(root) {
 			}
 		}
 
+		if (rel.startsWith("src/shared/")) {
+			// The mirror of the rule above: shared primitives may read the neutral contract, but they must
+			// not know which harness is installed. Six value imports of `../host/contract.js` live here on
+			// purpose — that file is the host-neutral surface — so this check names the adapter directory
+			// rather than `../host/` as a whole.
+			for (const match of text.matchAll(/from\s+"((?:\.\.\/)+host\/[a-z0-9-]+\/[^"]+)"/g)) {
+				fail("layering", `${rel} imports ${match[1]}; src/shared/ must not depend on a harness adapter (use ../host/contract.js)`);
+			}
+		}
+
 		if (inHost) {
 			for (const match of text.matchAll(/from\s+"((?:\.\.\/)+(?:project|shared)-[^"]+)"/g)) {
 				fail("layering", `${rel} imports ${match[1]}; the host layer must not depend on a core or shared module`);

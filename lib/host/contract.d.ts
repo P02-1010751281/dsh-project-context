@@ -413,6 +413,19 @@ export interface ServiceHost {
  * never registers anything; one that reads only {@link ServiceHost.services} takes
  * {@link ServiceHost} instead.
  */
+/**
+ * Live plugin settings, as the host currently resolves them.
+ *
+ * The value is read on use, never captured at apply time: a settings write that touches only fields
+ * the host commits in place (dsh's `volatile` mark) never restarts the entry, so a snapshot taken
+ * here would leave the card's writes visible in the form and inert everywhere else. A host without
+ * that facility answers `undefined`, which the reader treats as "use the config this entry was
+ * applied with" — a legitimate degradation, never a wrong value.
+ */
+export interface SettingsPort {
+    /** The settings this plugin's own entry currently resolves to, or `undefined` when unreadable. */
+    current(): unknown;
+}
 export interface HostPorts {
     /** The plugin's log. */
     readonly log: HostLog;
@@ -426,6 +439,13 @@ export interface HostPorts {
  * instance: the adapter releases it when the plugin is disposed, so the core never unregisters.
  */
 export interface HostContext extends HostPorts {
+    /**
+     * Live settings for this plugin's entry.
+     *
+     * On the façade rather than {@link HostPorts} because the publication is the only reader: a core
+     * helper that takes the narrower port must not have to supply a settings source it never reads.
+     */
+    readonly settings: SettingsPort;
     /** Subscribe to one lifecycle event for the plugin's lifetime. */
     on<K extends keyof HostEvents>(name: K, listener: HostEvents[K]): void;
     /** Register one human command for the plugin's lifetime. */

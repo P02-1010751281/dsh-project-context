@@ -1159,25 +1159,30 @@ test("a legacy path whose type conflicts with the new layout is left in place", 
 
 test("the shared settings value is republished on reload and survives a stale fiber's cleanup", () => {
 	const cleanups = [];
-	const fakeContext = () => ({
-		effect: (callback) => { cleanups.push(callback()); },
+	// Mirrors the adapter's façade: `onDispose` runs the cleanup at release, and `settings.current()`
+	// reads the fiber's live config on every call.
+	const fakeHost = (config) => ({
+		settings: { current: () => config },
+		onDispose: (cleanup) => { cleanups.push(cleanup); },
 	});
 	const first = { ...DEFAULT_CONFIG, archiveEnabled: true };
 	const second = { ...DEFAULT_CONFIG, archiveEnabled: false };
 	const own = { ...DEFAULT_CONFIG, maxTokens: 1 };
 
-	publishProjectContextSettings(fakeContext(), first);
-	assert.equal(effectivePluginConfig(own), first, "the published entry config is the live shared value");
-	publishProjectContextSettings(fakeContext(), second);
-	assert.equal(effectivePluginConfig(own), second, "a reload republishes the namespace owner's config");
+	// Values, not object identity: the reader resolves each volatile reference into a fresh object, so
+	// the published config is equal by value and never the same reference the caller passed in.
+	publishProjectContextSettings(fakeHost(first), first);
+	assert.deepEqual(effectivePluginConfig(own), resolvePluginConfig(first), "the published entry config is the live shared value");
+	publishProjectContextSettings(fakeHost(second), second);
+	assert.deepEqual(effectivePluginConfig(own), resolvePluginConfig(second), "a reload republishes the namespace owner's config");
 
 	// An update can dispose the old fiber after the new one published: that stale
 	// cleanup must not release the live publication.
 	cleanups[0]();
-	assert.equal(effectivePluginConfig(own), second, "a stale fiber must not release a newer publication");
+	assert.deepEqual(effectivePluginConfig(own), resolvePluginConfig(second), "a stale fiber must not release a newer publication");
 
 	cleanups[1]();
-	assert.equal(effectivePluginConfig(own), own, "the owner's cleanup restores each plugin's own entry config");
+	assert.deepEqual(effectivePluginConfig(own), own, "the owner's cleanup restores each plugin's own entry config");
 });
 
 test("a dirty or in-flight composer defers the auto handoff switch", () => {

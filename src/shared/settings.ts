@@ -20,8 +20,7 @@
  * archive plugin (or before it applies) each plugin falls back to its own entry config.
  */
 
-import type { Context } from "../host/contract.js";
-import { onDispose } from "../host/dsh/lifecycle.js";
+import type { HostContext } from "../host/contract.js";
 import z from "@deepseek-ai/schemastery";
 import { DEFAULT_CONFIG, resolvePluginConfig, type PluginConfig } from "./config.js";
 import {
@@ -92,28 +91,42 @@ let owner = 0;
  * The publication is released with the owning fiber. A config change that restarts the entry makes the
  * Loader build the new fiber before disposing the old one, so only the newest publication may clear it,
  * and the reload republishes on apply.
- * @param ctx - plugin context owning the effect and the resolved config.
+ * @param host - the plugin's facility set; the publication is released with it.
  * @param entry - the config this owner entry was applied with, used when its fiber is gone or its
  * config does not resolve.
  */
-export function publishProjectContextSettings(ctx: Context, entry: PluginConfig): void {
+export function publishProjectContextSettings(host: HostContext, entry: PluginConfig): void {
 	const token = ++owner;
-	live = () => {
-		const resolved = (ctx as { fiber?: { config?: unknown } }).fiber?.config;
-		if (resolved === undefined) return entry;
-		try {
-			return resolvePluginConfig(resolved);
-		} catch {
-			// Every one of these values comes from this module's own schema, so a shape that does not
-			// resolve is a bug — but it must not take down each caller's event handler. Fall back to
-			// the values this entry was applied with.
-			return entry;
-		}
-	};
-	onDispose(ctx, () => {
+	live = () => readLiveSettings(host, entry);
+	host.onDispose(() => {
 		if (owner !== token) return;
 		live = undefined;
 	}, "project-context: settings namespace");
+}
+
+/**
+ * The current settings this entry resolves to, read through the host's port.
+ *
+ * Three degradations, each returning the value the entry was applied with: the host cannot read its
+ * own settings (`current()` throws), it publishes nothing (`undefined`), or what it publishes is not
+ * this module's shape. The last one is a bug in our own schema — but it must not take down each
+ * caller's event handler, so it degrades the same way.
+ */
+function readLiveSettings(host: HostContext, entry: PluginConfig): PluginConfig {
+	let resolved: unknown;
+	try {
+		resolved = host.settings.current();
+	} catch {
+		return entry;
+	}
+	if (resolved === undefined) return entry;
+	try {
+		// Resolved on every read, never cached: the host hands each field over as a live reference whose
+		// value changes under the same object, so caching by object identity would freeze a write out.
+		return resolvePluginConfig(resolved);
+	} catch {
+		return entry;
+	}
 }
 
 /** Live effective config: the owner's published value, else the caller's own entry config. */

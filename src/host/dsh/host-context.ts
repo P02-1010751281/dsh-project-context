@@ -14,7 +14,7 @@
 import type { Events } from "@deepseek-ai/cordis";
 import type { CommandDefinition } from "@deepseek-ai/dsh-commands";
 import type { PromptContext } from "@deepseek-ai/dsh-system-prompt";
-import type { CommandRegistration, Context, HostContext, HostEvents, HostLog, LlmPort, PromptContribution } from "../contract.js";
+import type { CommandRegistration, Context, HostContext, HostEvents, HostLog, LlmPort, PromptContribution, SettingsPort } from "../contract.js";
 import { onDispose } from "./lifecycle.js";
 import { llmOf } from "./llm.js";
 import { logOf } from "./log.js";
@@ -76,6 +76,11 @@ export function hostContextOf(ctx: Context): HostContext {
 		// Read on use, as `llmOf(ctx)` was at every former call site.
 		get llm(): LlmPort {
 			return llmOf(ctx);
+		},
+		// The Loader commits a volatile-only settings write into the running fiber's references, so the
+		// config must be read through that fiber on every call rather than captured here.
+		get settings(): SettingsPort {
+			return { current: () => (ctx as { fiber?: { config?: unknown } }).fiber?.config };
 		},
 	};
 }

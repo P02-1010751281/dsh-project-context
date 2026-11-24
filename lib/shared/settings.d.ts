@@ -19,7 +19,7 @@
  * was applied with, and the other three read it, so one card edit reaches every feature. Without the
  * archive plugin (or before it applies) each plugin falls back to its own entry config.
  */
-import type { Context } from "../host/contract.js";
+import type { HostContext } from "../host/contract.js";
 import z from "@deepseek-ai/schemastery";
 import { type PluginConfig } from "./config.js";
 /** Settings namespace shared by the four plugins: the Loader entry id the Host projects a form for. */
@@ -99,10 +99,10 @@ export declare const PluginSettingsSchema: z<Schemastery.ObjectS<{
  * The publication is released with the owning fiber. A config change that restarts the entry makes the
  * Loader build the new fiber before disposing the old one, so only the newest publication may clear it,
  * and the reload republishes on apply.
- * @param ctx - plugin context owning the effect and the resolved config.
+ * @param host - the plugin's facility set; the publication is released with it.
  * @param entry - the config this owner entry was applied with, used when its fiber is gone or its
  * config does not resolve.
  */
-export declare function publishProjectContextSettings(ctx: Context, entry: PluginConfig): void;
+export declare function publishProjectContextSettings(host: HostContext, entry: PluginConfig): void;
 /** Live effective config: the owner's published value, else the caller's own entry config. */
 export declare function effectivePluginConfig(fallback: PluginConfig): PluginConfig;

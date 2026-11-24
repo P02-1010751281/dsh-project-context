@@ -34,6 +34,9 @@ export const Config = PluginSettingsSchema;
  */
 export function apply(ctx: Context, rawConfig: unknown): void {
 	const entry = resolvePluginConfig(rawConfig);
-	publishProjectContextSettings(ctx, entry);
-	start(hostContextOf(ctx), entry);
+	const host = hostContextOf(ctx);
+	// Publication precedes `start`: the core's first read of the shared settings must already see the
+	// live reader, not only the config this entry was applied with.
+	publishProjectContextSettings(host, entry);
+	start(host, entry);
 }
