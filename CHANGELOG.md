@@ -10,6 +10,27 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**memory-cap-headroom（记忆顶到硬上限后抬 cap 并压缩，2026-11-24）**
+
+- 现象（用户裁定前实测）：`MEMORY.md` 51999 字符、`maxMemoryChars` 52000，但按分配器自己的度量
+  （需求 51932 对 `cap - memoryStructureOverheadChars()` = 51933）余量只有 **1 字符**。后果不是「快满」
+  而是**已满**：往任一段加一条事实，插件会静默丢掉**别段**的真实条目（写 Invariants 实测丢 Project 的
+  `lifecycle.ts` onDispose 条与 Index 的回执本地化技能指针条），新事实自己留下 —— 记忆成了单行道，
+  且只写 `errors.log`，记忆内容本身无任何提示。
+- A（配置）：两个 profile 的 `cordis.patch.yml` 里 `maxMemoryChars` 52000 → **54000**（备份
+  `cordis.patch.yml.bak-20261124-1915-maxmem54000`）。抬后实测 `droppedItems=0`，代价是每轮注入多约 2000 token。
+- B（文档）：合并唯一一对真正重复的条目（`/memory reconcile` 的语义条与实现条 → 一条），并压缩两处
+  复述权威文档的措辞（`RULES.md` 4.6 的八条判据、`docs/host-context-2c-design.md` §6 的三件）。
+  `MEMORY.md` 51999 → **51916**，反引号+数字字面量集合 **1242 → 1242（零丢失）**，条目 255 → 254。
+- 复验用插件自己的 API，不用 grep：`loadMemory(root, 54000)` 给 `truncated:false`、`damaged:0`、
+  `poisoned:false`；`renderMemoryDocument` 给 `sectionDropped:0 / droppedItems:0 / itemTruncated:0` 且
+  与落地字节**完全相同**；余量 2001 → **2084**；四段各加一条事实仍 `droppedItems=0`。
+- 写入走 `loadMemory` → `sectionsFromMarkdown` → `renderMemoryDocument` → 写回，并在写盘前要求往返稳定，
+  不是手改文件（手改会绕过 `normalizeMemoryDocument` 的封顶）。同一路径把记忆里过时的
+  `maxMemoryChars: 52000` 改成 54000。
+- 证据 `.agents/evidence/2026-11-24-memory-cap-headroom/`（`probe.mjs` 只读复算余量与丢条目矩阵，
+  每条判据都做过负控制）。
+
 **injection-heading-scan（真实文档用例改读渲染器自己的标题扫描，2026-11-24）**
 
 - `test/context-injection.test.mjs` 的 `the real tracked documents keep every heading` 改用
