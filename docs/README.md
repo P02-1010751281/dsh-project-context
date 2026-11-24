@@ -19,6 +19,7 @@
 | [batch-aa-state-machines-spec.md](./batch-aa-state-machines-spec.md) | 批次 AA 规格（2026-11-21）：三个核的状态机、两只过期探测器、碎片整理与核心间咬合；§7/§11 是裁定与落地状态，§12–§14 已落地 AA3（会话日志状态判定）、AA4（技能核）、AA6（两个设置项） |
 | [batch-aa2-reconcile-spec.md](./batch-aa2-reconcile-spec.md) | AA2 规格：内容漂移 → **七态状态机**。实测 25 条有绑定、6 条已漂移（精度 1/6，故不自动退役）；§12 是最终形状（七态、五类事实、谁能点转移、每个状态必须有出口），AA2a–AA2e 已落地；会话日志状态判定（AA3）见批次 AA 规格 §12 |
 | [batch-ac-settings-split-spec.md](./batch-ac-settings-split-spec.md) | 设置卡片拆分的规格（四份 schema / 四个命名空间 / 四张卡）；含 6 个待拍板点，**尚未动 `src/`** |
+| [host-context-2c1-settings-port-spec.md](./host-context-2c1-settings-port-spec.md) | 接第二宿主 2c-1：设置发布从 `fiber.config` 解耦成 `SettingsPort`；含一条已实测的门禁盲区（shared → host/dsh 无人检查）与修法，**尚未动 `src/`** |
 | [batch-z-six-problems-spec.md](./batch-z-six-problems-spec.md) | 批次 Z 的六个结构性缺陷诊断与批次切分 |
 | [batch-w-decision-seam-spec.md](./batch-w-decision-seam-spec.md) | 交接判定缝的规格；仍被 `src/project-handoff/{auto,decide}.ts` 与 `test/handoff-decide.test.mjs` 直接引用，故不归档 |
 | [handoff-candidates-b-c.md](./handoff-candidates-b-c.md) | 交接触发点 / 子会话标题三条路线的取舍；其中 (c) 仍待拍板，故留在本目录 |
