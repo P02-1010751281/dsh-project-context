@@ -563,6 +563,10 @@ const yaml = requireFromProfile("yaml");           // 已实测返回 parse
 3. **`provider`/`model` 成对检查做不做。** 推荐做（§4.4）；不做的后果是半对保存会在下次读取时被 `livePluginConfig` 静默回退、重启后共用卡消失。
 4. **`maxMemoryChars` 放共用卡还是记忆卡。** 推荐共用卡（三个入口都读；避免 memory 失败时 autolearn/context 退回 40000）。放记忆卡的代价是静默降级，收益是“记忆上限”出现在记忆卡上。
 5. **迁移执行人。** profile 属于用户存储，按仓库规矩由用户/lead 改；本文只提供步骤、片段与只读探针。
+6. **移除 `SegmentedTabs` 页签做不做（§2.6）。** 推荐做：拆分后每张卡最多 9 行，平台表单本身是一行一项的竖排，
+   再加页签只多一次点击。代价是这一批同时改掉现有卡片的外观（`client/settings-card.tsx` 的 tab 构造、面板循环里的
+   `hidden` 切换、`client/styles.ts` 的 `.dshPcTabs`），并把 `test/card-render.test.mjs` 的 tablist/panel 断言改成
+   「每张卡没有 tablist、只有一个可见表单」。若不分批，本批只出四张卡、保留页签，外观改动单独一批。
 
 ### 8.2 待确认（附确认办法）
 
