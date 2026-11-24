@@ -3,6 +3,16 @@
 > 事实快照：2026-11-24T15:20+08:00（Asia/Shanghai）。下面每个数字都用 §2 的命令现读过，引用前重读。
 > 上游基线：`devDependencies` 钉 `0.1.7-rc.2`，本机运行线 `0.2.2-rc.5`。
 > 本文只写规格：落地批次改 `src/`、`src/host/`、`test/` 与 `lib/`，本文件本身不改代码。
+>
+> **状态（2026-11-24）：已落地。** 代码在 `SettingsPort`（`src/host/contract.ts`）、
+> `host-context.ts` 的 `settings` getter、`settings.ts` 的 `readLiveSettings` 与
+> `scripts/check-boundary.mjs` 的新判据；用例名与变异结果见 `CHANGELOG.md` 的
+> `settings-port` 条。落地时与本文的两处出入：
+> 1. `settings` 挂在 **`HostContext`** 而不是 `HostPorts`（只有发布函数读它，取窄端口的核心助手
+>    不该被要求提供一个自己不读的设置源）。
+> 2. **不做解析缓存**：第一时间加过「按 raw 对象记忆化」，被既有用例
+>    `volatile settings are read through their live references, not snapshotted` 打红——volatile
+>    字段是同一个对象上的活引用，按对象身份缓存会把写入冻结在外面。现在每次读都重新解析。
 
 ## 0. 结论速查
 

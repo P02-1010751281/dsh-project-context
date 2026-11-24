@@ -10,6 +10,32 @@
 
 ### 未发布（`v0.4.3` 之后）
 
+**settings-port（设置发布从 `fiber.config` 解耦成宿主端口，2026-11-24）**
+
+- 新增 `SettingsPort`（`src/host/contract.ts` 的 `current(): unknown`），挂在 `HostContext` 上而不是
+  `HostPorts`：只有发布函数读它，取窄端口的核心助手不必提供一个自己从不读的设置源。dsh 适配器用
+  `(ctx as { fiber?: { config?: unknown } }).fiber?.config` 实现它，读在每次调用时发生。
+- `publishProjectContextSettings` 改为收 `HostContext` 并经 `host.settings.current()` 取当前配置，
+  `src/shared/settings.ts` 不再值依赖 `../host/dsh/lifecycle.js`（改用 `host.onDispose`）；
+  `src/project-context/index.ts` 的 apply 先建 façade 再发布、再 `start`，顺序写进注释。
+- 三种降级各回退到 entry config：`current()` 抛错、返回 `undefined`、返回本模块 schema 解不出的形状。
+- **门禁补一格**：`scripts/check-boundary.mjs` 新增「`src/shared/` 不得值依赖 `../host/<harness>/`」。
+  正控制：改动前 `settings.ts:24` 让门禁印 `boundary check: 126 source file(s), 1 failure(s)` 且 rc=1；
+  负控制：`src/shared/` 对 `../host/contract.js` 的 6 处值导入仍然绿（它是中立契约，不能一刀切）。
+- 用例（`test/settings-form.test.mjs`）：`the settings port is read on every call, never captured at apply`、
+  `an unreadable settings port falls back to the entry config instead of failing a handler`、
+  `a config the port publishes in the wrong shape also falls back, never half-applied`、
+  `only the newest publication releases the shared value`；既有两条按值断言（发布值按 volatile 引用解析，
+  对象身份不可依赖）。
+- 变异 4 个，先编译进 `lib/` 再判红：M2（发布时快照）红「read on every call」+ 既有 volatile 用例；
+  M3（不可读端口直接抛）红「unreadable settings port」；M4（旧 fiber 清理也释放）红「only the newest
+  publication」。M1（getter 内捕获）行为等价、已作废并重做。四个变异各自只红目标用例，从
+  `sha256sum -c` 校验过的 `/tmp/sp-mut/*.bak` 还原，`grep -rl MUTANT lib/ src/` 0 命中。
+- 门禁：`pnpm typecheck` 0、`pnpm boundary:check` 126 源文件 0 失败、`pnpm docs:check` 138 项 0 失败、
+  `pnpm test` 831/831、`pnpm build` 两次哈希同为 `25721c7c…`（253 个 `lib/` 文件）。
+- 规格：`docs/host-context-2c1-settings-port-spec.md`（第二宿主 §6 第 2 条）；行为不变——仍只由
+  `project-context` 条目发布、其余三个经 `effectivePluginConfig(entry)` 读。
+
 **consolidate-split（整理 pass 拆到 900 行以下，2026-11-23）**
 
 - `src/project-memory/consolidate.ts` 从 1241 行拆到 617 行，`RULES.md` 3.2 的最后一项超限基线随之清空：
