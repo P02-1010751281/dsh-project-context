@@ -99,14 +99,51 @@ node /tmp/sh10-live/servicemap.mjs
 要长期保留的只有「用 `Symbol.for("dsh.inspector.realm-object-registries")` 拿根上下文」这一条读法，
 它比脚本本身重要。
 
+## ⑦ 成功路径实测（同一轮补齐，2026-11-24）
+
+前一轮只证到「引擎拿得到」。本轮在**一次性探针 agent** 上把整条路径跑通，全程不碰用户的会话：
+探针 agent 的 `cwd` 是 `/tmp/sh10-probe`，每次结束都 `dispose()`。脚本
+`compact-live.mjs` 与 `mount-probe.mjs` 在同目录。
+
+### A. 空闲 agent 上的调用结果
+
+```
+create({ sessionId: "session-probe-compact-…", meta: { cwd: "/tmp/sh10-probe", agentPreset: "standard" } })
+  → status: idle
+presets.mount(agent.ctx, "standard")            → 挂载建立
+presets.serviceFor(agent, "compaction")          → object，compactNow 是 function
+await engine.compactNow(agent, ac.signal)        → null
+```
+
+`null` 的含义由上游声明写死：`compactNow` 的 `@returns` 是「压缩结果，或**没有安全的可用区间时**
+`null`」。探针 agent 只有 5 个事件（创建、系统提示、一两次启动事件），
+`selectCompactableRange` 选不出可压缩区间，所以拿到 `null`——**没有抛错、没有写事件**
+（`snapshotEvents()` 前后都是 5）、状态仍是 `idle`。
+
+这正是源码 §⑤ 第 8 条预测的行为（「压一下交接子会话能腾空间」不成立：子会话没有历史，
+只会得到 `null`），现在有了运行期证据。
+
+### B. 两条守卫的运行期确认
+
+| 守卫（§④ 清单） | 本轮运行期读数 |
+|---|---|
+| 3/4：`status === 'idle'` 不是保证 | 对 `running` 的活会话 agent 调 `compactNow`，**同步抛** `ManualCompactionError`、`code: "busy"`、消息 `manual compaction requires an idle agent with no waking queued work` |
+| 6：`serviceFor` 返回 `undefined` 时静默降级 | 刚 `create` 出来、**未 `mount`** 的 agent 上 `serviceFor(agent,"compaction")` 返回 `undefined`；`mount` 之后同一次调用返回引擎 |
+
+第 6 条是这条链上最容易踩的坑：`agents.create({ meta: { agentPreset: "standard" } })`
+**只记名字、不建挂载**，所以紧接着 `serviceFor` 仍是 `undefined`。必须显式
+`presets.mount(agent.ctx, "standard")`。真宿主里这件事发生在会话进入流程里
+（`presetsApi` 的 `bind` 要求 scoped context），插件自己不要假设「写了 agentPreset 就有引擎」。
+
 ## ⑤ 仍然未证（不要当已证）
 
-1. **成功压缩一次**。本轮只证明「引擎拿得到、agent 状态可读」，没有真的调 `compactNow`——
-   那会压缩本会话上下文并花一次模型调用。`docs/compaction-vs-handoff.md` §9 的重开条件 3 要求
-   「实测通过且不与退休竞态」，**本文件不满足它**，只满足它的一半（可调用性）。
+1. **压缩出真实结果的一次**（`result !== null`）。本轮探针会话没有可压缩区间，所以拿到的是
+   `null`。要拿真结果得先给探针灌够历史（多轮真实请求，会花模型调用），本轮没做。
+   `docs/compaction-vs-handoff.md` §9 重开条件 3 的字面要求是「实测通过且不与退休竞态」，
+   **本文件只满足前半句的可调用性**，后半句见下一条。
 2. **与交接退休的竞态**。`agent/status = idle` 窗口里压缩与 `retireIfPending` 的先后，本轮未构造场景。
-3. **`agent.status` 在纯 idle 会话上的取值**。本轮样本恰好是 `running`（正在服务本次会话），
-   没有取到 idle 样本，所以「idle 时确实 idle」仍是源码结论。
+3. **压缩后 gate 必须重算**（§④ 守卫 7）没有实测：本轮压缩产出 `null`，没有改写 surface，
+   所以没有可重算的对象。
 
 ## ⑥ 这轮验收顺带确认的两件事
 

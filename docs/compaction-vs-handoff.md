@@ -192,7 +192,16 @@ zh 回执用同一组事实的中文措辞（`压缩 N 次（摘要 S 次、prun
 1. **不能在 `turn/end` 做**：那一刻驱动器仍持有 agent，`runMaintenance` 同步拒绝（`busy`）。可行的时机是紧接着的 `agent/status = idle`（本插件已经监听这个事件做归档）。
 2. **要不要做仍未裁定**（D3）：技术上可行 ≠ 应该做。它会带来一次额外的摘要模型调用、一条 `compaction/*` 事务，以及「交接被 defer 时先压缩」这种新的行为组合；在用户没有明确要求之前，本仓库只保留观测（第 3、4 节）。
 
-**仍未证的**：`agent/status = idle` 监听器里调用 `compactNow` 的**实测**是否稳定（本探针只读源码，没有在真实宿主上开火）。若要做兜底，第一步是把这个实测补上，按「探针先于承诺」的纪律。
+**运行期实测（2026-11-24 补）**：`agent/status = idle` 里调 `compactNow` 已不再只是源码结论。在一次
+`/tmp` 探针 agent 上（`cwd` 为 `/tmp/sh10-probe`，结束即 `dispose`）：`mount` 之后
+`serviceFor(agent,"compaction")` 给出真引擎，空闲时 `await engine.compactNow(...)` **返回 `null`
+而不抛错、不写事件**（探针会话没有可压缩区间）；对 `running` 的活会话 agent 同一调用**同步抛**
+`ManualCompactionError` / `code: "busy"`；未 `mount` 的新 agent 上 `serviceFor` 返回 `undefined`
+（`agents.create` 的 `agentPreset` 只记名字，不建挂载）。证据
+`.agents/evidence/2026-11-24-sh10-runtime-reachability/`。
+
+**仍未证的**：拿到 `result !== null` 的真实压缩（需要先给探针灌够历史、花模型调用），
+`agent/status = idle` 窗口里与 `retireIfPending` 的竞态，以及压缩改写 surface 之后 gate 的重算。
 
 ## 7. 验收（第 3、4 节已落地，W1-C）
 
