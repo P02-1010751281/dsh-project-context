@@ -10,7 +10,7 @@
 - **许可**：MIT（`LICENSE`）。
 - **团队**：单人 + AI agent，无人工评审、无 CI；因此规则要给出判据命令或可核对对象，纯判断项标「软规则」并由评审核对。
 - **范围**：`src/`、`client/`、`test/`、`docs/`、`.agents/` 与仓库根文档。不含用户的 `~/.dsh` 与各 profile（只读，改动由用户执行）。
-- **基线来源**：文档分工在 [README.md](./README.md)，门禁在 [docs/development.md](./docs/development.md)，不变量在 `.agents/memory/MEMORY.md`，程序性技能在 `.agents/skills/`。
+- **基线来源**：文档分工见 [docs/README.md](./docs/README.md)（用户手册是仓库根 README），门禁在 [docs/development.md](./docs/development.md)，不变量在 `.agents/memory/MEMORY.md`，程序性技能在 `.agents/skills/`。
 
 ## 2 元规则
 

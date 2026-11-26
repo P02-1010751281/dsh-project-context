@@ -1,6 +1,8 @@
 # 文档索引
 
 用户手册是仓库根的 [README.md](../README.md)；本目录放「机制怎么运转、为什么这样设计」的长文。
+仓库根另有两份给改代码的人看的文档：[AGENTS.md](../AGENTS.md) 是仓库事实导览，
+[RULES.md](../RULES.md) 是行为准则（改代码前读）。
 逐版本变更：未发布在 [CHANGELOG.md](../CHANGELOG.md)，已发布各版本在 [changelog/](./changelog/)。
 
 ## 当前生效的文档
