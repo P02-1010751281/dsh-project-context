@@ -34,11 +34,11 @@ import { FAILURE_BACKOFF_MS, SKIP_LOG_INTERVAL_MS, deferredLoggedAt, failedUntil
  */
 export function start(host: HostContext, entry: PluginConfig): void {
 	/**
-	 * This entry's own keys, re-resolved on every call, overlaid with the shared nine.
+	 * This entry's own keys, re-resolved on every call, overlaid with the shared ten.
 	 *
 	 * The `entry` handed to `apply` is a snapshot: a volatile-only save lands in the running
 	 * fiber's live references and never restarts the entry, so reading the snapshot would show
-	 * a saved value in the card and keep using the old one. The shared nine come from the
+	 * a saved value in the card and keep using the old one. The shared ten come from the
 	 * `project-context` publication (or this entry's own values when it is not loaded).
 	 */
 	const currentConfig = (): PluginConfig => withShared(livePluginConfig(host, entry, resolveHandoffConfig), effectiveSharedSettings(entry));

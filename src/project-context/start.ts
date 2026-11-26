@@ -135,9 +135,9 @@ async function exportReply(projectRoot: string, args: string, maxMemoryChars: nu
  */
 export function start(host: HostContext, entry: PluginConfig): void {
 	/**
-	 * This entry's config as currently in force: the shared nine come from its own publication
+	 * This entry's config as currently in force: the shared ten come from its own publication
 	 * (never the `entry` snapshot, which a volatile-only save does not refresh), and the rest from
-	 * the entry — this card owns only the shared nine, so `withShared` is the whole config.
+	 * the entry — this card owns only the shared ten, so `withShared` is the whole config.
 	 */
 	const currentConfig = (): PluginConfig => withShared(entry, effectiveSharedSettings(entry));
 	/** In-flight archive work per session, awaited by durability flushes. */

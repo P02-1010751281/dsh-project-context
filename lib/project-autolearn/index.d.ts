@@ -33,7 +33,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
 export declare const inject: string[];
 /**
  * Cordis entry: resolve this card's four keys and hand the core a façade over this context.
- * It publishes nothing; `start.ts` overlays the shared nine from the archive entry's publication.
+ * It publishes nothing; `start.ts` overlays the shared ten from the archive entry's publication.
  * @param ctx - the plugin context.
  * @param rawConfig - the raw config the Loader passed.
  */

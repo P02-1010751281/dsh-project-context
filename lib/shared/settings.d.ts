@@ -16,7 +16,7 @@
  * (`Fiber.update` → `restart`), so the publication below is refreshed by the owner's next `apply`.
  *
  * Batch AC gave each of the four entries its own card, so this module now exports four schemas. The
- * publisher is still the archive entry: its nine keys are the ones every entry reads, and the other
+ * publisher is still the archive entry: its ten keys are the ones every entry reads, and the other
  * three overlay them onto their own keys on every read.
  */
 import type { HostContext } from "../host/contract.js";
@@ -114,9 +114,9 @@ export declare const HandoffSettingsSchema: z<Schemastery.ObjectS<{
  * config does not resolve.
  */
 export declare function publishProjectContextSettings(host: HostContext, entry: PluginConfig): void;
-/** The nine keys whose value is shared across entries, owned by the `project-context` entry. */
+/** The ten keys whose value is shared across entries, owned by the `project-context` entry. */
 export type SharedSettings = Pick<PluginConfig, (typeof SHARED_KEYS)[number]>;
-/** Cut a full config down to the shared nine. */
+/** Cut a full config down to the shared ten. */
 export declare function sharedOf(config: PluginConfig): SharedSettings;
 /**
  * The shared values currently in force.
@@ -125,17 +125,17 @@ export declare function sharedOf(config: PluginConfig): SharedSettings;
  * committed straight into the running fiber's live references and does not restart the entry, so a
  * snapshot would show the save in the form and leave it inert everywhere else.
  * @param fallback - the caller's own entry config, used when the owner never applied.
- * @returns the shared nine, from the owner if it is live.
+ * @returns the shared ten, from the owner if it is live.
  */
 export declare function effectiveSharedSettings(fallback: PluginConfig): SharedSettings;
 /**
- * Overlay the shared nine onto a feature card's own keys.
+ * Overlay the shared ten onto a feature card's own keys.
  *
  * A feature entry's resolver only fills its own keys, so reading a shared key off it would silently read
  * a default. This is the one way to get the whole config a feature actually runs with.
  * @param own - the feature card's own resolved config.
- * @param shared - the shared nine currently in force.
- * @returns one full config: `shared` for the nine, `own` for everything else.
+ * @param shared - the shared ten currently in force.
+ * @returns one full config: `shared` for the ten, `own` for everything else.
  */
 export declare function withShared(own: PluginConfig, shared: SharedSettings): PluginConfig;
 /**

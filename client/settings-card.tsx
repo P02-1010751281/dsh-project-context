@@ -295,7 +295,7 @@ export function ProjectContextSettingsCard(props: ProjectContextSettingsCardProp
 	// Render the table this card was built from. A case that mounts the handoff card must not be given
 	// the shared card's rows: the controller only projected its own, so those rows would have no state.
 	const sections = props.sections ?? SECTIONS;
-	// No tabs: after the split this card carries nine rows in two headed groups, and the platform's
+	// No tabs: after the split this card carries ten rows in two headed groups, and the platform's
 	// own form is already a one-item-per-row column, so a tab strip would only add a click.
 	//
 	// Today the Plugins page renders the keyed `plugins.bundle.config` slot with `view: 'page'` only

@@ -14,9 +14,9 @@ import type { Context } from "../host/contract.js";
 export declare const name = "project-context";
 export declare const inject: string[];
 /**
- * The shared/archive card: nine keys read by every entry (archive, budgets, `taskMode`, the auxiliary
+ * The shared/archive card: ten keys read by every entry (archive, budgets, `taskMode`, the auxiliary
  * route). Each of the other three entries exports its own narrow schema, so this is one of four cards,
- * not the only one — but it is still the one that publishes, because its nine keys are what the other
+ * not the only one — but it is still the one that publishes, because its ten keys are what the other
  * three overlay onto their own.
  */
 export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{

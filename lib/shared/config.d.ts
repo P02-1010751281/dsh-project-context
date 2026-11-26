@@ -94,7 +94,7 @@ export declare const SHARED_KEYS: readonly ["archiveEnabled", "sessionSettledDay
 export declare const MEMORY_KEYS: readonly ["memoryEnabled", "consolidateTurns", "consolidateIntervalMs"];
 export declare const AUTOLEARN_KEYS: readonly ["autolearnEnabled", "autolearnExpireSkills", "autolearnTurns", "autolearnIntervalMs"];
 export declare const HANDOFF_KEYS: readonly ["handoffEnabled", "handoffThreshold", "handoffBudgetSummaryTokens", "handoffBudgetRecentTokens", "handoffPendingQuestion", "handoffRetireReplaced"];
-/** The shared/archive card's nine keys. Also the only resolver that enforces the provider/model pairing. */
+/** The shared/archive card's ten keys. Also the only resolver that enforces the provider/model pairing. */
 export declare function resolveSharedConfig(raw: unknown): PluginConfig;
 /** The memory card's three keys. */
 export declare function resolveMemoryConfig(raw: unknown): PluginConfig;

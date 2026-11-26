@@ -303,7 +303,7 @@ const CARD_OF_KEY: Readonly<Record<string, string>> = Object.fromEntries([
  *
  * The returned object carries the whole `PluginConfig` shape so callers keep one type, but only this
  * card's keys come from `raw`; the rest are this card's defaults. A caller that reads a key it does not
- * own therefore reads a default, which is why every reader goes through `withShared` for the shared nine
+ * own therefore reads a default, which is why every reader goes through `withShared` for the shared ten
  * rather than through its own entry.
  * @param raw - the entry's config, resolved or live-referenced.
  * @param keys - the keys this card owns.
@@ -364,7 +364,7 @@ function validateOne(key: string, value: unknown): unknown {
 	return (resolved as unknown as Record<string, unknown>)[key];
 }
 
-/** The shared/archive card's nine keys. Also the only resolver that enforces the provider/model pairing. */
+/** The shared/archive card's ten keys. Also the only resolver that enforces the provider/model pairing. */
 export function resolveSharedConfig(raw: unknown): PluginConfig {
 	return resolveCard(raw, SHARED_KEYS, "the shared/archive card");
 }

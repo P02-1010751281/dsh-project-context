@@ -191,7 +191,7 @@ export const HANDOFF_SECTIONS_TABLE: readonly FieldSection[] = [
 /**
  * The four cards, in the order the Plugins page shows them.
  *
- * The size is the ruling (four schemas, four cards): the shared nine are read by every entry, so they
+ * The size is the ruling (four schemas, four cards): the shared ten are read by every entry, so they
  * cannot live on a feature card without that feature's failure silently resetting the other three.
  * `test/settings-form.test.mjs` compares these sets with the four host schemas key by key.
  */
