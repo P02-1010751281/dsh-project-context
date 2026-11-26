@@ -26,7 +26,8 @@ dsh plugin --profile web add /path/to/dsh-project-context   # 自动应用包内
 dsh --profile web --dump-config | grep -A3 project-         # 验证
 ```
 
-仓库带着构建产物（`lib/` 纳入跟踪），`pnpm build` 只在你要改 `src/`/`client/` 时才需要（见「开发」）。
+仓库带着构建产物（`lib/` 纳入跟踪），`pnpm build` 只在你要改 `src/`/`client/` 时才需要（见
+[docs/development.md](./docs/development.md)）。
 
 卸载：`dsh plugin --profile web remove dsh-project-context`。
 
@@ -80,11 +81,14 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | 键 | 默认 | 一句话 |
 |---|---|---|
 | `archiveEnabled` | `true` | 关掉后不再自动写会话存档与索引（`/session-log write` 仍可用） |
+| `sessionSettledDays` | `7` | 会话日志判 `settled` 而非 `live` 的天数，也是 `abandoned` 的判据与交接日志扫描门槛（1–365） |
+| `taskMode` | `assisted` | 谁能建任务、谁能改状态：`assisted` / `delegated` / `manual` |
 | `memoryEnabled` | `true` | 关掉后不再自动整理（命令仍可用） |
 | `consolidateTurns` | `6` | 新增用户消息数达标后在 idle 整理 |
 | `consolidateIntervalMs` | `300000` | 自动整理最小间隔 |
 | `forceDedupeMs` | `15000` | 强制调用去重窗口 |
 | `autolearnEnabled` | `true` | 关掉后不再自动沉淀（命令仍可用） |
+| `autolearnExpireSkills` | `true` | 把 `expired` 技能移到 `.agents/memory/expired-skills/`（移动而非删除）；关掉则留在 `skills/` 继续服役 |
 | `autolearnTurns` | `20` | 累计用户消息数阈值 |
 | `autolearnIntervalMs` | `1800000` | 自动沉淀最小间隔 |
 | `maxTokens` | `8192` | 辅助调用起始输出上限（整理会按需上调） |
@@ -122,7 +126,9 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 - **记忆没更新？** `/memory` 看状态。两种成因分开报：`N section(s) exceeded their budget` /
   `whole entry(ies)` = 文档太大、须压缩；`cut off by the model output limit` = 输出被上限截断，
   此时调大 `maxMemoryChars` 只会更糟。
-- **卡片上改了没反应？** 先确认改的是 `project-context` 这一条（四个插件共享它）；改 host 侧要重启。
+- **卡片上改了没反应？** 先确认改的是哪一张卡：配置按卡分成四份 schema，`project-context`（共用值 /
+  归档）、`project-memory`（整理）、`project-autolearn`（沉淀）、`project-handoff`（交接）各一张；
+  改 host 侧要重启。
 - **探针连不上？** 桌面 host 的端口每次重启都变（如 33647 → 38961），探针必须传当前 `--url`。
 
 ## 更新日志
@@ -139,10 +145,11 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 - **AOCI / AOCI-CODE**（AI-Oriented Cognition Infrastructure；arXiv `2605.02421`，仓库
   [`aoci-spec/aoci-code`](https://github.com/aoci-spec/aoci-code)，许可 FSL-1.1-MIT）：只借鉴思路，
   **没有复制代码，也没有作为运行依赖引入**。调研与分域裁定见
-  [research/2026-11-19-aoci.md](./docs/research/2026-11-19-aoci.md)。已采纳两条：派生/权威标记
-  （`/context export` 与 `/memory` 回执里的「派生视图，权威是 journal」）和交付证明（交接种子里的
-  `- handoff-seed: <12 hex>` 身份哈希，见 CHANGELOG 未发布段）；「漂移分类词汇」因本仓库没有对应的
-  INDEX 对账报告面而未采纳。
+  [research/2026-11-19-aoci.md](./docs/research/2026-11-19-aoci.md)。已采纳三条：派生/权威标记
+  （`/context export` 与 `/memory` 回执里的「派生视图，权威是 journal」）、交付证明（交接种子里的
+  `- handoff-seed: <12 hex>` 身份哈希，见 CHANGELOG 未发布段）与漂移分类词汇
+  （Missing / Orphan / Stale / Unbaselined，落在 `/session-log status` 与技能核；当初「本仓库没有
+  INDEX 对账报告面」的裁定是对的，所以这一笔是先把报告面建出来再换词）。只借词汇，不借代码。
 - **dsh-auto-continue**（MIT，Copyright (c) 2025 HsiangNianian）：早期卡片外壳与 store 探测层曾改编自
   它，改用平台组件后这两处已删除；原始声明保留在下一节末尾。
 

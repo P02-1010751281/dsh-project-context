@@ -5,9 +5,9 @@
 
 ## 配置
 
-Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行（打开后是整理 / 沉淀 /
-自动交接三区，共享的辅助模型路由在整理区末尾），host 侧实时生效。卡片挂在插件页的
-`plugins.bundle.config` 槽位、键为 bundle 包名 `dsh-project-context`（该槽位按包名分派；
+Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行，打开后是四张卡
+（共用 / 整理 / 沉淀 / 交接，共 23 个键），没有页签；辅助模型路由在共用那张卡上。host 侧实时生效。
+卡片挂在插件页的 `plugins.bundle.config` 槽位、键为 bundle 包名 `dsh-project-context`（该槽位按包名分派；
 `plugins.item` 归**官方插件**卡片），经宿主的 `configForms` 服务读写本命名空间，并由 `whileServed`
 门控——profile 没装 host 半时页面上不会留下痕迹。
 
@@ -37,11 +37,13 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `archiveEnabled` | `true` | 关掉后不再自动写会话存档与索引（`/session-log write` 仍可用） |
+| `sessionSettledDays` | `7` | 会话日志判 `settled` 而非 `live` 的天数（1–365）；同一个数也是 `abandoned` 的判据与交接日志扫描门槛，判定与扫描因此不各用一条线 |
 | `memoryEnabled` | `true` | 关掉后不再自动整理（命令仍可用） |
 | `consolidateTurns` | `6` | 较上次整理新增的用户消息数达到后在 idle 触发 |
 | `consolidateIntervalMs` | `300000` | 自动整理最小间隔 |
 | `forceDedupeMs` | `15000` | 强制调用去重窗口 |
 | `autolearnEnabled` | `true` | 关掉后不再自动沉淀技能（命令仍可用） |
+| `autolearnExpireSkills` | `true` | 把 `expired` 状态的技能移出服役（移到 `.agents/memory/expired-skills/`，移动而非删除）。默认开启：它与「要不要花模型调用沉淀」解耦，关掉沉淀时另有一条不做模型调用的只移出路径 |
 | `autolearnTurns` | `20` | 自上次沉淀累计的用户消息数阈值 |
 | `autolearnIntervalMs` | `1800000` | 自动沉淀最小间隔；仅在有新 MEMORY/CONTEXT 内容时执行 |
 | `maxTokens` | `8192` | 辅助模型调用的起始输出上限；整理会按「记忆+上下文需回吐的 token 数」自适应上调 |
