@@ -118,7 +118,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 - `archiveEnabled: false` 时不发生任何自动写入；`/session-log write` 是文档化的逃生口。
 - 自动交接只在 `turn/end` 评估、没有定时器；有后台子代理在跑时**延后**，手动 `/handoff now` 则
   **拒绝并点名**。
-- **压缩归宿主，交接归本插件**：dsh 自带同会话压缩（`thresholdRatio 0.8`、保留最近约 16%），本插件不实现、不接管、不抢 `agent/pre-step`；我们只在 `/handoff status` 里只读报出压缩历史。想让压缩先发生，把 `handoffThreshold` 设成 `0.8` / `800k` 即可，代价是 157K→800K 区间要接受质量衰减（见 [docs/compaction-vs-handoff.md](./docs/compaction-vs-handoff.md)）。
+- **压缩归宿主，交接归本插件**：压缩由 dsh 自带，本插件只读报出；想让它先压缩，把 `handoffThreshold` 设成 `0.8` / `800k`（代价与阈值交叉点见 [docs/compaction-vs-handoff.md](./docs/compaction-vs-handoff.md)）。
 - 各阶段的闸门、产物与理由：见 [docs/behavior.md](./docs/behavior.md)。
 - 改 `src/` 后要 `pnpm build` **并重启承载插件的那个 host**；只看提交或构建时间不能判定已生效，
   要对进程启动时间。

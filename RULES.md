@@ -42,7 +42,7 @@
   13 个不同 specifier、共 15 处；含 `shared → project-handoff/language` 与 `shared → project-handoff/conversation`
   这两条共享层例外）。判据：
   `node scripts/check-docs.mjs` 的 edges 检查 exit 0（把第 2 节表的 15 条 `文件:行` 与 13 个 specifier 跟 `src/` 逐条比对）。
-- **4.3 设置命名空间唯一**：只有 `src/project-context/index.ts` 导出 `Config` 并发布 schema，其余插件用 `effectivePluginConfig(entry)`；每个 schema 字段必须带 `volatile`。判据：`grep -c 'export const Config' src/*/index.ts` 只在 `project-context` 命中 1。
+- **4.3 设置命名空间按卡分片**：四个入口各自从 `src/shared/settings.ts` 导出自己那张卡的 `Config`（共用 / 记忆 / 技能 / 交接），只有 `src/project-context/index.ts` 发布共用值；功能入口在 `start.ts` 的 `currentConfig()` 里经 `withShared(livePluginConfig(…), effectiveSharedSettings(entry))` 合并共用值，放错卡的键由严格子集解析器抛 `config key … belongs to …`；每个 schema 字段必须带 `volatile`。判据：`grep -c 'export const Config' src/*/index.ts` 四个入口各命中 1；`grep -rn effectivePluginConfig src client` 为 0（`test/` 里只允许历史注释提及）。
 - **4.4 公开面最小**：`exports` 只暴露 `.`、`./memory`、`./autolearn`、`./handoff`、`./client`、`./cordis.patch.yml`、`./package.json`；内部模块不得被外部导入。
 - **4.5 shared 不持有插件专属逻辑（软规则）**：只放跨插件原语（配置、设置 schema、路径、锁、原子写、日志、生命周期）；评审核对新增模块是否被两个以上插件使用。
 - **4.6 核心与宿主解耦**：只有 `src/host/<harness>/` 下的文件可以 import 宿主包（今天是 `src/host/dsh/`），

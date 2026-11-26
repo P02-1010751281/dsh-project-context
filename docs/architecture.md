@@ -76,9 +76,11 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 ## 7 配置来源
 
-- 唯一解析点 `src/shared/config.ts`（`DEFAULT_CONFIG` + 校验）；schema 在 `src/shared/settings.ts:48` 起，每个字段带 `volatile`。
-- 发布方只有 `project-context`（`src/project-context/index.ts:28` 导出 `Config`、`src/project-context/index.ts:37` 发布）；其余插件用 `effectivePluginConfig(entry)` 读同一份。
-- 用户值写在 profile 的 `cordis.patch.yml` 的 `project-context` 条目上（整体替换 `config`）。
+- 唯一解析点 `src/shared/config.ts`（`DEFAULT_CONFIG` + 校验）；四份 schema 在 `src/shared/settings.ts` 的
+  `SharedSettingsSchema` / `MemorySettingsSchema` / `AutolearnSettingsSchema` / `HandoffSettingsSchema`，每个字段带 `volatile`。
+- 每个入口从自己那张卡导出 `Config`（`src/*/index.ts`）；只有 `project-context` 经 `publishProjectContextSettings` 发布共用值，
+  其余入口在 `start.ts` 的 `currentConfig()` 里用 `withShared(livePluginConfig(…), effectiveSharedSettings(entry))` 合并。
+- 用户值按卡写在 profile 的 `cordis.patch.yml` 各自条目上（整体替换 `config`）；放错卡的键由严格子集解析器抛错。
 
 ## 8 数据存储（权威链）
 

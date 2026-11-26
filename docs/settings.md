@@ -18,12 +18,11 @@ Settings → Plugins → 已安装列表里的 **`dsh-project-context`** 一行�
 的排版样式表。因此保存语义也是平台的：一次**原子** `mutate`（带 revision fence）、Host 拒绝时保留草稿，
 **离开页面即丢弃草稿**——所以卡片上没有「放弃」按钮（与官方设置页一致）。
 
-命名空间就是 **Loader 条目 id** `project-context`：dsh 0.1.7-rc.2 起，设置表单由**归属插件模块导出的
+命名空间就是 **Loader 条目 id**：dsh 0.1.7-rc.2 起，设置表单由**归属插件模块导出的
 `Config` schema 投影**而来（`SettingsForms.schema(entry)` 读 `entry.fiber.runtime.Config`），
-不再有 `settings.register` / `installSection` 这类运行时注册 API。所以 host 半边把
-`PluginSettingsSchema` 作为 `Config` 从 `project-context` 入口导出；四个插件共享同一个命名空间
-（该入口发布自己 fiber 的 live config，其余三个读取它），base 层因此恒为
-`cordis.patch.yml` 里 `project-context` 那一行的 `config:`，改其余三行不生效。
+不再有 `settings.register` / `installSection` 这类运行时注册 API。所以每个入口把**自己那张卡**的 schema 作为 `Config` 导出，四张卡各有自己的 Loader 条目
+（`project-context` / `project-memory` / `project-autolearn` / `project-handoff`），base 层是各自条目的 `config:`；
+共用十键（`SHARED_KEYS`）只由 `project-context` 发布，其余入口在 `start.ts` 里合并读取；四张卡合计 23 个键。放错卡的键由严格子集解析器抛错。
 
 **新增字段必须带 volatile 标记**（`.extra("volatile", true)`，见 `src/shared/settings.ts`）：
 `describe()` 用 `volatileForm()` 过滤，一份没有该标记的 schema 会让**整个条目**从被服务命名空间里
