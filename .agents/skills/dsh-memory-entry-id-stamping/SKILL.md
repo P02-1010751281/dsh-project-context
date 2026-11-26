@@ -44,7 +44,7 @@ Never leave a symbol unreferenced in `src/` to make a mutant red — `tsc` then 
 
 ### 3. Gate
 
-`pnpm typecheck` (0 errors), `pnpm test` (read the exit code; TAP is off a TTY, and a bare `node --test test/` fails — use the package script), `pnpm build`. Take `lib/client.js` size from the build output, and confirm 0 mutant markers with `grep -n "<NAME> = "` in `lib/` (not `grep -cF` on a template marker: `tsc` emits `String.raw` plus a space and the count reads 0).
+`pnpm typecheck` (0 errors), `pnpm test` (read the exit code; the reporter is not TAP even off a TTY, and a bare `node --test test/` fails — use the package script), `pnpm build`. Take `lib/client.js` size from the build output, and confirm 0 mutant markers with `grep -n "<NAME> = "` in `lib/` (not `grep -cF` on a template marker: `tsc` emits `String.raw` plus a space and the count reads 0).
 
 ### 4. Prove it is live only after the host restart
 

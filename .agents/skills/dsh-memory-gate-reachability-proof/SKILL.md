@@ -60,7 +60,7 @@ condition* caught it.
    hash-verified `/tmp` copy (never `git checkout --` or `git stash`), then `pnpm build` and confirm 0 mutant
    markers in `lib/`.
 
-6. Run the gate with the package script: `pnpm test` (`tsc && node --test`); TAP is off a TTY so judge the exit
+6. Run the gate with the package script: `pnpm test` (`tsc && node --test`); the reporter is spec even off a TTY, so judge the exit
    code. `node --test test/` bare does not work.
 
 7. Land it: scoped `git add <paths>` and `git commit -F <msg> -- <paths>` (another agent session may share the

@@ -56,9 +56,9 @@ Report it as `N files, 0 mismatches` per profile. Also confirm the lockfile reso
 
 ## 6. Prove the change reached the build
 
-Grep the installed bundle for a symbol or string the commit introduced (e.g. a new exported name in `lib/project-memory/consolidate.js`, a new schema key in the settings schema, one `tablist` in `lib/client.js`). `lib/**` is tracked, so it must have been rebuilt and committed before the pin bump — a pin to a commit whose `lib/` was not rebuilt installs stale behaviour.
+Grep the installed bundle for a symbol or string the commit introduced (e.g. a new exported name in `lib/project-memory/consolidate.js`, a new schema key in the settings schema, a symbol the commit introduced in `lib/client.js` — pick one you just verified exists; `tablist` is gone since Batch AC removed `SegmentedTabs`). `lib/**` is tracked, so it must have been rebuilt and committed before the pin bump — a pin to a commit whose `lib/` was not rebuilt installs stale behaviour.
 
-For a client change, compare `lib/client.js` against the repo copy by sha256 after stripping the trailing `//# sourceMappingURL=` comment, which makes the byte sizes differ.
+For a client change, compare `lib/client.js` against the repo copy by plain sha256. There is nothing to strip: `scripts/build-client.mjs` emits no sourcemap, so a `//# sourceMappingURL=` line does not exist (`grep -c sourceMappingURL lib/client.js` is 0).
 
 ## 7. Report state honestly
 

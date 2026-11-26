@@ -30,11 +30,11 @@ Use when adding a new setting to a dsh-project-context plugin, moving an existin
 
 ## 4. Client side
 - `client/card-fields.ts`: add the key to the `ProjectContextSettings` interface (an independent copy — omitting it makes `tsc -p tsconfig.client.json` fail), plus `ROWS` and `SECTIONS`, plus `client/locales.ts` label strings.
-- One component serves four cards: rows/sections are passed in, so a new row table must not reintroduce `SegmentedTabs` (removed in Batch AC; it only exists in 0.2.x `ui-primitives` and rejects `size`).
+- One component serves four cards: rows/sections are passed in, so a new row table must not reintroduce `SegmentedTabs` (removed in Batch AC). Version matters if you are tempted to reach for it: the pinned 0.1.7 `ui-primitives` does export `SegmentedTabs` and its props have **no** `size`, while 0.2.x adds `size?: 'sm'|'md'` — read the pinned version rather than assuming either way.
 - Geometry lives in `client/styles.ts` (`dshPcRow`). Upstream settings form is one field per row with no hint slot; every extra row costs a hint line.
 
 ## 5. Tests (all three faces)
-- `test/settings-form.test.mjs`: one assertion line per key (count of ROWS vs schema fields).
+- `test/settings-form.test.mjs`: per card, `CARD_ROWS[card]` must equal that card's own schema keys (sorted deep-equal), and no key may appear on two cards. `ROWS` is only the shared card, so asserting against it would miss the other three.
 - `test/card-config.mjs`: `cardConfig`, `publishSharedFor`, `cardApplied(apply, card)` — suites that drive a real `apply()` go through it so shared keys still get published. A suite with its own wrapper must call the entry directly; going through `cardApplied` a second time drops shared keys.
 - `test/client-styles.test.mjs` asserts the parameterised table shape (`rows.map((row) => SPEC_BUILDERS[row.kind](row))`, `sections.map(`) — update it if row tables change.
 - Mutation round per `dsh-plugin-mutation-round`: an `unmanaged`/denominator-style counter needs the denormal assertion to turn red.
@@ -44,7 +44,7 @@ Use when adding a new setting to a dsh-project-context plugin, moving an existin
 pnpm typecheck      # 0
 pnpm boundary:check # 0 failed
 pnpm docs:check     # exit 0
-pnpm test           # all pass (non-TTY: read the exit code, not TAP)
+pnpm test           # all pass; judge the exit code, never the reporter (it is spec, not TAP, off a TTY)
 pnpm build          # reproducible
 ```
 - `lib/**` is tracked, so a change touching `src/` or `client/` commits the rebuilt `lib/`.

@@ -40,14 +40,14 @@ Print `removed lines: N  not found verbatim: M` and list each miss with its just
 Derive the key list mechanically from the settings schema (only the `project-context` entry exports `PluginSettingsSchema`; the source of truth is `src/shared/config.ts` / that schema) — do not type the list from the README. Then check each key appears both in the README config table and in `docs/settings.md`:
 
 ```
-schema keys: 21   README 缺: 无   settings.md 缺: ['maxMemoryChars']
+schema keys: 21   README 缺: 无   settings.md 缺: ['maxMemoryChars']   # snapshot from the first round; the set is 23 keys today and both documents cover all of them — recompute, do not reuse
 ```
 
 A miss is a genuine documentation gap (that is how `maxMemoryChars`, previously only mentioned in prose, got its table row). Also validate every table row starts and ends with `|` after editing.
 
 ## 4. Structural checks that catch sloppy edits
 
-- Code fences even per file: `grep -c '^```' <file>` must be even (README 4, architecture 6, behavior 2, settings 0, development 2 is normal).
+- Code fences even per file: `grep -c '^```' <file>` must be even. Only the parity is a judgement; the per-file counts drift (2026-11-26: README 4, architecture 4, behavior 2, settings 0, development 2).
 - Relative links resolve: extract `](./…)` targets and test each path exists; report `OK <path>` per line.
 - `README.md` refuses to carry long prose: check for lines over ~110 columns (`>110 chars at line N`), and never split an inline code span across lines when wrapping.
 
@@ -57,7 +57,7 @@ Write a small resolver that extracts every `path:line` and `path:start-end` ment
 
 ## 6. `RULES.md`: every rule carries a criterion
 
-Keep it ≤150 lines (74 and 75 in practice) with a fixed section order (scope → meta rules → files/dirs → subpackage boundaries → style → gates → security/perf/logging → prohibitions). Each rule states its 判据 (a runnable check); run every command-class criterion before committing (line-count ceiling, `shared` reverse-dependency count, single `Config` export, relative imports must end in `.js`). Mark non-mechanical rules as soft explicitly, and say in the report which numbers you chose rather than inherited.
+Keep it ≤150 lines (130 as of 2026-11-26, 11 chapters) with a fixed section order (scope → meta rules → files/dirs → subpackage boundaries → style → gates → security/perf/logging → prohibitions). Each rule states its 判据 (a runnable check); run every command-class criterion before committing (line-count ceiling, `shared` reverse-dependency count, single `Config` export, relative imports must end in `.js`). Mark non-mechanical rules as soft explicitly, and say in the report which numbers you chose rather than inherited.
 
 ## 7. Memory docs still round-trip
 
@@ -74,7 +74,7 @@ Write one `- ` bullet per statement; appending plain text splices into the last 
 ## 8. Gate, commit docs paths only, push
 
 ```bash
-pnpm typecheck && pnpm build && pnpm test      # read exit code; TAP off a TTY
+pnpm typecheck && pnpm build && pnpm test      # read exit code; reporter is spec even off a TTY (TAP count 0)
 ℹ tests 492 / pass 492 / fail 0                # read the fresh numbers, never reuse old ones
 git diff --exit-code -- lib                     # empty: a docs-only change needs no restart
 git add README.md CHANGELOG.md AGENTS.md RULES.md docs .agents/memory/CONTEXT.md

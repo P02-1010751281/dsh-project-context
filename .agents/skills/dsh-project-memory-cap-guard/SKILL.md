@@ -14,7 +14,7 @@ Use this skill whenever `.agents/memory/MEMORY.md` or `.agents/memory/CONTEXT.md
 ## Procedure
 
 1. **Measure before and after any memory edit**
-   - `wc -m .agents/memory/MEMORY.md` — **characters, which is the unit of the cap**. `wc -c` counts **bytes**, so the two diverge only on non-ASCII text: a CJK document reads roughly a third higher in bytes, while this one (English since the four-section migration) differs by under a percent. Compare the two numbers rather than assuming a gap either way. The authority is step 2's `loaded.text.length`, not either `wc`. Take the cap from config (`maxMemoryChars`) and from the call sites themselves (`git grep -n 'normalizeMemoryDocument(' -- src/ | grep -v 'export function' | wc -l`) — never from a number written in a doc or in a skill.
+   - `wc -m .agents/memory/MEMORY.md` — **characters, which is the unit of the cap**. `wc -c` counts **bytes**, so the two diverge on non-ASCII text: a pure-CJK string is 3 bytes per character (+200%), and this repo's MEMORY.md — Chinese-dominant since the four-section migration — measured 53,999 characters against 89,682 bytes on 2026-11-26, i.e. **+66%**. Measure the ratio now instead of quoting either figure. The authority is step 2's `loaded.text.length`, not either `wc`. Take the cap from config (`maxMemoryChars`) and from the call sites themselves (`git grep -n 'normalizeMemoryDocument(' -- src/ | grep -v 'export function' | wc -l`) — never from a number written in a doc or in a skill.
    - Read the cap instead of remembering it: `grep -n 'MAX_MEMORY_CHARS' src/shared/limits.ts` (re-exported through `src/shared/project-state.ts`). `MIN_MEMORY_CHARS` and `MAX_MEMORY_CHARS_LIMIT` live in the same file and the config field is `maxMemoryChars`.
    - Budget a margin below the cap: a session appends memory between checks, so a document sitting at the cap is already over it by the time you notice.
    - Headroom is per **section**, not only in total. The renderer drops whole entries over a single section's budget, so read the shares from `src/project-memory/memory-schema.ts` (`MEMORY_SECTIONS`) and check every section: a document that fits the cap as a whole can still have two sections at 96% and refuse the next pass.
@@ -53,7 +53,7 @@ Use this skill whenever `.agents/memory/MEMORY.md` or `.agents/memory/CONTEXT.md
 ## Traps this guard exists for
 - Silent permanent loss of newly appended content: new lines land past the cut point and are dropped on write.
 - The loaded-memory trap: marker present, status healthy, `/memory status` shows nothing wrong.
-- Verifying the cap with `wc -c`: it is bytes, not characters, so a CJK-heavy document reads ~30% over the cap while `isMemoryTruncated()` is false — a false alarm that invites pointless compression.
+- Verifying the cap with `wc -c`: it is bytes, not characters, so a CJK-heavy document always reads **over** the cap while `isMemoryTruncated()` is false — 3 bytes per pure-CJK character, +66% on this repo's mixed document. A false alarm that invites pointless compression; compare `wc -m` or `loaded.text.length`.
 - Verifying by grep for the marker or by a green test run instead of `isMemoryTruncated()`.
 - A duplicate remnant after a partial replacement is silent: only reading the line back and looking for a repeated sentence catches it.
 - An empty grep is evidence only of the revision you read; state the revision when reporting a survival check.

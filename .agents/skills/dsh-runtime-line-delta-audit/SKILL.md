@@ -38,7 +38,7 @@ Expected diff output: only `只在 lib/ 中存在：client.js` (the esbuild clie
 
 - Guides live in the store repo at `<store>/lib/dsh-desktop/repo/docs/upgrade-guide/`, one directory per version. List them, read only the pages inside the delta.
 - **If the pair has no page** (latest page may still be an older alpha), say so in the doc and fall back to source for every line of the table.
-- Behaviour is read from shipped `src/`/`lib/` in the store checkout the host loaded, e.g. `packages/core/system-prompt/src/index.ts`, `packages/core/session-projection-*`, `packages/*/src/types.ts`.
+- Behaviour is read from shipped `src/`/`lib/` in the store checkout the host loaded, e.g. `packages/core/system-prompt/src/index.ts`, `packages/session/session-projection` and `session-projection-cache` (they are under `packages/session/`, not `packages/core/`), `packages/*/src/types.ts`.
 - A guide states declared intent; a fact asserted from it must be confirmed in the shipped code before it goes in the table.
 
 ## 3. Enumerate surfaces from *our* call path, then verify each

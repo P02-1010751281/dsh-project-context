@@ -42,7 +42,7 @@ Strategies live in `docs/batch-aa-state-machines-spec.md`; cross-plugin vocabula
 ## 2. Counts and receipts
 
 - First receipt line carries the payload AND the denominator, e.g.
-  `Learned skills: N of M skill(s) (K hand-written, not managed)`; the report type
+  `Learned skills: N of M skill(s) — X intact, Y needing a look.` (the hand-written split is on the **second** line, `K hand-written skill(s) are not managed …`, because the folded summary clips near eighty columns); the report type
   carries `total` / `unmanaged`. A receipt whose `unmanaged` is constant-zero is a
   bug class that only a denominator assertion catches.
 - Cap enumerated lines (`MAX_RECONCILE_LINES = 10`) and never report a state that has
@@ -72,7 +72,7 @@ Strategies live in `docs/batch-aa-state-machines-spec.md`; cross-plugin vocabula
     skipped and the control group becomes a no-op;
   - write fixture file mtimes explicitly relative to the injected clock, otherwise
     the subject computes as `live` instead of `stale`;
-  - import shared constants (e.g. `ABANDONED_AFTER_DAYS`) instead of hard-coding the
+  - import the shared source of truth (e.g. `sessionSettledDays`, which drives the abandoned judgement and the log-scan threshold) instead of hard-coding the
     number, or a mutation of the constant stops being caught;
   - move-on-disk cases: parent directory gone = `moved`; whole-directory move must
     not collapse into `drifted`.
@@ -80,7 +80,7 @@ Strategies live in `docs/batch-aa-state-machines-spec.md`; cross-plugin vocabula
 ## 5. Prove it
 
 1. `pnpm typecheck`, `pnpm build`, `pnpm test` (never bare `node --test test/`; on a
-   non-TTY read the exit code, not TAP).
+   off a TTY it is still the spec report, so read the exit code and not a TAP grep).
 2. Mutation round by skill `dsh-plugin-mutation-round`: one named test red per mutant,
    each mutant compiling and actually changing behaviour. A first-pass mutant that
    stays green because the guard it removed was unreachable means the production

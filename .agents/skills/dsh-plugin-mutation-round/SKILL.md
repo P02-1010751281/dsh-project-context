@@ -7,7 +7,7 @@ Use when you need to verify that a dsh-project-context behaviour is actually pin
 
 Steps
 1. Name the behaviour and the test that owns it (the file carrying the pinning test). One deliberate wrong edit per mutant.
-2. Start from a green gate: `pnpm test` (= `tsc && node --test`). Read the exit code; non-TTY `node --test` prints TAP, so never grep an interactive reporter. Do not run `node --test test/` with a bare directory (it fails); use the package script.
+2. Start from a green gate: `pnpm test` (= `tsc && node --test`). Read the exit code; never grep the reporter — this Node line prints the spec report whether or not stdout is a TTY (verified on v24.20.0 and v24.22.3). Do not run `node --test test/` with a bare directory (it fails); use the package script.
 3. Edit `src/` only. Never edit `lib/*.js`: the build overwrites it and the mutation yields a false SURVIVED.
 4. Run `pnpm build`, then confirm the mutant reached the build output: locate it with `grep -n "<MARKER> = " lib/`. Do not use `grep -cF` for a marker that sits inside a tagged template — tsc emits tagged templates as `String.raw` followed by the template with an inserted space, so an exact in-template grep legitimately returns 0 and looks like a failed restore or a missing mutant.
 5. Validity trio — a red from a mutant that fails any of these is not evidence: (a) it compiles, `tsc` 0 errors (a TS6133 unused-symbol error means the mutant is malformed; reshape it so every symbol stays referenced, e.g. keep both the configured target and the quality cap referenced when mutating the threshold chain); (b) its marker is present in `lib/` after the build; (c) it demonstrably changes behaviour on a probe input.

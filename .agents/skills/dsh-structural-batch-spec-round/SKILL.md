@@ -14,9 +14,9 @@ Use when the user opens a round with several structural complaints (session inde
 - Report real state: an unpushed commit, a dirty `MEMORY.md`/`CONTEXT.md`, or a leftover `?? .agents/skills/<name>/` from an earlier session is a fact to state, not noise to hide.
 
 ## 2. Ground every claim in the implementation
-- Read the code, quote `file:line`: e.g. `MAX_INDEX_LINES`, `entryLines()`, `LINE_PATTERN` in `src/project-context/session-index.ts`; `sectionsFromMarkdown` in `src/project-memory/sections.ts`; the autolearn window `MAX_INDEX_ENTRIES` in `src/project-autolearn/pass.ts`.
+- Read the code, quote `file:line`: e.g. `entryLines()`, `LINE_PATTERN` in `src/project-context/session-index.ts`; `sectionsFromMarkdown` in `src/project-memory/sections.ts`; the autolearn window `MAX_INDEX_ENTRIES` in `src/project-autolearn/pass.ts`.
 - Never diagnose from README prose, from project memory, or from a previous turn's summary.
-- Find the only consumers of a surface before declaring it useless (the 200-line index cap protects nothing because the sole reader takes the newest 50).
+- Find the only consumers of a surface before declaring it useless (the index's line cap used to protect nothing because the sole reader took the newest 50; `MAX_INDEX_ENTRIES = 50` in `src/project-autolearn/pass.ts` is now a prompt slice, and the index itself has no cap).
 
 ## 3. Re-verify any read that came back empty or missing
 - Nix store paths rotate and can be GC'd mid-session; re-list `ls -d /nix/store/*-dsh-desktop-*/lib/dsh-desktop/repo/packages` and retry before concluding a package lacks an API (`ctx.skills.register`, `todo_write`).

@@ -28,7 +28,7 @@ Use when a spec batch has landed and its last section / `CHANGELOG.md` 未发布
 
 - Suites: `test/session-state.test.mjs`, `test/skill-state.test.mjs`, `test/logic.test.mjs`, `test/prompt-bounds.test.mjs`, `test/settings-form.test.mjs`.
 - Fixtures must use real shapes: hex entry ids (`entryTid` only accepts `[0-9a-f]{3,4}`), mtimes written old enough against the injected clock (otherwise `live` instead of `stale`), and the aliasing case the real store produces (see step 4).
-- Run the package script, not bare node: `pnpm test` (`tsc && node --test`). Non-TTY TAP is off; judge on exit code.
+- Run the package script, not bare node: `pnpm test` (`tsc && node --test`). Judge on the exit code, never on the reporter: this Node line prints the spec report even when stdout is a file (verified on v24.20.0 and v24.22.3 — TAP count 0), so a TAP-shaped grep reports a false miss.
 
 ## 4. Smoke-run the new command against the real store before claiming it works
 
