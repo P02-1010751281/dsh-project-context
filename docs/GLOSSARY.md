@@ -27,8 +27,8 @@
 | 受管技能（managed skill） | 由沉淀提升、带基线指纹的技能；手写技能不受管 | `src/project-autolearn/skill-state.ts` |
 | 交接（handoff） | ④ 上下文越线时把会话续进新会话并写 `HANDOFF.md` | `src/project-handoff/perform.ts:126`（`performHandoff`） |
 | 种子（seed） | 交接写进新会话的首条消息（含 `<handoff>` 块与种子 id） | `src/project-handoff/summary.ts` |
-| 设置命名空间（settings namespace） | 唯一的设置 schema 与发布方；键在 profile 的 `project-context` 条目上 | `src/shared/settings.ts` |
-| 设置卡片（settings card） | 浏览器半边的设置界面（三个页签） | `client/settings-card.tsx` |
+| 设置命名空间（settings namespace） | 设置 schema 所在的 Loader 条目；四张卡各有自己的 schema 与发布方，共用十键只由 `project-context` 条目发布 | `src/shared/settings.ts` |
+| 设置卡片（settings card） | 浏览器半边的设置界面（四张卡、无页签：共用 / 整理 / 沉淀 / 交接） | `client/settings-card.tsx` |
 | 预算（budget） | 字符或 token 的分配额（`maxMemoryChars` / `maxOutputTokens` 等） | `src/shared/limits.ts` |
 | 上限（cap） | 硬性截断阈值，超过即丢弃或拒绝 | `src/shared/limits.ts:8-15` |
 | 门禁（gate） | 推送前必须通过的可复现检查（命令 + 退出码） | `RULES.md` 第 6 章 |
