@@ -34,6 +34,20 @@ just keep every line you localize inside that shape.
   skill states, and `resolveThreshold`'s labels (`自动 379616（95%）`, `窗口的 40%`, `N token`)
   each need their Chinese names in the same pass, or the receipt turns half-translated.
 
+## 1b. Surface list
+
+Every command surface that emits a receipt, with the module that owns it — a new receipt has to
+join this list and get the Chinese-plus-English assertion in the same pass:
+
+| Surface | Owner |
+|---|---|
+| `/context`, `task`, `export` | `src/project-context/start.ts` |
+| `/memory` status, `update`, `prune`, `reconcile`, `--accept` (all branches and refusal lines) | `src/project-memory/{report,start}.ts` |
+| `/autolearn` status and candidates | `src/project-autolearn/{start,candidate}.ts` |
+| `/handoff` `now` (seven branches) and `settingPatch` refusals | `src/project-handoff/command.ts` |
+
+Two deliberately stay English: the consolidate prompt and `purge.log`.
+
 ## 2. Punctuation rule
 
 Chinese receipts use full-width `（）「」`; English receipts use ASCII `()` and straight quotes.
