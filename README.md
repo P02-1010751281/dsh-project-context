@@ -53,7 +53,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/handoff pending defer\|wait` | 未答问题时：延后交接 / 照常交接并把问题带进新会话 |
 | `/handoff lang auto\|zh\|en` | 交接语言：自动判定或固定中文 / 英文 |
 
-## 它在项目里写什么
+## 写入的文件
 
 ```
 <project>/.agents/
@@ -63,6 +63,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
     ├── CONTEXT.md                # ② 工作态：摘要 / 关键点 / open tasks
     ├── HANDOFF.md                # ④ 最近一次交接
     ├── memory.jsonl              # ② 记忆权威日志（append-only）
+    ├── tasks/<slug>.md           # ② 绑定任务的上下文（每轮注入）
     ├── session-logs/<id>/        # ① 会话存档（session.jsonl + session.md）+ INDEX.md
     └── errors.log                # 各阶段异常（脱敏、轮换）
 ```
