@@ -11,11 +11,12 @@
 |---|---|---|---|---|
 | ① 存档 | `project-context`（主入口） | `/context`、`/session-log` | 每轮 `turn/end` 追加；idle / disposed 落盘 | `session-logs/<id>/`、`INDEX.md` |
 | ② 整理 | `project-memory` | `/memory`、`/memory update`、`/memory prune`（清理通道） | idle / disposed + 节流；每次整理 pass 之后跑一次清洗；`turn/end` 把本会话 todo 的未完成项写进 Open tasks（快照不变不写） | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入）；`purge.log` 记录删除 |
-| ③ 沉淀 | `project-autolearn` | `/autolearn` | 有新材料 + 轮数/间隔达标 + 至少一个真实存档 | `skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
-| ④ 交接 | `project-handoff` | `/handoff` | 越过阈值 + 无在跑后台子代理 + 本会话未再开新轮 | 新会话 + `HANDOFF.md` |
+| ③ 沉淀 | `project-autolearn` | `/autolearn` | 有新材料 + 轮数/间隔达标 + 至少一个已归档会话作证据 | `skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
+| ④ 交接 | `project-handoff` | `/handoff` | 越过阈值 + 无在跑后台子代理 + 无待答问题（仅 `defer` 模式挡）+ 有可丢弃的近端对话 | 新会话 + `HANDOFF.md` |
 
-四个插件是同一包内的独立 cordis 插件，共享一份配置与生命周期 helper。②③④ 只对顶层会话生效，
-① 对子代理会话同样留档。④ 交接后旧会话**默认被归档**（可关，见配置表的 `handoffRetireReplaced`）。
+四个插件是同一包内的独立 cordis 插件，共用 `src/shared/` 的生命周期 helper；配置按卡分成四份
+schema，共用值只由 `project-context` 发布。四个都只对顶层会话生效——委派出来的子代理会话不归档、
+不整理、不沉淀、不交接。④ 交接后旧会话**默认被归档**（可关，见配置表的 `handoffRetireReplaced`）。
 
 ## 安装
 
