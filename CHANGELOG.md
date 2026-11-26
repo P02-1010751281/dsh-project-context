@@ -3,9 +3,9 @@
 本仓库以 **`v0.1.0`** 作为首个发布（`package.json` 为 `0.1.0`）。更早的 `v0.1.0`/`v0.2.0`
 标签因对应提交上的代码有误，已在本地与远端一并删除并作废。
 
-- **未发布**：`v0.5.0` 之后的变更按时间倒序写在本文件里；发版时整段搬进 `docs/changelog/<version>.md`，
+- **未发布**：`v0.5.0` 之后的变更按时间倒序写在本文件里；发版时整段搬进 `docs/changelog/v<version>.md`，
   本文件重新开一个空小节。
-- **已发布**：每个版本一份 `docs/changelog/<version>.md`，本文件末尾的「版本目录」是唯一索引。
+- **已发布**：每个版本一份 `docs/changelog/v<version>.md`，本文件末尾的「版本目录」是唯一索引。
 - 标注「修复」的条目都伴随一条**变异校验过**的回归测试（把修复改回原样，测试必须失败）。
 
 ## 未发布（`v0.5.0` 之后）
@@ -84,6 +84,36 @@
   提前返回，从不进入清洗分支。改为「真正跑了的整理 pass 之后追一次清洗」。
 - 复核后**不改**的两处：`docs/memory-rewrite-loss-gate-spec.md:31` 与 `docs/upstream-pi-triage.md:1229` 里的
   `N section(s) exceeded their budget` 是规格与上游记录中的当时原文，属史实。
+**文档（第三轮：全项目 25 份现行文档逐条对源码，含跨仓与上游）**
+
+- 审计面扩到全部现行文档，`docgate` 对 36 份 `.md` 跑出失败项 0。每份按「可核对断言 → 实测命令」处理，
+  历史档案、`docs/archive/`、带日期 spec 与 `.agents/evidence/` 按既有豁免不动。
+- `docs/harness/dsh.md` 的事件表列了 63 个，实测（store 0.2.2-rc.5 的 `packages/*/*/lib/types/*.d.ts`）
+  是 **67** 个：补进 `workspace/session-archived`、`workspace/session-unarchiving`、`web/providers-changed`、
+  `worktree/cleanup`，表格与实测差集为空；`docs/harness/README.md` 与 `docs/harness/integration.md`
+  的 63 同步改为 67。
+- `docs/harness/README.md` §4 的复核命令已失效：注册走的是 `HostContext` 的 `host.on`，而命令 grep 的是
+  `ctx.on`（核心目录 0 命中，只有 `src/host/dsh/` 还碰原生 ctx），照跑会得到「一个都没注册」。已改成
+  扫 `host.on` / `host.registerCommand` / `host.addPromptContext`，并补一条「核心不得直接碰 `ctx.*`」的
+  现读判据。改后逐条执行，6 个事件名、服务列表、核心零命中三项都通过。
+- `docs/README.md` 说批次 AC 与 2c-1 两份规格「尚未动 `src/`」，两者都已落地（`fc414cf` 随 v0.5.0 发布；
+  `210f909` + `00d9070`），已改为「已落地」；同页「四条门禁规则（五条检查）」与
+  `docs/core-host-boundary.md` 自己列的 5 条规则、`check-boundary.mjs` 的 6 个检查项都对不上，已改准。
+- `docs/development.md` 两处：`:32` 重复了 RULES 5.1 那个「唯一值依赖是 schemastery」的错（`lib/host/dsh`
+  还值导入 `dsh-llm/brand` 与 `dsh-session`）；`:48` 说 desktop host「监听 `127.0.0.1:19387`」，而同一页
+  `:56` 写着「19387 根本不会被监听」——同页自相矛盾，已改指「端口每次重启都变，见下节」。
+- 三份文档的状态行与实现相反：`docs/memory-rewrite-loss-gate-spec.md`（该闸已落地 `406835f`，`missing-literals.ts`
+  在树上且已接线）、`docs/batch-v-memory-staleness-spec.md`（`staleness-source.ts` 四态判定已接进
+  `entry-states.ts`）、`docs/handoff-candidates-b-c.md`（(c) 子会话标题改写已在 `src/project-handoff/relabel.ts`）
+  都写着「`src/` 未改」。
+- `docs/changelog/<version>.md` 这一写法在 `CHANGELOG.md` 头部、`docs/README.md` 与发布技能里仍是现状声明，
+  实际文件名带 `v`；三处均已统一，只保留 RULES 8.2／3.5 已改好的写法。
+- 复核后确认**准确**、未改的：`docs/sibling-repos.md` 的三个远端地址、分支名、codex 的 370 B 入口与
+  93 KB `contextctl.py`（执行它自带的现读命令逐项对上）；`docs/harness/pi.md` 的 41 个事件与 33 个方法
+  （在 pi 1.6.0 的 `types.d.ts` 里实读）；`docs/harness/codex.md` 的 7 个 hook（`hooks.json` 实读）；
+  `docs/compaction-vs-handoff.md` 引用的上游 0.8 / 0.16 与 `resolveCompactSpec`；
+  `docs/vocabulary-conventions.md` 引用的两个测试与 23=23 键集一致；`docs/host-context-2c-design.md` 的
+  facade 落地声明（四个 `start(host, entry)`、核心零 cordis 类型）。
 - `CHANGELOG.md` 自身的标题跳级（h1 → h3，`docgate` 报 `标题跳级：1` 并 rc=1）**改动前就存在**，从 v0.5.0
   发布起就有：顶层是 `# 更新日志`，未发布段却是 `### 未发布（…）`。按 RULES 2.4「冲突先改规则」，同一批把
   `RULES.md` 2.2 与 8.2 的 `### 未发布` 一并改成 `## 未发布`，再改 `CHANGELOG.md` 与三个引用它的技能

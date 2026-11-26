@@ -29,8 +29,9 @@ peer——Shell 从自己的 workspace 供，所以一直没人发现；自己�
 `lib/index.js` 还会 import `shiki` / `katex` / `micromark` / `simple-icons` 等（markdown 与代码块那一面，
 本卡片不渲染），测试对这些注入惰性 passthrough，并在 `t.diagnostic` 里列出实际被替换的模块。
 
-host 侧对 `@deepseek-ai/*` 仅 type-only import（唯一的运行时值依赖是 `schemastery`，已声明在
-`peerDependencies`）；客户端 bundle 的 esbuild 外部化列了 `react` / `react/jsx-runtime` /
+host 侧对 `@deepseek-ai/*` 基本是 type-only import；值依赖只有 `schemastery`（声明在 `peerDependencies`）
+与 `src/host/dsh/` 收口的两处宿主值导出（`@deepseek-ai/dsh-llm/brand` 的 `ReasoningEffortId`、
+`@deepseek-ai/dsh-session` 的 `SessionId` 与 `isSurfaceEligibleType`）。客户端 bundle 的 esbuild 外部化列了 `react` / `react/jsx-runtime` /
 `@deepseek-ai/dsh-client-store` / `@deepseek-ai/dsh-client-ui-primitives`（四者都由 web shell 的平台种子
 提供），而实际 `require` 出去的只有 `react/jsx-runtime` 与 `@deepseek-ai/dsh-client-ui-primitives`——store
 目前只作类型使用，留在列表里是显式的防回归声明（内联平台包会把它自带的 CSS modules 一起卷进单文件
@@ -44,8 +45,8 @@ bundle，那样加载不了）。
 客户端改动**只有 `pnpm build`（或 `pnpm build:client`）才会进 `lib/client.js`**：`pnpm test` 只编译
 host，漏跑会让服务端继续分发旧 bundle；重建后运行中的 `dsh web` 经 client HMR 自动换版（boot graph
 的 `rev` 变化），刷新页面即可。改 host 侧（`src/`）要先 `pnpm build`，再重启**承载插件的那个 host**
-才生效——可能是 `dsh web`，也可能是桌面端的 dsh-desktop（其 host 监听
-`127.0.0.1:19387`）；只看提交或构建
+才生效——可能是 `dsh web`，也可能是桌面端的 dsh-desktop（其 host 自 alpha.2 起用 `--port 0`，
+端口每次重启都变，见下节；只看提交或构建
 时间不能判定已生效，要对进程启动时间。
 
 ## 重启验收

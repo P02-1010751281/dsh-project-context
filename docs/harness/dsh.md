@@ -49,7 +49,7 @@ dsh 自己的服务驱动，不经过我们的事件面。所以 pi 的 `session
 
 ## 3. 接口面
 
-### 3.1 事件（`ctx.on`，共 63 个）
+### 3.1 事件（我们经 `host.on` 注册，dsh 共 67 个）
 
 按域分组，**★ = 我们注册的（6 个）**：
 
@@ -63,12 +63,12 @@ dsh 自己的服务驱动，不经过我们的事件面。所以 pi 的 `session
 | subagent | `subagent/end`、`subagent/provider-added`、`subagent/provider-removed`、`subagent/start` |
 | workflow | `workflow/agent-end`、`workflow/agent-start`、`workflow/end`、`workflow/log`、`workflow/phase`、`workflow/start` |
 | goal / schedule | `goal/activation-changed`、`goal/changed`、`schedule/changed`、`schedule/resolve-agent` |
-| workspace | `workspace/session-activity`、`workspace/session-stop` |
+| workspace | `workspace/session-activity`、`workspace/session-archived`、`workspace/session-stop`、`workspace/session-unarchiving` |
 | settings / commands / skills | `settings/document-updated`、`commands/change`、`skills/change` |
 | fs | `fs/delete-intent`、`fs/edit-intent`、`fs/observed`、`fs/write-intent` |
 | approval / auth | `approval/request`、`authorization/settled` |
 | cordis / hmr | `cordis/dynamic-package`、`cordis/dynamic-retract`、`cordis/inspect-query`、`cordis/inspect-query-resolved`、`cordis/request-run`、`cordis/request-run-resolved`、`hmr/change`、`hmr/reload` |
-| 其余 | `connection/request`、`credentials/record-updated`、`credentials/reference-updated`、`domain/changed`、`feedback/committed`、`forge/providers-changed`、`webserver/index-inject` |
+| 其余 | `connection/request`、`credentials/record-updated`、`credentials/reference-updated`、`domain/changed`、`feedback/committed`、`forge/providers-changed`、`web/providers-changed`、`webserver/index-inject`、`worktree/cleanup` |
 
 **未接入但容易误认的一条**：`tools/pre-execute` 上游存在，`PreToolDecision` 是
 `allow | deny | cancel | ask`，也就是说插件**有能力否决一次工具调用**；我们四个插件都没有注册它

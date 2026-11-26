@@ -5,7 +5,7 @@
 
 | 文件 | 内容 |
 |---|---|
-| [dsh.md](dsh.md) | dsh（本仓库）的生命周期、状态机、63 个事件、9 个服务、注入与命令 |
+| [dsh.md](dsh.md) | dsh（本仓库）的生命周期、状态机、67 个事件、注入与命令（数字现读，见 §4） |
 | [pi.md](pi.md) | pi 的状态机、41 个事件、33 个方法、返回值契约 |
 | [codex.md](codex.md) | codex 的 7 个 hook、三种输出协议、落盘状态机 |
 | [integration.md](integration.md) | **决定**：我们接哪些接口、哪些是真 shim、哪些是分类错误 |
@@ -21,7 +21,7 @@
 |---|---|---|---|
 | 扩展形态 | cordis 插件，**进程内** | pi extension，**进程内**，只能有一个 | **命令式子进程**，每个 hook fork 一次 |
 | 注入 | **拉取式**（装配时求值） | **推送式**（事件里给文本） | **推送式**，3000 字符上限 |
-| 事件面 | 63 个，我们注册 6 个 | 41 个，扩展注册 6 个 | 7 个 hook，全用 |
+| 事件面 | 67 个，我们注册 6 个 | 41 个，扩展注册 6 个 | 7 个 hook，全用 |
 | 辅助模型 | `ctx.llm.stream` | `modelRegistry.complete` | **无**（0 处网络调用） |
 | 跨事件状态 | 进程内可持有 | 进程内，但必须在同一扩展内 | **只能落盘** + `file_lock()` |
 | 失败姿态 | `warn` / 退避 | catch，不阻塞 | 静默 `print("{}")`，绝不阻塞 |
@@ -81,14 +81,18 @@
 
 ```sh
 # ---------- dsh ----------
-# 我们注册了哪些事件（应为 6 个不同名）
-grep -rhoE 'ctx\.on\("[a-z/]+"' src/ | sort | uniq -c
+# 我们注册了哪些事件（应为 6 个不同名；2026-11 起走 HostContext 的 host.on，
+# 只有 src/host/dsh/ 里还在碰原生 ctx.on）
+grep -rhoE 'host\.on\("[a-z/]+"' src/ | sed 's/host.on("//;s/"//' | sort | uniq -c
 
-# 我们读了哪些未声明服务
-grep -rnoE 'ctx\.get\("[a-zA-Z]+"\)' src/ | sed 's/.*ctx.get("//;s/")//' | sort | uniq -c
+# 我们读了哪些服务（服务 getter 现在收口在 src/host/dsh/services.ts）
+grep -rnoE 'ctx\.get\("[a-zA-Z]+"\)' src/host/dsh/ | sed 's/.*ctx.get("//;s/")//' | sort | uniq -c
 
-# 注入 / 命令注册点
-grep -rn 'ctx\.systemPrompt\.context(\|ctx\.commands\.register(' src/
+# 注入 / 命令注册点（同上，走 host.addPromptContext / host.registerCommand）
+grep -rn 'host\.addPromptContext(\|host\.registerCommand(' src/
+
+# 核心不得直接碰 ctx.*（门禁 service-access / wiring 也查这条；应为 0）
+grep -rn 'ctx\.\(on\|get\|commands\|systemPrompt\)' src/ --include='*.ts' | grep -v '^src/host/'
 
 # 确认我们没有注册 tools/pre-execute（应为 0）
 grep -rn 'pre-execute' src/ || echo "0 hits"
