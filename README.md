@@ -10,7 +10,7 @@
 | 阶段 | 插件（子路径） | 命令 | 自动档触发 | 产物 |
 |---|---|---|---|---|
 | ① 存档 | `project-context`（主入口） | `/context`、`/session-log` | 每轮 `turn/end` 追加；idle / disposed 落盘 | `session-logs/<id>/`、`INDEX.md` |
-| ② 整理 | `project-memory` | `/memory`、`/memory update`、`/memory prune`（清理通道） | idle / disposed + 节流；每次整理 pass 之后跑一次清洗；`turn/end` 把本会话 todo 的未完成项写进 Open tasks（快照不变不写） | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入）；`purge.log` 记录删除 |
+| ② 整理 | `project-memory` | `/memory`、`/memory update`、`/memory prune`（清理通道） | idle / disposed + 节流；真正跑了的整理 pass 之后追一次清洗（去重跳过的 pass 不追）；`turn/end` 把本会话 todo 的未完成项写进 Open tasks（快照不变不写） | `CONTEXT.md`、`MEMORY.md`；绑定了任务的会话写 `tasks/<slug>.md`（每轮注入）；`purge.log` 记录删除 |
 | ③ 沉淀 | `project-autolearn` | `/autolearn` | 有新材料 + 轮数/间隔达标 + 至少一个已归档会话作证据 | `skills/<name>/SKILL.md`；证据不足写 `skill-candidates/` |
 | ④ 交接 | `project-handoff` | `/handoff` | 越过阈值 + 无在跑后台子代理 + 无待答问题（仅 `defer` 模式挡）+ 有可丢弃的近端对话 | 新会话 + `HANDOFF.md` |
 
@@ -46,6 +46,7 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 | `/session-log tree` | 只读：把 `session-logs/<id>/meta.json` 的 `parentId` 读成缩进树（交接链），标 `kind`、日期、标题、任务与「父会话不在存档」；子代理档案不计入，行数上限 500 |
 | `/memory` | 显示项目记忆的状态：字符数 / 上限（含百分比）、四节条目数（文档不是四节形状时明说「无法解析」而不是报 0）、`stale N`（引用的文件在条目写入后被改过；只标不删，四态 fresh / stale / missing / unverifiable）、journal 行数与字节、备份数、归档会话数、`errors.log` 行数；capped / damaged / poisoned / unreadable 的警告原样保留 |
 | `/memory prune` | 预览清洗通道将删什么（不删、不写日志）；`/memory prune --apply` 先归档到 `trash/<date>.tar` 再删，并追加一行 `purge.log` |
+| `/memory reconcile` | 只读：按七态判定列出引用的文件已变化或消失的条目；`--accept <id>` 只对非退役态写确认（退役态由整理 pass 移出，不在此确认） |
 | `/autolearn` | 立即沉淀技能（③）；证据不足时按索引回读 `session.jsonl`；`list` / `approve <name>` / `reject <name>`。采纳后 `SKILL.md` 带 `derived_from: autolearn` 与被核对的 session id（frontmatter，可选）；`list` 与采纳回执显示证据条数与 id 前缀，并机械比对关键 token（反引号词 / 路径 / 命令）与既有技能、`MEMORY.md` 的重叠 |
 | `/handoff` | 立即交接：把逐字尾料、文件清单、未答问题或用户最后一次输入带进新会话继续（**不调用模型生成摘要**）。新会话第一条消息里有一段**给用户的说明**：带过来多少条消息 / 多少 token / 几个文件、更早有多少条留在了归档、归档路径，以及旧会话从哪打开——交接不再是一次静默换会话 |
 | `/handoff status` | 显示开关、阈值、当前上下文占用与保留量；**手动设定的阈值被护栏压掉**时点名被覆盖的值与压住它的护栏（质量膝 / 容量 / 安全边际）；自动交接因“没有更早内容可移出”被跳过时，一并报告**从何时起被跳过**与原因（重新可移出即清除）；本会话路由（provider/model）无法解析时，回执点名该配对与适配器原话，而不是抛错；另报宿主压缩历史（次数 / 摘要与 prune 分计 / 最近回收 token / 是否失败），以及本进程刚做的交接**种子的三个数字**（尾料消息数、文件数、未答问题处置） |
@@ -70,8 +71,8 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
     └── errors.log                # 各阶段异常（脱敏、轮换）
 ```
 
-完整布局（锁、备份、`autolearn-state.json`、候选、journal 轮转）、`journal` 与 `MEMORY.md` 的
-派生关系、旧布局迁移：见 [docs/architecture.md](./docs/architecture.md)。
+完整布局（锁、备份、`autolearn-state.json`、候选、journal 轮转）与 `journal` → `MEMORY.md` 的
+派生关系：见 [docs/architecture.md](./docs/architecture.md)。
 
 ## 配置
 
@@ -108,8 +109,10 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 
 ## 行为与边界
 
-- 手动 `/handoff` **始终执行**：不受 `handoffEnabled`、`handoffThreshold` 与阈值门控。
-- `archiveEnabled: false` 时不发生任何自动写入；`/session-log write` 是文档化的逃生口。
+- 手动 `/handoff` 不受 `handoffEnabled`、`handoffThreshold` 与阈值门控；但它仍会拒绝三种情形并点名：
+  本会话已有交接在跑、本 profile 没有会话控制器、还有后台子代理在跑（交接会退休本会话并取消它们）。
+- `archiveEnabled: false` 时不自动写会话存档与索引（`/session-log write` 是文档化的逃生口）。唯一例外：
+  自动交接仍会为新会话写一行 `session-logs/<child>/meta.json`，那是交接链的身份，不是存档。
 - 自动交接只在 `turn/end` 评估、没有定时器；有后台子代理在跑时**延后**，手动 `/handoff now` 则
   **拒绝并点名**。
 - **压缩归宿主，交接归本插件**：压缩由 dsh 自带，本插件只读报出；想让它先压缩，把 `handoffThreshold` 设成 `0.8` / `800k`（代价与阈值交叉点见 [docs/compaction-vs-handoff.md](./docs/compaction-vs-handoff.md)）。
@@ -123,8 +126,9 @@ dsh --profile web --dump-config | grep -A3 project-         # 验证
 - **交接后旧会话不见了？** ④ 默认把被替换的会话归档（只隐藏、不删除，也不影响日志与工作区位置）。
   侧栏视图选项切到「全部对话（显示已归档）」→ 右键「取消归档」；想从此保留，把
   `handoffRetireReplaced` 关掉。
-- **记忆没更新？** `/memory` 看状态。两种成因分开报：`N section(s) exceeded their budget` /
-  `whole entry(ies)` = 文档太大、须压缩；`cut off by the model output limit` = 输出被上限截断，
+- **记忆没更新？** `/memory` 看状态。两种成因分开报：`N whole entry(ies) were dropped from M
+  section(s) because the memory document reached its character cap` = 文档太大、须压缩；
+  `cut off by the model output limit` = 输出被上限截断，
   此时调大 `maxMemoryChars` 只会更糟。
 - **卡片上改了没反应？** 先确认改的是哪一张卡：配置按卡分成四份 schema，`project-context`（共用值 /
   归档）、`project-memory`（整理）、`project-autolearn`（沉淀）、`project-handoff`（交接）各一张；

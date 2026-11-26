@@ -73,7 +73,7 @@ Chinese receipts use full-width `（）「」`; English receipts use ASCII `()` 
   `docs/architecture.md` §2 (edges, distinct specifiers, occurrence count) **and** the matching
   counts in `RULES.md` 4.2 in the same commit, or `pnpm docs:check` fails on the edges check.
   Read the old numbers from that table; never restate them from memory.
-- Register the batch in `CHANGELOG.md` under `### 未发布（…）` with real, greppable English test
+- Register the batch in `CHANGELOG.md` under `## 未发布（…）` with real, greppable English test
   names, and point at the new shared module.
 - To find the receipts still not localized, grep the receipt builders in `src/project-*/`
   (e.g. `src/project-memory/report.ts`) for hardcoded English literals. The CHANGELOG residual

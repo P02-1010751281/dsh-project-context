@@ -86,7 +86,7 @@ failure occurred after the restart, report that half as UNOBSERVABLE and leave i
 - Add a positive test (the crafted code spends the retry) and a negative control (another unusable code
   still fails), mutation-check both, then `pnpm build` (or `pnpm test`, which runs `tsc` + `node --test`)
   and commit `lib/` with `src/`.
-- Record the batch under `### 未发布` in `CHANGELOG.md` with the observation count, the ruling, and what
+- Record the batch under `## 未发布` in `CHANGELOG.md` with the observation count, the ruling, and what
   stayed a residual.
 
 ## Traps
