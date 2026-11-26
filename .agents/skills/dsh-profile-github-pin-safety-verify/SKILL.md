@@ -19,7 +19,7 @@ grep -n 'dsh-project-context' ~/.dsh/profiles/<profile>/package.json
 
 Grep the dependency key, never a line number (shifts on every settings save). Record the exact form: `link:` (live tree), `file:` tgz, `git+ssh://…#<sha>`, `github:owner/repo`, `github:owner/repo#<sha>`, `github:owner/repo#<tag>`.
 
-A tag is a fourth pin form, and pnpm resolves it to the peeled commit before writing the lock — so it installs exactly what a sha pin would (measured: `#v0.5.0` → `28d2459`, integrity byte-identical to the same commit's sha-pinned lock; the `specifier:` keeps the tag name). Prefer it for readability when the repo's convention is that released tags are never re-cut; prefer a sha when you need immutability that survives someone moving the tag, because a fresh resolve re-reads whatever the tag points at then.
+A tag is a fourth pin form, and pnpm resolves it to the peeled commit before writing the lock — so it installs exactly what a sha pin would — measured 2026-11: `v0.5.0` peels from `f6164c7` to `28d2459`, and the lock's `resolution:` block then reads the same `{commit, repo, type: git}` whichever spec form you installed from (a git dependency carries **no** `integrity:` hash — compare `resolution.commit`, not hashes), while `specifier:` keeps the tag name. Prefer it for readability when the repo's convention is that released tags are never re-cut; prefer a sha when you need immutability that survives someone moving the tag, because a fresh resolve re-reads whatever the tag points at then.
 
 ## 2. Read what the lockfile actually installs
 

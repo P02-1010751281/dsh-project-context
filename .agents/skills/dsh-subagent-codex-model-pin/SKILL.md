@@ -101,8 +101,10 @@ which rules apply.
 - `async_compaction` must be spelled `[features] async_compaction = true` — a **boolean**. Store build
   0.153.4 fails `thread/start` with `invalid type: map, expected a boolean` on the nested
   `[features.async_compaction] enabled = true` table; the PATH CLI 0.169.0 reads only the boolean.
-  Deleting the block also fixes 0.153.4, which has no such feature at all: `features list` is 135
-  rows with no entry, and `--enable` / `features enable` answers `Unknown feature flag` (exit 1).
+  Deleting the block also fixes 0.153.4, which has no such feature at all: `features list` was 135
+  rows with no entry, and `--enable` / `features enable` answered `Unknown feature flag` (exit 1).
+  Those 135 rows were measured on that build, which is **no longer in this store** (2026-11-26: only
+  0.171.0 remains, 224 rows) — re-measure on the build you actually have instead of quoting 135.
 - Unknown keys are silent on 0.153.4 (even a fabricated `[bogus_section_xyz]` earns no warning), so
   "no warning" never means "recognised"; `thread/start` also returns a thread id for a nonexistent
   model, so a handshake is not a model-call test.

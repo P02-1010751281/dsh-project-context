@@ -36,7 +36,7 @@ Run a throwaway probe under `/tmp` that imports the host modules by absolute pat
 - `sectionsFromMarkdown(text)` → exactly the four sections;
 - `renderMemoryDocument(sections, <the cap>)` → `sectionDropped === 0`, `droppedItems === 0`, `itemTruncated === 0`, and per-section `cost` ≤ `budget` with `longest` below the item cap;
 - `loadMemory(root, <the cap>)` → `isMemoryTruncated(loaded.text) === false`, `damaged === 0`, `poisoned === false`;
-- `fitMemoryInput` reports clipped `false` across a cap grid (24576 tokens and up).
+- `fitMemoryInput` reports clipped `false` across a cap grid — but **measure the grid, do not assume a floor**. On 2026-11-26, with MEMORY.md at 53,999 chars and CONTEXT.md at 4,349, `clipped` was `true` at caps 8192/16384/24576/32768 (memoryHiddenChars 17,219, contextHiddenChars 1,182) and only `false` from 49,152 up. A threshold that was true for a smaller document silently becomes false for a fuller one.
 
 Never grep for the truncation marker: it can be present while the status object still reports a healthy document. Archive the probe, its `out.json` and a `README.md` under `.agents/evidence/<date>-memory-four-section-migration/`.
 

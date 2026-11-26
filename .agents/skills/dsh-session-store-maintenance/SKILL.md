@@ -13,7 +13,7 @@ Use when a task requires looking at, probing, repairing, or cleaning up dsh sess
 
 ## Probe the running server (read-only)
 - There is **no** `/tmp/rpc.sh` in this repo and `/tmp` does not survive a reboot: check with `ls -l /tmp/rpc.sh` before using it, and recreate it (or use the Cordis Inspect read-only queries plus the harness's own tools) instead of assuming a helper exists. Port: for desktop, resolve the host pid first (`pgrep -af 'dsh-desktop-host/lib/index\.js'`) and take a port from `ss -ltnp | grep "pid=$pid"` — `19387` is dead, the GUI port is ephemeral; for web it is `3080` unless overridden.
-- Argument shapes differ per method: `session/list` wants `{"args":{"_request":{}}}`; `session/page` wants `{"args":{"request":{...}}}`; workspace mutations want `{"args":{"request":{...}}}`. These were read off the 0.1.7-rc.2 line — re-check the shape against the running line rather than trusting this list.
+- Argument shapes differ per method and **cannot be read off the store statically** (2026-11-26: no `_request`-shaped method input exists in the checkout; the `_request` occurrences in the gateway tests are event-callback parameters). The live method table is the authority — read it from the running host (Cordis Inspect) or accept the shape the server's own error names, because a wrong envelope is rejected before the method runs. Record the shape you confirmed and the port you confirmed it on; do not carry either across a restart.
 - Confirm a session is loadable with `session/page`; expect HTTP 200.
 - Caution: probing `session/create` makes the server load the sessions it touches and grows RSS; a restart releases it.
 
@@ -21,7 +21,7 @@ Use when a task requires looking at, probing, repairing, or cleaning up dsh sess
 - Path: `~/.dsh/sessions/<encoded-cwd>/<session-id>/session.v4.jsonl.zstd` (current) with legacy `session.v3.jsonl.zstd` and `session.jsonl.zstd` (v0) still on disk in older directories. Do **not** glob only `session.v3` — v4 outnumbers v3 in this store and a v3-only glob silently misses the majority. Pick the newest with `ls "$d"/session.v*.jsonl.zstd 2>/dev/null | sort -V | tail -1`.
 - Decompress with `zstdcat <file>` and parse the JSONL events.
 - v0 logs are migrated in memory and usually open fine; only v0 logs carrying an old subagent descriptor are refused (history unreadable, raw file left on disk). Disk format alone is not the discriminator.
-- Layout: the writer emits one zstd frame per append batch, header frame first, checksum flag on; the reader decodes frame by frame.
+- Layout: a zstd-framed JSONL with the checksum flag on (XXH64), decoded frame by frame — but **do not assume one frame per append**. Measured 2026-11-26: a 9.3 MB v4 log holding 33,037 events had exactly **2** frames (`zstd -l <file>`), so frames are large and few; `zstd -l` is the way to count them, not a magic-byte grep on the compressed bytes.
 
 ## Workspace grouping
 - Sidebar grouping comes from workspace membership in `~/.dsh/storages/workspace.json` (`tables.workspaces` is a dict keyed by workspace id, each value `{path,title,sessionIds:[...]}`), not from session cwd; archived ids live in the registry-global archive set `global.archivedSessionIds`.

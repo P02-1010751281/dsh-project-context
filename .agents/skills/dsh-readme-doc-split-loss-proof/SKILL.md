@@ -75,7 +75,7 @@ Write one `- ` bullet per statement; appending plain text splices into the last 
 
 ```bash
 pnpm typecheck && pnpm build && pnpm test      # read exit code; reporter is spec even off a TTY (TAP count 0)
-ℹ tests 492 / pass 492 / fail 0                # read the fresh numbers, never reuse old ones
+ℹ tests 832 / pass 832 / fail 0                # 2026-11-26; read the fresh numbers, never reuse old ones
 git diff --exit-code -- lib                     # empty: a docs-only change needs no restart
 git add README.md CHANGELOG.md AGENTS.md RULES.md docs .agents/memory/CONTEXT.md
 git commit -F <msg> -- <those paths>            # never add -A: another session may be writing

@@ -15,8 +15,12 @@ upstream `main` risks stating a wrong cause. Remote upstream API/field/formula c
 
 ## 1. Pin the revision the host actually loaded
 
-- Read `dsh --version` fresh. Both the desktop host and the `dsh web` service load the same store
-  checkout; the version string is the only stable handle.
+- Read `dsh --version` fresh. Do **not** assume one store: this box has run two desktop hosts from two
+  different checkouts at the same time (2026-11-26: `$HOME/.dsh/desktop/nix-project/y3bas…` and a
+  second deployment's `.dsh-sec/desktop/nix-project/w8mf…`, both 0.2.2-rc.5, and no `dsh web` at all),
+  and the version string alone cannot tell them apart. Resolve the checkout per host pid:
+  `pgrep -af 'dsh-desktop-host/lib/index\.js'`, then read the `…/nix-project/<hash>-dsh-desktop-<ver>`
+  segment from that specific argv.
 - The host source is the store clone it loads:
   `ls -d /nix/store/*-dsh-desktop-<version>/lib/dsh-desktop/repo`.
   Read only — never edit or `git checkout` inside the store.
