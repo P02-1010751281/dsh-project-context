@@ -1,33 +1,33 @@
 # Project Context
 
-Last updated: 2026-11-25T09:59:12.900Z
+Last updated: 2026-11-26T02:04:05.879Z
 
 ## Summary
 
-本会话从 session-95ba96da 交接续接，主线是核实用户在 406-12 上手改的 `github:P02-1010751281/dsh-project-context` pin 是否可行。结论：用户的写法可用且比我原先的 ssh 写法更好，唯一缺陷是缺 `#sha`。三点实测支撑：`github:<owner>/<repo>#<sha>` 在 `pnpm install --lockfile-only` 下精确锁到该提交（`6318547`）；不带 sha 时解析到默认分支当时的 HEAD（现恰好也是 `6318547`）；codeload 对 `28d2459`、`6318547` 与旧仓库名/新仓库名都匿名返回 HTTP 200，说明远端装不需要 ssh key。406-12 的 lockfile 已钉住 `28d2459`（0.5.0），所以现状安全，风险只在下次重装（删 lock、`--force`、换机）。我曾提议补 sha，改的是用户设的那一行，已明说不擅自动，等用户裁定。 仓库侧已确认：GitHub 仓库与包名都改成了 `dsh-project-context`，但远端路径、依赖键与 loader 条目名的字面量仍是旧形状；`require.resolve` 能解析到已装包，唯一失败的 patch 名 `dsh-client-auto-continue` 不是我们的包；依赖键、包内 name、已装包三者字节一致。 406-12 现状：装的是 0.5.0，`SettingsSchema` 5 处、`CARD_ROWS` 2 处在；lock 在 `28d2459`，它与 HEAD `6318547` 只差两个记忆文档（`src/`、`lib/`、`client/`、`test/` 零差异）；`cordis.patch.yml` 键归属正确。宿主进程仍是 11月21日 23:23 启动的那个，所以 0.5.0 还没生效，重启是唯一待办。 用户随后问「锁 tag 也行吧？」。已核实 `v0.5.0` 是 annotated tag `f6164c7`、peel 到 `28d2459`，且已推送到远端（`refs/tags/v0.5.0` 与 `refs/tags/v0.5.0^{}` 都在）。`github:` 简写能直接写 tag 名：`github:P02-1010751281/dsh-project-context#v0.5.0` 经 `pnpm install --lockfile-only` 解析到 `28d2459`（即 peel 后的提交），lock 的 specifier 保留 tag 名、integrity 与写 sha 的 lock 逐字节相同，所以锁 tag 与锁 sha 效果等同，区别只是 tag 可被移动。 记账 pass（会话早段）已合并三对重述条目、补回一处真丢字面量、消除新增悬空引用，提交 `3403737`、`6318547` 并推送，工作树干净、`lib/` 未动；文档当前 53997 字符、对 54000 只剩 3 字符。 过程陷阱：工具输出会把不同字面量渲染成同一文本（仓库名、依赖键、包名撞在一起），我一度据此判「仓库改名了」，最后靠字节长度、码点与 hex 前缀才钉住结论；这类判断一律比字节/码点。
+本会话从 session-17f125e2 交接续接，两件主线。其一：用户对 README 反复不满（“文档拉屎”），前两轮我都改错对象——先修 121 行的压缩说明，再只删那 11 行里的一句话。这次定位正确：README 第 8–18 行整段“文档分工”是元描述，说明的是文档自己该怎么分工，不是使用说明。已整段删除（166→154 行），逐条核过 11 行的信息归宿：四个 docs 职责在 `docs/README.md` 第 10/13/14/15 行（更详细）、逐版本变更在第 4 行、archive 索引在第 37 行、手册定位在第 3 行；唯一真正的价值是它同时是 `AGENTS.md` / `RULES.md` 的入口，已移到 `docs/README.md` 头部承担。`RULES.md` 第 1 章“文档分工在 README.md”随之改指 `docs/README.md`。提交 `c8bdabd docs: drop the doc-map preamble from the README`，`pnpm docs:check` 135 项 0 失败，`src/`/`client/`/`test/`/`lib/` 零改动。其二：核实用户手写的 `github:P02-1010751281/dsh-project-context` pin。已实测 `#sha` 精确锁提交、tag 名 `#v0.5.0` 解析到 peel 后的 `28d2459` 且 lock 的 specifier 留 tag 名而 integrity 与写 sha 完全相同，故锁 tag 与锁 sha 等效、差别只是 tag 可被移动；用户裁定不改那一行，agent 不擅自动。 推送受阻：远端 `ssh://…:443` 报 `Connection closed by 198.18.0.179`，HTTPS 直连与两个代理口都 TLS 失败，而直连国内站点 200；mihomo 日志显示出口节点 `dy.22qk.cn:30648` 报 EOF，是代理节点故障、与本仓库无关。累计 5 笔提交待推送（`c8bdabd`、`2cd220b`、`ebaec53`、`45da10a`、`20939c1`），工作树已干净。 记账：本轮按“合并重述而非删条目”腾出空间，写入 README 手册定位、tag pin 等效性、代理故障判据，并把 e11 并入 8b6、b41 并入 a4a、8ac 指针化。
 
 ## Key points
 
-- `github:<owner>/<repo>#<sha>` 能精确锁定提交（实测锁到 `6318547`）；不带 `#sha` 时解析到默认分支当时的 HEAD，只有 lockfile 钉住提交时才安全。
-- codeload 对 `28d2459`、`6318547` 都匿名返回 HTTP 200，所以 `github:` 源在远端机器上不需要 ssh key，比 `git+ssh://` 少一个故障源。
-- GitHub 仓库与包名已改为 `dsh-project-context`，但远端路径仍是 `dsh-project-context.git`，依赖键与 loader 条目名是旧字面量；旧仓库名与新仓库名都用 `git ls-remote` 解析到同一 HEAD。
-- 406-12 的 desktop 依赖键是用户手写的 `github:P02-1010751281/dsh-project-context`（无 sha），lockfile 已锁在 `28d2459`/0.5.0；依赖键、包内 name 与已装包字节一致，`require.resolve` 能解析。
-- 唯一解析失败的 patch 名是 `dsh-client-auto-continue`，属第三方插件，不是我们的包；`node_modules` 里只有一份带 `exports[./handoff]` 的候选。
-- 406-12 的 `cordis.patch.yml` 键归属正确：共用条目只留 `maxMemoryChars: 48000` 与 `taskMode: delegated`，`handoffPendingQuestion: wait` 在 `project-handoff` 条目。
-- 406-12 宿主仍是 11月21日 23:23 启动的进程，所以 0.5.0 未生效；判生效读宿主 pid 启动时间，不看安装成功。
-- `v0.5.0` 是 annotated tag `f6164c7`，peel 到 `28d2459`，两个 ref 都已在远端；tag 能直接写进 `github:` spec：`github:P02-1010751281/dsh-project-context#v0.5.0` 经 `pnpm install --lockfile-only` 解析到 `28d2459`（= peel 后的提交），lock 的 specifier 保留 tag 名、integrity 与写 sha 的 lock 完全相同（`BDLnHDhZ…`），所以锁 tag 与锁 sha 效果等同。
-- 本机 desktop / web 仍钉在 `234c3f8`，其代码与 HEAD 相同，不影响功能；ctxdev 是 `link:`。
-- 记账 pass 的提交 `3403737 docs(memory): record the v0.5.0 release and the 406-12 git pin` 与 `6318547 docs(memory): reclaim headroom the last pass spent` 已推送；只动 `.agents/memory/MEMORY.md`，`lib/` 未变。
-- 工具输出会把不同字面量渲染成同一文本：判名字相等要比字节长度、码点或 hex 前缀，我因此差点误判「仓库改名」。
-- 记忆文档现 53997 字符、对 54000 只剩 3 字符；探针的 500 阈值是经验值，真判据「加一条典型事实不丢条目」通过。
+- README 第 8–18 行的整段「文档分工」是元描述而非使用说明，已整段删除；README 从 166 行到 154 行，头部直接从标题进正文。
+- 删掉的 11 行逐条有归宿：四个 docs 职责在 `docs/README.md` 第 10/13/14/15 行、逐版本变更第 4 行、archive 索引第 37 行、手册定位第 3 行；只有 `AGENTS.md`/`RULES.md` 入口是独有信息，已移到 `docs/README.md` 头部。
+- `RULES.md` 第 1 章「基线来源」原写「文档分工在 README.md」，删除后改指 `docs/README.md`，否则是悬空引用。
+- 提交 `c8bdabd docs: drop the doc-map preamble from the README`，`pnpm docs:check` 输出 135 项 0 失败；`src/`、`client/`、`test/`、`lib/` 零改动。
+- 标题 `## 它在项目里写什么` 的「它」指代不明、与邻近名词短语标题不一致，改为 `## 写入的文件`；同笔补上树里漏掉的 `tasks/<slug>.md`——正文两处与 `docs/architecture.md` §8 都把它列为每轮注入，缺它等于自相矛盾。提交 `00ee5c0`。
+- `github:<owner>/<repo>#v0.5.0` 经 `pnpm install --lockfile-only` 解析到 peel 后的 `28d2459`；lock 的 specifier 保留 tag 名，integrity 与写 sha 的 lock 相同，所以锁 tag 与锁 sha 等效，差别只是 tag 日后可被移动。
+- 用户裁定 406-12 的 pin 那行不动；agent 不改用户手写的 profile 依赖行。
+- 推送失败原因是代理出口节点故障：mihomo 日志 `dy.22qk.cn:30648 connect error: EOF`；直连国内站点 200，DNS 解析到 fake-IP `198.18.0.179` / `fdfe:dcba:9876::b`，说明劫持正常、只是节点线路断。
+- 踩坑：经 1080 代理访问 GitHub 曾偶发返回一次 200，随后同一路径仍 TLS 失败，所以单次 200 不能判通；HTTPS 通过代理与 SSH 443 都不通。
+- 累计 6 笔提交待推送：`00ee5c0`（标题与 tasks 树项）、`c8bdabd`、`2cd220b`（技能记录 tag pin 形态）、`ebaec53`（关闭 tag 问题并记真实余量）、`45da10a`、`20939c1`；工作树干净。
+- 记忆文档仍贴着 54000 上限，本轮靠合并 e11→8b6、b41→a4a、8ac 指针化腾空间，未删任何仍成立的事实。
+- `docs/README.md` 自身并不严格折行（中位 103 显示列、最宽 285），所以补的入口行折成两行已足够，不必按 README 的 100 列习惯强改。
 
 ## Open tasks
 
-- 等用户裁定是否给 406-12 的 pin 补 `#<sha>`；那是用户设的那一行，agent 不擅自改。
-- tag 锁定已实测（解析到 peel 后的 `28d2459`）；残余只是「tag 日后被移动」这一理论风险，lockfile 已钉提交因而重装仍取旧提交，但未实测。
-- 406-12 需重启一次才加载 0.5.0，重启后验四个命名空间都在、shared `maxMemoryChars: 48000` 生效——读 loader 条目 config，不看 `--verify-only` 的整体 RESULT。
-- 406-12 上的三个 `.bak-20261124-*`（`package.json` / `pnpm-lock.yaml` / `cordis.patch.yml`）与 `/tmp/vendor-0.4.3-backup.tgz` 待用户确认后可清理。
-- 记忆余量只剩 3 字符（53997/54000）：下一次记账 pass 必须先合并重述条目再新增事实，否则会按段落顺序丢别段的真实条目。
+- 推送阻塞：等用户换好 mihomo 节点（或网络恢复）后 `git push origin main`，6 笔提交待推。
+- 406-12 需用户重启一次才加载 0.5.0；重启后验四个命名空间都在、shared `maxMemoryChars: 48000` 生效——读 loader 条目 config，不看 `--verify-only` 整体 RESULT。
+- 406-12 的 pin 保持用户手写的 `github:P02-1010751281/dsh-project-context` 不变（用户已裁定，agent 不动）。
+- 406-12 上的三个 `.bak-20261124-*` 与 `/tmp/vendor-0.4.3-backup.tgz` 待用户确认后清理。
+- 记忆余量仍紧：下次记账 pass 仍要先合并重述条目再新增事实。
 - SH-10 接线前仍差：真实 `performHandoff`/`scheduleRetirement` 与压缩的端到端交叠、压缩后 gate 重算、自动压缩三条路径、其余五个 `ManualCompactionError` 码。
 - `RULES.md` 第 11 章：`src/project-memory/consolidate.ts` 仍超 400 行线，属用户裁定项。
 - 残余：`/autolearn` 的 admission / skip 原因句要中文化需 `AutolearnOutcome` 类型变更（「原因」改「码 + 参数」）。
@@ -35,4 +35,4 @@ Last updated: 2026-11-25T09:59:12.900Z
 - 待用户回答：`--verify-only` 回落到 19387 的假失败是否写进 `docs/`；`include:subagent-claude-code` 为何 enabled 未 active。
 - P0 补强与 AOCI 可选动作 A/B 未启动；`overview-cache.v3` 里指向已删探针路径的失效键待在重启窗口决定是否清。
 
-<!-- latest-session-title: 核实 406-12 的 github: pin 写法，并判定锁 tag 是否可行 -->
+<!-- latest-session-title: README 摘掉文档分工元描述；核实 406-12 的 github: pin 与 tag 写法；推送被代理故障阻塞 -->
