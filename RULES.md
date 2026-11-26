@@ -15,7 +15,7 @@
 ## 2 元规则
 
 - **2.1 治理文档单独提交**：`docs(rules): …`，一次只动治理文档（`RULES.md`、`AGENTS.md`、`docs/architecture.md`、`docs/GLOSSARY.md`、`docs/README.md` 与 `CHANGELOG.md` 未发布登记）。判据：`git show --stat <commit>` 的路径列表只含上述治理文档，不含 `src/`、`client/`、`test/`、`lib/`、`README.md`、`.agents/`。
-- **2.2 例外留档且带到期点**：在 `CHANGELOG.md` 的 `### 未发布` 写「违反哪条、为什么、何时复查」；对话里的例外不算。
+- **2.2 例外留档且带到期点**：在 `CHANGELOG.md` 的 `## 未发布` 写「违反哪条、为什么、何时复查」；对话里的例外不算。
 - **2.3 废止走 2.1**，不得只在代码里事实上不用。
 - **2.4 冲突先改规则**：规则与代码冲突时先按 2.1 单独提交规则，紧随的代码提交在消息里点名规则号；不得只改代码。
 - **2.5 只写可判定规则**：每条规则给判据命令或可核对对象；只能用评审判断的，标「软规则」并写清核对什么。
@@ -55,7 +55,7 @@
 
 ## 5 代码风格与命名
 
-- **5.1 ESM + NodeNext**：相对 import 带 `.js`，纯类型导入用 `import type`，host 侧不新增运行时依赖（唯一值依赖 `schemastery`，声明在 peer）；客户端只 import 宿主提供的
+- **5.1 ESM + NodeNext**：相对 import 带 `.js`，纯类型导入用 `import type`，host 侧不新增运行时依赖（值依赖只有 `schemastery` 与宿主自己的 `dsh-session` / `dsh-llm` 品牌与守卫，全部声明在 peer）；客户端只 import 宿主提供的
   `react` 与 `dsh-client-ui-primitives`（声明在 devDependencies，不打包）。判据：`grep -rnE 'from "\.{1,2}/[^"]*"' src/ | grep -vE '\.js"' | grep -vE '\.json"'` 无输出且 `pnpm typecheck` 通过。
 - **5.2 命名**：函数 camelCase、类型 PascalCase、常量 UPPER_SNAKE；宿主服务用结构性 `*Like` 接口。
 - **5.3 命令处理器不抛**：返回 `{ kind: "success" | "error", text }`；面向用户的文案跟随会话语言。
@@ -85,7 +85,8 @@
 
 - **7.1 不落敏感内容**：密钥、凭据、token 与提示词原文不进日志；错误先过 `redactSecrets`（`src/shared/redact.ts:6`），丢失只记字符数。
 - **7.2 覆盖写只有两条路**：`writeAtomic`（`src/shared/files.ts:68`）与跨进程 `withMemoryLock`
-  （`src/shared/lock.ts:213`）；append 只走各自有界通道（`errors.log`、`session.jsonl`、`purge.log`）；
+  （`src/shared/lock.ts:213`）；append 只走各有界通道（`errors.log`、`session.jsonl`、`session.md`、
+  `memory.jsonl`、`purge.log`），journal 轮转走 `copyFile` + `rename`；
   不得用裸 `writeFile` 覆盖受跟踪文档。
 - **7.3 外部调用有界**：辅助模型调用必须有固定重试头寸，预算读 `maxOutputTokens`，不得在代码里另写上限；超时实现见第 11 章未决。
 - **7.4 注入路径同步纯读（软规则）**：prompt 组装期间只允许缓存项目根 + 一次文件读，不 await、不起子进程或网络请求；
@@ -96,8 +97,8 @@
 ## 8 提交与发布
 
 - **8.1 提交信息**：英文 Conventional Commits，scope 常用；一次提交一件事；只 stage 本任务路径。
-- **8.2 版本号与变更记录**：版本在 `package.json:3`；未发布写 `CHANGELOG.md` 的 `### 未发布`；发版时整段搬进
-  `docs/changelog/<version>.md`、在 `CHANGELOG.md` 的 `## 版本目录` 加一行、并重开空节；已发布的 tag 绝不重写。
+- **8.2 版本号与变更记录**：版本在 `package.json:3`；未发布写 `CHANGELOG.md` 的 `## 未发布`；发版时整段搬进
+  `docs/changelog/v<version>.md`、在 `CHANGELOG.md` 的 `## 版本目录` 加一行、并重开空节；已发布的 tag 绝不重写。
 - **8.3 发布物**：没有 GitHub Releases；发布走 [.agents/skills/dsh-project-context-release/SKILL.md](./.agents/skills/dsh-project-context-release/SKILL.md)，并按该技能第 3 步跑全门禁。
 - **8.4 分支**：单人仓库只用 `main`；不使用长期分支。
 
@@ -124,6 +125,6 @@
 ## 11 未决
 
 - **7.3 的超时**：`src/shared/model-call.ts` 目前只透传 `signal`，没有插件内 timeout。需裁定「由宿主网关保证」还是插件自加 `AbortSignal.timeout`；2026-12-31 复查。
-- **3.2 的超限文件（已清空，2026-11-23）**：`src/project-memory/index.ts` 2026-11-22 从 1236 行拆到 301 行（报告层 → `report.ts`，整理 pass → `update.ts`）；`src/project-memory/consolidate.ts` 2026-11-23 从 1241 行拆到 617 行（提示词 → `prompt.ts`，回复解析/损失 → `reply.ts`，共享类型 → `consolidate-types.ts`）。最大的源文件现为 801 行（`src/project-memory/report.ts`），全仓无 >900 行文件；2026-12-31 复核是否有新文件越线。
-- **3.7 的历史回改**：`6458173`、`06a5d12`、`f0ac43e` 在规则冻结前改过 evidence 正文，已记入 `CHANGELOG.md`
-  未发布例外、不再回改；2026-12-31 复核规则是否需要「冻结前豁免」的明文。
+- **3.2 的超限文件（已清空，2026-11-23）**：`src/project-memory/index.ts` 2026-11-22 从 1236 行拆到 301 行（报告层 → `report.ts`，整理 pass → `update.ts`）；`src/project-memory/consolidate.ts` 2026-11-23 从 1241 行拆到 617 行（提示词 → `prompt.ts`，回复解析/损失 → `reply.ts`，共享类型 → `consolidate-types.ts`）。最大的**源文件**现为 801 行（`src/project-memory/report.ts`），`src/` 与 `client/` 下无 >900 行文件（测试与文档不受本节约束）；2026-12-31 复核是否有新源文件越线。
+- **3.7 的历史回改**：`6458173`、`06a5d12`、`f0ac43e` 在规则冻结前改过 evidence 正文，已在
+  v0.5.0 发布时随整段移入 `docs/changelog/v0.5.0.md`、不再回改；2026-12-31 复核规则是否需要「冻结前豁免」的明文。

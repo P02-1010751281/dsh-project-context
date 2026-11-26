@@ -210,5 +210,7 @@ node scripts/import-archives.mjs --project . --replace --no-md archives/   # 覆
   `session/disposed` 丢掉标记）。pi 侧不需要对应处理：它的 handoff 走 `ctx.newSession()`，是**替换**
   而非分叉，旧会话随之结束。阈值 0.4 早于 dsh 内置压缩的
   0.8，两者可共存。
-- ②③④ 只作用于顶层会话（`origin !== "subagent"`），① 对子会话同样留档；各阶段的**异常**都写
+- ①②③④ 都只作用于顶层会话（`origin !== "subagent"`）：委派出来的子代理会话不归档、不整理、不沉淀、
+  不交接（显式命令除外——`/session-log write` 与 `import` 是用户明确要求，仍可写子会话自己的目录与索引行）。
+  各阶段的**异常**都写
   `.agents/memory/errors.log`，不打断会话（④ 的“交接延后”按设计不算异常，只记服务端日志）。

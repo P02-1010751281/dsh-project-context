@@ -25,8 +25,8 @@ docs/                  机制文档、规格与索引（docs/README.md）
 
 - 层：插件入口（`index.ts`）→ 实现模块 → 调用点；`src/host/` 是宿主适配层，核心只经 `contract.ts`
   与 `dsh/*` 视图认识宿主；`src/shared/` 是不持有插件业务的通用原语。`src/host/` 不得反向依赖插件或 shared。
-  唯一例外是 `shared → project-handoff/language`（纯字符串判定 `isHandoffContinuationText`，见下表末行），
-  该边已列进白名单；shared 不得再新增对插件的引用。
+  例外只有两条 `shared → project-handoff` 边（`language` 的纯字符串判定，与 `conversation` 的消息采样），
+  两条都已列进下表；shared 不得再新增对插件的引用。
 - 允许的跨插件 import（白名单：8 条边、13 个不同 specifier、共 15 处）：
 
 | 边 | 证据 |
