@@ -33,6 +33,7 @@ Append a new dated section to `docs/upstream-pi-triage.md`; earlier passes are r
 - a per-commit table: commit | subject | disposition | where it already lives / where it must land;
 - the reproducible commands behind the classification (the `git grep` / `rev-parse` commands a later session can re-run), including any command whose expected result is zero hits;
 - the honest boundary: this is a per-module read of the fixes pi touches, not a semantic diff of the two trees, and anything outside this repo (dsh core, the delivery line) is named as not owned here.
+
 If a row or revision turns out wrong after writing, correct it in place and keep the range explicit.
 
 ## 5. Split port work into batches and record the decisions
