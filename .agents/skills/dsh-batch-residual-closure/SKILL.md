@@ -34,7 +34,7 @@ Use when a spec batch has landed and its last section / `CHANGELOG.md` 未发布
 
 This is the step that earns the batch. Run the freshly built command over the machine's actual data and treat any exception on a real record as a defect, never as data noise:
 
-- `/session-log status` over `.agents/memory/session-logs/` (211 sessions with 10 live / 198 settled is the shape on this box; a handoff child with **no** `session.jsonl` at all exists there).
+- `/session-log status` over `.agents/memory/session-logs/` (re-derive the counts rather than quoting them: `ls -d .agents/memory/session-logs/*/ | wc -l`; 226 directories on 2026-11-26, and a handoff child with **no** `session.jsonl` at all exists there).
 - `/autolearn status` then `/autolearn bind` over `.agents/memory/skill-bindings.json` and `~/.agents/skills`.
 - `/memory reconcile` over `src/project-memory/index.ts` + `.agents/memory/entries.json`.
 - `.agents/memory/errors.log` for the lines the run wrote.

@@ -7,12 +7,12 @@ Use when a task requires looking at, probing, repairing, or cleaning up dsh sess
 
 ## Ground rules
 - Read-only inspection of `~/.dsh` is acceptable. Never send messages into the user's real sessions unless they explicitly approve a rescue.
-- Do not restart the user's serving host; propose it instead. Plugin code changes load only at the next start. Ask which host is serving rather than assuming: `ss -ltnp | grep -E '19387|3080'` (desktop vs web).
+- Do not restart the user's serving host; propose it instead. Plugin code changes load only at the next start. Ask which host is serving rather than assuming: the desktop GUI port is **ephemeral** (the host binds `--port 0`, so `19387` is never bound), so find the process instead — `pgrep -af 'dsh-desktop-host/lib/index\.js'`, then `ss -ltnp | grep "pid=$pid"`; the web profile defaults to `3080`.
 - Create throwaway probe sessions only under `/tmp`, and archive them afterwards.
 - A second agent session may be working in this repo concurrently, so use the scoped commit: stage only this task's paths and never `git add -A` — the full rule (the exact add, `git commit -F <msg> -- <paths>`, and the `git diff --cached` check) lives in `dsh-project-context-concurrent-writer-guard` step 5.
 
 ## Probe the running server (read-only)
-- There is **no** `/tmp/rpc.sh` in this repo and `/tmp` does not survive a reboot: check with `ls -l /tmp/rpc.sh` before using it, and recreate it (or use the Cordis Inspect read-only queries plus the harness's own tools) instead of assuming a helper exists. Port: take the serving host's from `ss -ltnp | grep -E '19387|3080'` — do not hardcode 3080, the desktop host on 19387 is usually the live one.
+- There is **no** `/tmp/rpc.sh` in this repo and `/tmp` does not survive a reboot: check with `ls -l /tmp/rpc.sh` before using it, and recreate it (or use the Cordis Inspect read-only queries plus the harness's own tools) instead of assuming a helper exists. Port: for desktop, resolve the host pid first (`pgrep -af 'dsh-desktop-host/lib/index\.js'`) and take a port from `ss -ltnp | grep "pid=$pid"` — `19387` is dead, the GUI port is ephemeral; for web it is `3080` unless overridden.
 - Argument shapes differ per method: `session/list` wants `{"args":{"_request":{}}}`; `session/page` wants `{"args":{"request":{...}}}`; workspace mutations want `{"args":{"request":{...}}}`. These were read off the 0.1.7-rc.2 line — re-check the shape against the running line rather than trusting this list.
 - Confirm a session is loadable with `session/page`; expect HTTP 200.
 - Caution: probing `session/create` makes the server load the sessions it touches and grows RSS; a restart releases it.

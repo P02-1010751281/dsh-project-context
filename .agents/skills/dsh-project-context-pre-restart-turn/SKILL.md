@@ -15,8 +15,9 @@ Use when a landed `src/` or `client/` change can only become live through the us
 git rev-parse HEAD origin/main
 git log -1 --format='%H %cI' -- src/     # last src-touching commit = the criterion
 git diff --exit-code -- lib
-ss -ltnp | grep 19387                    # socket holder pid (electron's node child)
-ps -o lstart= -p <pid>
+pgrep -af 'dsh-desktop-host/lib/index\.js'   # more than one desktop can run: pick the pid whose argv carries YOUR profile root
+ps -o lstart= -p <pid>                   # never a port: the GUI port is ephemeral and 19387 is never bound
+# resolving the serving pid is owned by dsh-host-build-restart-verify step 3
 ```
 
 Holder start **earlier** than the last `src/` commit ⇒ not loaded. `lib/` must diff clean against a fresh `tsc` compile (`lib/client.js` is the one expected extra, it is the esbuild bundle); if a `src`/`client` change was not rebuilt into `lib/`, rebuild and commit `lib/` together with the source change, then re-derive the criterion time. Re-read the criterion in this turn — never quote a time or pid from an earlier turn or from memory.
@@ -47,6 +48,6 @@ Autolearn writes new skills straight into `.agents/skills/` and nothing errors �
 
 ## 7. Hand over exactly
 
-Give the user, in this order: the restart command; the post-restart acceptance commands (`ss -ltnp | grep 19387` → `ps -o lstart= -p <pid>` must be later than the stated last `src/` commit time, and `git diff --exit-code -- lib` empty); their user-only follow-up (`/memory update`, then the tag when a release is due).
+Give the user, in this order: the restart command; the post-restart acceptance commands (`pgrep -af 'dsh-desktop-host/lib/index\.js'` → `ps -o lstart= -p <pid>` must be later than the stated last `src/` commit time — do not check a port, `19387` is never bound and the GUI port is ephemeral; and `git diff --exit-code -- lib` empty); their user-only follow-up (`/memory update`, then the tag when a release is due).
 
 Separate three things in the report: what a probe proved offline, what only a post-restart run can prove, and the residuals you chose not to handle. Leave the full gate run in the record (`pnpm typecheck` / `pnpm build` / `pnpm test`, read pass and case counts fresh, expect 0 mutant markers in `lib/`).

@@ -8,15 +8,16 @@ description: "Pre-flight the memory/context write path of dsh-project-context of
 # Offline budget-fit verification of the memory/context docs
 
 ## When to use
-- A memory-layer pass (`/memory update`, a consolidation, a CONTEXT.md carry) refused, was clipped, or is about to run, and the desktop host on `127.0.0.1:19387` still runs code older than your last `src/` commit — so the live pass cannot be observed yet and the restart is user-only.
+- A memory-layer pass (`/memory update`, a consolidation, a CONTEXT.md carry) refused, was clipped, or is about to run, and the running desktop host still executes code older than your last `src/` commit — so the live pass cannot be observed yet and the restart is user-only.
 - You must decide *which half* of the write path bites before choosing a fix (shrink the document vs raise a cap).
 
 Scope: this proves the code path over the **real** stored documents. It never proves what a live `/memory update` will do; that needs the user's restart.
 
 ## 0. Prove the probe runs against the code the host loads
 ```bash
-ss -ltnp | grep 19387            # holder pid
+pgrep -af 'dsh-desktop-host/lib/index\.js'   # more than one desktop can run; pick YOUR profile root
 ps -o lstart= -p <pid>           # start later than the last src/ commit = loaded
+# resolving the serving pid is owned by dsh-host-build-restart-verify step 3
 # (no pid/start time is ever written down)
 git log -1 --format=%cI -- src/
 git diff --exit-code -- lib      # empty after a build = lib/ matches src/
@@ -27,6 +28,7 @@ Probe `lib/...` — the host loads the built output — never `src/...`. If the 
 ```bash
 grep -n "memorySectionBudgets\|MEMORY_SECTION_PROMPT_SHARE" lib/project-memory/memory-schema.js
 grep -n "isContextTruncated\|renderContextDocument" lib/project-memory/*.js
+grep -n "export function fitMemoryInput" lib/shared/conversation.js   # NOT lib/project-memory/*
 grep -n "export function fitMemoryInput" lib/project-memory/*.js
 ```
 Import them by file path in a small `node` script and print the values at the current cap. Shares, prompt share, per-item caps, configured `maxTokens` and the model ceiling are configuration — read them fresh, never record them.

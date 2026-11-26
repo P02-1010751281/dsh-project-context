@@ -22,7 +22,7 @@ readlink -f "$(command -v dsh)"    # wrapper store path
 dsh --version                      # fresh, every time
 ```
 
-Store path and version go into the reply, never into a tracked doc (Nix store paths rotate). If a live-inventory probe is used, pass the port read above explicitly — the probe's default `19387` is the **web** host; a desktop restart lands elsewhere (32891, 42841 seen). `fetch failed ×5` then means *wrong port*, not "host not ready".
+Store path and version go into the reply, never into a tracked doc (Nix store paths rotate). If a live-inventory probe is used, pass the port explicitly — do not rely on its default: `19387` is not bound on current lines (the desktop host starts with `--port 0` and its GUI port is ephemeral), and the web default is `3080`. A desktop restart lands on a new random port each boot. `fetch failed ×5` then means *wrong port*, not "host not ready".
 
 ## 1. Prove our code is the code that runs
 

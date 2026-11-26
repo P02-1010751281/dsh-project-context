@@ -7,7 +7,7 @@ description: "Change or verify dsh-project-context's Z2 memory entry-id stamping
 
 # When to use
 
-Any change to, or post-restart verification of, the Z2 retirement machinery in `src/project-memory/retirement.ts` of dsh-project-context: `stripEntryTid`, `retireWithinBudget`, `stampEntryIds`, `readEntryDates`, the `entries.json` clock, and the `removedSectionEntries` regression guard. Also use it when a `/memory update` pass leaves fewer ids than expected, or when an `errors.log` `memory regression:` line claims entries were deleted.
+Any change to, or post-restart verification of, the Z2 retirement machinery in `src/project-memory/retirement.ts` of dsh-project-context: `stripEntryTid`, `retireWithinBudget`, `stampEntryIds`, `readEntryDates`, the `entries.json` clock, and the `removedSectionEntries` regression guard (that guard lives in `src/project-memory/reply.ts`, not in `retirement.ts`). Also use it when a `/memory update` pass leaves fewer ids than expected, or when an `errors.log` `memory regression:` line claims entries were deleted.
 
 ## Ground rules (they are the whole point)
 
@@ -22,7 +22,7 @@ Any change to, or post-restart verification of, the Z2 retirement machinery in `
 
 1. Read the current document and measure it fresh, before touching code: drive the built renderer (`renderMemoryDocument` / `sectionsFromMarkdown` from `lib/`) over `.agents/memory/MEMORY.md` and record characters, entry count per section and id count. Record numbers as a snapshot and label them so.
 2. In `retireWithinBudget`, decide the stamp set by rendering: with ids clean → stamp all; ids dirty but a no-id render clean → stamp by priority **Invariants → Pitfalls → Project → Index** with the characters left; both renders dirty → keep every id; no entry fits → `stamped:false`.
-3. Skip any entry whose body + 6 characters exceeds the 800 single-entry cap. Otherwise one near-cap entry makes every prefix containing it unrenderable, the budget collapses to zero, and entries beside it never get an id.
+3. Skip any entry whose measurement with its marker attached exceeds the 800 single-entry cap (`entry.length > MAX_LIST_ITEM_CHARS`; the check runs on the already-stamped entry, and one trailing id is 5 characters — `TID_STAMP_CHARS`, derived from `withEntryTid`, so do not add it a second time). Otherwise one near-cap entry makes every prefix containing it unrenderable, the budget collapses to zero, and entries beside it never get an id.
 4. Keep `id` derivation purely body-based (sha256 hex prefix), no sidecar read in that path.
 5. Trim `entries.json` with `keepIds` (all ids in the document), so a postponed stamp does not reset age.
 6. In the regression guard, compare after `stripEntryTid` on **both** sides and after `normalizeMemoryEntry`. Keep the guard report-only, keep Project/Index excluded, and keep `removedSectionEntries` from blocking a write.

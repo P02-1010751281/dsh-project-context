@@ -14,7 +14,7 @@ Run the archived read-only probe (per-section entries/cost/budget/headroom plus 
 ```
 node .agents/evidence/2026-10-04-memory-four-section-migration/probe.mjs
 ls -l --time-style=full-iso .agents/memory/memory.jsonl .agents/memory/errors.log
-ss -ltnp | grep 19387      # then: ps -o lstart= -p <pid>
+pgrep -af 'dsh-desktop-host/lib/index\.js'   # then ps -o lstart= -p <pid>; more than one desktop can run (owner: dsh-host-build-restart-verify step 3)
 git log -1 --format=%cI -- src/
 ```
 

@@ -7,7 +7,7 @@ description: "Remove a hand-written structural type shim (an `export interface X
 
 # Remove a declared-type shim in dsh-project-context
 
-Use when a registered shim (`SH-<n>` in `docs/harness-state-machines-spec.md` / `docs/harness/integration.md`) exists only because a plugin mirrors an upstream service by hand (`export interface SessionProjectionsLike {…}` in `src/project-*/runtime.ts`) plus an `as` assertion at `ctx.get(...)`, instead of importing the package's declared types. Prerequisite: `cross-harness-interface-shim-registry` has cleared the shim's removal blockers; this skill executes the removal. Restart/loaded-state verification belongs to `dsh-host-build-restart-verify`, the mutation procedure to `dsh-plugin-mutation-round`.
+Use when a registered shim (`SH-<n>` in `docs/harness/integration.md` §3 "shim 决定" — §3.1 lists the live ones, §3.2 records the retired `SH-1`) exists only because a plugin mirrors an upstream service by hand (`export interface SessionProjectionsLike {…}` in `src/project-*/runtime.ts`) plus an `as` assertion at `ctx.get(...)`, instead of importing the package's declared types. Prerequisite: `cross-harness-interface-shim-registry` has cleared the shim's removal blockers; this skill executes the removal. Restart/loaded-state verification belongs to `dsh-host-build-restart-verify`, the mutation procedure to `dsh-plugin-mutation-round`.
 
 ## 1. Pin the source that owns the shape
 - `dsh --version`; the loaded tree is `/nix/store/<…>-dsh-desktop-<version>/lib/dsh-desktop/repo` — confirm the version matches the running host (see `dsh-core-mechanism-liveness-verify` for the pin).
@@ -16,7 +16,7 @@ Use when a registered shim (`SH-<n>` in `docs/harness-state-machines-spec.md` / 
 
 ## 2. Swap the interface for the declared type
 - In `src/project-*/runtime.ts` delete `export interface …Like` and `import { type X } from "@deepseek-ai/…"`.
-- `verbatimModuleSyntax` still emits `import {} from "…"` for a type-only import, which is a real module load. If the importer must stay host-free (a pure decision core reaches it), move the pure types into their own module first — that is why `src/project-handoff/measure.ts` exists separately from `runtime.ts`, which imports `dsh-session`.
+- `verbatimModuleSyntax` still emits `import {} from "…"` for a type-only import, which is a real module load. If the importer must stay host-free (a pure decision core reaches it), move the pure types into their own module first — that is why `src/project-handoff/measure.ts` exists separately from `runtime.ts`. `runtime.ts` itself no longer imports a host package at all — it takes its host types through `../host/contract.js` (the single door) — so a *new* direct `@deepseek-ai/*` import there is what re-creates the problem this step warns about.
 - Drop the `as …Like` assertions at call sites (`src/project-handoff/gate.ts`, `command.ts`): `ctx.get("sessionProjections")` now returns the declared type.
 
 ## 3. Put the packages in devDependencies, not peerDependencies

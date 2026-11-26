@@ -28,14 +28,14 @@ Parse the child session's first `user/message` and check for the markers `<hando
 ## 4. Prove seed composition with probes on `lib/` (never by reading prose)
 
 - `textAsksQuestion(<parent's last assistant text>)` from `lib/project-handoff/conversation.js`: true only when the text ends in `?`/`？` after fenced code removal and trailing-markdown stripping, or matches `PENDING_QUESTION_PATTERNS` on the last 400 chars. A message ending in an offer ("…告诉我，我现在就写。") is **false**, so `pendingQuestion()` is `undefined` and the seed carries no pending-question block even with `handoffPendingQuestion: wait`.
-- `handoffSplit(session, keepChars)` in the same file: with `handoffBudgetRecentTokens: 0` (both profiles) `keepChars <= 0`, so the entire conversation lands in `older` and `tail` is empty — no `<recent-conversation>`, and a decision the user made in prose survives only inside the summary.
+- `handoffSplit(session, keepChars)` in the same file: `keepChars` comes from `handoffBudgetRecentTokens`, and **read the profile values before assuming them** — both profiles currently set `20000` (`grep -n handoffBudgetRecentTokens ~/.dsh/profiles/*/cordis.patch.yml`; `0` was a former value and `DEFAULT_CONFIG` is `20000`). At `0` the entire conversation lands in `older` and `tail` is empty — no `<recent-conversation>`, and a decision the user made in prose survives only inside the summary.
 - Note that this key is also auto handoff's threshold (`src/project-handoff/auto.ts` skips when everything fits the recent window), so raising it is not a free switch.
 - Read `handoffPendingQuestion` and `handoffBudgetRecentTokens` fresh from `~/.dsh/profiles/{desktop,web}/cordis.patch.yml` rather than quoting memory.
 - Probe against `lib/`, not the docs; state the probe output when reporting.
 
 ## 5. Surrounding disk state before recommending any action
 
-`git rev-parse HEAD origin/main`; `git status --short`; `git diff --exit-code -- lib`; socket holder `ss -ltnp | grep 19387` then `ps -o lstart= -p <pid>` compared against the last `src/`-touching commit's time. A holder start earlier than that commit means the fix is not loaded yet and the pending user step is still the restart.
+`git rev-parse HEAD origin/main`; `git status --short`; `git diff --exit-code -- lib`; host pid from `pgrep -af 'dsh-desktop-host/lib/index\.js'` (more than one desktop can run, so pick the pid whose argv carries your profile root) then `ps -o lstart= -p <pid>`; port lookup does not work, the GUI port is ephemeral and `19387` is never bound compared against the last `src/`-touching commit's time. A host start earlier than that commit means the fix is not loaded yet and the pending user step is still the restart.
 
 ## 6. Report
 

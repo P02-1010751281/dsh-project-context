@@ -9,11 +9,11 @@ evidence: ["session-278cee57-20db-456c-b873-6a81d174a359", "session-95ba96da-d9d
 
 # Wire a config key into the four-card settings split
 
-Use when adding a new setting to a dsh-project-context plugin, moving an existing key between cards, or splitting/merging setting cards. Four dsh plugins share one settings namespace; `project-context` is the only publisher, the other three read `effectivePluginConfig(entry)` / `currentConfig()`.
+Use when adding a new setting to a dsh-project-context plugin, moving an existing key between cards, or splitting/merging setting cards. Four dsh plugins share one settings namespace; `project-context` is the only publisher, and each of the four builds its own `currentConfig()` closure from `withShared(livePluginConfig(host, entry, resolve<Card>Config), effectiveSharedSettings(entry))`.
 
 ## 1. Read before deciding
 - Spec: `docs/batch-ac-settings-split-spec.md` (§2.2 key-ownership rules, §8.3 decisions, §8.4 profile/restart coordination).
-- Current wiring: `src/shared/config.ts` (`resolveCard`, `resolveSharedConfig`, `resolveMemoryConfig`, `resolveHandoffConfig`, `resolveAutolearnConfig`), `src/shared/settings.ts` (`publishProjectContextSettings`, `readLiveSettings`), the four `src/<plugin>/index.ts` entries, `client/card-fields.ts` (`ProjectContextSettings`, `ROWS`, `SECTIONS`).
+- Current wiring, by symbol rather than by remembered path: `src/shared/config.ts`'s exported `resolveSharedConfig` / `resolveMemoryConfig` / `resolveHandoffConfig` / `resolveAutolearnConfig` (the private `resolveCard` behind them is not exported), `src/shared/settings.ts`'s exported `publishProjectContextSettings` / `effectiveSharedSettings` (the private `readLiveSettings` behind them is not exported), the four `src/<plugin>/index.ts` entries, `client/card-fields.ts` (`ProjectContextSettings`, `ROWS`, `SECTIONS`).
 - Which entry calls `apply()` with that key today: `grep -rn 'currentConfig()' src/`.
 
 ## 2. Pick the owning card
@@ -25,7 +25,7 @@ Use when adding a new setting to a dsh-project-context plugin, moving an existin
 1. `src/shared/config.ts`: add the field to the right card schema + resolver; a key present on the wrong card throws `config key "X" belongs to <entry> (<card> card)` (agent-visible, matched by tests).
 2. Decide membership with `schema.dict` (the declared set), **not** the projected object — schemastery passes undeclared keys through, so `SharedSettingsSchema({handoffEnabled:false})` still contains it while `dict` does not.
 3. `src/shared/settings.ts`: only `project-context` exports `PluginSettingsSchema` and publishes. Fields need `volatile` where the card shows them, otherwise `describe()` skips the whole schema and the card silently disappears.
-4. Publisher must **narrow the published value to the shared keys before parsing** (`publishedSharedOf` shape): the fiber config carries every key that entry declares, so feeding the whole object to a card resolver always throws and pins the plugin silently at apply-time defaults (seen: `maxTokens: 8000` read back as 8192).
+4. Publisher must **narrow the published value to the shared keys before parsing**: the fiber config carries every key that entry declares, so feeding the whole object to a card resolver always throws and pins the plugin silently at apply-time defaults (seen: `maxTokens: 8000` read back as 8192). The narrowing lives in `src/shared/settings.ts` as `sharedKeysOf(raw)` (private, called from the live-read path) and its exported sibling `sharedOf(config)`; there is no `publishedSharedOf`.
 5. A missing publisher degrades to `DEFAULT_CONFIG` shared values by name.
 
 ## 4. Client side

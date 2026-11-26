@@ -26,11 +26,12 @@ condition* caught it.
 
 2. For an occupancy trigger, measure the band instead of guessing.
    - Read the cap the host actually runs with: the `project-context` entry's `maxMemoryChars` in
-     `~/.dsh/profiles/<profile>/cordis.patch.yml` (desktop profile: 52000). Never measure against the library
+     `~/.dsh/profiles/<profile>/cordis.patch.yml` — read it, never quote it (both profiles were `54000` on 2026-11-26; the value has moved 40000 → 45000 → 52000 → 54000). Never measure against the library
      default `MAX_MEMORY_CHARS`; a built-renderer probe like `share-fit.mjs` reports against the default and can
      disagree with the running host.
-   - `fitMemoryInput` *refuses* rather than clips when memory + context cannot fit the output budget, so the
-     refusal line sits just under the cap: at 52,000 on a reasoning route it measured ~51,225 chars (~98.5%). A
+   - `fitMemoryInput` (`src/shared/conversation.ts`) *clips* and reports `clipped` plus the hidden character counts when memory + context cannot fit the output budget; the *refusal* happens upstream in the pass (`fit-capped-refused`, raised in `src/project-memory/update.ts`), so the
+     refusal line sits just under the cap: measured at the **then-current** 52,000 cap on a reasoning route it read
+     ~51,225 chars (~98.5%) — a historical measurement, so re-measure at today's cap instead of quoting the ratio. A
      trigger at 90% of the cap is therefore unreachable — the pass it would have changed was already refused
      before the prompt was built.
    - Put the trigger safely below the line (85% worked) and say in the constant's comment that the line moves
