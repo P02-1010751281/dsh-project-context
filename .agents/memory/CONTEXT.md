@@ -1,46 +1,40 @@
 # Project Context
 
-Last updated: 2026-11-26T06:14:37.954Z
+Last updated: 2026-11-26T07:28:22.860Z
 
 ## Summary
 
-本会话从 session-2f004655 交接续接，主题是「文档里的断言是否与源码一致」。前一轮修了 README、`docs/settings.md`、`docs/GLOSSARY.md` 的九处过期说法，并查明 `pnpm docs:check` 只验链接/锚点/符号窗口、不验语义，所以与源码相反的散文可以长期全绿。用户追问「项目全覆盖了吗」后，本轮把范围扩到全部 25 份现行文档，逐份枚举可核对断言并写实测命令，又抓出 12 处问题：`docs/harness/dsh.md` 事件表仍列 63 个而实测 67（补 `workspace/session-archived`、`workspace/session-unarchiving`、`web/providers-changed`、`worktree/cleanup`）；`docs/harness/README.md` §4 的复核命令仍 grep `ctx.on`，而注册已改走 `host.on`，照跑会得出「一个事件都没注册」；`docs/development.md` 同页一处说 desktop 监听 19387、一处说 19387 永不被监听；`docs/README.md` 把已落地的批次 AC 与 2c-1 标成「尚未动 `src/`」、把 5 条规则写成「四条（五条检查）」；`docs/development.md:32` 重复了 schemastery 的错说法；`docs/batch-v-memory-staleness-spec.md`、`docs/memory-rewrite-loss-gate-spec.md`、`docs/handoff-candidates-b-c.md` 三份 spec 的状态行仍写「`src/` 未改」而实现早已在树上（`staleness-source.ts`、`missing-literals.ts`、`relabel.ts`）；`docs/changelog/<version>.md` 这个错写法又出现在两处现状声明里。也确认了一批准确断言：`sibling-repos.md` 三个远端地址、分支名、codex 的 370 B 入口与 93424 B 主文件；`pi.md` 的 41 事件 / 33 方法；`codex.md` 的 7 个 hook；`compaction-vs-handoff.md` 引用的上游 0.8 / 0.16 与 `resolveCompactSpec`；`vocabulary-conventions.md` 引用的两个测试与 23=23 键集；`host-context-2c-design.md` 的四个 `start(host, entry)` 与核心零 cordis 类型。验证：`pnpm docs:check` 135 项 0 失败、`pnpm boundary:check` 127 文件 0 失败、docgate 36 份文档失败项 0。提交两笔：`4148192 docs(rules): make the doc index match what shipped`、`93ff955 docs: check all 25 current docs against the code they describe`。工作树只剩插件自己写回的 `MEMORY.md`/`CONTEXT.md`；待推提交累计 14 笔，推送仍卡在代理出口节点。未覆盖：`.agents/skills/` 47 篇只做 grep 级扫描，`docs/archive/`、`docs/changelog/`、`docs/research/` 与 `.agents/evidence/` 按豁免未动；冷读独立性仍未达成，所有结论都是 lead 自己逐条取证。
+本会话从 session-1ae81f13 交接续接，上一轮已把 25 份现行文档对源码核过并提交（`4148192`、`93ff955`）。用户对下一步选「3+4」，于是主题变成对 `.agents/skills/`（47 篇）做深度审计与阴性对照：先派两个冷读子代理逐条挑出无法核实的断言（28 条），再由 lead 逐条实测。实测结果推翻了一半：`fitMemoryInput` 的 `clipped` 不是从 24576 起为 false（当前文档 8192–32768 全裁、49152 以上才不裁）；zstd 会话日志不是「每次 append 一批一帧」（9.3 MB / 33,037 事件只有 2 帧）；desktop 与 `dsh web` 不共享 store（本机同时跑两个不同 store 的 desktop、且无 `dsh web`）；pnpm 的 git 依赖锁条目没有 `integrity`（只有 `{commit, repo, type: git}`，该比 `resolution.commit`）；`session/list` 的 `{"args":{"_request":{}}}` 形状在 0.2.2-rc.5 源码里不存在；codex `features list` 的 135 行属已不在 store 的 0.153.4。也确认了几条原本「无法核实」的断言是对的：`/handoff now` 七分支、`--selftest` 有先例（`retitle-accept.mjs`）、上游有 `skippedBundles`、`--dump-config` 对 web/ctxdev 通过而对 desktop 被独占拒绝。顺带纠正上一轮交接里的过期说法：`RULES.md` §11 已清空、`consolidate.ts` 于 2026-11-23 已拆（1241 → 617 行），最大源文件是 `report.ts` 801 行，所以没有「超 400 行待裁定」这回事。测试面也钉死了：`pnpm test` 832 例全通过，裸 `node --test` 会跑 840 并红 2 条（把 `test/fixtures/host-contract/*.ts` 当用例），`node --test test/` rc=1，RULES 6.6 的判据是准的。改动落在六份技能，提交 `a2717ff docs(skill): settle the items the two readers could not verify` 并已推送（远端确认同一 sha），工作树干净。仍只剩必须由用户动手的验证窗口。
 
 ## Key points
 
-- 2026-11-26 全覆盖审计范围是 25 份现行文档，逐份枚举可核对断言并写实测命令，又抓出 12 处过期说法。
-- `docs/harness/dsh.md` 事件表由 63 改为实测 67，补 `workspace/session-archived`、`workspace/session-unarchiving`、`web/providers-changed`、`worktree/cleanup`。
-- `docs/harness/README.md` §4 的复核命令由 `ctx.on` 改为 `host.on`；核心目录零 `ctx.*` 由 `pnpm boundary:check` 的 service-access/wiring 规则保证。
-- `docs/development.md` 的 19387 自相矛盾已修：alpha.2 起宿主用 `--port 0`，19387 不会被监听，本机真实口是 GUI 35687 与 Inspector 9230。
-- 三份 spec 的状态行改为已落地：`batch-v-memory-staleness-spec.md`（`staleness-source.ts`）、`memory-rewrite-loss-gate-spec.md`（`missing-literals.ts`）、`handoff-candidates-b-c.md`（`relabel.ts`）。
-- `docs/README.md` 把批次 AC 与 2c-1 从「尚未动 `src/`」改为已落地，并把规则数从「四条（五条检查）」改为 5 条。
-- 确认准确：`sibling-repos.md` 三远端/分支、codex 370 B 与 93424 B、`pi.md` 41 事件/33 方法、`codex.md` 7 hook、上游 0.8/0.16 与 `resolveCompactSpec`、两个测试与 23=23 键集、四个 `start(host, entry)`。
-- `pnpm docs:check` 仍只验链接/锚点/符号窗口，不验语义；本轮过期说法全部靠人工逐条对源码抓出。
-- 门禁全绿：`pnpm docs:check` 135 项 0 失败、`pnpm boundary:check` 127 文件 0 失败、docgate 36 份文档失败项 0。
-- 两笔提交：`4148192`（docs(rules)，只动 `docs/README.md`）与 `93ff955`（其余文档与 CHANGELOG）；待推累计 14 笔。
-- 冷读独立性未达成：4 个子代理全部失败，所有结论均由 lead 自己取证。
-- `.agents/skills/` 47 篇只做了 grep 级扫描，没有逐条对源码核断言。
+- 本会话主题由「文档全覆盖」转到「技能库全覆盖」：两轮冷读子代理在 `.agents/skills/` 47 篇里挑出 28 条无法核实的断言，lead 逐条实测收口。
+- 实测推翻约一半冷读断言：`fitMemoryInput` 的 `clipped` 随两份文档大小变化（当前 8192–32768 全裁、49152 以上不裁），不能写死 token 门槛。
+- zstd 会话日志帧又大又少：实测 9.3 MB / 33,037 事件的 v4 日志只有 2 帧（`zstd -l`），「每次 append 一批一帧」不成立。
+- 本机可同时跑两个来自不同 store 的 desktop 宿主（都是 0.2.2-rc.5）且没有 `dsh web`，`dsh --version` 分不出它们，要按 pid 读 argv 里的 `nix-project/<hash>-dsh-desktop-<ver>`。
+- pnpm 的 git 依赖锁条目没有 `integrity` 字段（只有 `{commit, repo, type: git}`）；tag pin 与 sha pin 是否等效要比 `resolution.commit`，`v0.5.0` peel 到 `28d2459` 是对的那一半。
+- `session/list` 的 `{"args":{"_request":{}}}` 形状在 0.2.2-rc.5 checkout 里不存在（gateway 测试里的 `_request` 是事件回调参数）——RPC 参数形状只能读运行中方法表或按服务端报错确认。
+- codex `features list` 的 135 行属已不在 store 的 0.153.4；现 store 只有 0.171.0，`features list` 224 行，那条历史测量永久不可复核（技能已注明）。
+- 确认原本「无法核实」但其实正确的：`/handoff now` 七分支、`--selftest` 有先例（`retitle-accept.mjs`）、上游有 `skippedBundles`（`packages/boot/app-boot/src/profile.ts`）、`--dump-config` 对 web/ctxdev rc=0 而 desktop 被 Electron 独占拒绝。
+- 上一轮交接里的 `RULES.md` §11 待裁定项已过期：`consolidate.ts` 2026-11-23 已拆（1241 → 617 行，提示词到 `prompt.ts`、回复解析到 `reply.ts`），§11 空、§3.2 不再声明基线，最大源文件是 `report.ts` 801 行。
+- `pnpm test` 832/832 通过；裸 `node --test` 跑 840 例并红 2 条（`test/fixtures/host-contract/{positive,negative}.ts` 被当用例），`node --test test/` rc=1，所以 RULES 6.6 的「幽灵用例」判据准确。
+- 构建确定性成立：`pnpm build` rc=0，`lib/client.js` 41741 字节，`git diff --exit-code -- lib` 为空。
+- 门禁全绿：`pnpm docs:check` 135 项 0 失败、`pnpm boundary:check` 127 文件 0 失败、docgate 对 6 份改动技能失败项 0（48 份技能总失败 0）。
+- 提交 `a2717ff docs(skill): settle the items the two readers could not verify`（6 文件、+15/−9）已推送，远端与本地同 sha；本轮累计 6 笔（含上一轮 5 笔）全部推送，工作树干净。
+- 仍属用户动手范围：desktop `--dump-config`、`dsh-desktop-restart.sh --verify-only`、`/memory update`、重建客户端后看回执真实折叠、活 RPC 的拒绝形状，以及 codex 0.153.4 那条不可复现的测量。
 
 ## Open tasks
 
-- [todo] (in progress) 步 1-2：确定审查对象与领域，跑文档门禁（docgate.py + pnpm docs:check）
-- [todo] 声称核对：枚举 README/AGENTS/RULES 里所有可核对的声称并逐条实测
-- [todo] 冷读：派无上下文 subagent 做「声称核对 + 照做受阻」两轮
-- [todo] 设计审问：逐节问「还缺什么、为什么在这份文件」
-- [todo] 阴性对照：证明文档门禁真会红
-- [todo] 步 3 深度判定 + 按报告骨架交付
-- 推送阻塞：等用户恢复 mihomo 节点后 `git push origin main`，14 笔提交待推（最新 `93ff955`）。
-- 把 `.agents/skills/` 47 篇逐条对源码核断言；目前只做了 grep 级扫描并改了 3 篇路径引用。
-- 回答/执行「项目全覆盖」的剩余范围：`docs/archive/`、`docs/changelog/`、`docs/research/` 与 `.agents/evidence/` 按豁免不动，但需在交付里明确。
-- 冷读独立性仍未达成（4 个子代理全部失败）；若要第二双眼睛需换手段。
+- 仅用户可做：从运行中宿主取 desktop 装载证据（`dsh --profile desktop --dump-config` 被 Electron 独占拒绝），及在停机窗口跑 `/etc/nixos/scripts/dsh-desktop-restart.sh --verify-only`。
+- 仅用户可做：`/memory update`（用户动作），以及重建客户端后跑一次命令、硬刷新看回执真实折叠效果。
+- 仅用户可做：活 RPC（`session/agent-busy`、`workspace/archiveSession`）的拒绝形状——参数形状只在运行中方法表里，且不跨重启沿用。
 - 406-12 需用户重启一次才加载 0.5.0；重启后读 loader 条目 config 验四个命名空间与 shared `maxMemoryChars: 48000`，不看 `--verify-only` 整体 RESULT。
 - 406-12 的 pin 保持用户手写的 `github:P02-1010751281/dsh-project-context` 不变（用户已裁定，agent 不动）；其上三个 `.bak-20261124-*` 与 `/tmp/vendor-0.4.3-tgz` 待用户确认后清理。
 - SH-10 接线前仍差：真实 `performHandoff`/`scheduleRetirement` 与压缩的端到端交叠、压缩后 gate 重算、自动压缩三条路径、其余五个 `ManualCompactionError` 码。
-- `RULES.md` 第 11 章：`src/project-memory/consolidate.ts` 仍超 400 行线，属用户裁定项。
 - 残余：`/autolearn` 的 admission / skip 原因句要中文化需 `AutolearnOutcome` 类型变更（「原因」改「码 + 参数」）。
 - 接第二个宿主前的三件缺口（`docs/host-context-2c-design.md` §6）：服务 getter 进契约、事件时序写进契约。
 - 待用户回答：`--verify-only` 回落到 19387 的假失败是否写进 `docs/`；`include:subagent-claude-code` 为何 enabled 未 active。
 - P0 补强与 AOCI 可选动作 A/B 未启动；`overview-cache.v3` 里指向已删探针路径的失效键待在重启窗口决定是否清。
-- 记忆余量仅约数十字符：下次记账先合并同义重述；要补字面量正解是指针化到负责该流程的技能。
+- 记忆余量仍紧（正文已到 54K 上限）：下次记账继续合并同义重述或指针化，动前先按「加事实不丢条目」判余量。
 
-<!-- latest-session-title: 文档全覆盖审计完成；25 份现行文档对源码核过，14 笔待推 -->
+<!-- latest-session-title: 技能库断言审计：冷读的「无法核实」实测后修正六份技能并全部推送 -->
